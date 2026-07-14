@@ -47,6 +47,7 @@ jobs:
       - name: Compress Image
         run: |
           echo "Compressing ArcadeMatrix_Release.img into xz format to save space..."
+          sudo chown $USER:$USER ArcadeMatrix_Release.img
           xz -T0 -9 ArcadeMatrix_Release.img
 
       - name: Create GitHub Release

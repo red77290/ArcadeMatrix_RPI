@@ -36,9 +36,6 @@ NEXT_SECTOR=$((START_SECTOR + 1))
 # Create new partition taking up the rest of the file
 parted -s $IMG_FILE mkpart primary fat32 ${NEXT_SECTOR}s 100%
 
-echo "🔧 Changing DATA partition type to 0x07 (exFAT/NTFS) for Windows/Mac compatibility..."
-sfdisk --part-type $IMG_FILE 3 7
-
 echo "🔗 Mounting partitions to loop devices..."
 LOOP_DEV=$(losetup -Pf --show $IMG_FILE)
 
@@ -64,8 +61,8 @@ else
     PART_DATA="${LOOP_DEV}p3"
 fi
 
-echo "🧹 Formatting DATA partition as exFAT..."
-mkfs.exfat $PART_DATA
+echo "🧹 Formatting DATA partition as FAT32..."
+mkfs.vfat -F 32 $PART_DATA
 
 echo "📏 Expanding ROOT filesystem..."
 e2fsck -f -p $PART_ROOT || true

@@ -1,0 +1,59 @@
+name: Build and Release ArcadeMatrix Image
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'  # Trigger on version tags (e.g., v1.0.0)
+  workflow_dispatch:
+    inputs:
+      image_size:
+        description: 'Target Image Size (e.g. 14G, 8G)'
+        required: true
+        default: '14G'
+
+jobs:
+  build-image:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install Prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-user-static kpartx dosfstools exfatprogs xz-utils parted
+
+      - name: Run Build Image Script
+        run: |
+          chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/chroot_setup.sh
+          # If triggered manually, use the provided size, otherwise default to 14G
+          TARGET_SIZE="${{ github.event.inputs.image_size || '14G' }}"
+          sudo ./scripts/build_image.sh $TARGET_SIZE
+
+      - name: Compress Image
+        run: |
+          echo "Compressing ArcadeMatrix_Release.img into xz format to save space..."
+          xz -T0 -9 ArcadeMatrix_Release.img
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: ArcadeMatrix_Release.img.xz
+          generate_release_notes: true
+          draft: false
+          prerelease: false

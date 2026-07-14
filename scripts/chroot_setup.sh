@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-
+set -x
 echo "🔧 [chroot] Starting ArcadeMatrix OS Setup..."
 
 # Disable interactive prompts
@@ -12,7 +12,7 @@ apt-get install -y python3 python3-pip python3-dev python3-pil python3-flask pyt
 
 # Create ArcadeMatrix directory if missing and set permissions
 PROJ_DIR="/home/pi/ArcadeMatrix_RPi"
-chown -R pi:pi $PROJ_DIR
+chown -R pi:pi $PROJ_DIR || true
 cd $PROJ_DIR
 
 # Set up virtual environment

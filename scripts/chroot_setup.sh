@@ -76,15 +76,8 @@ ln -s $PROJ_DIR/data/fonts $PROJ_DIR/fonts
 ln -s $PROJ_DIR/data/fighters_32 $PROJ_DIR/fighters_32
 ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
 
-echo "⚙️ [chroot] Configuring conf.ini defaults in DATA partition..."
-cat <<EOT > $PROJ_DIR/data/conf.ini
-[MATRIX]
-ROWS = 64
-COLS = 64
-HARDWARE_MAPPING = adafruit-hat
-CHAIN = 1
-PARALLEL = 1
-EOT
+echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
+cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini
 chown pi:pi $PROJ_DIR/data/conf.ini || true
 
 # Create symlink for conf.ini

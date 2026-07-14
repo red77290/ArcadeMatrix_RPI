@@ -2,7 +2,7 @@
 set -e
 echo "📦 Installing build dependencies inside Docker..."
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs xz-utils sudo parted python3 rsync
+DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs exfat-fuse xz-utils sudo parted python3 rsync
 
 echo "📥 Downloading latest Raspberry Pi OS Lite (ARM64 Bookworm)..."
 IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
@@ -77,6 +77,7 @@ mount $PART_ROOT /mnt/rootfs
 mount $PART_BOOT /mnt/rootfs/boot/firmware
 
 echo "📂 Mounting DATA partition..."
+mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
 # Use mount.exfat-fuse if available, fallback to standard mount
 mount.exfat-fuse $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data || mount -t exfat $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
 

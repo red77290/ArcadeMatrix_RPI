@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArcadeMatrix Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;700&display=swap" rel="stylesheet">
+  <script type="module" crossorigin src="/assets/index-Dbr8ZFrg.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-DnBfTy0P.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+    <nav class="sidebar">
+      <div class="logo">
+        <h2>ArcadeMatrix</h2>
+      </div>
+      <ul class="nav-links">
+        <li class="active" data-view="dashboard" data-i18n="nav_dashboard">Dashboard</li>
+        <li data-view="playlists" data-i18n="nav_playlists">GIFs Playlists</li>
+        <li data-view="clocks" data-i18n="nav_clocks">Clocks</li>
+        <li data-view="messages" data-i18n="nav_messages">Messages</li>
+        <li data-view="settings" data-i18n="nav_settings">Settings</li>
+      </ul>
+    </nav>
+
+    <main class="content">
+      <header>
+        
+        <div style="display: flex; align-items: center; gap: 1rem;">
+          <select id="lang-selector" class="select-input" style="padding: 0.2rem 0.5rem; background: transparent; border: 1px solid var(--glass-border); color: #fff; border-radius: 4px;">
+            <option value="en">EN</option>
+            <option value="fr">FR</option>
+            <option value="es">ES</option>
+          </select>
+          <button id="mobile-menu-btn" class="btn secondary" style="display: none; padding: 0.5rem; font-size: 1.2rem; background: transparent; border: 1px solid var(--glass-border);">☰</button>
+          <h1 id="view-title" data-i18n="dashboard_title">Dashboard</h1>
+        </div>
+
+        <div class="status-indicator online" data-i18n="status_online">Online</div>
+      </header>
+
+      <section id="view-dashboard" class="view active-view">
+        <div class="cards-grid">
+          <div class="card glass">
+            <h3 data-i18n="now_playing">Now Playing</h3>
+            <div class="now-playing-visual"
+              style="height: 100px; background: #000; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin-bottom: 1rem;">
+              <span style="color: #4ade80; font-family: monospace;">[ Matrix Preview ]</span>
+            </div>
+            <p class="track-name">Ryu_Hadouken.raw</p>
+          </div>
+
+          <div class="card glass">
+            <h3 data-i18n="quick_controls">Quick Controls</h3>
+            <div class="controls">
+              <button class="btn primary" data-i18n="btn_play">Play</button>
+              <button class="btn secondary" data-i18n="btn_next">Next</button>
+              <div class="slider-group">
+                <label data-i18n="label_brightness">Brightness</label>
+                <input type="range" min="1" max="100" value="50">
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Playlists View -->
+      <section id="view-playlists" class="view">
+        <div class="glass">
+          <header style="display:flex; justify-content:space-between; align-items:center;">
+            <h2 data-i18n="folder_playlists">Folder Playlists</h2>
+            <div>
+              <button id="btn-scan-sd" class="btn secondary" data-i18n="btn_scan_sd">Scan SD Card</button>
+              <button id="btn-play-selected" class="btn primary" data-i18n="btn_play_selected">Play Selected</button>
+            </div>
+          </header>
+          <div class="playlist-list">
+            <div class="playlist-item">
+              <div class="info">
+                <h4>/mario_sprites/</h4>
+                <span>14 .raw files</span>
+              </div>
+              <button class="btn secondary">Play</button>
+            </div>
+            <div class="playlist-item">
+              <div class="info">
+                <h4>/street_fighter/</h4>
+                <span>8 .raw files</span>
+              </div>
+              <button class="btn secondary">Play</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Clocks View -->
+      <section id="view-clocks" class="view">
+        <div class="glass">
+          <h2 data-i18n="clock_faces">Clock Faces</h2>
+          <div class="cards-grid" style="margin-top:2rem;">
+            <div class="card glass">
+              <h4 data-i18n="clock_style">Clock Style</h4>
+              <select id="clock-character" class="select-input" style="width:100%; margin-top:1rem; padding:0.5rem;">
+                <option value="-1">None / Default</option>
+                <option value="0">Nintendo</option>
+                <option value="1">Capcom</option>
+                <option value="2">Taito</option>
+                <option value="3">Sega</option>
+                <option value="4">Cave</option>
+                <option value="5">Konami</option>
+                <option value="6">SNK</option>
+                <option value="7">Technos</option>
+                <option value="8">IGS</option>
+                <option value="9">Hudson</option>
+                <option value="10">Banpresto</option>
+                <option value="11">Namco</option>
+                <option value="12">Ryu (Animated)</option>
+                <option value="13">Mario (Animated)</option>
+                <option value="14">Marco (Animated)</option>
+                <option value="15">Megaman (Animated)</option>
+                <option value="16">Space Invader (Animated)</option>
+                <option value="17">Bub (Animated)</option>
+                <option value="18">Cyberpunk (Matrix)</option>
+                <option value="19">Flip Clock</option>
+                <option value="20">Custom Gradient / Color</option>
+                <option value="21">True Matrix (Katakana HD)</option>
+                <option value="22">Pong Clock</option>
+                <option value="23">Tetris Clock</option>
+                <option value="24">Word Clock</option>
+                <option value="25">Binary Clock</option>
+                <option value="26">Pac-Man Clock</option>
+                <option value="27">Versus Health Bar</option>
+                <option value="28">Slot Machine Clock</option>
+              </select>
+              <button id="btn-apply-clock" class="btn primary" style="width:100%; margin-top:1rem;" data-i18n="btn_apply">Apply</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Messages View -->
+      <section id="view-messages" class="view">
+        <div class="glass">
+          <h2 data-i18n="custom_marquee">Custom Marquee</h2>
+          <p style="color: #94a3b8; margin-bottom: 2rem;">Send custom scrolling text directly to the LED Matrix.</p>
+
+          <div class="cards-grid">
+            <div>
+              <div class="form-group">
+                <label data-i18n="label_msg_text">Message Text</label>
+                <input type="text" id="msg-text" class="text-input" placeholder="Enter your text here..." />
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="label_color">Color</label>
+                <input type="color" id="msg-color" value="#ff0055"
+                  style="width: 100%; height: 40px; background: none; border: none; cursor: pointer; border-radius: 8px;" />
+              </div>
+            </div>
+
+            <div>
+              <div class="form-group">
+                <label data-i18n="label_font_size">Font Size</label>
+                <select id="msg-size" class="select-input">
+                  <option value="1">Small (1x)</option>
+                  <option value="2" selected>Medium (2x)</option>
+                  <option value="3">Large (3x)</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="label_scroll_dir">Scroll Direction</label>
+                <select id="msg-dir" class="select-input">
+                  <option value="rtl" selected>Right to Left ⬅️</option>
+                  <option value="ltr">Left to Right ➡️</option>
+                  <option value="ttb">Top to Bottom ⬇️</option>
+                  <option value="btt">Bottom to Top ⬆️</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="label_speed">Speed (Lower is faster)</label>
+                <input type="range" id="msg-speed" min="10" max="100" value="30">
+              </div>
+
+              <div class="form-group">
+                <label data-i18n="label_timeout">Timeout (seconds)</label>
+                <input type="number" id="msg-timeout" class="text-input" value="30" min="1" max="300" />
+              </div>
+            </div>
+          </div>
+
+          <button class="btn primary" id="btn-send-msg"
+            style="width: 100%; margin-top: 2rem; font-size: 1.1rem; padding: 1rem;" data-i18n="btn_send_msg">Send to Matrix 🚀</button>
+        </div>
+      </section>
+
+      <!-- Settings View -->
+      <section id="view-settings" class="view">
+        <div class="settings-tabs" style="display:flex; gap:1rem; margin-bottom:1rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 0.5rem; overflow-x: auto;">
+          <button class="btn tab-btn active" data-target="tab-hardware" style="background:transparent; border:none; color:#fff; font-weight:bold; cursor:pointer; white-space:nowrap;">Hardware</button>
+          <button class="btn tab-btn" data-target="tab-rotation" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">Screensaver</button>
+          <button class="btn tab-btn" data-target="sect-clock" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">Clock</button>
+          <button class="btn tab-btn" data-target="sect-date" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">Date</button>
+          <button class="btn tab-btn" data-target="tab-weather" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">Weather</button>
+          <button class="btn tab-btn" data-target="tab-network" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">Network</button>
+          <button class="btn tab-btn" data-target="tab-info" style="background:transparent; border:none; color:#94a3b8; cursor:pointer; white-space:nowrap;">System Info</button>
+        </div>
+
+        <div class="settings-content">
+          <div id="tab-hardware" class="glass tab-pane active" style="display:block;">
+            <h3 data-i18n="matrix_hardware">Matrix Hardware</h3>
+            <div class="form-group">
+              <label data-i18n="label_brightness_limit">Brightness Limit (%)</label>
+              <input type="number" id="setting-brightness" class="text-input" value="40" />
+            </div>
+            <button id="btn-save-matrix" class="btn primary" style="margin-top:1rem; width: 100%; margin-bottom:2rem;" data-i18n="btn_save_matrix">Save Brightness</button>
+            
+            <h3>Hardware Dimensions</h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Rows (Height)</label>
+                <input type="number" id="setting-matrix-rows" class="text-input" value="32" />
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Cols (Width)</label>
+                <input type="number" id="setting-matrix-cols" class="text-input" value="64" />
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Chain Length</label>
+                <input type="number" id="setting-matrix-chain" class="text-input" value="1" />
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Parallel</label>
+                <input type="number" id="setting-matrix-parallel" class="text-input" value="1" />
+              </div>
+            </div>
+            <div class="form-group">
+              <label>Hardware Mapping</label>
+              <select id="setting-matrix-mapping" class="select-input">
+                <option value="adafruit-hat">Adafruit HAT</option>
+                <option value="adafruit-hat-pwm">Adafruit HAT (PWM)</option>
+                <option value="regular" selected>Joy-IT HAT / Regular (Active-3)</option>
+                <option value="regular-pi1">Regular Pi1</option>
+                <option value="classic-pi1">Classic Pi1</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>GPIO Slowdown (Increase if matrix is glitchy or black, e.g. 4 for Pi4, 5 for Pi5)</label>
+              <input type="number" id="setting-matrix-slowdown" class="text-input" value="2" />
+            </div>
+            <div class="form-group">
+              <label>RGB Sequence (Change if colors are swapped, e.g., red is green)</label>
+              <select id="setting-matrix-rgb-sequence" class="select-input">
+                <option value="RGB">RGB</option>
+                <option value="RBG">RBG</option>
+                <option value="GRB">GRB</option>
+                <option value="GBR">GBR</option>
+                <option value="BRG">BRG</option>
+                <option value="BGR">BGR</option>
+              </select>
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>PWM Bits (1-11, lower reduces flicker but degrades color)</label>
+                <input type="number" id="setting-matrix-pwm-bits" class="text-input" value="11" min="1" max="11" />
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>PWM LSB Nanoseconds (130-300, higher reduces flicker)</label>
+                <input type="number" id="setting-matrix-pwm-lsb-nanoseconds" class="text-input" value="130" min="50" max="1000" />
+              </div>
+            </div>
+            <button id="btn-save-hardware" class="btn secondary" style="margin-top:1rem; width: 100%;">Save Hardware & Restart</button>
+          </div>
+
+          <div id="tab-rotation" class="glass tab-pane" style="display:none;">
+            <h3 data-i18n="screensaver_rotation">Screensaver Rotation (Idle)</h3>
+            <div class="form-group">
+              <label data-i18n="label_rotation_seq">Rotation Sequence (Use arrows to reorder)</label>
+              <ul id="rotation-list" style="list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem;">
+                <li data-id="clock" class="sortable-item glass" style="padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <div style="display:flex; flex-direction:column; gap: 2px;">
+                     <button class="btn-move-up" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▲</button>
+                     <button class="btn-move-down" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▼</button>
+                  </div>
+                  <input type="checkbox" id="rot-clock" checked style="width:20px;height:20px;margin-left:0.5rem;"/> 
+                  <label for="rot-clock" style="font-size:1.1rem; flex:1; cursor:pointer;">Clock</label>
+                </li>
+                <li data-id="date" class="sortable-item glass" style="padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <div style="display:flex; flex-direction:column; gap: 2px;">
+                     <button class="btn-move-up" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▲</button>
+                     <button class="btn-move-down" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▼</button>
+                  </div>
+                  <input type="checkbox" id="rot-date" checked style="width:20px;height:20px;margin-left:0.5rem;"/> 
+                  <label for="rot-date" style="font-size:1.1rem; flex:1; cursor:pointer;">Date</label>
+                </li>
+                <li data-id="weather" class="sortable-item glass" style="padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <div style="display:flex; flex-direction:column; gap: 2px;">
+                     <button class="btn-move-up" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▲</button>
+                     <button class="btn-move-down" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▼</button>
+                  </div>
+                  <input type="checkbox" id="rot-weather" checked style="width:20px;height:20px;margin-left:0.5rem;"/> 
+                  <label for="rot-weather" style="font-size:1.1rem; flex:1; cursor:pointer;">Weather</label>
+                </li>
+                <li data-id="gifs" class="sortable-item glass" style="padding: 0.5rem; display: flex; align-items: center; gap: 0.5rem;">
+                  <div style="display:flex; flex-direction:column; gap: 2px;">
+                     <button class="btn-move-up" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▲</button>
+                     <button class="btn-move-down" style="padding:0 5px; background:var(--primary); border:none; color:white; border-radius:4px; font-size:0.8rem; cursor:pointer;">▼</button>
+                  </div>
+                  <input type="checkbox" id="rot-gifs" checked style="width:20px;height:20px;margin-left:0.5rem;"/> 
+                  <label for="rot-gifs" style="font-size:1.1rem; flex:1; cursor:pointer;">GIFs</label>
+                </li>
+              </ul>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem;">
+              <div class="form-group" style="flex: 1;">
+                <label data-i18n="label_clock_time">Clock Time (s)</label>
+                <input type="number" id="setting-clock-dur" class="text-input" value="60" min="5" />
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label data-i18n="label_date_time">Date Time (s)</label>
+                <input type="number" id="setting-date-dur" class="text-input" value="10" min="5" />
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <label data-i18n="label_weather_time">Weather Time (s)</label>
+                <input type="number" id="setting-weather-dur" class="text-input" value="15" min="5" />
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem;">
+              <div class="form-group" style="flex: 1;">
+                <label data-i18n="label_gifs_rotation">GIFs per Rotation</label>
+                <input type="number" id="setting-gifs-count" class="text-input" value="3" min="0" />
+              </div>
+              <div class="form-group" style="flex: 1;">
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+                  <input type="checkbox" id="setting-sprite-enable" style="width:20px;height:20px;" checked />
+                  <label for="setting-sprite-enable" style="cursor:pointer;" data-i18n="label_bg_sprites">Enable VS Fighting Background</label>
+                </div>
+              </div>
+            </div>
+            <button id="btn-save-idle" class="btn primary" style="margin-top:1rem; width: 100%;" data-i18n="btn_save_rotation">Save Rotation Config</button>
+          </div>
+
+          <div id="sect-clock" class="glass tab-pane" style="display:none;">
+            <h3 data-i18n="clock_config">Clock Configuration</h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Clock Size</label>
+                <input type="number" id="setting-clock-size" class="text-input" value="2" min="1" max="100">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset X</label>
+                <input type="number" id="setting-clock-offset-x" class="text-input" value="0">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset Y</label>
+                <input type="number" id="setting-clock-offset-y" class="text-input" value="0">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>Font</label>
+                <select id="setting-clock-font" class="select-input">
+                  <option value="PressStart2P.ttf">Loading fonts...</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>Clock Theme</label>
+                <select id="setting-clock-theme" class="text-input">
+                  <option value="-1">None / Default</option>
+                  <option value="20">Custom Gradient / Color</option>
+                  <option value="0">Nintendo</option>
+                  <option value="1">Capcom</option>
+                  <option value="2">Taito</option>
+                  <option value="3">Sega</option>
+                  <option value="4">Cave</option>
+                  <option value="5">Konami</option>
+                  <option value="6">SNK</option>
+                  <option value="7">Technos</option>
+                  <option value="8">IGS</option>
+                  <option value="9">Hudson</option>
+                  <option value="10">Banpresto</option>
+                  <option value="11">Namco</option>
+                  <option value="12">Ryu (Animated)</option>
+                  <option value="13">Mario (Animated)</option>
+                  <option value="14">Marco (Animated)</option>
+                  <option value="15">Megaman (Animated)</option>
+                  <option value="16">Space Invader (Animated)</option>
+                  <option value="17">Bub (Animated)</option>
+                  <option value="18">Cyberpunk (Classic Drops)</option>
+                  <option value="19">Flip Clock</option>
+                  <option value="20">Custom Gradient / Color</option>
+                  <option value="21">True Matrix (Katakana HD)</option>
+                  <option value="22">Pong Clock</option>
+                  <option value="23">Tetris Clock</option>
+                  <option value="24">Word Clock</option>
+                  <option value="25">Binary Clock</option>
+                  <option value="26">Pac-Man Clock</option>
+                  <option value="27">Versus Health Bar</option>
+                  <option value="28">Slot Machine</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;" id="clock-custom-colors-container">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Color 1 (Gradient Start)</label>
+                <input type="color" id="setting-clock-color-1" value="#ffffff" style="width: 100%; height: 40px; background: none; border: none; cursor: pointer;">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Color 2 (Gradient End)</label>
+                <input type="color" id="setting-clock-color-2" value="#ffffff" style="width: 100%; height: 40px; background: none; border: none; cursor: pointer;">
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;">
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>NTP Server</label>
+                <input type="text" id="setting-ntp-server" class="text-input" placeholder="pool.ntp.org" />
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>Timezone</label>
+                <input type="text" id="setting-timezone" class="text-input" placeholder="CET-1CEST..." />
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>24h Format</label>
+                <select id="setting-format24h" class="text-input">
+                  <option value="1">Yes</option>
+                  <option value="0">No</option>
+                </select>
+              </div>
+            </div>
+            <button id="btn-save-clock" class="btn primary" style="margin-top:1rem; width: 100%;">Save Clock</button>
+          </div>
+            
+          <div id="sect-date" class="glass tab-pane" style="display:none;">
+            <h3 data-i18n="date_config">Date Configuration</h3>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label data-i18n="label_date_format">Date Format</label>
+                <input type="text" id="setting-date-format" class="text-input" value="DD/MM">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>Date Size</label>
+                <input type="number" id="setting-date-size" class="text-input" value="2" min="1" max="100">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset X</label>
+                <input type="number" id="setting-date-offset-x" class="text-input" value="0">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset Y</label>
+                <input type="number" id="setting-date-offset-y" class="text-input" value="0">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label>Font</label>
+                <select id="setting-date-font" class="select-input">
+                  <option value="PressStart2P.ttf">Loading fonts...</option>
+                </select>
+              </div>
+              <div class="form-group" style="flex: 1; min-width:120px;">
+                <label data-i18n="label_date_theme">Date Theme</label>
+                <select id="setting-date-theme" class="text-input">
+                  <option value="-1">None / Default</option>
+                  <option value="20">Custom Gradient / Color</option>
+                  <option value="0">Nintendo</option>
+                  <option value="1">Capcom</option>
+                  <option value="2">Taito</option>
+                  <option value="3">Sega</option>
+                  <option value="4">Cave</option>
+                  <option value="5">Konami</option>
+                  <option value="6">SNK</option>
+                  <option value="7">Technos</option>
+                  <option value="8">IGS</option>
+                  <option value="9">Hudson</option>
+                  <option value="10">Banpresto</option>
+                  <option value="11">Namco</option>
+                  <option value="12">Ryu (Animated)</option>
+                  <option value="13">Mario (Animated)</option>
+                  <option value="14">Marco (Animated)</option>
+                  <option value="15">Megaman (Animated)</option>
+                  <option value="16">Space Invader (Animated)</option>
+                  <option value="17">Bub (Animated)</option>
+                  <option value="18">Cyberpunk (Classic Drops)</option>
+                  <option value="19">Flip Clock</option>
+                  <option value="20">Custom Gradient / Color</option>
+                  <option value="21">True Matrix (Katakana HD)</option>
+                  <option value="22">Pong Date</option>
+                  <option value="23">Tetris Date</option>
+                  <option value="24">Word Date</option>
+                  <option value="25">Binary Date</option>
+                  <option value="26">Pac-Man Date</option>
+                  <option value="27">Versus Health Bar</option>
+                  <option value="28">Slot Machine</option>
+                </select>
+              </div>
+            </div>
+            <div style="display: flex; gap: 1rem; flex-wrap: wrap; margin-top: 1rem;" id="date-custom-colors-container">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Color 1 (Gradient Start)</label>
+                <input type="color" id="setting-date-color-1" value="#ffffff" style="width: 100%; height: 40px; background: none; border: none; cursor: pointer;">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Color 2 (Gradient End)</label>
+                <input type="color" id="setting-date-color-2" value="#ffffff" style="width: 100%; height: 40px; background: none; border: none; cursor: pointer;">
+              </div>
+            </div>
+            <button id="btn-save-date" class="btn primary" style="margin-top:1rem; width: 100%;">Save Date</button>
+          </div>
+
+          <div id="tab-weather" class="glass tab-pane" style="display:none;">
+            <h3 data-i18n="weather_setup">Weather Setup (OpenWeatherMap)</h3>
+            <div class="form-group" style="margin-top: 1rem;">
+              <label>API Key (OpenWeatherMap)</label>
+              <input type="text" id="setting-weather-api-key" class="text-input" placeholder="e.g. 1a2b3c...">
+            </div>
+            <div class="form-group" style="margin-top: 1rem;">
+              <label data-i18n="label_city">City (e.g. Paris,FR)</label>
+              <input type="text" id="setting-weather-city" class="text-input" placeholder="City name...">
+            </div>
+            <div style="display: flex; gap: 1rem; margin-top: 1rem; flex-wrap: wrap;">
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset X</label>
+                <input type="number" id="setting-weather-offset-x" class="text-input" value="0">
+              </div>
+              <div class="form-group" style="flex: 1; min-width:80px;">
+                <label>Offset Y</label>
+                <input type="number" id="setting-weather-offset-y" class="text-input" value="0">
+              </div>
+            </div>
+            <button id="btn-save-weather" class="btn primary" style="margin-top:1rem; width: 100%;" data-i18n="btn_save_weather">Save Weather</button>
+          </div>
+
+          <div id="tab-network" class="glass tab-pane" style="display:none;">
+            <h3 data-i18n="wifi_mqtt">WiFi & MQTT</h3>
+            <div class="form-group">
+              <label data-i18n="label_wifi_ssid">WiFi SSID (Decoratif sur Pi)</label>
+              <input type="text" id="setting-wifi-ssid" class="text-input" placeholder="Your Network" />
+            </div>
+            <div class="form-group">
+              <label>WiFi Password</label>
+              <input type="password" id="setting-wifi-pass" class="text-input" placeholder="••••••••" />
+            </div>
+            <div class="form-group">
+              <label>Enable MQTT</label>
+              <select id="setting-mqtt-enable" class="select-input">
+                <option value="1">Yes</option>
+                <option value="0">No</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label data-i18n="label_mqtt_ip">MQTT Broker IP</label>
+              <input type="text" id="setting-mqtt-broker" class="text-input" placeholder="192.168.x.x" />
+            </div>
+            <div class="form-group">
+              <label>MQTT Port</label>
+              <input type="number" id="setting-mqtt-port" class="text-input" value="1883" />
+            </div>
+            <div class="form-group">
+              <label>MQTT User (Optional)</label>
+              <input type="text" id="setting-mqtt-user" class="text-input" />
+            </div>
+            <div class="form-group">
+              <label>MQTT Pass (Optional)</label>
+              <input type="password" id="setting-mqtt-pass" class="text-input" />
+            </div>
+            <button class="btn primary" style="margin-top:1rem;" id="btn-save-network" data-i18n="btn_save_network">Save Network & Reboot</button>
+          </div>
+
+          <div id="tab-info" class="glass tab-pane" style="display:none;">
+            <h3>System Information</h3>
+            <div id="system-metrics-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+               <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; text-align: center;">
+                 <div style="font-size: 0.9rem; color: #94a3b8;">CPU Load</div>
+                 <div id="metric-cpu" style="font-size: 1.5rem; font-weight: bold; color: #38bdf8;">-- %</div>
+               </div>
+               <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; text-align: center;">
+                 <div style="font-size: 0.9rem; color: #94a3b8;">Temperature</div>
+                 <div id="metric-temp" style="font-size: 1.5rem; font-weight: bold; color: #f43f5e;">-- °C</div>
+               </div>
+               <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; text-align: center;">
+                 <div style="font-size: 0.9rem; color: #94a3b8;">RAM Usage</div>
+                 <div id="metric-ram" style="font-size: 1.5rem; font-weight: bold; color: #a855f7;">-- / -- MB</div>
+               </div>
+               <div style="background: rgba(255,255,255,0.05); padding: 1rem; border-radius: 8px; text-align: center;">
+                 <div style="font-size: 0.9rem; color: #94a3b8;">Disk Space</div>
+                 <div id="metric-disk" style="font-size: 1.5rem; font-weight: bold; color: #22c55e;">-- / -- GB</div>
+               </div>
+            </div>
+            <p style="text-align: center; color: #64748b; font-size: 0.8rem; margin-top: 1rem;">Auto-refreshing every 3 seconds</p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const res = await fetch("/api/fonts");
+        if (res.ok) {
+          const fonts = await res.json();
+          const clockFontSelect = document.getElementById("setting-clock-font");
+          const dateFontSelect = document.getElementById("setting-date-font");
+          
+          let optionsHtml = '<option value="-1">System/Default</option>';
+          fonts.forEach(f => {
+            optionsHtml += `<option value="${f}">${f}</option>`;
+          });
+          
+          if (clockFontSelect) clockFontSelect.innerHTML = optionsHtml;
+          if (dateFontSelect) dateFontSelect.innerHTML = optionsHtml;
+          
+          // Re-trigger the load to set the correct selected option
+          fetch("/api/settings").then(r => r.json()).then(t => {
+            if (t.clock_font && clockFontSelect) clockFontSelect.value = t.clock_font;
+            if (t.date_font && dateFontSelect) dateFontSelect.value = t.date_font;
+            
+            // Populate matrix hardware
+            if (t.matrix_rows) document.getElementById('setting-matrix-rows').value = t.matrix_rows;
+            if (t.matrix_cols) document.getElementById('setting-matrix-cols').value = t.matrix_cols;
+            if (t.matrix_chain) document.getElementById('setting-matrix-chain').value = t.matrix_chain;
+            if (t.matrix_parallel) document.getElementById('setting-matrix-parallel').value = t.matrix_parallel;
+            if (t.matrix_mapping) document.getElementById('setting-matrix-mapping').value = t.matrix_mapping;
+            if (t.matrix_slowdown !== undefined) document.getElementById('setting-matrix-slowdown').value = t.matrix_slowdown;
+            if (t.sprite_count !== undefined) {
+               const el = document.getElementById('setting-sprite-enable');
+               if(el) el.checked = (t.sprite_count > 0);
+            }
+            if (t.weather_api_key) document.getElementById('setting-weather-api-key').value = t.weather_api_key;
+            if (t.weather_city) document.getElementById('setting-weather-city').value = t.weather_city;
+            if (t.weather_offset_x !== undefined) document.getElementById('setting-weather-offset-x').value = t.weather_offset_x;
+            if (t.weather_offset_y !== undefined) document.getElementById('setting-weather-offset-y').value = t.weather_offset_y;
+            if (t.matrix_rgb_sequence) document.getElementById('setting-matrix-rgb-sequence').value = t.matrix_rgb_sequence;
+            if (t.matrix_pwm_bits !== undefined) document.getElementById('setting-matrix-pwm-bits').value = t.matrix_pwm_bits;
+            if (t.matrix_pwm_lsb_nanoseconds !== undefined) document.getElementById('setting-matrix-pwm-lsb-nanoseconds').value = t.matrix_pwm_lsb_nanoseconds;
+            
+            // MQTT / Network
+            if (t.mqtt_enabled !== undefined) {
+               const el = document.getElementById('setting-mqtt-enable');
+               if (el) el.value = t.mqtt_enabled ? "1" : "0";
+            }
+            if (t.mqtt_broker) document.getElementById('setting-mqtt-broker').value = t.mqtt_broker;
+            if (t.mqtt_port !== undefined) document.getElementById('setting-mqtt-port').value = t.mqtt_port;
+            if (t.mqtt_user) document.getElementById('setting-mqtt-user').value = t.mqtt_user;
+          });
+          
+          document.getElementById('btn-save-hardware').addEventListener('click', () => {
+             const payload = {
+                matrix_rows: document.getElementById('setting-matrix-rows').value,
+                matrix_cols: document.getElementById('setting-matrix-cols').value,
+                matrix_chain: document.getElementById('setting-matrix-chain').value,
+                matrix_parallel: document.getElementById('setting-matrix-parallel').value,
+                matrix_mapping: document.getElementById('setting-matrix-mapping').value,
+                matrix_slowdown: document.getElementById('setting-matrix-slowdown').value,
+                matrix_rgb_sequence: document.getElementById('setting-matrix-rgb-sequence').value,
+                matrix_pwm_bits: document.getElementById('setting-matrix-pwm-bits').value,
+                matrix_pwm_lsb_nanoseconds: document.getElementById('setting-matrix-pwm-lsb-nanoseconds').value
+             };
+             fetch('/api/settings', {
+                 method: 'POST',
+                 headers: {'Content-Type': 'application/json'},
+                 body: JSON.stringify(payload)
+             }).then(() => {
+                 alert("Hardware Matrix settings saved! The service will now restart to apply changes.");
+                 setTimeout(() => window.location.reload(), 3000);
+             });
+          });
+        }
+      } catch (e) {
+        console.error("Failed to load dynamic fonts", e);
+      }
+      
+      // Fix Rotation List Reordering
+      document.querySelectorAll('.btn-move-up, .btn-move-down').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent buggy minified JS from crashing
+          const li = e.target.closest('li');
+          const ul = li.parentNode;
+          if (e.target.classList.contains('btn-move-up') && li.previousElementSibling) {
+            ul.insertBefore(li, li.previousElementSibling);
+          } else if (e.target.classList.contains('btn-move-down') && li.nextElementSibling) {
+            ul.insertBefore(li.nextElementSibling, li);
+          }
+        });
+      });
+      
+      // Fix Rotation Save
+      const saveRotBtn = document.getElementById('btn-save-idle');
+      if (saveRotBtn) {
+        // Clone and replace button to remove buggy event listeners
+        const newSaveRotBtn = saveRotBtn.cloneNode(true);
+        saveRotBtn.parentNode.replaceChild(newSaveRotBtn, saveRotBtn);
+        newSaveRotBtn.addEventListener('click', async () => {
+          const items = document.querySelectorAll('#rotation-list li');
+          const rotation = [];
+          items.forEach(li => {
+            const cb = li.querySelector('input[type="checkbox"]');
+            if (cb && cb.checked) {
+              rotation.push(li.getAttribute('data-id'));
+            }
+          });
+          const clock_dur = parseInt(document.getElementById('setting-clock-dur').value, 10);
+          const date_dur = parseInt(document.getElementById('setting-date-dur').value, 10);
+          const weather_dur = parseInt(document.getElementById('setting-weather-dur').value, 10);
+          const gifs_count = parseInt(document.getElementById('setting-gifs-count').value, 10);
+          const sprite_count = document.getElementById('setting-sprite-enable').checked ? 1 : 0;
+          
+          try {
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                rotation: rotation.join(','),
+                clock_duration_sec: clock_dur,
+                date_duration_sec: date_dur,
+                weather_duration_sec: weather_dur,
+                gifs_count: gifs_count,
+                sprite_count: sprite_count
+              })
+            });
+            const oldText = newSaveRotBtn.innerText;
+            newSaveRotBtn.innerText = 'Saved ✔️';
+            setTimeout(() => newSaveRotBtn.innerText = oldText, 2000);
+          } catch(err) {
+            console.error('Failed to save rotation', err);
+          }
+        });
+      }
+
+      const saveClockBtn = document.getElementById('btn-save-clock');
+      if (saveClockBtn) {
+        const newSaveClockBtn = saveClockBtn.cloneNode(true);
+        saveClockBtn.parentNode.replaceChild(newSaveClockBtn, saveClockBtn);
+        newSaveClockBtn.addEventListener('click', async () => {
+          try {
+            const safeInt = (id, def) => { const el = document.getElementById(id); return el && !isNaN(parseInt(el.value, 10)) ? parseInt(el.value, 10) : def; };
+            const safeStr = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+            
+            const payload = {
+              clock_theme: safeInt('setting-clock-theme', 0),
+              clock_font: safeStr('setting-clock-font', 'PressStart2P.ttf'),
+              clock_size: safeInt('setting-clock-size', 1),
+              clock_offset_x: safeInt('setting-clock-offset-x', 0),
+              clock_offset_y: safeInt('setting-clock-offset-y', 0),
+              clock_color_1: safeStr('setting-clock-color-1', '#ffffff'),
+              clock_color_2: safeStr('setting-clock-color-2', '#ffffff')
+            };
+            
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            alert('Clock settings saved! (Restart may be required for some changes)');
+          } catch (err) {
+            console.error(err);
+            alert('Error saving clock settings.');
+          }
+        });
+      }
+
+      const saveDateBtn = document.getElementById('btn-save-date');
+      if (saveDateBtn) {
+        const newSaveDateBtn = saveDateBtn.cloneNode(true);
+        saveDateBtn.parentNode.replaceChild(newSaveDateBtn, saveDateBtn);
+        newSaveDateBtn.addEventListener('click', async () => {
+          try {
+            const safeInt = (id, def) => { const el = document.getElementById(id); return el && !isNaN(parseInt(el.value, 10)) ? parseInt(el.value, 10) : def; };
+            const safeStr = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+            
+            const payload = {
+              date_theme: safeInt('setting-date-theme', 0),
+              date_font: safeStr('setting-date-font', 'PressStart2P.ttf'),
+              date_size: safeInt('setting-date-size', 1),
+              date_offset_x: safeInt('setting-date-offset-x', 0),
+              date_offset_y: safeInt('setting-date-offset-y', 0),
+              date_format: safeStr('setting-date-format', '%d/%m/%Y'),
+              date_color_1: safeStr('setting-date-color-1', '#ffffff'),
+              date_color_2: safeStr('setting-date-color-2', '#ffffff')
+            };
+            
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            alert('Date settings saved! (Restart may be required for some changes)');
+          } catch (err) {
+            console.error(err);
+            alert('Error saving date settings.');
+          }
+        });
+      }
+
+      const saveNetworkBtn = document.getElementById('btn-save-network');
+      if (saveNetworkBtn) {
+        saveNetworkBtn.addEventListener('click', async () => {
+          const ssid = document.getElementById('setting-wifi-ssid').value;
+          const pass = document.getElementById('setting-wifi-pass').value;
+          
+          if (ssid) {
+             const oldText = saveNetworkBtn.innerText;
+             saveNetworkBtn.innerText = 'Connecting...';
+             saveNetworkBtn.disabled = true;
+             try {
+                const res = await fetch('/api/wifi', {
+                   method: 'POST',
+                   headers: { 'Content-Type': 'application/json' },
+                   body: JSON.stringify({ ssid: ssid, password: pass })
+                });
+                const result = await res.json();
+                if(res.ok) {
+                   alert(result.message || 'Wi-Fi connected successfully!');
+                } else {
+                   alert('Failed to connect: ' + result.message);
+                }
+             } catch(err) {
+                alert('Connection error');
+             }
+             saveNetworkBtn.innerText = oldText;
+             saveNetworkBtn.disabled = false;
+          }
+          
+          // Also save MQTT
+          try {
+             await fetch('/api/settings', {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     mqtt_enable: document.getElementById('setting-mqtt-enable').value === "1",
+                     mqtt_broker: document.getElementById('setting-mqtt-broker').value,
+                     mqtt_port: document.getElementById('setting-mqtt-port').value,
+                     mqtt_user: document.getElementById('setting-mqtt-user').value,
+                     mqtt_pass: document.getElementById('setting-mqtt-pass').value
+                 })
+             });
+          } catch(e) {}
+        });
+      }
+      
+      // Fix Matrix Save
+      const saveMatrixBtn = document.getElementById('btn-save-matrix');
+      if (saveMatrixBtn) {
+        const newSaveMatrixBtn = saveMatrixBtn.cloneNode(true);
+        saveMatrixBtn.parentNode.replaceChild(newSaveMatrixBtn, saveMatrixBtn);
+        newSaveMatrixBtn.addEventListener('click', async () => {
+          try {
+            const safeInt = (id, def) => { const el = document.getElementById(id); return el && !isNaN(parseInt(el.value, 10)) ? parseInt(el.value, 10) : def; };
+            const payload = { brightness_limit: safeInt('setting-brightness', 40) };
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const oldText = newSaveMatrixBtn.innerText;
+            newSaveMatrixBtn.innerText = 'Saved ✔️';
+            setTimeout(() => newSaveMatrixBtn.innerText = oldText, 2000);
+          } catch(err) {
+            console.error('Failed to save matrix', err);
+            alert("Error saving settings.");
+          }
+        });
+      }
+      
+      // Fix Weather Save
+      const saveWeatherBtn = document.getElementById('btn-save-weather');
+      if (saveWeatherBtn) {
+        const newSaveWeatherBtn = saveWeatherBtn.cloneNode(true);
+        saveWeatherBtn.parentNode.replaceChild(newSaveWeatherBtn, saveWeatherBtn);
+        newSaveWeatherBtn.addEventListener('click', async () => {
+          try {
+            const safeInt = (id, def) => { const el = document.getElementById(id); return el && !isNaN(parseInt(el.value, 10)) ? parseInt(el.value, 10) : def; };
+            const safeStr = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+            const payload = {
+              weather_api_key: safeStr('setting-weather-api-key', ''),
+              weather_city: safeStr('setting-weather-city', ''),
+              weather_offset_x: safeInt('setting-weather-offset-x', 0),
+              weather_offset_y: safeInt('setting-weather-offset-y', 0)
+            };
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const oldText = newSaveWeatherBtn.innerText;
+            newSaveWeatherBtn.innerText = 'Saved ✔️';
+            setTimeout(() => newSaveWeatherBtn.innerText = oldText, 2000);
+          } catch(err) {
+            console.error('Failed to save weather', err);
+            alert("Error saving weather settings.");
+          }
+        });
+      }
+
+      // Fix Network Save
+      const saveNetworkBtn = document.getElementById('btn-save-network');
+      if (saveNetworkBtn) {
+        const newSaveNetworkBtn = saveNetworkBtn.cloneNode(true);
+        saveNetworkBtn.parentNode.replaceChild(newSaveNetworkBtn, saveNetworkBtn);
+        newSaveNetworkBtn.addEventListener('click', async () => {
+          try {
+            const safeInt = (id, def) => { const el = document.getElementById(id); return el && !isNaN(parseInt(el.value, 10)) ? parseInt(el.value, 10) : def; };
+            const safeStr = (id, def) => { const el = document.getElementById(id); return el ? el.value : def; };
+            const payload = {
+              mqtt_enable: safeInt('setting-mqtt-enable', 0),
+              mqtt_broker: safeStr('setting-mqtt-broker', ''),
+              mqtt_port: safeInt('setting-mqtt-port', 1883),
+              mqtt_user: safeStr('setting-mqtt-user', ''),
+              mqtt_pass: safeStr('setting-mqtt-pass', '')
+            };
+            await fetch('/api/settings', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload)
+            });
+            const oldText = newSaveNetworkBtn.innerText;
+            newSaveNetworkBtn.innerText = 'Saved ✔️';
+            setTimeout(() => newSaveNetworkBtn.innerText = oldText, 2000);
+          } catch(err) {
+            console.error('Failed to save network', err);
+          }
+        });
+      }
+      
+      // Neutralize buggy JS minified save config
+      const saveConfigBtn = document.getElementById('btn-save-config');
+      if (saveConfigBtn) {
+        const newSaveConfigBtn = saveConfigBtn.cloneNode(true);
+        saveConfigBtn.parentNode.replaceChild(newSaveConfigBtn, saveConfigBtn);
+        newSaveConfigBtn.addEventListener('click', () => {
+          alert('Please use the specific save buttons for each section. This general save button is deprecated.');
+        });
+      }
+      
+      // System Info Polling
+      let infoPollInterval = null;
+      function startInfoPolling() {
+        if (infoPollInterval) clearInterval(infoPollInterval);
+        const fetchInfo = async () => {
+          try {
+            const res = await fetch('/api/system_info');
+            if (res.ok) {
+              const data = await res.json();
+              document.getElementById('metric-cpu').innerText = `${data.cpu_load}%`;
+              document.getElementById('metric-temp').innerText = `${data.temperature_c} °C`;
+              document.getElementById('metric-ram').innerText = `${data.ram_used_mb} / ${data.ram_total_mb} MB`;
+              document.getElementById('metric-disk').innerText = `${data.disk_free_gb} / ${data.disk_total_gb} GB`;
+            }
+          } catch (e) {
+            console.error("Failed to fetch system info");
+          }
+        };
+        fetchInfo();
+        infoPollInterval = setInterval(fetchInfo, 3000);
+      }
+      
+      function stopInfoPolling() {
+        if (infoPollInterval) {
+          clearInterval(infoPollInterval);
+          infoPollInterval = null;
+        }
+      }
+      
+      // Hook into tab switching to start/stop polling
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (btn.getAttribute('data-target') === 'tab-info') {
+            startInfoPolling();
+          } else {
+            stopInfoPolling();
+          }
+        });
+      });
+      
+    });
+  </script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      // Internal Tabs logic
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          document.querySelectorAll('.tab-btn').forEach(b => {
+            b.classList.remove('active');
+            b.style.color = '#94a3b8';
+            b.style.fontWeight = 'normal';
+          });
+          e.currentTarget.classList.add('active');
+          e.currentTarget.style.color = '#fff';
+          e.currentTarget.style.fontWeight = 'bold';
+          
+          document.querySelectorAll('.tab-pane').forEach(pane => {
+            pane.style.display = 'none';
+          });
+          document.getElementById(e.currentTarget.getAttribute('data-target')).style.display = 'block';
+        });
+      });
+    });
+  </script>
+</body>
+</html>

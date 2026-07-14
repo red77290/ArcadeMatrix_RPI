@@ -1,0 +1,26 @@
+# OS Images
+*.img
+*.img.xz
+
+# Media files
+fighters_32/*
+fighters_64/*
+gifs/*
+# Allow the default font to be committed but ignore others
+fonts/*
+!fonts/PressStart2P.ttf
+!fonts/VT323.ttf
+!fonts/DotGothic16.ttf
+
+# Python
+__pycache__/
+*.pyc
+venv/
+
+# IDEs
+.idea/
+.vscode/
+.DS_Store
+
+# Temporary files
+.fuse_hidden*

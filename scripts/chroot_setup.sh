@@ -68,7 +68,7 @@ fi
 chown -R pi:pi $PROJ_DIR/data || true
 
 # Add DATA partition to fstab so it mounts on boot
-echo "UUID=$DATA_UUID  $PROJ_DIR/data  vfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
+echo "UUID=$DATA_UUID  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
 
 # Create symlinks to the DATA partition
 ln -s $PROJ_DIR/data/gifs $PROJ_DIR/gifs

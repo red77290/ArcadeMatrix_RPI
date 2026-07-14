@@ -36,6 +36,9 @@ NEXT_SECTOR=$((START_SECTOR + 1))
 # Create new partition taking up the rest of the file
 parted -s $IMG_FILE mkpart primary fat32 ${NEXT_SECTOR}s 100%
 
+echo "🔧 Changing DATA partition type to 0x07 (exFAT/NTFS) for Windows/Mac compatibility..."
+sfdisk --part-type $IMG_FILE 3 7
+
 echo "🔗 Mounting partitions to loop devices..."
 LOOP_DEV=$(losetup -Pf --show $IMG_FILE)
 
@@ -61,8 +64,8 @@ else
     PART_DATA="${LOOP_DEV}p3"
 fi
 
-echo "🧹 Formatting DATA partition as FAT32..."
-mkfs.vfat -F 32 $PART_DATA
+echo "🧹 Formatting DATA partition as exFAT..."
+mkfs.exfat $PART_DATA
 
 echo "📏 Expanding ROOT filesystem..."
 e2fsck -f -p $PART_ROOT || true
@@ -74,8 +77,8 @@ mount $PART_ROOT /mnt/rootfs
 mount $PART_BOOT /mnt/rootfs/boot/firmware
 
 echo "📂 Mounting DATA partition..."
-mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
-mount $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
+# Use mount.exfat-fuse if available, fallback to standard mount
+mount.exfat-fuse $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data || mount -t exfat $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
 
 echo "🛠️ Preparing CHROOT environment..."
 cp /usr/bin/qemu-aarch64-static /mnt/rootfs/usr/bin/

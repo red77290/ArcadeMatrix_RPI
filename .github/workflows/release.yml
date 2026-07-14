@@ -35,7 +35,7 @@ jobs:
       - name: Install Prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static kpartx dosfstools exfatprogs xz-utils parted
+          sudo apt-get install -y qemu-user-static kpartx dosfstools exfatprogs exfat-fuse xz-utils parted
 
       - name: Run Build Image Script
         run: |

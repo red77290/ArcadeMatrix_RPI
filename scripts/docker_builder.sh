@@ -37,7 +37,7 @@ NEXT_SECTOR=$((START_SECTOR + 1))
 parted -s $IMG_FILE mkpart primary fat32 ${NEXT_SECTOR}s 100%
 
 echo "🔧 Changing DATA partition type to 0x07 (exFAT/NTFS) for Windows/Mac compatibility..."
-echo "type=7" | sfdisk $IMG_FILE --part 3
+sfdisk --part-type $IMG_FILE 3 7
 
 echo "🔗 Mounting partitions to loop devices..."
 LOOP_DEV=$(losetup -Pf --show $IMG_FILE)

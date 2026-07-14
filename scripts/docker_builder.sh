@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e
-
 echo "📦 Installing build dependencies inside Docker..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs xz-utils sudo parted python3 rsync
@@ -8,25 +7,30 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e
 echo "📥 Downloading latest Raspberry Pi OS Lite (ARM64 Bookworm)..."
 IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
 
-if [ ! -f "raspios.img.xz" ] && [ ! -f "raspios.img" ]; then
+IMG_FILE="ArcadeMatrix_Build_${RANDOM}.img"
+
+if [ ! -f "raspios.img.xz" ]; then
     wget -O raspios.img.xz "$IMG_URL"
 fi
 
-if [ -f "raspios.img.xz" ]; then
-    echo "🗜️ Extracting OS image..."
-    unxz -f raspios.img.xz
-fi
-
-IMG_FILE="raspios.img"
+echo "🗜️ Extracting OS image..."
+xz -d -c raspios.img.xz > $IMG_FILE
 
 IMAGE_SIZE=${IMAGE_SIZE:-14G}
 
 echo "📏 Expanding image to total size of $IMAGE_SIZE for DATA partition..."
 truncate -s $IMAGE_SIZE $IMG_FILE
 
+echo "📏 Expanding ROOT partition (p2) to 4GB to make room for build tools..."
+parted -s $IMG_FILE resizepart 2 4000M
+
 echo "💽 Creating 3rd partition (DATA)..."
 # Get the starting sector for the new partition
-START_SECTOR=$(fdisk -l $IMG_FILE | tail -1 | awk '{print $3}')
+START_SECTOR=$(fdisk -l $IMG_FILE | grep "img2" | awk '{print $3}')
+# If grep fails to match exactly, fallback to tail -1 (which would be p2 at this point)
+if [ -z "$START_SECTOR" ]; then
+    START_SECTOR=$(fdisk -l $IMG_FILE | tail -1 | awk '{print $3}')
+fi
 NEXT_SECTOR=$((START_SECTOR + 1))
 
 # Create new partition taking up the rest of the file
@@ -59,6 +63,10 @@ fi
 
 echo "🧹 Formatting DATA partition as exFAT..."
 mkfs.exfat $PART_DATA
+
+echo "📏 Expanding ROOT filesystem..."
+e2fsck -f -p $PART_ROOT || true
+resize2fs $PART_ROOT
 
 echo "📂 Mounting root and boot partitions..."
 mkdir -p /mnt/rootfs

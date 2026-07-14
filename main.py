@@ -67,6 +67,10 @@ class ArcadeMatrixApp:
         if self.config.wifi_ssid and not self.config.wifi_configured:
             logging.info(f"Attempting to configure Wi-Fi for SSID: {self.config.wifi_ssid}")
             try:
+                # Unblock Wi-Fi and set default country code to avoid rfkill block
+                subprocess.run('sudo rfkill unblock wifi', shell=True)
+                subprocess.run('sudo raspi-config nonint do_wifi_country FR', shell=True)
+                
                 # Use nmcli to connect to Wi-Fi
                 cmd = f'sudo nmcli dev wifi connect "{self.config.wifi_ssid}" password "{self.config.wifi_pass}"'
                 result = subprocess.run(cmd, shell=True, capture_output=True, text=True)

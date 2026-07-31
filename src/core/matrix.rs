@@ -115,7 +115,7 @@ impl HardwareMatrix {
         }
 
         let mut rt_options = LedRuntimeOptions::new();
-        rt_options.set_gpio_slowdown(slowdown as i32);
+        rt_options.set_gpio_slowdown(slowdown);
 
         let matrix = LedMatrix::new(Some(options), Some(rt_options))
             .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;

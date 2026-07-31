@@ -119,7 +119,7 @@ impl HardwareMatrix {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl MatrixBackend for HardwareMatrix {
     fn width(&self) -> u32 {
         self.canvas.size().0 as u32

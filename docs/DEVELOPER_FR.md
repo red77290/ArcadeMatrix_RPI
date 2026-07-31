@@ -18,7 +18,9 @@ Un **Renderer** (p. ex. `CyberpunkRenderer`, `FlipRenderer`) est purement esthé
 Situés dans `engines/clocks/`.
 Un **Specialized Clock** (p. ex. `PongClock`, `TetrisClock`, `PacManClock`) est un moteur de logique dynamique. Il gère un état interne (comme une balle qui rebondit ou des blocs qui tombent) pour construire visuellement l'affichage de l'heure.
 - **Responsabilité :** état du jeu, physique, dessin des sprites et génération visuelle de l'heure au lieu d'écrire simplement une chaîne.
-- **Avantage :** totalement autonome et permet des visualisations très complexes, frame par frame.
+- **Avantage :** totalement autonome et permet des v## Étendre la base de code Rust
+
+*Note : ArcadeMatrix a été récemment réécrit en Rust. Les tutoriels pour développeurs concernant l'ajout de Renderers, Clocks et Engines sont en cours de mise à jour pour refléter la nouvelle architecture Rust (`src/engines/`). En attendant, vous pouvez inspecter les implémentations existantes dans `src/engines/renderers` pour voir comment le trait `Renderer` est implémenté.*
 
 ---
 
@@ -27,27 +29,10 @@ Un **Specialized Clock** (p. ex. `PongClock`, `TetrisClock`, `PacManClock`) est 
 Si vous voulez ajouter un nouvel arrière-plan générique ou un nouvel effet visuel (comme un thème « Synthwave ») pouvant être utilisé à la fois pour l'heure et la date :
 
 1. **Créer le fichier :**
-   Créez un fichier `engines/renderers/synthwave_renderer.py`.
+   [Code placeholder]
 
 2. **Sous-classer BaseRenderer :**
-   ```python
-   from .base_renderer import BaseRenderer
-   from core.theme import draw_styled_text
-   from PIL import ImageDraw
-
-   class SynthwaveRenderer(BaseRenderer):
-       def __init__(self, config):
-           super().__init__(config)
-           # Initialize your persistent state here (e.g., grid positions)
-
-       def render(self, img, text, font, theme_id, color1, color2, offset_x, offset_y, scale_factor=1.0):
-           draw = ImageDraw.Draw(img)
-           # 1. Draw your Synthwave sun and grid background
-           draw.rectangle([0, 0, img.width, img.height], fill=(20, 0, 40))
-
-           # 2. Draw the text on top using the base renderer logic
-           return super().render(img, text, font, theme_id, color1, color2, offset_x, offset_y, scale_factor)
-   ```
+   [Code placeholder]
 
 3. **Enregistrer le Renderer :**
    Ouvrez `engines/renderers/__init__.py` et associez un nouveau `theme_id` à `SynthwaveRenderer` dans la fonction `get_renderer`.
@@ -59,36 +44,11 @@ Si vous voulez ajouter un nouvel arrière-plan générique ou un nouvel effet vi
 Si vous voulez créer une horloge complexe qui joue à un jeu ou construit l'heure bloc par bloc (comme une horloge « Snake ») :
 
 1. **Créer le fichier :**
-   Créez `engines/clocks/snake_clock.py`.
+   [Code placeholder]
 
 2. **Implémenter la logique :**
    Une Specialized Clock n'hérite pas d'une classe de base, mais elle DOIT exposer une méthode `tick()`.
-   ```python
-   from PIL import Image, ImageDraw
-
-   class SnakeClock:
-       def __init__(self, width, height):
-           self.w = width
-           self.h = height
-           self.snake_pos = []
-           self.target_time = ""
-
-       def tick(self, img, time_str, font, color1, color2, scale_factor=1.0):
-           draw = ImageDraw.Draw(img)
-
-           # Update snake logic based on time_str
-           if time_str != self.target_time:
-               self.target_time = time_str
-               # spawn new food, etc.
-
-           # Draw snake
-           # ...
-
-           # Draw the time string
-           # ...
-
-           return img
-   ```
+   [Code placeholder]
 
 3. **Enregistrer l'horloge :**
    Ouvrez `engines/clock.py`. Instanciez votre horloge dans `__init__()`, puis ajoutez une condition `elif` dans la boucle de la méthode `run()` pour rediriger un `theme_id` spécifique vers votre méthode `snake_clock.tick(...)`.
@@ -100,46 +60,7 @@ Si vous voulez créer une horloge complexe qui joue à un jeu ou construit l'heu
 Si vous voulez ajouter un module totalement nouveau à la rotation idle (p. ex. un suivi du prix des cryptos), vous devez créer un **Engine** complet.
 
 1. **Créer le fichier Engine :**
-   Créez `engines/crypto.py`.
-
-   ```python
-   import time
-   from PIL import Image, ImageDraw
-   from core.theme import load_font
-
-   class CryptoEngine:
-       def __init__(self, matrix_wrapper, config, fighter_engine=None):
-           self.mw = matrix_wrapper
-           self.config = config
-           self.fighter_engine = fighter_engine
-
-       def run(self, duration_sec):
-           start_time = time.time()
-           canvas = self.mw.get_canvas()
-           font = load_font("04B_03.ttf", 16)
-
-           while time.time() - start_time < duration_sec:
-               if getattr(self.config, 'reload_flag', False):
-                   break
-
-               # 1. Fetch your data
-               price = "$65,000"
-
-               # 2. Draw your canvas
-               img = Image.new('RGB', (self.config.matrix_width, self.config.matrix_height), (0, 0, 0))
-               draw = ImageDraw.Draw(img)
-               draw.text((0, 0), f"BTC:\n{price}", font=font, fill=(255, 200, 0))
-
-               # 3. Add Fighters overlay if enabled
-               if self.fighter_engine:
-                   img = self.fighter_engine.tick(img)
-
-               # 4. Push to hardware
-               canvas.SetImage(img)
-               canvas = self.mw.swap_canvas(canvas)
-
-               time.sleep(1) # Loop speed
-   ```
+   [Code placeholder]
 
 2. **Enregistrer l'Engine dans la rotation :**
    Ouvrez `src/core/rotation.rs`.
@@ -184,9 +105,25 @@ Dans tous les cas, **ne continuez pas discrètement à ne livrer qu'un bundle co
 vérité documentée** — si vous retrouvez/restaurez la source, committez-la et documentez ici la
 commande de build.
 
-## Tester votre code
+## Tester Votre Code
 
-Nous imposons une couverture de test de 100 % sur les routes API. Pour vérifier votre code :
+Nous appliquons une couverture de test à 100% sur les routes de l'API. Pour vérifier votre code :
 ```bash
 cargo test
+```
+
+## Flux de Développement Local Rapide (Cross-Compilation)
+
+Pour itérer rapidement, vous n'avez pas besoin de reconstruire l'intégralité du fichier `.img` de 14 Go ni de compiler directement sur le Raspberry Pi. ArcadeMatrix inclut des scripts de compilation croisée qui fonctionnent sur n'importe quel système d'exploitation hôte (Windows, Linux, macOS) tant que Docker est installé.
+
+### 1. Construire le Binaire
+Cette commande lance un conteneur Docker Rust léger, installe la toolchain de cross-compilation ARM64, et compile nativement votre code Rust en quelques secondes. Le binaire résultant est enregistré dans `target/aarch64-unknown-linux-gnu/release/arcadematrix`.
+```bash
+bash scripts/build_local.sh
+```
+
+### 2. Déployer sur le Raspberry Pi
+Cette commande utilise `scp` et `ssh` pour pousser directement le nouveau binaire compilé sur votre Raspberry Pi et redémarre le service systemd.
+```bash
+bash scripts/deploy_to_pi.sh pi@<VOTRE_ADRESSE_IP_PI>
 ```

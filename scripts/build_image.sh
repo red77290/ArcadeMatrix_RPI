@@ -1,5 +1,5 @@
 #!/bin/bash
-# ArcadeMatrix Image Builder for macOS
+# ArcadeMatrix Image Builder for macOS / Linux / Windows
 # This script uses Docker to build a precompiled Raspberry Pi OS image
 
 set -e
@@ -13,7 +13,7 @@ fi
 IMAGE_SIZE=${1:-14G}
 
 echo "=========================================================="
-echo "      ArcadeMatrix RPi Image Builder (macOS -> Docker)"
+echo "      ArcadeMatrix RPi Image Builder (Multi-Platform -> Docker)"
 echo "=========================================================="
 echo "This will download Raspberry Pi OS, cross-compile the Rust"
 echo "binary, and inject it into a minimal DATA partition."

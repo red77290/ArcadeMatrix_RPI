@@ -8,7 +8,7 @@ Este documento ofrece una visión general completa de la arquitectura de ArcadeM
 
 ## 1. Filosofía principal
 
-ArcadeMatrix está diseñado para controlar una matriz LED HUB75 usando la biblioteca C++ `hzeller/rpi-rgb-led-matrix` a través de sus bindings de Python. Los objetivos principales son:
+ArcadeMatrix está diseñado para controlar una matriz LED HUB75 usando la biblioteca C++ `hzeller/rpi-rgb-led-matrix` a través de sus bindings de Rust. Los objetivos principales son:
 - **Renderizado pixel-perfect:** soporte para fuentes bitmap `.bdf` nítidas y sprites precisos.
 - **Modularidad:** añadir fácilmente nuevos temas visuales, relojes y fuentes de datos.
 - **Capacidad de respuesta:** una API Web ágil capaz de interrumpir y cambiar la pantalla al instante sin hacer caer el driver de hardware.
@@ -24,7 +24,7 @@ Para mantener el código base mantenible, separamos estrictamente la lógica de 
 ```mermaid
 graph TD
     subgraph Data Layer
-        API[Flask Web API]
+        API[Actix-web Web API]
         Config[conf.ini / ConfigLoader]
         Time[System Time]
         Network[Weather / MQTT APIs]
@@ -41,7 +41,7 @@ graph TD
     subgraph Logic & Aesthetic Layer
         ClockE -->|Theme ID 0-21| Renderers[Renderers: Cyberpunk, Flip, Matrix]
         ClockE -->|Theme ID 22+| SpClocks[Specialized Clocks: Pong, Tetris, PacMan]
-        Renderers --> Pil[Pillow Image Canvas]
+        Renderers --> Pil[image-rs Image Canvas]
         SpClocks --> Pil
     end
 
@@ -113,12 +113,12 @@ classDiagram
 ArcadeMatrix utiliza una arquitectura de doble thread.
 
 ### El thread principal (hardware y renderizado)
-La biblioteca `rgbmatrix` depende de un PWM de hardware extremadamente preciso para evitar parpadeos en la matriz LED. Debido a que el Global Interpreter Lock (GIL) de Python y los cambios de contexto pueden alterar esa temporización, **todo el renderizado y toda la comunicación con el hardware deben ocurrir estrictamente en el thread principal.**
+La biblioteca `rgbmatrix` depende de un PWM de hardware extremadamente preciso para evitar parpadeos en la matriz LED. Debido a que el Garbage Collector overhead de Rust y los cambios de contexto pueden alterar esa temporización, **todo el renderizado y toda la comunicación con el hardware deben ocurrir estrictamente en el thread principal.**
 - NO uses `asyncio` ni lances nuevos threads para dibujar.
 - `time.sleep()` se utiliza mucho en los bucles de los engines para ceder la ejecución limpiamente sin dejar sin servicio el buffer DMA.
 
 ### El thread en segundo plano (API Web)
-Un servidor Flask ligero se ejecuta en un thread daemon secundario (`api/server.py`). 
+Un servidor Actix-web ligero se ejecuta en un thread daemon secundario (`src/api/server.rs`). 
 - Sirve el dashboard frontend estático (compilado con Vite, vanilla JS/HTML/CSS; pese a una versión anterior de este documento, **no** es Vue.js: verificado contra el bundle real en `api/www/assets/`, sin firmas del runtime de Vue presentes) y expone endpoints REST.
 - **Comunicación:** el thread de la API nunca dibuja directamente en la matriz. En su lugar, escribe en el objeto `Config` compartido en memoria y establece flags thread-safe (p. ej. `config.reload_flag = True` o `config.force_engine = "weather"`). El thread principal detecta estos flags durante la siguiente iteración de su bucle y aborta/reinicia el engine de forma ordenada para reflejar la nueva configuración.
 
@@ -134,7 +134,7 @@ Un bucle `paho-mqtt` se ejecuta en su propio thread para recibir eventos de jueg
 
 Como las matrices HUB75 tienen resoluciones extremadamente bajas (p. ej. 64x32), las fuentes TrueType (`.ttf`) estándar suelen verse borrosas debido al anti-aliasing. Para resolverlo, usamos fuentes bitmap `.bdf`.
 
-Sin embargo, PIL (Pillow) no admite de forma nativa el escalado de fuentes `.bdf`. Nuestra arquitectura intercepta el renderizado `.bdf`:
+Sin embargo, PIL (image-rs) no admite de forma nativa el escalado de fuentes `.bdf`. Nuestra arquitectura intercepta el renderizado `.bdf`:
 1. Dibuja el texto `.bdf` en una máscara binaria de 1 bit en su escala original 1x.
 2. Escala la máscara usando el algoritmo `NEAREST` neighbor para multiplicar perfectamente su tamaño (2x, 3x, etc.) sin desenfoque.
 3. Recolorea la máscara escalada y la pega sobre el canvas RGB final.
@@ -153,7 +153,7 @@ Para prolongar la vida útil de la matriz LED y reducir el consumo energético, 
 
 Si exploras el repositorio `RetroPixelLED/ArcadeMatrix`, verás que la versión ESP32 está escrita en C++ y tiene una arquitectura distinta.
 
-- **RPi (Python):** utiliza un Rendering Pipeline desacoplado (Engines -> Renderers -> PIL Canvas -> Matrix). La RAM es abundante (512MB+), lo que permite manipular canvas RGB completos en memoria con Pillow antes de enviarlos al hardware.
+- **RPi (Rust):** utiliza un Rendering Pipeline desacoplado (Engines -> Renderers -> PIL Canvas -> Matrix). La RAM es abundante (512MB+), lo que permite manipular canvas RGB completos en memoria con image-rs antes de enviarlos al hardware.
 - **ESP32 (C++):** utiliza una estructura Monolithic Engine. La RAM es extremadamente limitada (320KB). En lugar de dibujar en un canvas fuera de pantalla, el código de ESP32 a menudo escribe los píxeles directamente en el buffer DMA o usa arreglos 1D mínimos. No utiliza un pipeline de `Renderer` separado para evitar la asignación dinámica de memoria y la sobrecarga de punteros. 
 
 *Esta divergencia arquitectónica es intencional y optimiza las limitaciones específicas de cada plataforma de hardware.*

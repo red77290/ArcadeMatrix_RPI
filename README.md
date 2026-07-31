@@ -64,7 +64,7 @@ curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/insta
 *(If the repository is private, you will need to `git clone` manually first and run `./install.sh` from inside the folder).*
 
 The script will automatically:
-1. Install Python 3, Flask, Pillow, and `build-essential`.
+1. Install Rust, Actix-web, image-rs, and `build-essential`.
 2. Download and compile the `hzeller/rpi-rgb-led-matrix` driver.
 3. Setup `systemd` to automatically start ArcadeMatrix on boot.
 
@@ -109,7 +109,7 @@ If you prefer manual installation, or if the network install fails:
 4. SSH into your Recalbox and run: `bash /recalbox/share/recalbox_setup_mqtt.sh`.
 
 ### How does the Daemon architecture work?
-Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Python Daemon in the background**.
+Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Rust Daemon in the background**.
 * **Zero Lag:** Consumes 0% CPU. EmulationStation suffers no stutter or lag, even when scrolling at max speed.
 * **Anti-Spam (Debounce):** If you scroll quickly through 50 games, the daemon won't flood the network. It only sends the message to the matrix if you pause on a game for more than 150 milliseconds.
 * **Thread Safety:** On the LED Matrix side, downloads and the drawing engine are separated by threads with robust locks, preventing freezing and image cache corruption.
@@ -117,7 +117,7 @@ Unlike native Recalbox scripts that run (and freeze the system) on every joystic
 ---
 
 ## 🔧 Matrix Configuration
-If you have a matrix larger than 64x64 or 128x32, or if you are using a non-Adafruit HAT, you may need to tweak the `hzeller` arguments in `core/matrix.py`. By default, it's set to `--led-gpio-mapping=adafruit-hat` and `128x32`.
+If you have a matrix larger than 64x64 or 128x32, or if you are using a non-Adafruit HAT, you may need to tweak the `hzeller` arguments in `src/core/matrix.rs`. By default, it's set to `--led-gpio-mapping=adafruit-hat` and `128x32`.
 
 You can also change Matrix brightness dynamically via the Web UI Settings.
 - Enable Standby/Night modes.

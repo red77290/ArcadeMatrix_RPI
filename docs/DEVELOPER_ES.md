@@ -142,7 +142,7 @@ Si quieres añadir un módulo completamente nuevo a la rotación idle (p. ej. un
    ```
 
 2. **Registrar el Engine en la rotación:**
-   Abre `core/rotation.py`.
+   Abre `src/core/rotation.rs`.
    - Importa tu engine al principio: `from engines.crypto import CryptoEngine`
    - Añádelo al diccionario `self.engines` dentro de `__init__` y dentro del bloque de recreación `reload_flag`.
    - Asigna su duración en el bloque de ejecución `run()`:
@@ -152,7 +152,7 @@ Si quieres añadir un módulo completamente nuevo a la rotación idle (p. ej. un
      ```
 
 3. **Actualizar UI y configuración:**
-   - Actualiza `api/server.py` para aceptar `'crypto'` en el array de rotación.
+   - Actualiza `src/api/server.rs` para aceptar `'crypto'` en el array de rotación.
    - Actualiza `api/www/index.html` para añadir un `<div class="feature-item" data-id="crypto">Crypto Tracker</div>` para que los usuarios puedan arrastrarlo y soltarlo en su rotación activa.
 
 ---
@@ -160,7 +160,7 @@ Si quieres añadir un módulo completamente nuevo a la rotación idle (p. ej. un
 ## Integración de API y Web UI
 
 Cada vez que crees un tema nuevo o un reloj nuevo:
-1. Actualiza `api/server.py` si tu nueva función requiere nuevos ajustes.
+1. Actualiza `src/api/server.rs` si tu nueva función requiere nuevos ajustes.
 2. Actualiza `api/www/index.html` para añadir tu nuevo Theme ID a los menús desplegables (`<select id="time_theme">`).
 
 ### ⚠️ El código fuente del frontend no está en este repositorio
@@ -178,7 +178,7 @@ Si necesitas realizar cambios importantes en la UI, tienes dos opciones:
    integrarlo en este repositorio, por ejemplo dentro de una nueva carpeta `frontend/`, con un paso
    de build que genere la salida en `api/www/`.
 2. Reconstruir desde cero un pequeño proyecto frontend contra la API REST existente (consulta
-   `api/server.py` para la lista completa de rutas) si la fuente original realmente se ha perdido.
+   `src/api/server.rs` para la lista completa de rutas) si la fuente original realmente se ha perdido.
 
 En cualquier caso, **no sigas distribuyendo silenciosamente solo un bundle compilado sin una fuente
 de verdad documentada**: si encuentras/restauras la fuente, haz commit de ella y documenta aquí el
@@ -188,5 +188,5 @@ comando de build.
 
 Exigimos una cobertura de tests del 100 % en las rutas API. Para verificar tu código:
 ```bash
-python3 -m pytest tests/
+cargo test
 ```

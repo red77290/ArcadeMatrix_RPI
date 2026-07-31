@@ -36,7 +36,7 @@ If you are adding a completely new feature (like fetching stock prices or Spotif
 
 ## Code Conventions
 
-* **Language**: The core repository uses Python 3 for the Raspberry Pi.
+* **Language**: The core repository uses Rust for the Raspberry Pi.
 * **Typing**: Use type hints where possible to clarify Engine/Renderer contracts.
 * **Testing**: All API routes and Core configuration logic must have 100% test route coverage. Use `pytest`.
 * **Hardware Independence**: Do not assume the matrix is exactly 64x32. Always use `self.config.matrix_width` and `self.config.matrix_height`.

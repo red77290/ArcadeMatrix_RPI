@@ -142,7 +142,7 @@ Si vous voulez ajouter un module totalement nouveau à la rotation idle (p. ex. 
    ```
 
 2. **Enregistrer l'Engine dans la rotation :**
-   Ouvrez `core/rotation.py`.
+   Ouvrez `src/core/rotation.rs`.
    - Importez votre engine en haut : `from engines.crypto import CryptoEngine`
    - Ajoutez-le au dictionnaire `self.engines` dans `__init__` ainsi que dans le bloc de recréation `reload_flag`.
    - Associez sa durée dans le bloc d'exécution `run()` :
@@ -152,7 +152,7 @@ Si vous voulez ajouter un module totalement nouveau à la rotation idle (p. ex. 
      ```
 
 3. **Mettre à jour l'UI & la configuration :**
-   - Mettez à jour `api/server.py` pour accepter `'crypto'` dans le tableau de rotation.
+   - Mettez à jour `src/api/server.rs` pour accepter `'crypto'` dans le tableau de rotation.
    - Mettez à jour `api/www/index.html` pour ajouter un `<div class="feature-item" data-id="crypto">Crypto Tracker</div>` afin que les utilisateurs puissent le glisser-déposer dans leur rotation active.
 
 ---
@@ -160,7 +160,7 @@ Si vous voulez ajouter un module totalement nouveau à la rotation idle (p. ex. 
 ## Intégration API & Web UI
 
 Chaque fois que vous créez un nouveau thème ou une nouvelle horloge :
-1. Mettez à jour `api/server.py` si votre nouvelle fonctionnalité nécessite de nouveaux réglages.
+1. Mettez à jour `src/api/server.rs` si votre nouvelle fonctionnalité nécessite de nouveaux réglages.
 2. Mettez à jour `api/www/index.html` pour ajouter votre nouvel identifiant de thème aux menus déroulants (`<select id="time_theme">`).
 
 ### ⚠️ Le code source du frontend n'est pas dans ce dépôt
@@ -178,7 +178,7 @@ Si vous devez apporter des modifications substantielles à l'UI, vous avez deux 
    réintégrer dans ce dépôt, par exemple dans un nouveau dossier `frontend/`, avec une étape de
    build qui sort dans `api/www/`.
 2. Reconstruire un petit projet frontend depuis zéro contre l'API REST existante (voir
-   `api/server.py` pour la liste complète des routes) si la source originale est réellement perdue.
+   `src/api/server.rs` pour la liste complète des routes) si la source originale est réellement perdue.
 
 Dans tous les cas, **ne continuez pas discrètement à ne livrer qu'un bundle compilé sans source de
 vérité documentée** — si vous retrouvez/restaurez la source, committez-la et documentez ici la
@@ -188,5 +188,5 @@ commande de build.
 
 Nous imposons une couverture de test de 100 % sur les routes API. Pour vérifier votre code :
 ```bash
-python3 -m pytest tests/
+cargo test
 ```

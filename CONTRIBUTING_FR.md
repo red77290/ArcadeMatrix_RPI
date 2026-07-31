@@ -36,7 +36,7 @@ Si vous ajoutez une fonctionnalité complètement nouvelle (comme la récupérat
 
 ## Conventions de code
 
-* **Langage** : le dépôt principal utilise Python 3 pour le Raspberry Pi.
+* **Langage** : le dépôt principal utilise Rust pour le Raspberry Pi.
 * **Typage** : utilisez des annotations de type lorsque c'est possible pour clarifier les contrats Engine/Renderer.
 * **Tests** : toutes les routes API et la logique de configuration Core doivent avoir une couverture de routes de test à 100 %. Utilisez `pytest`.
 * **Indépendance matérielle** : ne supposez pas que la matrice fait exactement 64x32. Utilisez toujours `self.config.matrix_width` et `self.config.matrix_height`.

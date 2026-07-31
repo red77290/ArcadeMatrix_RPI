@@ -142,7 +142,7 @@ If you want to add a completely new module to the idle rotation (e.g., a Crypto 
    ```
 
 2. **Register the Engine in Rotation**:
-   Open `core/rotation.py`.
+   Open `src/core/rotation.rs`.
    - Import your engine at the top: `from engines.crypto import CryptoEngine`
    - Add it to the `self.engines` dictionary inside `__init__` and inside the `reload_flag` recreation block.
    - Map its duration in the `run()` execution block:
@@ -152,7 +152,7 @@ If you want to add a completely new module to the idle rotation (e.g., a Crypto 
      ```
 
 3. **Update UI & Configuration**:
-   - Update `api/server.py` to accept `'crypto'` in the rotation array.
+   - Update `src/api/server.rs` to accept `'crypto'` in the rotation array.
    - Update `api/www/index.html` to add a `<div class="feature-item" data-id="crypto">Crypto Tracker</div>` so users can drag-and-drop it into their active rotation.
 
 ---
@@ -160,7 +160,7 @@ If you want to add a completely new module to the idle rotation (e.g., a Crypto 
 ## API & Web UI Integration
 
 Whenever you create a new theme or clock:
-1. Update `api/server.py` if your new feature requires new settings.
+1. Update `src/api/server.rs` if your new feature requires new settings.
 2. Update `api/www/index.html` to add your new Theme ID to the dropdown menus (`<select id="time_theme">`).
 
 ### ⚠️ Frontend source is not in this repository
@@ -176,7 +176,7 @@ If you need to make substantial UI changes, you have two options:
 1. Track down wherever the original frontend source project lives (if it still exists) and add it
    back into this repo, e.g. under a new `frontend/` folder, with a build step that outputs into
    `api/www/`.
-2. Rebuild a small frontend project from scratch against the existing REST API (see `api/server.py`
+2. Rebuild a small frontend project from scratch against the existing REST API (see `src/api/server.rs`
    for the full route list) if the original source is truly lost.
 
 Either way, **do not silently keep shipping only a compiled bundle with no documented source of
@@ -186,5 +186,5 @@ truth** - if you find/restore the source, commit it and document the build comma
 
 We enforce a 100% test coverage on API routes. To verify your code:
 ```bash
-python3 -m pytest tests/
+cargo test
 ```

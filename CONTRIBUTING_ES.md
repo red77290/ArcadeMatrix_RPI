@@ -36,7 +36,7 @@ Si estás añadiendo una función completamente nueva (como recuperar precios bu
 
 ## Convenciones de código
 
-* **Lenguaje**: el repositorio principal usa Python 3 para Raspberry Pi.
+* **Lenguaje**: el repositorio principal usa Rust para Raspberry Pi.
 * **Tipado**: utiliza type hints siempre que sea posible para aclarar los contratos Engine/Renderer.
 * **Pruebas**: todas las rutas de la API y la lógica de configuración Core deben tener una cobertura de pruebas del 100 % en rutas. Usa `pytest`.
 * **Independencia del hardware**: no supongas que la matriz es exactamente 64x32. Usa siempre `self.config.matrix_width` y `self.config.matrix_height`.

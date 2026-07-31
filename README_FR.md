@@ -63,7 +63,7 @@ curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/insta
 *(Si le dépôt est privé, vous devrez d'abord faire le `git clone` manuellement puis exécuter `./install.sh` depuis le dossier.)*
 
 Le script va automatiquement :
-1. Installer Python 3, Flask, Pillow et `build-essential`.
+1. Installer Rust, Actix-web, image-rs et `build-essential`.
 2. Télécharger et compiler le pilote `hzeller/rpi-rgb-led-matrix`.
 3. Configurer `systemd` pour démarrer automatiquement ArcadeMatrix au boot.
 
@@ -108,7 +108,7 @@ Si vous préférez l'installation manuelle, ou si l'installation réseau échoue
 4. Connectez-vous en SSH à votre Recalbox et exécutez : `bash /recalbox/share/recalbox_setup_mqtt.sh`.
 
 ### Comment fonctionne l'architecture du daemon ?
-Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Python ultra-léger en arrière-plan**.
+Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Rust ultra-léger en arrière-plan**.
 * **Zéro lag :** consomme 0 % de CPU. EmulationStation ne subit aucun stutter ni lag, même en défilant à vitesse maximale.
 * **Anti-spam (debounce) :** si vous parcourez rapidement 50 jeux, le daemon n'inondera pas le réseau. Il n'envoie le message à la matrice que si vous restez sur un jeu plus de 150 millisecondes.
 * **Thread safety :** côté matrice LED, les téléchargements et le moteur de dessin sont séparés par des threads avec des verrous robustes, empêchant les gels et la corruption du cache d'images.
@@ -116,7 +116,7 @@ Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le systèm
 ---
 
 ## 🔧 Configuration de la matrice
-Si vous avez une matrice plus grande que 64x64 ou 128x32, ou si vous utilisez un HAT non Adafruit, vous devrez peut-être ajuster les arguments `hzeller` dans `core/matrix.py`. Par défaut, c'est réglé sur `--led-gpio-mapping=adafruit-hat` et `128x32`.
+Si vous avez une matrice plus grande que 64x64 ou 128x32, ou si vous utilisez un HAT non Adafruit, vous devrez peut-être ajuster les arguments `hzeller` dans `src/core/matrix.rs`. Par défaut, c'est réglé sur `--led-gpio-mapping=adafruit-hat` et `128x32`.
 
 Vous pouvez aussi modifier la luminosité de la matrice dynamiquement via les paramètres de l'interface Web.
 - Activez les modes Standby/Night.

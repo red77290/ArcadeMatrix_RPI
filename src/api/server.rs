@@ -1,13 +1,25 @@
 use crate::api::ota::{get_version, handle_update};
 use crate::core::config::Config;
 use actix_files::Files;
-use actix_web::{get, post, web, App, HttpResponse, HttpServer, Responder};
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use serde_json::json;
 use std::sync::Arc;
 use sysinfo::System;
 
 struct AppState {
     config: Arc<Config>,
+}
+
+fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
+    let s = config.settings.read();
+    if !s.api_auth_enabled {
+        return Ok(());
+    }
+    let auth_header = req.headers().get("X-API-Token").and_then(|h| h.to_str().ok()).unwrap_or("");
+    if auth_header != s.api_token {
+        return Err(HttpResponse::Unauthorized().json(json!({"status": "error", "message": "Missing or invalid X-API-Token"})));
+    }
+    Ok(())
 }
 
 #[get("/api/fonts")]
@@ -363,7 +375,10 @@ async fn api_system_info() -> impl Responder {
 }
 
 #[post("/api/system/reboot")]
-async fn api_reboot() -> impl Responder {
+async fn api_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let _ = tokio::process::Command::new("sudo")
@@ -375,7 +390,10 @@ async fn api_reboot() -> impl Responder {
 }
 
 #[post("/api/system/shutdown")]
-async fn api_shutdown() -> impl Responder {
+async fn api_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     tokio::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         let _ = tokio::process::Command::new("sudo")
@@ -384,6 +402,105 @@ async fn api_shutdown() -> impl Responder {
             .await;
     });
     HttpResponse::Ok().json(json!({"status": "success", "message": "Shutting down..."}))
+}
+
+#[post("/api/wifi")]
+async fn api_wifi(req: HttpRequest, data: web::Data<AppState>, body: web::Json<serde_json::Value>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let ssid = body.get("ssid").and_then(|v| v.as_str()).unwrap_or("");
+    let pass = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
+    if ssid.is_empty() || pass.is_empty() {
+        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "Missing ssid or password"}));
+    }
+
+    let output = tokio::process::Command::new("sudo")
+        .args(["nmcli", "dev", "wifi", "connect", ssid, "password", pass])
+        .output()
+        .await;
+
+    match output {
+        Ok(out) if out.status.success() => {
+            HttpResponse::Ok().json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"}))
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            HttpResponse::InternalServerError().json(json!({"status": "error", "message": format!("Failed to connect: {}", stderr)}))
+        }
+        Err(e) => {
+            HttpResponse::InternalServerError().json(json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)}))
+        }
+    }
+}
+
+#[post("/api/mqtt/install")]
+async fn api_mqtt_install(req: HttpRequest, data: web::Data<AppState>, body: web::Json<serde_json::Value>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let target_ip = body.get("ip").and_then(|v| v.as_str()).unwrap_or("");
+    if target_ip.is_empty() {
+        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "No IP provided"}));
+    }
+    let matrix_ip = std::net::UdpSocket::bind("0.0.0.0:0")
+        .and_then(|s| { s.connect("10.255.255.255:1")?; s.local_addr() })
+        .map(|addr| addr.ip().to_string())
+        .unwrap_or_else(|_| "127.0.0.1".to_string());
+        
+    match crate::core::ssh_installer::install_sync_script(target_ip, &matrix_ip) {
+        Ok(msg) => HttpResponse::Ok().json(json!({"status": "success", "message": msg})),
+        Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
+    }
+}
+
+#[post("/api/marquee")]
+async fn api_marquee(mut payload: actix_multipart::Multipart, data: web::Data<AppState>) -> impl Responder {
+    use futures_util::stream::StreamExt;
+    let mut image_data = Vec::new();
+    while let Some(item) = payload.next().await {
+        if let Ok(mut field) = item {
+            if field.name() == Some("image") {
+                while let Some(chunk) = field.next().await {
+                    if let Ok(bytes) = chunk {
+                        image_data.extend_from_slice(&bytes);
+                    }
+                }
+                break;
+            }
+        }
+    }
+    
+    if image_data.is_empty() {
+        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "No image provided"}));
+    }
+    
+    match image::load_from_memory(&image_data) {
+        Ok(img) => {
+            *data.config.image_obj.lock() = Some(img.to_rgb8());
+            *data.config.force_engine.lock() = Some("marquee".to_string());
+            data.config.reload_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            HttpResponse::Ok().json(json!({"status": "success", "message": "Marquee image received and displayed"}))
+        }
+        Err(e) => {
+            HttpResponse::BadRequest().json(json!({"status": "error", "message": format!("Invalid image: {}", e)}))
+        }
+    }
+}
+
+#[get("/api/sprites/playlists")]
+async fn api_sprites_playlists() -> impl Responder {
+    HttpResponse::Ok().json(json!({}))
+}
+
+#[get("/api/sprites/playlists/selected")]
+async fn api_sprites_playlists_selected() -> impl Responder {
+    HttpResponse::Ok().json(json!({"playlists": []}))
+}
+
+#[post("/api/sprites/playlists/save")]
+async fn api_sprites_playlists_save() -> impl Responder {
+    HttpResponse::Ok().json(json!({"status": "success"}))
 }
 
 #[post("/api/system/power")]
@@ -424,6 +541,12 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_system_info)
             .service(api_reboot)
             .service(api_shutdown)
+            .service(api_sprites_playlists)
+            .service(api_sprites_playlists_selected)
+            .service(api_sprites_playlists_save)
+            .service(api_wifi)
+            .service(api_mqtt_install)
+            .service(api_marquee)
             .service(api_power)
             .service(get_version)
             .service(handle_update)

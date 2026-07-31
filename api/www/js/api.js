@@ -15,6 +15,31 @@ export const API = {
     return await res.json();
   },
 
+  async postAuth(url, data) {
+    const headers = { 'Content-Type': 'application/json' };
+    const token = localStorage.getItem('api_token');
+    if (token) headers['X-API-Token'] = token;
+    
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return await res.json();
+  },
+
+  async uploadMarquee(file) {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch('/api/marquee', {
+      method: 'POST',
+      body: formData
+    });
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return await res.json();
+  },
+
   uploadFirmware(file, onProgress) {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();

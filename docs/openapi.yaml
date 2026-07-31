@@ -254,6 +254,26 @@ paths:
         '200':
           description: Success
 
+  /api/marquee:
+    post:
+      tags:
+        - Engines
+      summary: Stream Image Data
+      description: Pushes an image (multipart/form-data) directly to the matrix frame buffer.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Image received and displayed.
+
   /api/version:
     get:
       tags:

@@ -123,6 +123,16 @@
           </div>
           <button id="btn-save-clock" class="btn btn-primary" style="margin-top: 1rem;">Save Clock Settings</button>
         </div>
+
+        <div class="card glass shadow" style="margin-top: 2rem;">
+          <h3>Custom Marquee Image</h3>
+          <p class="text-muted">Upload an image to display immediately on the matrix.</p>
+          <div id="marquee-drop-zone" class="drop-zone">
+            <div class="drop-icon">🖼️</div>
+            <div class="drop-text">Drop image here or click to browse</div>
+            <input type="file" id="marquee-file-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
+          </div>
+        </div>
       </section>
 
       <!-- Media Page -->
@@ -168,6 +178,58 @@
             <div class="form-group">
               <label>Cols (Width)</label>
               <input type="number" id="hw-cols" class="input" value="64">
+            </div>
+          </div>
+        </div>
+
+        <!-- Network & MQTT -->
+        <div class="card glass shadow" style="margin-bottom: 2rem;">
+          <h3>Network & MQTT Configuration</h3>
+          
+          <h4 style="margin-top: 1rem;">Wi-Fi</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>SSID (Network Name)</label>
+              <input type="text" id="hw-wifi-ssid" class="input" placeholder="Your Network">
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="hw-wifi-pass" class="input" placeholder="••••••••">
+            </div>
+          </div>
+          <button id="btn-save-wifi" class="btn btn-primary" style="margin-top: 1rem;">Connect Wi-Fi</button>
+
+          <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
+
+          <h4>MQTT Integration</h4>
+          <div class="form-group">
+            <label>Enable MQTT</label>
+            <select id="hw-mqtt-enable" class="input">
+              <option value="0">Disabled</option>
+              <option value="1">Enabled</option>
+            </select>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Broker IP</label>
+              <input type="text" id="hw-mqtt-broker" class="input" placeholder="127.0.0.1">
+            </div>
+            <div class="form-group">
+              <label>Port</label>
+              <input type="number" id="hw-mqtt-port" class="input" value="1883">
+            </div>
+          </div>
+          <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem;">Save Settings</button>
+          
+          <h4 style="margin-top: 1.5rem;">Recalbox / Batocera Sync</h4>
+          <p class="text-muted" style="font-size: 0.9em;">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
+          <div class="form-grid" style="align-items: end;">
+            <div class="form-group">
+              <label>Console IP Address</label>
+              <input type="text" id="hw-mqtt-ip" class="input" placeholder="192.168.1.100">
+            </div>
+            <div class="form-group">
+              <button id="btn-install-mqtt" class="btn btn-warning" style="width: 100%;">Install via SSH</button>
             </div>
           </div>
         </div>

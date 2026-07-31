@@ -9,6 +9,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initDashboard();
   initOta();
   loadVersion();
+  initCustomMarquee();
+  initNetworkSettings();
 });
 
 function initNavigation() {
@@ -151,3 +153,101 @@ function initOta() {
     }
   });
 }
+
+function initCustomMarquee() {
+  const dropZone = document.getElementById('marquee-drop-zone');
+  const fileInput = document.getElementById('marquee-file-input');
+  if (!dropZone || !fileInput) return;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    if (e.dataTransfer.files.length > 0) {
+      uploadMarqueeImage(e.dataTransfer.files[0]);
+    }
+  });
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) {
+      uploadMarqueeImage(fileInput.files[0]);
+    }
+  });
+
+  async function uploadMarqueeImage(file) {
+    window.showToast('Uploading marquee image...', 'info');
+    try {
+      await API.uploadMarquee(file);
+      window.showToast('Marquee image displayed!', 'success');
+    } catch (e) {
+      window.showToast('Failed to display marquee image', 'error');
+    }
+  }
+}
+
+function initNetworkSettings() {
+  const btnSaveWifi = document.getElementById('btn-save-wifi');
+  if (btnSaveWifi) {
+    btnSaveWifi.addEventListener('click', async () => {
+      const ssid = document.getElementById('hw-wifi-ssid').value;
+      const pass = document.getElementById('hw-wifi-pass').value;
+      if (!ssid || !pass) {
+        window.showToast('Please enter both SSID and Password', 'error');
+        return;
+      }
+      btnSaveWifi.disabled = true;
+      btnSaveWifi.textContent = 'Connecting...';
+      try {
+        await API.postAuth('/api/wifi', { ssid, password: pass });
+        window.showToast('Connected to Wi-Fi!', 'success');
+      } catch (e) {
+        window.showToast('Failed to connect to Wi-Fi', 'error');
+      } finally {
+        btnSaveWifi.disabled = false;
+        btnSaveWifi.textContent = 'Connect Wi-Fi';
+      }
+    });
+  }
+
+  const btnInstallMqtt = document.getElementById('btn-install-mqtt');
+  if (btnInstallMqtt) {
+    btnInstallMqtt.addEventListener('click', async () => {
+      const ip = document.getElementById('hw-mqtt-ip').value;
+      if (!ip) {
+        window.showToast('Please enter Console IP Address', 'error');
+        return;
+      }
+      btnInstallMqtt.disabled = true;
+      btnInstallMqtt.textContent = 'Installing...';
+      try {
+        await API.postAuth('/api/mqtt/install', { ip });
+        window.showToast('MQTT Sync Script Installed!', 'success');
+      } catch (e) {
+        window.showToast('Failed to install script', 'error');
+      } finally {
+        btnInstallMqtt.disabled = false;
+        btnInstallMqtt.textContent = 'Install via SSH';
+      }
+    });
+  }
+
+  const btnSaveMqtt = document.getElementById('btn-save-mqtt');
+  if (btnSaveMqtt) {
+    btnSaveMqtt.addEventListener('click', async () => {
+      const mqtt_enable = document.getElementById('hw-mqtt-enable').value === '1';
+      const mqtt_broker = document.getElementById('hw-mqtt-broker').value;
+      const mqtt_port = parseInt(document.getElementById('hw-mqtt-port').value, 10);
+      try {
+        await API.post('/api/settings', { mqtt_enable, mqtt_broker, mqtt_port });
+        window.showToast('MQTT Settings Saved!', 'success');
+      } catch (e) {
+        window.showToast('Failed to save MQTT Settings', 'error');
+      }
+    });
+  }
+}
+

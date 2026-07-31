@@ -82,7 +82,10 @@ impl ArcadeMatrixApp {
                     }
                 }
             }
-            #[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
+            #[cfg(not(all(
+                target_os = "linux",
+                any(target_arch = "arm", target_arch = "aarch64")
+            )))]
             {
                 let cfg = self.config.settings.read();
                 Box::new(MockMatrix::new(

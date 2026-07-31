@@ -60,7 +60,6 @@ byteorder = "1"
 
 # OTA tokio
 tokio = { version = "1", features = ["fs", "process", "rt-multi-thread", "macros"] }
-rpi-led-matrix = "0.4.0"
 
 [dev-dependencies]
 tempfile = "3"

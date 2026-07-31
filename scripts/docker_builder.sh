@@ -97,7 +97,7 @@ echo "📁 Copying ArcadeMatrix project into image..."
 mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi
 # Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
 # Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
-rsync -a --exclude='scripts' --exclude='.*' --exclude='venv' --exclude='*.img' --exclude='*.xz' --exclude='__pycache__' --exclude='fighters_32' --exclude='fighters_64' --exclude='gifs' --exclude='fonts' /workspace/ /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+rsync -a --exclude='scripts' --exclude='.*' --exclude='venv' --exclude='*.img' --exclude='*.xz' --exclude='__pycache__' --exclude='target' --exclude='fighters_32' --exclude='fighters_64' --exclude='gifs' --exclude='fonts' /workspace/ /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."

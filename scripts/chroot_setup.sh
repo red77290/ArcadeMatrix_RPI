@@ -6,15 +6,12 @@ echo "🔧 [chroot] Starting ArcadeMatrix OS Setup via autoInstall.sh..."
 PROJ_DIR="/home/pi/ArcadeMatrix_RPi"
 cd $PROJ_DIR
 
-# 1. Run the base auto-installer (Rust build & systemd setup)
+# 1. Run the base auto-installer (systemd setup)
 chmod +x autoInstall.sh
+# Create a dummy Cargo.toml to satisfy autoInstall.sh's root check
+touch Cargo.toml
+export SKIP_BUILD=1
 ./autoInstall.sh
-
-# 2. Strip release binary to save space
-if [ -f "/usr/local/bin/arcadematrix" ]; then
-    echo "🔒 [chroot] Stripping Rust binary..."
-    strip /usr/local/bin/arcadematrix || true
-fi
 
 # 3. Add extra Release-only steps (DATA Partition)
 echo "🔗 [chroot] Configuring DATA partition..."

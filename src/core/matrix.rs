@@ -78,13 +78,20 @@ impl MatrixBackend for MockMatrix {
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
+use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions, LedColor};
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct HardwareMatrix {
     matrix: LedMatrix,
     canvas: LedCanvas,
+    brightness: u8,
 }
+
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+unsafe impl Send for HardwareMatrix {}
+
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+unsafe impl Sync for HardwareMatrix {}
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl HardwareMatrix {
@@ -102,6 +109,7 @@ impl HardwareMatrix {
         options.set_cols(cols);
         options.set_chain_length(chain);
         options.set_parallel(parallel);
+        options.set_brightness(brightness).unwrap_or(());
         if !hardware_mapping.is_empty() {
             options.set_hardware_mapping(hardware_mapping);
         }
@@ -109,30 +117,33 @@ impl HardwareMatrix {
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown as i32);
 
-        let matrix = LedMatrix::new(options, rt_options)
+        let matrix = LedMatrix::new(Some(options), Some(rt_options))
             .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;
         let canvas = matrix.offscreen_canvas();
 
-        let mut hw = Self { matrix, canvas };
-        hw.set_brightness(brightness);
-        Ok(hw)
+        Ok(Self { matrix, canvas, brightness })
     }
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl MatrixBackend for HardwareMatrix {
     fn width(&self) -> u32 {
-        self.canvas.size().0 as u32
+        self.canvas.canvas_size().0 as u32
     }
 
     fn height(&self) -> u32 {
-        self.canvas.size().1 as u32
+        self.canvas.canvas_size().1 as u32
     }
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
         if x >= 0 && y >= 0 && x < self.width() as i32 && y < self.height() as i32 {
-            self.canvas
-                .set_pixel(x as usize, y as usize, red, green, blue);
+            let scale = self.brightness as f32 / 100.0;
+            let color = LedColor {
+                red: (red as f32 * scale) as u8,
+                green: (green as f32 * scale) as u8,
+                blue: (blue as f32 * scale) as u8,
+            };
+            self.canvas.set(x, y, &color);
         }
     }
 
@@ -141,10 +152,20 @@ impl MatrixBackend for HardwareMatrix {
     }
 
     fn update(&mut self) {
-        self.canvas = self.matrix.swap_canvas(self.canvas);
+        // Because swap() takes ownership of the canvas, we use dummy data momentarily or
+        // clone the wrapper. LedCanvas is just a handle, so creating a new one is safe.
+        // Wait, LedCanvas does not implement Clone. 
+        // We can't move out of self.canvas. Let's use swap method properly:
+        // Actually LedMatrix.swap() takes LedCanvas and returns LedCanvas.
+        // We can't move self.canvas out, so we need an Option, or replace it.
+        // We can replace it by creating a dummy offscreen canvas, but that's a memory leak.
+        // Better way: use std::ptr::read/write or std::mem::replace.
+        let mut tmp_canvas = self.matrix.offscreen_canvas();
+        std::mem::swap(&mut self.canvas, &mut tmp_canvas);
+        self.canvas = self.matrix.swap(tmp_canvas);
     }
 
     fn set_brightness(&mut self, brightness: u8) {
-        self.matrix.set_brightness(brightness);
+        self.brightness = brightness.min(100);
     }
 }

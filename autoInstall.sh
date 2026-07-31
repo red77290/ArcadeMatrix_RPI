@@ -43,22 +43,26 @@ fi
 
 CURRENT_DIR=$(pwd)
 
-# 4. Install Rust toolchain & Compile binary
-if ! command -v cargo &> /dev/null; then
-    echo "Installing Rust toolchain..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source "$HOME/.cargo/env" || true
-    export PATH="$HOME/.cargo/bin:$PATH"
-fi
+if [ -z "$SKIP_BUILD" ]; then
+    # 4. Install Rust toolchain & Compile binary
+    if ! command -v cargo &> /dev/null; then
+        echo "Installing Rust toolchain..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+        source "$HOME/.cargo/env" || true
+        export PATH="$HOME/.cargo/bin:$PATH"
+    fi
 
-echo "Compiling ArcadeMatrix Rust binary (release mode)..."
-cargo build --release
+    echo "Compiling ArcadeMatrix Rust binary (release mode)..."
+    cargo build --release
 
-if [ -w "/usr/local/bin" ]; then
-    cp target/release/arcadematrix /usr/local/bin/arcadematrix
-    chmod +x /usr/local/bin/arcadematrix
+    if [ -w "/usr/local/bin" ]; then
+        cp target/release/arcadematrix /usr/local/bin/arcadematrix
+        chmod +x /usr/local/bin/arcadematrix
+    else
+        sudo cp target/release/arcadematrix /usr/local/bin/arcadematrix || cp target/release/arcadematrix ./arcadematrix
+    fi
 else
-    sudo cp target/release/arcadematrix /usr/local/bin/arcadematrix || cp target/release/arcadematrix ./arcadematrix
+    echo "SKIP_BUILD is set, skipping Rust compilation..."
 fi
 
 # 5. Anti-Flicker Performance Tweaks (Disable Audio - Raspberry Pi only)

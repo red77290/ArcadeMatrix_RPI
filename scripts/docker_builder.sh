@@ -95,9 +95,15 @@ mount --bind /proc /mnt/rootfs/proc
 
 echo "📁 Copying ArcadeMatrix project into image..."
 mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi
-# Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
-# Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
-rsync -a --exclude='scripts' --exclude='.*' --exclude='venv' --exclude='*.img' --exclude='*.xz' --exclude='__pycache__' --exclude='target' --exclude='fighters_32' --exclude='fighters_64' --exclude='gifs' --exclude='fonts' /workspace/ /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+# Only copy scripts and the configuration, no heavy source code or target/ directory
+cp /workspace/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+cp -r /workspace/scripts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+
+echo "📁 Injecting cross-compiled Rust binary..."
+mkdir -p /mnt/rootfs/usr/local/bin
+cp /workspace/target/aarch64-unknown-linux-gnu/release/arcadematrix /mnt/rootfs/usr/local/bin/arcadematrix
+chmod +x /mnt/rootfs/usr/local/bin/arcadematrix
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."
@@ -105,8 +111,10 @@ cp -r /workspace/fighters_32 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/n
 cp -r /workspace/fighters_64 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/gifs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/fonts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/api/www /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/www 2>/dev/null || true
+ln -s /home/pi/ArcadeMatrix_RPi/data/www /mnt/rootfs/home/pi/ArcadeMatrix_RPi/api/www || true
 
-echo "📝 Injecting chroot setup script..."
+echo "📝 Injecting chroot setup script (only for systemd & symlinks)..."
 cp /workspace/scripts/chroot_setup.sh /mnt/rootfs/tmp/chroot_setup.sh
 chmod +x /mnt/rootfs/tmp/chroot_setup.sh
 
@@ -114,7 +122,7 @@ chmod +x /mnt/rootfs/tmp/chroot_setup.sh
 DATA_UUID=$(blkid -s UUID -o value $PART_DATA)
 echo "$DATA_UUID" > /mnt/rootfs/tmp/data_uuid.txt
 
-echo "🚀 Entering ARM emulator to compile and obfuscate Python code..."
+echo "🚀 Entering ARM emulator to setup systemd services..."
 chroot /mnt/rootfs /bin/bash /tmp/chroot_setup.sh
 
 echo "🧹 Cleaning up mounts..."

@@ -1,6 +1,6 @@
 use crate::api::run_server;
 use crate::core::config::Config;
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 use crate::core::matrix::HardwareMatrix;
 use crate::core::matrix::{MatrixBackend, MockMatrix};
 use crate::core::rotation::RotationState;
@@ -57,7 +57,7 @@ impl ArcadeMatrixApp {
 
         // Initialize hardware matrix on Linux target or MockMatrix fallback
         let mut matrix: Box<dyn MatrixBackend> = {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
             {
                 let cfg = self.config.settings.read();
                 match HardwareMatrix::new(
@@ -82,7 +82,7 @@ impl ArcadeMatrixApp {
                     }
                 }
             }
-            #[cfg(not(target_os = "linux"))]
+            #[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
             {
                 let cfg = self.config.settings.read();
                 Box::new(MockMatrix::new(

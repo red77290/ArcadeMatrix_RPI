@@ -77,16 +77,16 @@ impl MatrixBackend for MockMatrix {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct HardwareMatrix {
     matrix: LedMatrix,
     canvas: LedCanvas,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl HardwareMatrix {
     pub fn new(
         rows: u32,

@@ -15,9 +15,14 @@ fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
     if !s.api_auth_enabled {
         return Ok(());
     }
-    let auth_header = req.headers().get("X-API-Token").and_then(|h| h.to_str().ok()).unwrap_or("");
+    let auth_header = req
+        .headers()
+        .get("X-API-Token")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
     if auth_header != s.api_token {
-        return Err(HttpResponse::Unauthorized().json(json!({"status": "error", "message": "Missing or invalid X-API-Token"})));
+        return Err(HttpResponse::Unauthorized()
+            .json(json!({"status": "error", "message": "Missing or invalid X-API-Token"})));
     }
     Ok(())
 }
@@ -405,14 +410,19 @@ async fn api_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Respo
 }
 
 #[post("/api/wifi")]
-async fn api_wifi(req: HttpRequest, data: web::Data<AppState>, body: web::Json<serde_json::Value>) -> impl Responder {
+async fn api_wifi(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
     let ssid = body.get("ssid").and_then(|v| v.as_str()).unwrap_or("");
     let pass = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
     if ssid.is_empty() || pass.is_empty() {
-        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "Missing ssid or password"}));
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "Missing ssid or password"}));
     }
 
     let output = tokio::process::Command::new("sudo")
@@ -421,33 +431,41 @@ async fn api_wifi(req: HttpRequest, data: web::Data<AppState>, body: web::Json<s
         .await;
 
     match output {
-        Ok(out) if out.status.success() => {
-            HttpResponse::Ok().json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"}))
-        }
+        Ok(out) if out.status.success() => HttpResponse::Ok()
+            .json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"})),
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            HttpResponse::InternalServerError().json(json!({"status": "error", "message": format!("Failed to connect: {}", stderr)}))
+            HttpResponse::InternalServerError().json(
+                json!({"status": "error", "message": format!("Failed to connect: {}", stderr)}),
+            )
         }
-        Err(e) => {
-            HttpResponse::InternalServerError().json(json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)}))
-        }
+        Err(e) => HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)})),
     }
 }
 
 #[post("/api/mqtt/install")]
-async fn api_mqtt_install(req: HttpRequest, data: web::Data<AppState>, body: web::Json<serde_json::Value>) -> impl Responder {
+async fn api_mqtt_install(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
     let target_ip = body.get("ip").and_then(|v| v.as_str()).unwrap_or("");
     if target_ip.is_empty() {
-        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "No IP provided"}));
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "No IP provided"}));
     }
     let matrix_ip = std::net::UdpSocket::bind("0.0.0.0:0")
-        .and_then(|s| { s.connect("10.255.255.255:1")?; s.local_addr() })
+        .and_then(|s| {
+            s.connect("10.255.255.255:1")?;
+            s.local_addr()
+        })
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());
-        
+
     match crate::core::ssh_installer::install_sync_script(target_ip, &matrix_ip) {
         Ok(msg) => HttpResponse::Ok().json(json!({"status": "success", "message": msg})),
         Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
@@ -455,7 +473,10 @@ async fn api_mqtt_install(req: HttpRequest, data: web::Data<AppState>, body: web
 }
 
 #[post("/api/marquee")]
-async fn api_marquee(mut payload: actix_multipart::Multipart, data: web::Data<AppState>) -> impl Responder {
+async fn api_marquee(
+    mut payload: actix_multipart::Multipart,
+    data: web::Data<AppState>,
+) -> impl Responder {
     use futures_util::stream::StreamExt;
     let mut image_data = Vec::new();
     while let Some(item) = payload.next().await {
@@ -470,21 +491,25 @@ async fn api_marquee(mut payload: actix_multipart::Multipart, data: web::Data<Ap
             }
         }
     }
-    
+
     if image_data.is_empty() {
-        return HttpResponse::BadRequest().json(json!({"status": "error", "message": "No image provided"}));
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "No image provided"}));
     }
-    
+
     match image::load_from_memory(&image_data) {
         Ok(img) => {
             *data.config.image_obj.lock() = Some(img.to_rgb8());
             *data.config.force_engine.lock() = Some("marquee".to_string());
-            data.config.reload_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-            HttpResponse::Ok().json(json!({"status": "success", "message": "Marquee image received and displayed"}))
+            data.config
+                .reload_flag
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+            HttpResponse::Ok().json(
+                json!({"status": "success", "message": "Marquee image received and displayed"}),
+            )
         }
-        Err(e) => {
-            HttpResponse::BadRequest().json(json!({"status": "error", "message": format!("Invalid image: {}", e)}))
-        }
+        Err(e) => HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": format!("Invalid image: {}", e)})),
     }
 }
 

@@ -37,17 +37,16 @@ Si estás añadiendo una función completamente nueva (como recuperar precios bu
 ## Convenciones de código
 
 * **Lenguaje**: el repositorio principal usa Rust para Raspberry Pi.
-* **Tipado**: utiliza type hints siempre que sea posible para aclarar los contratos Engine/Renderer.
-* **Pruebas**: todas las rutas de la API y la lógica de configuración Core deben tener una cobertura de pruebas del 100 % en rutas. Usa `pytest`.
+* **Tipado**: aprovecha al máximo el tipado estático fuerte de Rust y sus Traits para aclarar los contratos Engine/Renderer.
+* **Pruebas**: todas las rutas de la API y la lógica de configuración Core deben estar cubiertas por `cargo test`.
 * **Independencia del hardware**: no supongas que la matriz es exactamente 64x32. Usa siempre `self.config.matrix_width` y `self.config.matrix_height`.
 
 ## Añadir un nuevo Renderer
 
-1. Crea un archivo nuevo en `engines/renderers/my_custom_renderer.py`.
-2. Hereda de `BaseRenderer`.
-3. Sobrescribe `render(...)` para el dibujo estático.
-4. Sobrescribe `animate(...)` si tu renderer necesita tomar el control del bucle de frames para dibujar transiciones.
-5. Regístralo en `engines/renderers/__init__.py`.
+*Nota: El proceso exacto se está actualizando actualmente para la arquitectura de Rust.*
+1. Crea un archivo nuevo en `src/engines/renderers/my_custom_renderer.rs`.
+2. Implementa el trait `Renderer`.
+3. Regístralo en `src/engines/renderers/mod.rs`.
 
 ## Architecture Decision Records (ADR)
 

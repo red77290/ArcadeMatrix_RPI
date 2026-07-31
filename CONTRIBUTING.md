@@ -37,17 +37,16 @@ If you are adding a completely new feature (like fetching stock prices or Spotif
 ## Code Conventions
 
 * **Language**: The core repository uses Rust for the Raspberry Pi.
-* **Typing**: Use type hints where possible to clarify Engine/Renderer contracts.
-* **Testing**: All API routes and Core configuration logic must have 100% test route coverage. Use `pytest`.
+* **Typing**: Make full use of Rust's strong static typing and Traits to clarify Engine/Renderer contracts.
+* **Testing**: All API routes and Core configuration logic must be covered by `cargo test`.
 * **Hardware Independence**: Do not assume the matrix is exactly 64x32. Always use `self.config.matrix_width` and `self.config.matrix_height`.
 
 ## Adding a New Renderer
 
-1. Create a new file in `engines/renderers/my_custom_renderer.py`.
-2. Inherit from `BaseRenderer`.
-3. Override `render(...)` for static drawing.
-4. Override `animate(...)` if your renderer needs to take control over the frame loop to draw transitions.
-5. Register it in `engines/renderers/__init__.py`.
+*Note: The exact process is currently being updated for the Rust architecture.*
+1. Create a new file in `src/engines/renderers/my_custom_renderer.rs`.
+2. Implement the `Renderer` trait.
+3. Register it in `src/engines/renderers/mod.rs`.
 
 ## Architecture Decision Records (ADR)
 

@@ -78,7 +78,7 @@ impl MatrixBackend for MockMatrix {
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions, LedColor};
+use rpi_led_matrix::{LedCanvas, LedColor, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct HardwareMatrix {
@@ -121,7 +121,11 @@ impl HardwareMatrix {
             .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;
         let canvas = matrix.offscreen_canvas();
 
-        Ok(Self { matrix, canvas, brightness })
+        Ok(Self {
+            matrix,
+            canvas,
+            brightness,
+        })
     }
 }
 
@@ -154,7 +158,7 @@ impl MatrixBackend for HardwareMatrix {
     fn update(&mut self) {
         // Because swap() takes ownership of the canvas, we use dummy data momentarily or
         // clone the wrapper. LedCanvas is just a handle, so creating a new one is safe.
-        // Wait, LedCanvas does not implement Clone. 
+        // Wait, LedCanvas does not implement Clone.
         // We can't move out of self.canvas. Let's use swap method properly:
         // Actually LedMatrix.swap() takes LedCanvas and returns LedCanvas.
         // We can't move self.canvas out, so we need an Option, or replace it.

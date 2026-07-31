@@ -25,8 +25,8 @@ IMAGE_SIZE=${IMAGE_SIZE:-14G}
 echo "📏 Expanding image to total size of $IMAGE_SIZE for DATA partition..."
 truncate -s $IMAGE_SIZE $IMG_FILE
 
-echo "📏 Expanding ROOT partition (p2) to 4GB to make room for build tools..."
-parted -s $IMG_FILE resizepart 2 4096MiB
+echo "📏 Expanding ROOT partition (p2) to 8GB to make room for build tools..."
+parted -s $IMG_FILE resizepart 2 8192MiB
 
 echo "💽 Creating 3rd partition (DATA)..."
 # Get the starting sector for the new partition

@@ -550,6 +550,7 @@ async fn api_power(
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
     let state = web::Data::new(AppState { config });
+    let serve_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www");
 
     HttpServer::new(move || {
         App::new()
@@ -575,7 +576,11 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_power)
             .service(get_version)
             .service(handle_update)
-            .service(Files::new("/", "api/www").index_file("index.html"))
+            .service(
+                Files::new("/", serve_dir.to_string_lossy().to_string())
+                    .index_file("index.html")
+                    .show_files_listing(),
+            )
     })
     .bind(("0.0.0.0", port))?
     .run()

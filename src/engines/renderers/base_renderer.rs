@@ -104,15 +104,34 @@ impl BaseRenderer {
         let start_x = (matrix.width() as i32 - text_width) / 2 + offset_x;
         let start_y = (matrix.height() as i32 - text_height) / 2 + offset_y;
 
-        // Render shadow/outline with secondary color
+        // Determine 3D shadow depth based on matrix width
+        let shadow_depth = (matrix.width() as i32 / 64).max(1);
+        
+        // Nintendo (0), Capcom (1), Sega (3) are NOT in 3D, they just use a flat outline
+        let is_3d = !(theme_id == 0 || theme_id == 1 || theme_id == 3);
+
+        // Render secondary color (outline or 3D shadow)
         if secondary != (0, 0, 0) {
             for glyph in &glyphs {
                 if let Some(bb) = glyph.pixel_bounding_box() {
                     glyph.draw(|x, y, v| {
                         if v > 0.5 {
-                            let px = start_x + bb.min.x + x as i32 + 1;
-                            let py = start_y + bb.min.y + y as i32 + 1;
-                            matrix.set_pixel(px, py, secondary.0, secondary.1, secondary.2);
+                            if is_3d {
+                                // 3D extrusion
+                                for d in 1..=shadow_depth {
+                                    let px = start_x + bb.min.x + x as i32 + d;
+                                    let py = start_y + bb.min.y + y as i32 + d;
+                                    matrix.set_pixel(px, py, secondary.0, secondary.1, secondary.2);
+                                }
+                            } else {
+                                // Flat 1px outline
+                                let px = start_x + bb.min.x + x as i32;
+                                let py = start_y + bb.min.y + y as i32;
+                                matrix.set_pixel(px - 1, py, secondary.0, secondary.1, secondary.2);
+                                matrix.set_pixel(px + 1, py, secondary.0, secondary.1, secondary.2);
+                                matrix.set_pixel(px, py - 1, secondary.0, secondary.1, secondary.2);
+                                matrix.set_pixel(px, py + 1, secondary.0, secondary.1, secondary.2);
+                            }
                         }
                     });
                 }

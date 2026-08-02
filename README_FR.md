@@ -40,12 +40,19 @@ Grâce à l'implémentation Rust natif ultra-léger (~5 Mo de binaire, ~10 Mo de
 ## 💾 Installation & configuration
 
 ### Option 1 : image précompilée (recommandée pour les utilisateurs)
-Nous fournissons un fichier `.img` précompilé et entièrement automatisé, construit et publié automatiquement par la CI
-à chaque release taggée (voir `.github/workflows/release.yml` — conditionné au passage préalable de toute la suite pytest).
+Nous fournissons des fichiers `.img` précompilés et entièrement automatisés, construits et publiés automatiquement par la CI
+à chaque release taggée (voir `.github/workflows/release.yml`).
 
-**[⬇️ Télécharger la dernière image](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release.img.xz)**
-(`.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la
-[liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)
+Nous fournissons deux images distinctes pour couvrir l'intégralité de l'écosystème Raspberry Pi :
+
+1. **[⬇️ Télécharger l'image 64-bits (aarch64)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz)**
+   * **Compatibilité :** Raspberry Pi 3, 4, 5, et Zero 2 W.
+   * **Note :** C'est la version recommandée pour des performances maximales.
+2. **[⬇️ Télécharger l'image 32-bits (armhf)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz)**
+   * **Compatibilité :** Tous les Raspberry Pi, y compris les anciens Raspberry Pi 1, 2, et le Zero original.
+
+*(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la
+[liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
 
 1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
 2. Une fois le flash terminé, insérez la carte SD dans votre PC/Mac. Vous verrez apparaître un grand lecteur USB **DATA** de 8 Go !

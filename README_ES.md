@@ -39,12 +39,19 @@ Gracias a la implementación nativa ultraligera en Rust (~5 MB binario, ~10 MB R
 ## 💾 Instalación y configuración
 
 ### Opción 1: imagen precompilada (recomendada para usuarios)
-Proporcionamos un archivo `.img` precompilado y totalmente automatizado, construido y publicado automáticamente por la CI
-en cada release etiquetada (ver `.github/workflows/release.yml`; condicionado a que primero pase toda la suite de pytest).
+Proporcionamos archivos `.img` precompilados y totalmente automatizados, construidos y publicados automáticamente por la CI
+en cada release etiquetada (ver `.github/workflows/release.yml`).
 
-**[⬇️ Descargar la imagen más reciente](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release.img.xz)**
-(`.img.xz`: descomprímela con 7-Zip/Keka/`xz -d` antes de grabarla. Consulta la
-[lista completa de releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) para versiones antiguas.)
+Proporcionamos dos imágenes distintas para cubrir todo el ecosistema Raspberry Pi:
+
+1. **[⬇️ Descargar imagen 64-bits (aarch64)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz)**
+   * **Compatibilidad:** Raspberry Pi 3, 4, 5, y Zero 2 W.
+   * **Nota:** Esta es la versión altamente recomendada para obtener el máximo rendimiento.
+2. **[⬇️ Descargar imagen 32-bits (armhf)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz)**
+   * **Compatibilidad:** Todas las Raspberry Pi, incluyendo Raspberry Pi 1, 2 y la Zero original.
+
+*(Ambos son archivos `.img.xz`: descomprímelos con 7-Zip/Keka/`xz -d` antes de grabarlos. Consulta la
+[lista completa de releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) para versiones antiguas.)*
 
 1. Graba el `.img` en tu tarjeta SD con **Raspberry Pi Imager**.
 2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!

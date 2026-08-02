@@ -233,9 +233,61 @@ impl ArcadeMatrixApp {
                     "gifs" => {
                         let selected = self.config.settings.read().selected_gifs.clone();
                         gif_engine.play_random_playlist_gif(&selected);
-                        gif_engine.render_next_frame(matrix.as_mut());
+                        gif_engine.render_next_frame(
+                            matrix.as_mut(),
+                            std::time::Duration::from_millis(50),
+                        );
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(10)
+                        {
+                            rotation_state.next_mode(&idle_list);
+                        }
+                    }
+                    "network" => {
+                        let ip = get_local_ip();
+                        let payload = crate::engines::message::MessagePayload {
+                            text: format!("IP: {}", ip),
+                            color: "#00ffc8".to_string(),
+                            size: 1,
+                            direction: "left".to_string(),
+                            speed: 30,
+                            timeout_seconds: 10,
+                        };
+                        matrix.clear();
+                        message_engine.render(matrix.as_mut(), &payload);
+                        if rotation_state.mode_start_time.elapsed()
+                            >= std::time::Duration::from_secs(10)
+                        {
+                            rotation_state.next_mode(&idle_list);
+                        }
+                    }
+                    "message" => {
+                        if let Some(ref payload_val) = *self.config.message_payload.lock() {
+                            if let Ok(payload) = serde_json::from_value::<
+                                crate::engines::message::MessagePayload,
+                            >(payload_val.clone())
+                            {
+                                matrix.clear();
+                                message_engine.render(matrix.as_mut(), &payload);
+                                if rotation_state.mode_start_time.elapsed()
+                                    >= std::time::Duration::from_secs(
+                                        payload.timeout_seconds as u64,
+                                    )
+                                {
+                                    rotation_state.next_mode(&idle_list);
+                                }
+                            }
+                        } else {
+                            rotation_state.next_mode(&idle_list);
+                        }
+                    }
+                    "marquee" => {
+                        if let Some(ref img) = *self.config.image_obj.lock() {
+                            matrix.clear();
+                            marquee_engine.render(matrix.as_mut(), img);
+                        }
+                        if rotation_state.mode_start_time.elapsed()
+                            >= std::time::Duration::from_secs(30)
                         {
                             rotation_state.next_mode(&idle_list);
                         }

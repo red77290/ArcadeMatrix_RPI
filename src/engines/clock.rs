@@ -17,6 +17,7 @@ pub struct ClockEngine {
     pacman: PacmanClock,
     versus: VersusClock,
     slot_machine: SlotMachineClock,
+    last_font: String,
 }
 
 impl ClockEngine {
@@ -34,6 +35,7 @@ impl ClockEngine {
             pacman: PacmanClock::new(),
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
+            last_font: String::new(),
         }
     }
 
@@ -41,15 +43,29 @@ impl ClockEngine {
         let settings = config.settings.read();
         let now = Local::now();
 
+        // Full time string with seconds (for binary clock)
+        let time_str_full = if settings.time_24h {
+            now.format("%H:%M:%S").to_string()
+        } else {
+            now.format("%I:%M:%S %p").to_string()
+        };
+
+        // Short time string for display clocks
         let time_str = if settings.time_24h {
             now.format("%H:%M").to_string()
         } else {
             now.format("%I:%M").to_string()
         };
 
-        let hours = now.format("%H").to_string().parse::<u32>().unwrap_or(0);
-        let minutes = now.format("%M").to_string().parse::<u32>().unwrap_or(0);
-        let seconds = now.format("%S").to_string().parse::<u32>().unwrap_or(0);
+        let hours = now.hour();
+        let minutes = now.minute();
+        let seconds = now.second();
+
+        // Reload font from disk if the config font changes
+        if settings.time_font != self.last_font {
+            self.base_renderer = BaseRenderer::from_font_path(&settings.time_font);
+            self.last_font = settings.time_font.clone();
+        }
 
         match settings.time_theme {
             18 => {
@@ -82,9 +98,9 @@ impl ClockEngine {
             23 => self.tetris.render(matrix, &time_str),
             24 => self.word.render(matrix, hours, minutes),
             25 => self.binary.render(matrix, hours, minutes, seconds),
-            26 => self.pacman.render(matrix),
+            26 => self.pacman.render(matrix, &time_str, hours, minutes),
             27 => self.versus.render(matrix, hours, minutes),
-            28 => self.slot_machine.render(matrix),
+            28 => self.slot_machine.render(matrix, &time_str),
             29 => self.tetris_gb.render(matrix, &time_str),
             _ => self.base_renderer.render_text(
                 matrix,
@@ -97,5 +113,24 @@ impl ClockEngine {
                 None,
             ),
         }
+    }
+}
+
+// Helper to expose chrono fields without re-deriving
+trait ChronoTimeExt {
+    fn hour(&self) -> u32;
+    fn minute(&self) -> u32;
+    fn second(&self) -> u32;
+}
+
+impl ChronoTimeExt for chrono::DateTime<chrono::Local> {
+    fn hour(&self) -> u32 {
+        chrono::Timelike::hour(self)
+    }
+    fn minute(&self) -> u32 {
+        chrono::Timelike::minute(self)
+    }
+    fn second(&self) -> u32 {
+        chrono::Timelike::second(self)
     }
 }

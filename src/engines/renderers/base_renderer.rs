@@ -1,17 +1,62 @@
 use crate::core::matrix::MatrixBackend;
 use crate::core::theme::get_theme_info;
 use rusttype::{Font, Scale};
+use std::sync::OnceLock;
+
+// Embedded fallback font (always available, zero-cost after first init)
+static EMBEDDED_FONT: OnceLock<Font<'static>> = OnceLock::new();
+
+fn get_embedded_font() -> &'static Font<'static> {
+    EMBEDDED_FONT.get_or_init(|| {
+        let font_data = include_bytes!("../../../fonts/PressStart2P.ttf");
+        Font::try_from_bytes(font_data as &[u8]).expect("Embedded font is malformed")
+    })
+}
 
 pub struct BaseRenderer {
-    font: Font<'static>,
+    /// Loaded font bytes — kept alive so the Font<'_> can borrow from them.
+    custom_font_bytes: Option<Box<[u8]>>,
 }
 
 impl BaseRenderer {
+    /// Uses the embedded PressStart2P font.
     pub fn new() -> Self {
-        // Default built-in font fallback
-        let font_data = include_bytes!("../../../fonts/PressStart2P.ttf");
-        let font = Font::try_from_bytes(font_data as &[u8]).expect("Error loading built-in font");
-        Self { font }
+        Self {
+            custom_font_bytes: None,
+        }
+    }
+
+    /// Loads a font from `fonts/<filename>` on disk, falling back to embedded on error.
+    pub fn from_font_path(filename: &str) -> Self {
+        let path = format!("fonts/{}", filename);
+        match std::fs::read(&path) {
+            Ok(bytes) => {
+                let boxed: Box<[u8]> = bytes.into_boxed_slice();
+                // Validate parseable before storing
+                if Font::try_from_bytes(&boxed).is_some() {
+                    Self {
+                        custom_font_bytes: Some(boxed),
+                    }
+                } else {
+                    tracing::warn!(
+                        "Font '{}' could not be parsed by rusttype, using embedded fallback.",
+                        path
+                    );
+                    Self {
+                        custom_font_bytes: None,
+                    }
+                }
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "Font '{}' not found on disk, using embedded fallback.",
+                    path
+                );
+                Self {
+                    custom_font_bytes: None,
+                }
+            }
+        }
     }
 
     pub fn render_text(
@@ -29,11 +74,23 @@ impl BaseRenderer {
         let primary = color1_override.unwrap_or(theme.primary_color);
         let secondary = color2_override.unwrap_or(theme.secondary_color);
 
-        let scale = Scale::uniform(8.0 * size as f32);
-        let v_metrics = self.font.v_metrics(scale);
+        // Build Font on the fly from the stored bytes slice, or use the embedded static ref
+        let font_owned: Option<Font<'_>>;
+        let font: &Font<'_> = match &self.custom_font_bytes {
+            Some(bytes) => {
+                font_owned = Font::try_from_bytes(bytes.as_ref());
+                match font_owned.as_ref() {
+                    Some(f) => f,
+                    None => get_embedded_font(),
+                }
+            }
+            None => get_embedded_font(),
+        };
 
-        let glyphs: Vec<_> = self
-            .font
+        let scale = Scale::uniform(8.0 * size as f32);
+        let v_metrics = font.v_metrics(scale);
+
+        let glyphs: Vec<_> = font
             .layout(text, scale, rusttype::point(0.0, v_metrics.ascent))
             .collect();
         let text_width = glyphs

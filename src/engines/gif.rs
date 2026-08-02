@@ -4,12 +4,16 @@ use image::{Rgb, RgbImage};
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 pub struct GifEngine {
     current_gif_path: Option<PathBuf>,
-    frames: Vec<RgbImage>,
+    /// Each frame stores the image and its display duration
+    frames: Vec<(RgbImage, Duration)>,
     frame_index: usize,
     last_played_gif: Option<PathBuf>,
+    /// Accumulated time since last frame advance
+    frame_elapsed: Duration,
 }
 
 impl GifEngine {
@@ -19,6 +23,7 @@ impl GifEngine {
             frames: Vec::new(),
             frame_index: 0,
             last_played_gif: None,
+            frame_elapsed: Duration::ZERO,
         }
     }
 
@@ -44,7 +49,17 @@ impl GifEngine {
                 let y = (i as u32) / width;
                 img.put_pixel(x, y, Rgb([pixel[0], pixel[1], pixel[2]]));
             }
-            frames.push(img);
+
+            // frame.delay is in units of 10ms (centiseconds).
+            // Clamp to at least 50ms for broken/zero-delay GIFs.
+            let delay_cs = frame.delay;
+            let delay = Duration::from_millis(if delay_cs == 0 {
+                5
+            } else {
+                delay_cs as u64 * 10
+            });
+
+            frames.push((img, delay));
         }
 
         if !frames.is_empty() {
@@ -53,6 +68,7 @@ impl GifEngine {
             self.current_gif_path = Some(pb);
             self.frames = frames;
             self.frame_index = 0;
+            self.frame_elapsed = Duration::ZERO;
             true
         } else {
             false
@@ -117,14 +133,24 @@ impl GifEngine {
         false
     }
 
-    pub fn render_next_frame(&mut self, matrix: &mut dyn MatrixBackend) {
+    /// Renders the current GIF frame to the matrix.
+    /// Call this every iteration; it internally tracks elapsed time and
+    /// advances to the next frame only when the frame's own delay has elapsed.
+    /// `dt` = time elapsed since the last render call.
+    pub fn render_next_frame(&mut self, matrix: &mut dyn MatrixBackend, dt: Duration) {
         if self.frames.is_empty() {
             return;
         }
 
-        let img = &self.frames[self.frame_index];
-        matrix.draw_image(img, 0, 0);
+        self.frame_elapsed += dt;
+        let (_, delay) = self.frames[self.frame_index];
 
-        self.frame_index = (self.frame_index + 1) % self.frames.len();
+        if self.frame_elapsed >= delay {
+            self.frame_elapsed = Duration::ZERO;
+            self.frame_index = (self.frame_index + 1) % self.frames.len();
+        }
+
+        let (ref img, _) = self.frames[self.frame_index];
+        matrix.draw_image(img, 0, 0);
     }
 }

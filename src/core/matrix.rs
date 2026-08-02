@@ -119,7 +119,7 @@ impl HardwareMatrix {
         if !rgb_sequence.is_empty() {
             options.set_led_rgb_sequence(rgb_sequence);
         }
-        options.set_pwm_bits(pwm_bits as u8);
+        let _ = options.set_pwm_bits(pwm_bits as u8);
         options.set_pwm_lsb_nanoseconds(pwm_lsb);
 
         let mut rt_options = LedRuntimeOptions::new();

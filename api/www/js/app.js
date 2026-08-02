@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCustomMarquee();
   initNetworkSettings();
   initSettings();
+  initPlaylists();
 });
 
 function initNavigation() {
@@ -435,4 +436,79 @@ async function initSettings() {
     });
   }
 }
+
+async function initPlaylists() {
+  const container = document.querySelector('.playlist-list');
+  if (!container) return;
+  
+  container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-color);">Loading GIFs...<br><small style="opacity:0.7">Reading SD Card, this may take a few seconds...</small></div>`;
+  
+  try {
+    const res = await API.get('/api/playlists');
+    const allPlaylists = res; 
+    
+    let selectedPaths = [];
+    try {
+      const selRes = await API.get('/api/playlists/selected');
+      selectedPaths = selRes.playlists || [];
+    } catch (e) {
+      console.warn('Could not fetch selected playlists', e);
+    }
+    
+    let html = '';
+    for (const [name, info] of Object.entries(allPlaylists)) {
+      const isChecked = selectedPaths.includes(info.path) ? 'checked' : '';
+      const count = info.count || (info.files ? info.files.length : 0);
+      
+      html += `
+        <div class="playlist-item">
+          <div class="info">
+            <h4>${name}</h4>
+            <span>${count} GIFs found</span>
+          </div>
+          <div class="action">
+            <label style="display:flex; align-items:center; cursor:pointer;">
+              <input type="checkbox" class="playlist-cb" value="${info.path}" ${isChecked} style="width:20px;height:20px;margin-right:10px;accent-color:var(--primary);">
+              Include
+            </label>
+          </div>
+        </div>
+      `;
+    }
+    
+    if (Object.keys(allPlaylists).length === 0) {
+      html = `<div style="padding:1rem;text-align:center;">No GIF folders found. Check your data/gifs directory.</div>`;
+    } else {
+      html += `<button id="btn-save-playlists" class="btn btn-primary" style="margin-top:1rem; width:100%;">Save GIF Playlists</button>`;
+    }
+    
+    container.innerHTML = html;
+    
+    const btnSave = document.getElementById('btn-save-playlists');
+    if (btnSave) {
+      btnSave.addEventListener('click', async () => {
+        btnSave.disabled = true;
+        btnSave.textContent = 'Saving...';
+        
+        const checkboxes = document.querySelectorAll('.playlist-cb:checked');
+        const pathsToSave = Array.from(checkboxes).map(cb => cb.value);
+        
+        try {
+          await API.post('/api/playlists/selected', { playlists: pathsToSave });
+          window.showToast('Playlists saved successfully!', 'success');
+        } catch (e) {
+          window.showToast('Failed to save playlists', 'error');
+        } finally {
+          btnSave.disabled = false;
+          btnSave.textContent = 'Save GIF Playlists';
+        }
+      });
+    }
+    
+  } catch (e) {
+    container.innerHTML = `<div style="padding:2rem;text-align:center;color:#ef4444;">Failed to load playlists.</div>`;
+    console.error(e);
+  }
+}
+
 

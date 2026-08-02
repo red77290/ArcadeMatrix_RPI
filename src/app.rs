@@ -105,7 +105,7 @@ impl ArcadeMatrixApp {
         let mut clock_engine = ClockEngine::new(width, height);
         let mut date_engine = DateEngine::new(width, height);
         let mut weather_engine = WeatherEngine::new();
-        let mut gif_engine = GifEngine::new();
+        let mut gif_engine = GifEngine::new(width, height);
         let mut fighter_engine = FighterEngine::new(width);
         let marquee_engine = MarqueeEngine::new();
         let mut message_engine = MessageEngine::new();
@@ -152,8 +152,10 @@ impl ArcadeMatrixApp {
             r.store(false, Ordering::SeqCst);
         });
 
+        let mut last_mode = String::new();
         // 2. Main rotation and engine loop
         while running.load(Ordering::SeqCst) {
+            matrix.clear();
             // Auto-restart if configuration requires hardware reload
             if self.config.reload_flag.swap(false, Ordering::Relaxed) {
                 tracing::info!("Configuration changed! Restarting application to apply hardware settings...");
@@ -267,8 +269,10 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "gifs" => {
-                        let selected = self.config.settings.read().selected_gifs.clone();
-                        gif_engine.play_random_playlist_gif(&selected);
+                        if last_mode != "gifs" {
+                            let selected = self.config.settings.read().selected_gifs.clone();
+                            gif_engine.play_random_playlist_gif(&selected);
+                        }
                         let dt = last_frame.elapsed();
                         gif_engine.render_next_frame(matrix.as_mut(), dt);
                         if rotation_state.mode_start_time.elapsed()
@@ -287,7 +291,7 @@ impl ArcadeMatrixApp {
                             speed: 30,
                             timeout_seconds: 10,
                         };
-                        matrix.clear();
+
                         message_engine.render(matrix.as_mut(), &payload);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(10)
@@ -317,7 +321,7 @@ impl ArcadeMatrixApp {
                     }
                     "marquee" => {
                         if let Some(ref img) = *self.config.image_obj.lock() {
-                            matrix.clear();
+
                             marquee_engine.render(matrix.as_mut(), img);
                         }
                         if rotation_state.mode_start_time.elapsed()
@@ -330,6 +334,7 @@ impl ArcadeMatrixApp {
                         clock_engine.render(matrix.as_mut(), &self.config);
                     }
                 }
+                last_mode = current_mode.to_string();
                 matrix.update();
                 // Composite fighter overlay on every frame if sprites are loaded
                 let sprite_count = self.config.settings.read().idle_sprite_count;
@@ -338,7 +343,7 @@ impl ArcadeMatrixApp {
                     matrix.update();
                 }
             } else {
-                matrix.clear();
+
                 clock_engine.render(matrix.as_mut(), &self.config);
                 let sprite_count = self.config.settings.read().idle_sprite_count;
                 if sprite_count > 0 {

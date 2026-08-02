@@ -1,6 +1,5 @@
 use crate::core::matrix::MatrixBackend;
-use gif::Decoder;
-use image::{Rgb, RgbImage};
+use image::{RgbImage};
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -14,16 +13,20 @@ pub struct GifEngine {
     last_played_gif: Option<PathBuf>,
     /// Accumulated time since last frame advance
     frame_elapsed: Duration,
+    target_width: u32,
+    target_height: u32,
 }
 
 impl GifEngine {
-    pub fn new() -> Self {
+    pub fn new(target_width: u32, target_height: u32) -> Self {
         Self {
             current_gif_path: None,
             frames: Vec::new(),
             frame_index: 0,
             last_played_gif: None,
             frame_elapsed: Duration::ZERO,
+            target_width,
+            target_height,
         }
     }
 
@@ -32,34 +35,36 @@ impl GifEngine {
             Ok(f) => f,
             Err(_) => return false,
         };
+        let reader = std::io::BufReader::new(file);
 
-        let mut decoder = match Decoder::new(file) {
+        let decoder = match image::codecs::gif::GifDecoder::new(reader) {
             Ok(d) => d,
             Err(_) => return false,
         };
 
         let mut frames = Vec::new();
-        while let Ok(Some(frame)) = decoder.read_next_frame() {
-            let width = frame.width as u32;
-            let height = frame.height as u32;
-            let mut img = RgbImage::new(width, height);
+        use image::AnimationDecoder;
+        if let Ok(decoded_frames) = decoder.into_frames().collect_frames() {
+            for frame in decoded_frames {
+                // `frame.into_buffer()` returns an RgbaImage. We convert to RgbImage.
+                let rgba_img = frame.clone().into_buffer();
+                let rgb_img = image::DynamicImage::ImageRgba8(rgba_img).into_rgb8();
 
-            for (i, pixel) in frame.buffer.chunks_exact(4).enumerate() {
-                let x = (i as u32) % width;
-                let y = (i as u32) / width;
-                img.put_pixel(x, y, Rgb([pixel[0], pixel[1], pixel[2]]));
+                // Resize to target dimensions using Nearest neighbor for speed and retro look
+                let resized = image::imageops::resize(
+                    &rgb_img,
+                    self.target_width,
+                    self.target_height,
+                    image::imageops::FilterType::Nearest,
+                );
+
+                // delay in image crate is a Delay struct. We can extract numerator/denominator.
+                let (num, den) = frame.delay().numer_denom_ms();
+                let ms = if den == 0 { 0 } else { num / den };
+                let delay = Duration::from_millis(if ms == 0 { 50 } else { ms as u64 });
+
+                frames.push((resized, delay));
             }
-
-            // frame.delay is in units of 10ms (centiseconds).
-            // Clamp to at least 50ms for broken/zero-delay GIFs.
-            let delay_cs = frame.delay;
-            let delay = Duration::from_millis(if delay_cs == 0 {
-                5
-            } else {
-                delay_cs as u64 * 10
-            });
-
-            frames.push((img, delay));
         }
 
         if !frames.is_empty() {

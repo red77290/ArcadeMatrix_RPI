@@ -1,5 +1,5 @@
 use arcadematrix::core::theme::{
-    generate_gradient_mask, get_theme_info, interpolate_color, parse_hex_color, ThemeGroup,
+    generate_gradient_mask, get_theme_info, interpolate_color, parse_hex_color,
 };
 
 #[test]

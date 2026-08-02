@@ -25,14 +25,28 @@ fn test_clock_engine_render_themes() {
 }
 
 #[test]
-fn test_date_engine_render() {
+fn test_date_engine_themes() {
     let temp_file = NamedTempFile::new().unwrap();
     let config = Config::new(temp_file.path());
     let mut matrix = MockMatrix::new(64, 32);
-    let mut date_engine = DateEngine::new();
+    let mut date_engine = DateEngine::new(64, 32);
 
-    matrix.clear();
-    date_engine.render(&mut matrix, &config);
+    for theme_id in [0, 18, 20, 21] {
+        config.settings.write().date_theme = theme_id;
+        matrix.clear();
+        date_engine.render(&mut matrix, &config);
+    }
+}
+
+#[test]
+fn test_weather_engine_init() {
+    let temp_file = NamedTempFile::new().unwrap();
+    let config = Config::new(temp_file.path());
+    let mut matrix = MockMatrix::new(64, 32);
+    let mut engine = arcadematrix::engines::weather::WeatherEngine::new();
+
+    // Render without API key (should draw "No API key")
+    engine.render(&mut matrix, &config);
 }
 
 #[test]
@@ -65,7 +79,7 @@ fn test_gif_engine_init() {
     let mut gif_engine = GifEngine::new();
     let mut matrix = MockMatrix::new(64, 32);
 
-    gif_engine.render_next_frame(&mut matrix);
+    gif_engine.render_next_frame(&mut matrix, std::time::Duration::from_millis(50));
     assert!(!gif_engine.load_gif("non_existent.gif"));
 }
 
@@ -73,19 +87,8 @@ fn test_gif_engine_init() {
 fn test_fighter_engine_initialization() {
     let mut engine = FighterEngine::new(64);
     let mut matrix = MockMatrix::new(64, 32);
-    let p1 = FighterSprite {
-        width: 16,
-        height: 16,
-        frames: vec![],
-    };
-    let p2 = FighterSprite {
-        width: 16,
-        height: 16,
-        frames: vec![],
-    };
-
-    engine.render(&mut matrix, &p1, &p2);
-    assert_eq!(engine.p1_x, 4);
+    engine.init_fight(32);
+    engine.composite(&mut matrix);
 }
 
 #[test]

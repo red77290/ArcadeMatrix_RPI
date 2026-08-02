@@ -58,6 +58,10 @@ function initNavigation() {
 
   const langSelect = document.getElementById('lang-selector');
   if (langSelect) {
+    const defaultLang = navigator.language.split('-')[0];
+    const initialLang = ['en', 'fr', 'es'].includes(defaultLang) ? defaultLang : 'en';
+    langSelect.value = initialLang;
+    setLanguage(initialLang);
     langSelect.addEventListener('change', (e) => setLanguage(e.target.value));
   }
 }

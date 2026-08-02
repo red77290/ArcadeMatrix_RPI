@@ -29,10 +29,14 @@ docker run --rm \
     
     echo '=> Compiling for 64-bit (aarch64)...'
     export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+    export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
+    export CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++
     CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --release --target aarch64-unknown-linux-gnu
     
     echo '=> Compiling for 32-bit (armv7)...'
     export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig
+    export CC_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-gcc
+    export CXX_armv7_unknown_linux_gnueabihf=arm-linux-gnueabihf-g++
     CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER=arm-linux-gnueabihf-gcc cargo build --release --target armv7-unknown-linux-gnueabihf
     "
 

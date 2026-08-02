@@ -372,8 +372,8 @@ async function initSettings() {
   }
 
   // Save Display Settings
-  const btnSaveDisplay = document.getElementById('btn-save-display');
-  if (btnSaveDisplay) {
+  const btnSaveDisplayList = document.querySelectorAll('.btn-save-display');
+  btnSaveDisplayList.forEach(btnSaveDisplay => {
     btnSaveDisplay.addEventListener('click', async () => {
       btnSaveDisplay.disabled = true;
       btnSaveDisplay.textContent = 'Saving...';
@@ -422,10 +422,10 @@ async function initSettings() {
         window.showToast('Failed to save settings', 'error');
       } finally {
         btnSaveDisplay.disabled = false;
-        btnSaveDisplay.textContent = 'Save All Display Settings';
+        btnSaveDisplay.textContent = 'Save Display Settings';
       }
     });
-  }
+  });
 
   // Save HW settings
   const btnSaveHw = document.getElementById('btn-save-hw');

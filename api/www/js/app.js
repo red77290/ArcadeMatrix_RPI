@@ -581,7 +581,7 @@ async function initPlaylists() {
         const pathsToSave = Array.from(checkboxes).map(cb => cb.value);
         
         try {
-          await API.post('/api/playlists/selected', { playlists: pathsToSave });
+          await API.post('/api/playlists/save', { playlists: pathsToSave });
           window.showToast('Playlists saved successfully!', 'success');
         } catch (e) {
           window.showToast('Failed to save playlists', 'error');

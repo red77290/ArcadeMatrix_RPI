@@ -548,6 +548,17 @@ async fn api_power(
     HttpResponse::Ok().json(json!({"status": "success", "matrix_power": p}))
 }
 
+async fn index() -> Result<actix_files::NamedFile, actix_web::Error> {
+    let path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www/index.html");
+    match actix_files::NamedFile::open(&path) {
+        Ok(f) => Ok(f),
+        Err(e) => {
+            tracing::error!("Failed to open index.html at {:?}: {}", path, e);
+            Err(actix_web::error::ErrorNotFound(e))
+        }
+    }
+}
+
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
     let state = web::Data::new(AppState { config });
     let serve_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www");
@@ -577,6 +588,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_power)
             .service(get_version)
             .service(handle_update)
+            .route("/", web::get().to(index))
             .service(
                 Files::new("/", serve_dir.to_string_lossy().to_string())
                     .index_file("index.html")

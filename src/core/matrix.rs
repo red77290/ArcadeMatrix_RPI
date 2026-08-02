@@ -83,7 +83,7 @@ use rpi_led_matrix::{LedCanvas, LedColor, LedMatrix, LedMatrixOptions, LedRuntim
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct HardwareMatrix {
     matrix: LedMatrix,
-    canvas: LedCanvas,
+    canvas: Option<LedCanvas>,
     brightness: u8,
 }
 
@@ -116,6 +116,7 @@ impl HardwareMatrix {
 
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown);
+        rt_options.set_drop_privileges(false);
 
         let matrix = LedMatrix::new(Some(options), Some(rt_options))
             .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;
@@ -123,7 +124,7 @@ impl HardwareMatrix {
 
         Ok(Self {
             matrix,
-            canvas,
+            canvas: Some(canvas),
             brightness,
         })
     }
@@ -132,11 +133,11 @@ impl HardwareMatrix {
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl MatrixBackend for HardwareMatrix {
     fn width(&self) -> u32 {
-        self.canvas.canvas_size().0 as u32
+        self.canvas.as_ref().unwrap().canvas_size().0 as u32
     }
 
     fn height(&self) -> u32 {
-        self.canvas.canvas_size().1 as u32
+        self.canvas.as_ref().unwrap().canvas_size().1 as u32
     }
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
@@ -147,26 +148,17 @@ impl MatrixBackend for HardwareMatrix {
                 green: (green as f32 * scale) as u8,
                 blue: (blue as f32 * scale) as u8,
             };
-            self.canvas.set(x, y, &color);
+            self.canvas.as_mut().unwrap().set(x, y, &color);
         }
     }
 
     fn clear(&mut self) {
-        self.canvas.clear();
+        self.canvas.as_mut().unwrap().clear();
     }
 
     fn update(&mut self) {
-        // Because swap() takes ownership of the canvas, we use dummy data momentarily or
-        // clone the wrapper. LedCanvas is just a handle, so creating a new one is safe.
-        // Wait, LedCanvas does not implement Clone.
-        // We can't move out of self.canvas. Let's use swap method properly:
-        // Actually LedMatrix.swap() takes LedCanvas and returns LedCanvas.
-        // We can't move self.canvas out, so we need an Option, or replace it.
-        // We can replace it by creating a dummy offscreen canvas, but that's a memory leak.
-        // Better way: use std::ptr::read/write or std::mem::replace.
-        let mut tmp_canvas = self.matrix.offscreen_canvas();
-        std::mem::swap(&mut self.canvas, &mut tmp_canvas);
-        self.canvas = self.matrix.swap(tmp_canvas);
+        let canvas = self.canvas.take().unwrap();
+        self.canvas = Some(self.matrix.swap(canvas));
     }
 
     fn set_brightness(&mut self, brightness: u8) {

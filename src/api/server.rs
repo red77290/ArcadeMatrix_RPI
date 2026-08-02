@@ -1,6 +1,5 @@
 use crate::api::ota::{get_version, handle_update};
 use crate::core::config::Config;
-use actix_files::Files;
 use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use serde_json::json;
 use std::sync::Arc;
@@ -280,9 +279,29 @@ async fn post_settings(
 
     drop(s);
     data.config.save();
-    data.config
-        .reload_flag
-        .store(true, std::sync::atomic::Ordering::Relaxed);
+
+    let mut needs_restart = false;
+    let restart_keys = [
+        "matrix_slowdown", "matrix_rows", "matrix_cols", "matrix_chain",
+        "matrix_parallel", "matrix_mapping", "matrix_rgb_sequence",
+        "matrix_pwm_bits", "matrix_pwm_lsb_nanoseconds",
+        "mqtt_enable", "mqtt_broker", "mqtt_port", "mqtt_user", "mqtt_pass"
+    ];
+
+    if let Some(obj) = body.as_object() {
+        for key in restart_keys.iter() {
+            if obj.contains_key(*key) {
+                needs_restart = true;
+                break;
+            }
+        }
+    }
+
+    if needs_restart {
+        data.config
+            .reload_flag
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
 
     HttpResponse::Ok().json(json!({"status": "success"}))
 }

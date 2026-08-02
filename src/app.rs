@@ -14,6 +14,7 @@ use crate::engines::message::{MessageEngine, MessagePayload};
 use crate::engines::weather::WeatherEngine;
 
 use std::net::UdpSocket;
+use std::os::unix::process::CommandExt;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::info;
@@ -150,6 +151,16 @@ impl ArcadeMatrixApp {
 
         // 2. Main rotation and engine loop
         while running.load(Ordering::SeqCst) {
+            // Auto-restart if configuration requires hardware reload
+            if self.config.reload_flag.swap(false, Ordering::Relaxed) {
+                tracing::info!("Configuration changed! Restarting application to apply hardware settings...");
+                let err = std::process::Command::new(std::env::current_exe().unwrap())
+                    .args(std::env::args().skip(1))
+                    .exec();
+                tracing::error!("Failed to restart process: {}", err);
+                break;
+            }
+
             // Standby / Night mode check
             let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
                 let s = self.config.settings.read();

@@ -11,6 +11,10 @@
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/pages.css">
+  <style>
+    .form-grid.col-3 { grid-template-columns: repeat(3, 1fr); }
+    .form-grid.col-4 { grid-template-columns: repeat(4, 1fr); }
+  </style>
 </head>
 <body>
   <div id="app">
@@ -63,7 +67,7 @@
               <button id="btn-power-toggle" class="btn btn-power-on">Turn Panel OFF</button>
             </div>
             <div class="slider-group" style="margin-top: 1.5rem;">
-              <label>Matrix Brightness Limit (<span id="val-brightness">40</span>%)</label>
+              <label>Matrix Brightness (<span id="val-brightness">40</span>%)</label>
               <input type="range" id="slider-brightness" min="1" max="100" value="40">
             </div>
           </div>
@@ -105,34 +109,167 @@
       <!-- Display Page -->
       <section id="page-display" class="page">
         <header class="page-header">
-          <h1 data-i18n="nav_display">Display</h1>
+          <h1 data-i18n="nav_display">Display Configuration</h1>
         </header>
+        
         <div class="card glass shadow">
-          <h3>Clock Settings</h3>
-          <div class="form-group">
-            <label>Clock Theme</label>
-            <select id="select-clock-theme" class="input">
-              <option value="0">Nintendo</option>
-              <option value="1">Capcom</option>
-              <option value="18">Cyberpunk</option>
-              <option value="21">True Matrix (Katakana)</option>
-              <option value="22">Pong Clock</option>
-              <option value="26">Pac-Man Clock</option>
-              <option value="27">Versus Health Bar</option>
-            </select>
+          <h3>🕒 Clock Settings</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Theme</label>
+              <select id="cfg-clock-theme" class="input">
+                <option value="0">Default Pixel</option>
+                <option value="1">Capcom</option>
+                <option value="18">Cyberpunk</option>
+                <option value="20">Flip Clock</option>
+                <option value="21">True Matrix (Katakana)</option>
+                <option value="22">Pong Clock</option>
+                <option value="23">Tetris Clock</option>
+                <option value="24">Word Clock</option>
+                <option value="26">Pac-Man Clock</option>
+                <option value="27">Versus Health Bar</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Font (TTF/BDF)</label>
+              <select id="cfg-clock-font" class="input"></select>
+            </div>
+            <div class="form-group">
+              <label>Format</label>
+              <select id="cfg-clock-24h" class="input">
+                <option value="true">24 Hours</option>
+                <option value="false">12 Hours (AM/PM)</option>
+              </select>
+            </div>
           </div>
-          <button id="btn-save-clock" class="btn btn-primary" style="margin-top: 1rem;">Save Clock Settings</button>
+          <div class="form-grid col-4" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Primary Color</label>
+              <input type="color" id="cfg-clock-color1" class="input">
+            </div>
+            <div class="form-group">
+              <label>Secondary Color</label>
+              <input type="color" id="cfg-clock-color2" class="input">
+            </div>
+            <div class="form-group">
+              <label>Offset X</label>
+              <input type="number" id="cfg-clock-x" class="input">
+            </div>
+            <div class="form-group">
+              <label>Offset Y</label>
+              <input type="number" id="cfg-clock-y" class="input">
+            </div>
+          </div>
         </div>
 
         <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>Custom Marquee Image</h3>
-          <p class="text-muted">Upload an image to display immediately on the matrix.</p>
-          <div id="marquee-drop-zone" class="drop-zone">
-            <div class="drop-icon">🖼️</div>
-            <div class="drop-text">Drop image here or click to browse</div>
-            <input type="file" id="marquee-file-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
+          <h3>📅 Date Settings</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Theme</label>
+              <select id="cfg-date-theme" class="input">
+                <option value="0">Default</option>
+                <option value="18">Cyberpunk</option>
+                <option value="20">Flip Clock</option>
+                <option value="21">Matrix</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Font</label>
+              <select id="cfg-date-font" class="input"></select>
+            </div>
+            <div class="form-group">
+              <label>Format (Chrono strftime)</label>
+              <input type="text" id="cfg-date-format" class="input" placeholder="%a %d %b">
+            </div>
+          </div>
+          <div class="form-grid col-4" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Primary Color</label>
+              <input type="color" id="cfg-date-color1" class="input">
+            </div>
+            <div class="form-group">
+              <label>Secondary Color</label>
+              <input type="color" id="cfg-date-color2" class="input">
+            </div>
+            <div class="form-group">
+              <label>Offset X</label>
+              <input type="number" id="cfg-date-x" class="input">
+            </div>
+            <div class="form-group">
+              <label>Offset Y</label>
+              <input type="number" id="cfg-date-y" class="input">
+            </div>
           </div>
         </div>
+
+        <div class="card glass shadow" style="margin-top: 2rem;">
+          <h3>☁️ Weather Settings (OpenWeatherMap)</h3>
+          <div class="form-grid col-3">
+            <div class="form-group">
+              <label>API Key</label>
+              <input type="text" id="cfg-weather-api" class="input" placeholder="OpenWeatherMap API Key">
+            </div>
+            <div class="form-group">
+              <label>City</label>
+              <input type="text" id="cfg-weather-city" class="input" placeholder="Paris,FR">
+            </div>
+            <div class="form-group">
+              <label>Language</label>
+              <select id="cfg-weather-lang" class="input">
+                <option value="en">EN</option>
+                <option value="fr">FR</option>
+                <option value="es">ES</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass shadow" style="margin-top: 2rem;">
+          <h3>🔄 Idle Rotation & Night Mode</h3>
+          <div class="form-group">
+            <label>Rotation Order (comma separated)</label>
+            <input type="text" id="cfg-rotation" class="input" placeholder="clock,date,weather,gifs">
+          </div>
+          <div class="form-grid col-4" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Clock Duration (s)</label>
+              <input type="number" id="cfg-dur-clock" class="input" min="5">
+            </div>
+            <div class="form-group">
+              <label>Date Duration (s)</label>
+              <input type="number" id="cfg-dur-date" class="input" min="5">
+            </div>
+            <div class="form-group">
+              <label>Weather Duration (s)</label>
+              <input type="number" id="cfg-dur-weather" class="input" min="5">
+            </div>
+            <div class="form-group">
+              <label>GIFs Count</label>
+              <input type="number" id="cfg-dur-gifs" class="input" min="1">
+            </div>
+          </div>
+          <hr style="margin: 1.5rem 0; border-color: rgba(255,255,255,0.1);">
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Night Mode</label>
+              <select id="cfg-night-enable" class="input">
+                <option value="false">Disabled</option>
+                <option value="true">Enabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Turn Off At (HH:MM)</label>
+              <input type="text" id="cfg-night-off" class="input" placeholder="23:00">
+            </div>
+            <div class="form-group">
+              <label>Wake Up At (HH:MM)</label>
+              <input type="text" id="cfg-night-on" class="input" placeholder="07:00">
+            </div>
+          </div>
+        </div>
+
+        <button id="btn-save-display" class="btn btn-primary btn-lg" style="margin-top: 2rem; width: 100%;">Save All Display Settings</button>
       </section>
 
       <!-- Media Page -->
@@ -141,8 +278,19 @@
           <h1 data-i18n="nav_media">Media</h1>
         </header>
         <div class="card glass shadow">
+          <h3>Custom Marquee Image</h3>
+          <p class="text-muted">Upload an image to display immediately on the matrix.</p>
+          <div id="marquee-drop-zone" class="drop-zone">
+            <div class="drop-icon">🖼️</div>
+            <div class="drop-text">Drop image here or click to browse</div>
+            <input type="file" id="marquee-file-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
+          </div>
+        </div>
+        
+        <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>GIF Playlists</h3>
           <p>Select which GIF folders play during idle rotation.</p>
+          <!-- Handled via dynamic JS rendering -->
         </div>
       </section>
 
@@ -173,13 +321,18 @@
           <div class="form-grid">
             <div class="form-group">
               <label>Rows (Height)</label>
-              <input type="number" id="hw-rows" class="input" value="32">
+              <input type="number" id="hw-rows" class="input" value="32" disabled>
             </div>
             <div class="form-group">
               <label>Cols (Width)</label>
-              <input type="number" id="hw-cols" class="input" value="64">
+              <input type="number" id="hw-cols" class="input" value="64" disabled>
+            </div>
+            <div class="form-group">
+              <label>Slowdown</label>
+              <input type="number" id="hw-slowdown" class="input">
             </div>
           </div>
+          <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem;">Save Hardware Settings</button>
         </div>
 
         <!-- Network & MQTT -->
@@ -219,7 +372,7 @@
               <input type="number" id="hw-mqtt-port" class="input" value="1883">
             </div>
           </div>
-          <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem;">Save Settings</button>
+          <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem;">Save MQTT Settings</button>
           
           <h4 style="margin-top: 1.5rem;">Recalbox / Batocera Sync</h4>
           <p class="text-muted" style="font-size: 0.9em;">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>

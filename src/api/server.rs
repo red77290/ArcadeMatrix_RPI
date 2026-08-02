@@ -103,6 +103,7 @@ async fn post_settings(
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
     let mut s = data.config.settings.write();
+    let old_s = s.clone();
 
     // Matrix settings
     if let Some(v) = body.get("brightness_limit").and_then(|v| v.as_u64()) {
@@ -277,25 +278,26 @@ async fn post_settings(
         s.api_token = v.to_string();
     }
 
+
+
+    let needs_restart = 
+        old_s.matrix_slowdown != s.matrix_slowdown ||
+        old_s.matrix_rows != s.matrix_rows ||
+        old_s.matrix_cols != s.matrix_cols ||
+        old_s.matrix_chain != s.matrix_chain ||
+        old_s.matrix_parallel != s.matrix_parallel ||
+        old_s.matrix_mapping != s.matrix_mapping ||
+        old_s.matrix_rgb_sequence != s.matrix_rgb_sequence ||
+        old_s.matrix_pwm_bits != s.matrix_pwm_bits ||
+        old_s.matrix_pwm_lsb_nanoseconds != s.matrix_pwm_lsb_nanoseconds ||
+        old_s.mqtt_enabled != s.mqtt_enabled ||
+        old_s.mqtt_broker != s.mqtt_broker ||
+        old_s.mqtt_port != s.mqtt_port ||
+        old_s.mqtt_user != s.mqtt_user ||
+        old_s.mqtt_pass != s.mqtt_pass;
+
     drop(s);
     data.config.save();
-
-    let mut needs_restart = false;
-    let restart_keys = [
-        "matrix_slowdown", "matrix_rows", "matrix_cols", "matrix_chain",
-        "matrix_parallel", "matrix_mapping", "matrix_rgb_sequence",
-        "matrix_pwm_bits", "matrix_pwm_lsb_nanoseconds",
-        "mqtt_enable", "mqtt_broker", "mqtt_port", "mqtt_user", "mqtt_pass"
-    ];
-
-    if let Some(obj) = body.as_object() {
-        for key in restart_keys.iter() {
-            if obj.contains_key(*key) {
-                needs_restart = true;
-                break;
-            }
-        }
-    }
 
     if needs_restart {
         data.config
@@ -316,9 +318,6 @@ async fn post_clock(
         s.time_theme = theme as i32;
         drop(s);
         data.config.save();
-        data.config
-            .reload_flag
-            .store(true, std::sync::atomic::Ordering::Relaxed);
     }
     HttpResponse::Ok().json(json!({"status": "success"}))
 }

@@ -90,9 +90,20 @@ impl TrueMatrixRenderer {
                 };
                 self.buffer[head_y as usize][col.x as usize] = head_color;
 
-                // Katakana character represented as a pixel dot cluster (approx 4×6 dots)
-                // We don't have a full font renderer here, so we paint a bright dot
-                // and mark the cell — visual effect is sufficient at LED matrix resolution
+                // Draw pseudo-kanji (3x4 pixel cluster) based on char_code
+                for cy in 0..4 {
+                    for cx in 0..3 {
+                        // Use bits of char_code + cx + cy as a pseudo-random toggle
+                        let bit = (col.char_code >> ((cy * 3 + cx) % 32)) & 1;
+                        if bit == 1 {
+                            let py = head_y - cy;
+                            let px = col.x + cx;
+                            if py >= 0 && py < h as i32 && px >= 0 && px < w as i32 {
+                                self.buffer[py as usize][px as usize] = head_color;
+                            }
+                        }
+                    }
+                }
             }
 
             // Trail behind head
@@ -100,13 +111,20 @@ impl TrueMatrixRenderer {
                 let trail_y = head_y - i as i32;
                 if trail_y >= 0 && trail_y < h as i32 {
                     let intensity = (255.0 * (1.0 - i as f32 / col.trail_len as f32)) as u8;
-                    let existing = self.buffer[trail_y as usize][col.x as usize];
-                    // Blend: take the max of existing fade and new trail
-                    self.buffer[trail_y as usize][col.x as usize] = (
-                        existing.0.max(0),
-                        existing.1.max(intensity),
-                        existing.2.max(0),
-                    );
+                    for cx in 0..3 {
+                        let px = col.x + cx;
+                        if px >= 0 && px < w as i32 {
+                            let existing = self.buffer[trail_y as usize][px as usize];
+                            let bit = (col.char_code >> (((i % 4) * 3 + cx as usize) % 32)) & 1;
+                            if bit == 1 {
+                                self.buffer[trail_y as usize][px as usize] = (
+                                    existing.0.max(0),
+                                    existing.1.max(intensity),
+                                    existing.2.max(0),
+                                );
+                            }
+                        }
+                    }
                 }
             }
         }

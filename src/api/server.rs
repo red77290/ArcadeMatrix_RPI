@@ -32,7 +32,7 @@ async fn api_fonts() -> impl Responder {
     if let Ok(entries) = std::fs::read_dir("fonts") {
         for entry in entries.flatten() {
             if let Ok(name) = entry.file_name().into_string() {
-                if name.ends_with(".ttf") || name.ends_with(".otf") || name.ends_with(".bdf") {
+                if name.ends_with(".ttf") || name.ends_with(".otf") {
                     fonts.push(name);
                 }
             }
@@ -237,6 +237,9 @@ async fn post_settings(
     }
     if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
         s.idle_fighter_interval = v as u32;
+    }
+    if let Some(v) = body.get("idle_sprite_count").and_then(|v| v.as_u64()) {
+        s.idle_sprite_count = v as u32;
     }
 
     // Standby / Night mode

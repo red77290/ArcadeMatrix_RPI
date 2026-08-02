@@ -11,6 +11,7 @@ fi
 
 # Target total image size. Default to 14G to safely fit on a 16GB SD card.
 IMAGE_SIZE=${1:-14G}
+ARCH=${2:-aarch64}
 
 echo "=========================================================="
 echo "      ArcadeMatrix RPi Image Builder (Multi-Platform -> Docker)"
@@ -19,18 +20,20 @@ echo "This will download Raspberry Pi OS, cross-compile the Rust"
 echo "binary, and inject it into a minimal DATA partition."
 echo ""
 echo "🎯 Target Image Size: $IMAGE_SIZE"
+echo "🎯 Target Architecture: $ARCH"
 echo ""
 echo "⏳ This process will take about 5 minutes. Please wait..."
 echo "=========================================================="
 
-echo "🦀 Step 1: Cross-compiling Rust binary for ARM64..."
+echo "🦀 Step 1: Cross-compiling Rust binary..."
 bash scripts/build_local.sh
 
-echo "📦 Step 2: Building Raspberry Pi OS Image..."
+echo "📦 Step 2: Building Raspberry Pi OS Image ($ARCH)..."
 
 # Run the Ubuntu container in privileged mode to allow loop devices and mounting
 docker run --rm --privileged \
     -e IMAGE_SIZE="$IMAGE_SIZE" \
+    -e ARCH="$ARCH" \
     -v "$(pwd)":/workspace \
     -w /workspace \
     debian:bookworm \
@@ -38,5 +41,5 @@ docker run --rm --privileged \
 
 echo "=========================================================="
 echo "✅ Build Complete!"
-echo "You can now flash 'ArcadeMatrix_Release.img' using Raspberry Pi Imager."
+echo "You can now flash 'ArcadeMatrix_Release_$ARCH.img' using Raspberry Pi Imager."
 echo "=========================================================="

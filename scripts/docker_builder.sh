@@ -4,17 +4,25 @@ echo "📦 Installing build dependencies inside Docker..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs exfat-fuse xz-utils sudo parted python3 rsync
 
-echo "📥 Downloading latest Raspberry Pi OS Lite (ARM64 Bookworm)..."
-IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
+echo "📥 Downloading latest Raspberry Pi OS Lite ($ARCH Bookworm)..."
+if [ "$ARCH" = "aarch64" ]; then
+    IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
+    BIN_TARGET="aarch64-unknown-linux-gnu"
+    QEMU_BIN="/usr/bin/qemu-aarch64-static"
+else
+    IMG_URL="https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz"
+    BIN_TARGET="armv7-unknown-linux-gnueabihf"
+    QEMU_BIN="/usr/bin/qemu-arm-static"
+fi
 
 IMG_FILE="/tmp/ArcadeMatrix_Build_${RANDOM}.img"
 
-if [ -f "/workspace/raspios.img.xz" ]; then
-    echo "Using cached /workspace/raspios.img.xz"
-    cp /workspace/raspios.img.xz /tmp/raspios.img.xz
+if [ -f "/workspace/raspios_${ARCH}.img.xz" ]; then
+    echo "Using cached /workspace/raspios_${ARCH}.img.xz"
+    cp /workspace/raspios_${ARCH}.img.xz /tmp/raspios.img.xz
 else
     wget -O /tmp/raspios.img.xz "$IMG_URL"
-    cp /tmp/raspios.img.xz /workspace/raspios.img.xz || true
+    cp /tmp/raspios.img.xz /workspace/raspios_${ARCH}.img.xz || true
 fi
 
 echo "🗜️ Extracting OS image natively in /tmp..."
@@ -88,7 +96,7 @@ touch /mnt/rootfs/boot/firmware/ssh
 echo 'pi:$6$QM6/3dOlZrhCz7hG$RmgUadMoSC0mutMdHHhzjd52prRdb3zFcgOp5yZhza8LHQBwh.RbaFpBlf1YJSws6qz/H46VLIJ6YtQq6cNR/.' > /mnt/rootfs/boot/firmware/userconf.txt
 
 echo "🛠️ Preparing CHROOT environment..."
-cp /usr/bin/qemu-aarch64-static /mnt/rootfs/usr/bin/
+cp $QEMU_BIN /mnt/rootfs/usr/bin/
 mount --bind /dev /mnt/rootfs/dev
 mount --bind /sys /mnt/rootfs/sys
 mount --bind /proc /mnt/rootfs/proc
@@ -102,7 +110,7 @@ cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 
 echo "📁 Injecting cross-compiled Rust binary..."
 mkdir -p /mnt/rootfs/usr/local/bin
-cp /workspace/target/aarch64-unknown-linux-gnu/release/arcadematrix /mnt/rootfs/usr/local/bin/arcadematrix
+cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/usr/local/bin/arcadematrix
 chmod +x /mnt/rootfs/usr/local/bin/arcadematrix
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
@@ -136,5 +144,5 @@ umount /mnt/rootfs
 losetup -d $LOOP_DEV || true
 kpartx -d $LOOP_DEV || true
 
-mv $IMG_FILE /workspace/ArcadeMatrix_Release.img
-echo "🎉 Image built successfully: ArcadeMatrix_Release.img"
+mv $IMG_FILE /workspace/ArcadeMatrix_Release_${ARCH}.img
+echo "🎉 Image built successfully: ArcadeMatrix_Release_${ARCH}.img"

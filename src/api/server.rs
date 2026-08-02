@@ -121,8 +121,23 @@ async fn post_settings(
     if let Some(v) = body.get("matrix_cols").and_then(|v| v.as_u64()) {
         s.matrix_cols = v as u32;
     }
+    if let Some(v) = body.get("matrix_chain").and_then(|v| v.as_u64()) {
+        s.matrix_chain = v as u32;
+    }
+    if let Some(v) = body.get("matrix_parallel").and_then(|v| v.as_u64()) {
+        s.matrix_parallel = v as u32;
+    }
     if let Some(v) = body.get("matrix_mapping").and_then(|v| v.as_str()) {
         s.matrix_mapping = v.to_string();
+    }
+    if let Some(v) = body.get("matrix_rgb_sequence").and_then(|v| v.as_str()) {
+        s.matrix_rgb_sequence = v.to_string();
+    }
+    if let Some(v) = body.get("matrix_pwm_bits").and_then(|v| v.as_u64()) {
+        s.matrix_pwm_bits = v as u32;
+    }
+    if let Some(v) = body.get("matrix_pwm_lsb_nanoseconds").and_then(|v| v.as_u64()) {
+        s.matrix_pwm_lsb_nanoseconds = v as u32;
     }
 
     // Clock settings
@@ -132,8 +147,14 @@ async fn post_settings(
     if let Some(v) = body.get("clock_font").and_then(|v| v.as_str()) {
         s.time_font = v.to_string();
     }
-    if let Some(v) = body.get("clock_size").and_then(|v| v.as_u64()) {
+    if let Some(v) = body.get("time_size").and_then(|v| v.as_u64()) {
         s.time_size = v as u32;
+    }
+    if let Some(v) = body.get("ntp_server").and_then(|v| v.as_str()) {
+        s.ntp_server = v.to_string();
+    }
+    if let Some(v) = body.get("timezone").and_then(|v| v.as_str()) {
+        s.timezone = v.to_string();
     }
     if let Some(v) = body.get("clock_color_1").and_then(|v| v.as_str()) {
         s.clock_color_1 = v.to_string();
@@ -214,8 +235,8 @@ async fn post_settings(
     if let Some(v) = body.get("gifs_count").and_then(|v| v.as_u64()) {
         s.idle_gifs_count = v as u32;
     }
-    if let Some(v) = body.get("sprite_count").and_then(|v| v.as_u64()) {
-        s.idle_sprite_count = v as u32;
+    if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
+        s.idle_fighter_interval = v as u32;
     }
 
     // Standby / Night mode
@@ -247,6 +268,14 @@ async fn post_settings(
     }
     if let Some(v) = body.get("mqtt_pass").and_then(|v| v.as_str()) {
         s.mqtt_pass = v.to_string();
+    }
+
+    // API settings
+    if let Some(v) = body.get("api_auth_enabled").and_then(|v| v.as_bool()) {
+        s.api_auth_enabled = v;
+    }
+    if let Some(v) = body.get("api_token").and_then(|v| v.as_str()) {
+        s.api_token = v.to_string();
     }
 
     drop(s);

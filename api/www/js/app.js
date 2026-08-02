@@ -243,11 +243,27 @@ function initNetworkSettings() {
       const mqtt_enable = document.getElementById('hw-mqtt-enable').value === '1';
       const mqtt_broker = document.getElementById('hw-mqtt-broker').value;
       const mqtt_port = parseInt(document.getElementById('hw-mqtt-port').value, 10);
+      const mqtt_user = document.getElementById('hw-mqtt-user').value;
+      const mqtt_pass = document.getElementById('hw-mqtt-pass').value;
       try {
-        await API.post('/api/settings', { mqtt_enable, mqtt_broker, mqtt_port });
+        await API.post('/api/settings', { mqtt_enable, mqtt_broker, mqtt_port, mqtt_user, mqtt_pass });
         window.showToast('MQTT Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save MQTT Settings', 'error');
+      }
+    });
+  }
+
+  const btnSaveApi = document.getElementById('btn-save-api');
+  if (btnSaveApi) {
+    btnSaveApi.addEventListener('click', async () => {
+      const api_auth_enabled = document.getElementById('hw-api-auth').value === 'true';
+      const api_token = document.getElementById('hw-api-token').value;
+      try {
+        await API.post('/api/settings', { api_auth_enabled, api_token });
+        window.showToast('API Auth Settings Saved!', 'success');
+      } catch (e) {
+        window.showToast('Failed to save API Auth Settings', 'error');
       }
     });
   }
@@ -290,18 +306,32 @@ async function initSettings() {
     // Hardware
     document.getElementById('hw-rows').value = s.matrix_rows;
     document.getElementById('hw-cols').value = s.matrix_cols;
-    document.getElementById('hw-slowdown').value = s.matrix_slowdown;
+    document.getElementById('hw-chain').value = s.matrix_chain;
+    document.getElementById('hw-parallel').value = s.matrix_parallel;
     document.getElementById('hw-mapping').value = s.matrix_mapping || 'regular';
+    document.getElementById('hw-rgb').value = s.matrix_rgb_sequence || 'RGB';
+    document.getElementById('hw-slowdown').value = s.matrix_slowdown;
+    document.getElementById('hw-pwm-bits').value = s.matrix_pwm_bits;
+    document.getElementById('hw-pwm-lsb').value = s.matrix_pwm_lsb_nanoseconds;
     
     // MQTT
     document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
     document.getElementById('hw-mqtt-broker').value = s.mqtt_broker;
     document.getElementById('hw-mqtt-port').value = s.mqtt_port;
+    document.getElementById('hw-mqtt-user').value = s.mqtt_user || '';
+    document.getElementById('hw-mqtt-pass').value = s.mqtt_pass || '';
+
+    // API
+    document.getElementById('hw-api-auth').value = s.api_auth_enabled ? 'true' : 'false';
+    document.getElementById('hw-api-token').value = s.api_token || '';
 
     // Clock
     document.getElementById('cfg-clock-theme').value = s.clock_theme;
     document.getElementById('cfg-clock-font').value = s.clock_font;
     document.getElementById('cfg-clock-24h').value = s.format_24h ? 'true' : 'false';
+    document.getElementById('cfg-clock-size').value = s.time_size || 2;
+    document.getElementById('cfg-ntp-server').value = s.ntp_server || 'pool.ntp.org';
+    document.getElementById('cfg-timezone').value = s.timezone || 'Europe/Paris';
     document.getElementById('cfg-clock-color1').value = s.clock_color_1;
     document.getElementById('cfg-clock-color2').value = s.clock_color_2;
     document.getElementById('cfg-clock-x').value = s.clock_offset_x;
@@ -311,6 +341,7 @@ async function initSettings() {
     document.getElementById('cfg-date-theme').value = s.date_theme;
     document.getElementById('cfg-date-font').value = s.date_font;
     document.getElementById('cfg-date-format').value = s.date_format;
+    document.getElementById('cfg-date-size').value = s.date_size || 1;
     document.getElementById('cfg-date-color1').value = s.date_color_1;
     document.getElementById('cfg-date-color2').value = s.date_color_2;
     document.getElementById('cfg-date-x').value = s.date_offset_x;
@@ -320,6 +351,8 @@ async function initSettings() {
     document.getElementById('cfg-weather-api').value = s.weather_api_key;
     document.getElementById('cfg-weather-city').value = s.weather_city;
     document.getElementById('cfg-weather-lang').value = s.weather_lang;
+    document.getElementById('cfg-weather-x').value = s.weather_offset_x || 0;
+    document.getElementById('cfg-weather-y').value = s.weather_offset_y || 0;
 
     // Rotation
     document.getElementById('cfg-rotation').value = s.rotation;
@@ -327,6 +360,7 @@ async function initSettings() {
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
     document.getElementById('cfg-dur-gifs').value = s.gifs_count;
+    document.getElementById('cfg-fighter-int').value = s.idle_fighter_interval || 5;
 
     // Night Mode
     document.getElementById('cfg-night-enable').value = s.night_mode_enabled ? 'true' : 'false';
@@ -348,6 +382,9 @@ async function initSettings() {
           clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
           clock_font: document.getElementById('cfg-clock-font').value,
           format_24h: document.getElementById('cfg-clock-24h').value === 'true',
+          time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
+          ntp_server: document.getElementById('cfg-ntp-server').value,
+          timezone: document.getElementById('cfg-timezone').value,
           clock_color_1: document.getElementById('cfg-clock-color1').value,
           clock_color_2: document.getElementById('cfg-clock-color2').value,
           clock_offset_x: parseInt(document.getElementById('cfg-clock-x').value) || 0,
@@ -356,6 +393,7 @@ async function initSettings() {
           date_theme: parseInt(document.getElementById('cfg-date-theme').value),
           date_font: document.getElementById('cfg-date-font').value,
           date_format: document.getElementById('cfg-date-format').value,
+          date_size: parseInt(document.getElementById('cfg-date-size').value) || 1,
           date_color_1: document.getElementById('cfg-date-color1').value,
           date_color_2: document.getElementById('cfg-date-color2').value,
           date_offset_x: parseInt(document.getElementById('cfg-date-x').value) || 0,
@@ -364,12 +402,15 @@ async function initSettings() {
           weather_api_key: document.getElementById('cfg-weather-api').value,
           weather_city: document.getElementById('cfg-weather-city').value,
           weather_lang: document.getElementById('cfg-weather-lang').value,
+          weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
+          weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
 
           rotation: document.getElementById('cfg-rotation').value,
           clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,
           date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
           weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
           gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 1,
+          idle_fighter_interval: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
 
           night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
           turn_off_at: document.getElementById('cfg-night-off').value,
@@ -390,16 +431,27 @@ async function initSettings() {
   const btnSaveHw = document.getElementById('btn-save-hw');
   if (btnSaveHw) {
     btnSaveHw.addEventListener('click', async () => {
-      const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 0;
       const rows = parseInt(document.getElementById('hw-rows').value) || 32;
       const cols = parseInt(document.getElementById('hw-cols').value) || 64;
+      const chain = parseInt(document.getElementById('hw-chain').value) || 1;
+      const parallel = parseInt(document.getElementById('hw-parallel').value) || 1;
       const mapping = document.getElementById('hw-mapping').value || 'regular';
+      const rgb = document.getElementById('hw-rgb').value || 'RGB';
+      const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 2;
+      const pwmBits = parseInt(document.getElementById('hw-pwm-bits').value) || 11;
+      const pwmLsb = parseInt(document.getElementById('hw-pwm-lsb').value) || 130;
+      
       try {
         await API.post('/api/settings', { 
-          matrix_slowdown: slowdown,
           matrix_rows: rows,
           matrix_cols: cols,
-          matrix_mapping: mapping
+          matrix_chain: chain,
+          matrix_parallel: parallel,
+          matrix_mapping: mapping,
+          matrix_rgb_sequence: rgb,
+          matrix_slowdown: slowdown,
+          matrix_pwm_bits: pwmBits,
+          matrix_pwm_lsb_nanoseconds: pwmLsb
         });
         window.showToast('Hardware settings saved! Restart required.', 'success');
       } catch (e) {

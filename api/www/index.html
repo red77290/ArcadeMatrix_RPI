@@ -130,17 +130,13 @@
                 <option value="0">Default Pixel</option>
                 <option value="1">Capcom</option>
                 <option value="18">Cyberpunk</option>
-                <option value="20">Flip Clock</option>
-                <option value="21">True Matrix (Katakana)</option>
-                <option value="22">Pong Clock</option>
-                <option value="23">Tetris Clock</option>
-                <option value="24">Word Clock</option>
-                <option value="26">Pac-Man Clock</option>
-                <option value="27">Versus Health Bar</option>
+                <option value="0">Default</option>
+                <option value="1">Cyberpunk</option>
+                <option value="2">Minimalist</option>
               </select>
             </div>
             <div class="form-group">
-              <label>Font (TTF/BDF)</label>
+              <label>Font</label>
               <select id="cfg-clock-font" class="input"></select>
             </div>
             <div class="form-group">
@@ -149,6 +145,20 @@
                 <option value="true">24 Hours</option>
                 <option value="false">12 Hours (AM/PM)</option>
               </select>
+            </div>
+            <div class="form-group">
+              <label>Size (Scale)</label>
+              <input type="number" id="cfg-clock-size" class="input" value="2">
+            </div>
+          </div>
+          <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>NTP Server</label>
+              <input type="text" id="cfg-ntp-server" class="input" placeholder="pool.ntp.org">
+            </div>
+            <div class="form-group">
+              <label>Timezone (e.g. Europe/Paris)</label>
+              <input type="text" id="cfg-timezone" class="input" placeholder="Europe/Paris">
             </div>
           </div>
           <div class="form-grid col-4" style="margin-top: 1rem;">
@@ -191,6 +201,10 @@
               <label>Format (Chrono strftime)</label>
               <input type="text" id="cfg-date-format" class="input" placeholder="%a %d %b">
             </div>
+            <div class="form-group">
+              <label>Size (Scale)</label>
+              <input type="number" id="cfg-date-size" class="input" value="1">
+            </div>
           </div>
           <div class="form-grid col-4" style="margin-top: 1rem;">
             <div class="form-group">
@@ -232,6 +246,16 @@
               </select>
             </div>
           </div>
+          <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Offset X</label>
+              <input type="number" id="cfg-weather-x" class="input" value="0">
+            </div>
+            <div class="form-group">
+              <label>Offset Y</label>
+              <input type="number" id="cfg-weather-y" class="input" value="0">
+            </div>
+          </div>
         </div>
 
         <div class="card glass shadow" style="margin-top: 2rem;">
@@ -240,7 +264,17 @@
             <label>Rotation Order (comma separated)</label>
             <input type="text" id="cfg-rotation" class="input" placeholder="clock,date,weather,gifs">
           </div>
-          <div class="form-grid col-4" style="margin-top: 1rem;">
+          <div class="form-grid col-3" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>GIFs per cycle</label>
+              <input type="number" id="cfg-dur-gifs" class="input" min="1">
+            </div>
+            <div class="form-group">
+              <label>Fighter Interval (s)</label>
+              <input type="number" id="cfg-fighter-int" class="input" min="1">
+            </div>
+          </div>
+          <div class="form-grid col-3" style="margin-top: 1rem;">
             <div class="form-group">
               <label>Clock Duration (s)</label>
               <input type="number" id="cfg-dur-clock" class="input" min="5">
@@ -252,10 +286,6 @@
             <div class="form-group">
               <label>Weather Duration (s)</label>
               <input type="number" id="cfg-dur-weather" class="input" min="5">
-            </div>
-            <div class="form-group">
-              <label>GIFs Count</label>
-              <input type="number" id="cfg-dur-gifs" class="input" min="1">
             </div>
           </div>
           <hr style="margin: 1.5rem 0; border-color: rgba(255,255,255,0.1);">
@@ -375,9 +405,15 @@
               <input type="number" id="hw-cols" class="input" value="64">
             </div>
             <div class="form-group">
-              <label>Slowdown</label>
-              <input type="number" id="hw-slowdown" class="input">
+              <label>Chain Length</label>
+              <input type="number" id="hw-chain" class="input" value="1">
             </div>
+            <div class="form-group">
+              <label>Parallel Chains</label>
+              <input type="number" id="hw-parallel" class="input" value="1">
+            </div>
+          </div>
+          <div class="form-grid col-4" style="margin-top: 1rem;">
             <div class="form-group">
               <label>HAT / Mapping</label>
               <select id="hw-mapping" class="input">
@@ -386,6 +422,31 @@
                 <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
                 <option value="compute-module">Compute Module</option>
               </select>
+            </div>
+            <div class="form-group">
+              <label>RGB Sequence</label>
+              <select id="hw-rgb" class="input">
+                <option value="RGB">RGB</option>
+                <option value="RBG">RBG</option>
+                <option value="GRB">GRB</option>
+                <option value="GBR">GBR</option>
+                <option value="BRG">BRG</option>
+                <option value="BGR">BGR</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Slowdown</label>
+              <input type="number" id="hw-slowdown" class="input" value="2">
+            </div>
+            <div class="form-group">
+              <label>PWM Bits</label>
+              <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
+            </div>
+          </div>
+          <div class="form-grid col-4" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>PWM LSB (ns)</label>
+              <input type="number" id="hw-pwm-lsb" class="input" value="130">
             </div>
           </div>
           <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem;">Save Hardware Settings</button>
@@ -428,7 +489,35 @@
               <input type="number" id="hw-mqtt-port" class="input" value="1883">
             </div>
           </div>
+          <div class="form-grid" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Username</label>
+              <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional">
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
+            </div>
+          </div>
           <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem;">Save MQTT Settings</button>
+
+          <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
+
+          <h4>API Authentication</h4>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Require Auth for API</label>
+              <select id="hw-api-auth" class="input">
+                <option value="false">Disabled</option>
+                <option value="true">Enabled</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>API Token</label>
+              <input type="text" id="hw-api-token" class="input" placeholder="Token for clients">
+            </div>
+          </div>
+          <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem;">Save API Auth</button>
           
           <h4 style="margin-top: 1.5rem;">Recalbox / Batocera Sync</h4>
           <p class="text-muted" style="font-size: 0.9em;">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>

@@ -4,6 +4,20 @@ import './components/toast.js';
 
 let selectedOtaFile = null;
 
+window.switchDisplayTab = function(tabId) {
+  // Update buttons
+  document.querySelectorAll('#page-display .tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.currentTarget.classList.add('active');
+
+  // Update panes
+  document.querySelectorAll('#page-display .tab-pane').forEach(pane => {
+    pane.classList.remove('active');
+  });
+  document.getElementById('tab-' + tabId).classList.add('active');
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initDashboard();

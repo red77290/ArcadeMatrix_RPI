@@ -120,9 +120,17 @@
             <h1 data-i18n="nav_display">Display Settings</h1>
           </div>
         </header>
+
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchDisplayTab('clock')">🕒 Clock</button>
+          <button class="tab-btn" onclick="switchDisplayTab('date')">📅 Date</button>
+          <button class="tab-btn" onclick="switchDisplayTab('weather')">☁️ Weather</button>
+          <button class="tab-btn" onclick="switchDisplayTab('idle')">🔄 Idle & Night</button>
+        </div>
         
-        <div class="card glass shadow">
-          <h3>🕒 Clock Settings</h3>
+        <div id="tab-clock" class="tab-pane active">
+          <div class="card glass shadow">
+            <h3>🕒 Clock Settings</h3>
           <div class="form-grid">
             <div class="form-group">
               <label>Theme</label>
@@ -178,7 +186,9 @@
           </div>
           <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
         </div>
+        </div>
 
+        <div id="tab-date" class="tab-pane">
         <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>📅 Date Settings</h3>
           <div class="form-grid">
@@ -224,7 +234,9 @@
           </div>
           <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
         </div>
+        </div>
 
+        <div id="tab-weather" class="tab-pane">
         <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>☁️ Weather Settings (OpenWeatherMap)</h3>
           <div class="form-grid col-3">
@@ -257,7 +269,9 @@
           </div>
           <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
         </div>
+        </div>
 
+        <div id="tab-idle" class="tab-pane">
         <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>🔄 Idle Rotation & Night Mode</h3>
           <div class="form-group">
@@ -307,6 +321,7 @@
             </div>
           </div>
           <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
+        </div>
         </div>
       </section>
 

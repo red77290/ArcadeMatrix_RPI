@@ -370,6 +370,10 @@ async function initSettings() {
 
     // Rotation
     document.getElementById('cfg-rotation').value = s.rotation;
+    const rotationArr = (s.rotation || '').split(',').map(x => x.trim());
+    document.querySelectorAll('.rotation-toggles input[type="checkbox"]').forEach(cb => {
+      cb.checked = rotationArr.includes(cb.value);
+    });
     document.getElementById('cfg-dur-clock').value = s.clock_duration_sec;
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
@@ -392,35 +396,38 @@ async function initSettings() {
       btnSaveDisplay.disabled = true;
       btnSaveDisplay.textContent = 'Saving...';
       try {
-        const payload = {
-          clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
-          clock_font: document.getElementById('cfg-clock-font').value,
-          format_24h: document.getElementById('cfg-clock-24h').value === 'true',
-          time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
-          ntp_server: document.getElementById('cfg-ntp-server').value,
-          timezone: document.getElementById('cfg-timezone').value,
-          clock_color_1: document.getElementById('cfg-clock-color1').value,
-          clock_color_2: document.getElementById('cfg-clock-color2').value,
-          clock_offset_x: parseInt(document.getElementById('cfg-clock-x').value) || 0,
-          clock_offset_y: parseInt(document.getElementById('cfg-clock-y').value) || 0,
+          const selectedRotations = Array.from(document.querySelectorAll('.rotation-toggles input[type="checkbox"]:checked'))
+            .map(cb => cb.value).join(',');
 
-          date_theme: parseInt(document.getElementById('cfg-date-theme').value),
-          date_font: document.getElementById('cfg-date-font').value,
-          date_format: document.getElementById('cfg-date-format').value,
-          date_size: parseInt(document.getElementById('cfg-date-size').value) || 1,
-          date_color_1: document.getElementById('cfg-date-color1').value,
-          date_color_2: document.getElementById('cfg-date-color2').value,
-          date_offset_x: parseInt(document.getElementById('cfg-date-x').value) || 0,
-          date_offset_y: parseInt(document.getElementById('cfg-date-y').value) || 0,
+          const payload = {
+            clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
+            clock_font: document.getElementById('cfg-clock-font').value,
+            format_24h: document.getElementById('cfg-clock-24h').value === 'true',
+            time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
+            ntp_server: document.getElementById('cfg-ntp-server').value,
+            timezone: document.getElementById('cfg-timezone').value,
+            clock_color_1: document.getElementById('cfg-clock-color1').value,
+            clock_color_2: document.getElementById('cfg-clock-color2').value,
+            clock_offset_x: parseInt(document.getElementById('cfg-clock-x').value) || 0,
+            clock_offset_y: parseInt(document.getElementById('cfg-clock-y').value) || 0,
 
-          weather_api_key: document.getElementById('cfg-weather-api').value,
-          weather_city: document.getElementById('cfg-weather-city').value,
-          weather_lang: document.getElementById('cfg-weather-lang').value,
-          weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
-          weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
+            date_theme: parseInt(document.getElementById('cfg-date-theme').value),
+            date_font: document.getElementById('cfg-date-font').value,
+            date_format: document.getElementById('cfg-date-format').value,
+            date_size: parseInt(document.getElementById('cfg-date-size').value) || 1,
+            date_color_1: document.getElementById('cfg-date-color1').value,
+            date_color_2: document.getElementById('cfg-date-color2').value,
+            date_offset_x: parseInt(document.getElementById('cfg-date-x').value) || 0,
+            date_offset_y: parseInt(document.getElementById('cfg-date-y').value) || 0,
 
-          rotation: document.getElementById('cfg-rotation').value,
-          clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,
+            weather_api_key: document.getElementById('cfg-weather-api').value,
+            weather_city: document.getElementById('cfg-weather-city').value,
+            weather_lang: document.getElementById('cfg-weather-lang').value,
+            weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
+            weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
+
+            rotation: selectedRotations,
+            clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,
           date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
           weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
           gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 1,

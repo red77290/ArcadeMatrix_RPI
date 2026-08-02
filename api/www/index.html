@@ -308,8 +308,14 @@
         <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>🔄 Idle Rotation & Night Mode</h3>
           <div class="form-group">
-            <label>Rotation Order (comma separated)</label>
-            <input type="text" id="cfg-rotation" class="input" placeholder="clock,date,weather,gifs">
+            <label>Active Screens in Rotation</label>
+            <div class="rotation-toggles" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+              <label class="toggle-btn"><input type="checkbox" value="clock" id="rot-clock" style="display:none;"> <span class="toggle-label">🕒 Clock</span></label>
+              <label class="toggle-btn"><input type="checkbox" value="date" id="rot-date" style="display:none;"> <span class="toggle-label">📅 Date</span></label>
+              <label class="toggle-btn"><input type="checkbox" value="weather" id="rot-weather" style="display:none;"> <span class="toggle-label">☁️ Weather</span></label>
+              <label class="toggle-btn"><input type="checkbox" value="gifs" id="rot-gifs" style="display:none;"> <span class="toggle-label">🎬 GIFs</span></label>
+            </div>
+            <input type="hidden" id="cfg-rotation">
           </div>
           <div class="form-grid col-3" style="margin-top: 1rem;">
             <div class="form-group">

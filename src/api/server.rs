@@ -548,13 +548,13 @@ async fn api_power(
     HttpResponse::Ok().json(json!({"status": "success", "matrix_power": p}))
 }
 
-async fn index() -> Result<actix_files::NamedFile, actix_web::Error> {
+async fn index() -> impl actix_web::Responder {
     let path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www/index.html");
-    match actix_files::NamedFile::open(&path) {
-        Ok(f) => Ok(f),
+    match std::fs::read_to_string(&path) {
+        Ok(content) => actix_web::HttpResponse::Ok().content_type("text/html").body(content),
         Err(e) => {
-            tracing::error!("Failed to open index.html at {:?}: {}", path, e);
-            Err(actix_web::error::ErrorNotFound(e))
+            tracing::error!("FATAL: Failed to read {:?}: {}", path, e);
+            actix_web::HttpResponse::InternalServerError().body(format!("OS Error: {}", e))
         }
     }
 }

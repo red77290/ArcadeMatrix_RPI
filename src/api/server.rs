@@ -548,11 +548,26 @@ async fn api_power(
     HttpResponse::Ok().json(json!({"status": "success", "matrix_power": p}))
 }
 
-async fn index() -> impl actix_web::Responder {
-    // Bake the index.html directly into the binary at compile time.
-    // This completely bypasses any OS-level filesystem permission bugs on the Pi!
-    let content = include_str!("../../api/www/index.html");
-    actix_web::HttpResponse::Ok().content_type("text/html").body(content)
+use rust_embed::RustEmbed;
+
+#[derive(RustEmbed)]
+#[folder = "api/www/"]
+struct WebAssets;
+
+async fn serve_static(path: web::Path<String>) -> impl actix_web::Responder {
+    let mut p = path.into_inner();
+    if p.is_empty() || p == "/" {
+        p = "index.html".to_string();
+    }
+    match WebAssets::get(&p) {
+        Some(content) => {
+            let mime = mime_guess::from_path(&p).first_or_octet_stream();
+            actix_web::HttpResponse::Ok()
+                .content_type(mime.as_ref())
+                .body(content.data.into_owned())
+        }
+        None => actix_web::HttpResponse::NotFound().body("404 Not Found"),
+    }
 }
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
@@ -584,12 +599,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_power)
             .service(get_version)
             .service(handle_update)
-            .route("/", web::get().to(index))
-            .service(
-                Files::new("/", serve_dir.to_string_lossy().to_string())
-                    .index_file("index.html")
-                    .show_files_listing(),
-            )
+            .route("/", web::get().to(serve_static))
+            .route("/{_:.*}", web::get().to(serve_static))
     })
     .bind(("0.0.0.0", port))?
     .run()

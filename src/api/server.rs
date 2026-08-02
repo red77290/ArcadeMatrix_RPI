@@ -549,14 +549,10 @@ async fn api_power(
 }
 
 async fn index() -> impl actix_web::Responder {
-    let path = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www/index.html");
-    match std::fs::read_to_string(&path) {
-        Ok(content) => actix_web::HttpResponse::Ok().content_type("text/html").body(content),
-        Err(e) => {
-            tracing::error!("FATAL: Failed to read {:?}: {}", path, e);
-            actix_web::HttpResponse::InternalServerError().body(format!("OS Error: {}", e))
-        }
-    }
+    // Bake the index.html directly into the binary at compile time.
+    // This completely bypasses any OS-level filesystem permission bugs on the Pi!
+    let content = include_str!("../../api/www/index.html");
+    actix_web::HttpResponse::Ok().content_type("text/html").body(content)
 }
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {

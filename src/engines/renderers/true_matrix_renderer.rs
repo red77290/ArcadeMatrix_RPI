@@ -23,9 +23,9 @@ impl TrueMatrixRenderer {
         let mut rng = rand::thread_rng();
         let h = height as f32;
 
-        // One column every 10px, as in the Python version
+        // One column every 12px
         let columns = (0..width as i32)
-            .step_by(10)
+            .step_by(12)
             .map(|x| MatrixColumn {
                 x,
                 y: rng.gen_range(-h..0.0),
@@ -90,11 +90,11 @@ impl TrueMatrixRenderer {
                 };
                 self.buffer[head_y as usize][col.x as usize] = head_color;
 
-                // Draw pseudo-kanji (3x4 pixel cluster) based on char_code
-                for cy in 0..4 {
-                    for cx in 0..3 {
+                // Draw pseudo-kanji (5x7 pixel cluster) based on char_code
+                for cy in 0..7 {
+                    for cx in 0..5 {
                         // Use bits of char_code + cx + cy as a pseudo-random toggle
-                        let bit = (col.char_code >> ((cy * 3 + cx) % 32)) & 1;
+                        let bit = (col.char_code >> ((cy * 5 + cx) % 32)) & 1;
                         if bit == 1 {
                             let py = head_y - cy;
                             let px = col.x + cx;
@@ -111,11 +111,11 @@ impl TrueMatrixRenderer {
                 let trail_y = head_y - i as i32;
                 if trail_y >= 0 && trail_y < h as i32 {
                     let intensity = (255.0 * (1.0 - i as f32 / col.trail_len as f32)) as u8;
-                    for cx in 0..3 {
+                    for cx in 0..5 {
                         let px = col.x + cx;
                         if px >= 0 && px < w as i32 {
                             let existing = self.buffer[trail_y as usize][px as usize];
-                            let bit = (col.char_code >> (((i % 4) * 3 + cx as usize) % 32)) & 1;
+                            let bit = (col.char_code >> (((i % 7) * 5 + cx as usize) % 32)) & 1;
                             if bit == 1 {
                                 self.buffer[trail_y as usize][px as usize] = (
                                     existing.0.max(0),

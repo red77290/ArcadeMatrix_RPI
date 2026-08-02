@@ -101,7 +101,10 @@ impl HardwareMatrix {
         chain: u32,
         parallel: u32,
         hardware_mapping: &str,
+        rgb_sequence: &str,
         slowdown: u32,
+        pwm_bits: u32,
+        pwm_lsb: u32,
         brightness: u8,
     ) -> Result<Self, String> {
         let mut options = LedMatrixOptions::new();
@@ -113,6 +116,11 @@ impl HardwareMatrix {
         if !hardware_mapping.is_empty() {
             options.set_hardware_mapping(hardware_mapping);
         }
+        if !rgb_sequence.is_empty() {
+            options.set_led_rgb_sequence(rgb_sequence);
+        }
+        options.set_pwm_bits(pwm_bits as u8);
+        options.set_pwm_lsb_nanoseconds(pwm_lsb);
 
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown);

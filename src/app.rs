@@ -67,7 +67,10 @@ impl ArcadeMatrixApp {
                     cfg.matrix_chain,
                     cfg.matrix_parallel,
                     &cfg.matrix_mapping,
+                    &cfg.matrix_rgb_sequence,
                     cfg.matrix_slowdown,
+                    cfg.matrix_pwm_bits,
+                    cfg.matrix_pwm_lsb_nanoseconds,
                     cfg.matrix_brightness as u8,
                 ) {
                     Ok(hw) => Box::new(hw),

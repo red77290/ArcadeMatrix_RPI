@@ -94,6 +94,14 @@ impl ClockEngine {
                     None,
                 );
             }
+            20 => {
+                self.flip.render(
+                    matrix,
+                    &time_str,
+                    settings.time_offset_x,
+                    settings.time_offset_y,
+                );
+            }
             22 => self.pong.update_and_render(matrix, hours, minutes),
             23 => self.tetris.render(matrix, &time_str),
             24 => self.word.render(matrix, hours, minutes),

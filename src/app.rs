@@ -99,14 +99,18 @@ impl ArcadeMatrixApp {
         let height = matrix.height();
 
         let mut clock_engine = ClockEngine::new(width, height);
-        let mut date_engine = DateEngine::new();
+        let mut date_engine = DateEngine::new(width, height);
         let mut weather_engine = WeatherEngine::new();
         let mut gif_engine = GifEngine::new();
-        let _fighter_engine = FighterEngine::new(width);
+        let mut fighter_engine = FighterEngine::new(width);
         let marquee_engine = MarqueeEngine::new();
         let mut message_engine = MessageEngine::new();
 
+        // Initialize fighter engine if sprites are present
+        fighter_engine.init_fight(height);
+
         let mut rotation_state = RotationState::new();
+        let mut last_frame = std::time::Instant::now();
 
         // 1. Display startup IP Address banner on DMD matrix
         let startup_payload = MessagePayload {
@@ -233,10 +237,8 @@ impl ArcadeMatrixApp {
                     "gifs" => {
                         let selected = self.config.settings.read().selected_gifs.clone();
                         gif_engine.play_random_playlist_gif(&selected);
-                        gif_engine.render_next_frame(
-                            matrix.as_mut(),
-                            std::time::Duration::from_millis(50),
-                        );
+                        let dt = last_frame.elapsed();
+                        gif_engine.render_next_frame(matrix.as_mut(), dt);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(10)
                         {
@@ -297,13 +299,34 @@ impl ArcadeMatrixApp {
                     }
                 }
                 matrix.update();
+                // Composite fighter overlay on every frame if sprites are loaded
+                let sprite_count = self.config.settings.read().idle_sprite_count;
+                if sprite_count > 0 {
+                    fighter_engine.composite(matrix.as_mut());
+                    matrix.update();
+                }
             } else {
                 matrix.clear();
                 clock_engine.render(matrix.as_mut(), &self.config);
+                let sprite_count = self.config.settings.read().idle_sprite_count;
+                if sprite_count > 0 {
+                    fighter_engine.composite(matrix.as_mut());
+                }
                 matrix.update();
             }
 
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            // Adaptive sleep: animated modes at ~30fps, static at ~5fps
+            let is_animated = matches!(
+                idle_list
+                    .get(rotation_state.current_index % idle_list.len().max(1))
+                    .map(|s| s.as_str()),
+                Some("clock") | Some("gifs") | Some("network") | Some("message")
+            );
+            let theme = self.config.settings.read().time_theme;
+            let fast_theme = matches!(theme, 18 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
+            let sleep_ms = if is_animated || fast_theme { 33 } else { 200 };
+            last_frame = std::time::Instant::now();
+            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
         }
     }
 }

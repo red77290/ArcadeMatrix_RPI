@@ -98,6 +98,34 @@ function initDashboard() {
     });
   }
 
+  const btnReboot = document.getElementById('btn-reboot');
+  if (btnReboot) {
+    btnReboot.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to reboot the system?')) {
+        try {
+          await API.post('/api/system/reboot');
+          window.showToast('Rebooting system...', 'info');
+        } catch (e) {
+          window.showToast('Failed to reboot system', 'error');
+        }
+      }
+    });
+  }
+
+  const btnShutdown = document.getElementById('btn-shutdown');
+  if (btnShutdown) {
+    btnShutdown.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to shutdown the system?')) {
+        try {
+          await API.post('/api/system/shutdown');
+          window.showToast('Shutting down system...', 'info');
+        } catch (e) {
+          window.showToast('Failed to shutdown system', 'error');
+        }
+      }
+    });
+  }
+
   // System Info Polling
   setInterval(async () => {
     try {

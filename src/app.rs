@@ -335,13 +335,13 @@ impl ArcadeMatrixApp {
                     }
                 }
                 last_mode = current_mode.to_string();
-                matrix.update();
+                
                 // Composite fighter overlay on every frame if sprites are loaded
                 let sprite_count = self.config.settings.read().idle_sprite_count;
                 if sprite_count > 0 {
                     fighter_engine.composite(matrix.as_mut());
-                    matrix.update();
                 }
+                matrix.update();
             } else {
 
                 clock_engine.render(matrix.as_mut(), &self.config);

@@ -194,7 +194,7 @@ body {
   justify-content: space-between;
   align-items: center;
   padding: 1rem;
-  background: var(--surface-light);
+  background: var(--bg-secondary);
   border-radius: 8px;
   margin-bottom: 0.8rem;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -207,11 +207,11 @@ body {
 .playlist-item .info h4 {
   margin: 0 0 0.3rem 0;
   font-size: 1.1rem;
-  color: var(--text-color);
+  color: var(--text-primary);
 }
 .playlist-item .info span {
   font-size: 0.85rem;
-  color: var(--primary);
+  color: var(--accent-primary);
   opacity: 0.9;
 }
 .playlist-item .action {
@@ -222,7 +222,7 @@ body {
 .rotation-toggles .toggle-label {
   display: inline-block;
   padding: 0.6rem 1rem;
-  background: var(--surface-light);
+  background: var(--bg-secondary);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   cursor: pointer;
@@ -231,11 +231,78 @@ body {
   font-size: 0.95rem;
 }
 .rotation-toggles input[type="checkbox"]:checked + .toggle-label {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
   color: #fff;
   box-shadow: 0 0 10px var(--accent-glow);
 }
 .rotation-toggles input[type="checkbox"]:hover:not(:checked) + .toggle-label {
   background: rgba(255, 255, 255, 0.15);
+}
+
+/* Tooltips */
+[data-tooltip] {
+  position: relative;
+  cursor: help;
+  display: inline-block;
+}
+[data-tooltip]::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 130%;
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  white-space: normal;
+  width: max-content;
+  max-width: 250px;
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 1000;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+  pointer-events: none;
+}
+[data-tooltip]::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: var(--bg-secondary) transparent transparent transparent;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  z-index: 1000;
+  pointer-events: none;
+}
+[data-tooltip]:hover::after,
+[data-tooltip]:hover::before {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) scale(1);
+}
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.1);
+  color: var(--accent-primary);
+  font-size: 11px;
+  margin-left: 6px;
+  vertical-align: middle;
+  font-family: monospace;
+  font-weight: bold;
 }

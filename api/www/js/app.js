@@ -18,6 +18,20 @@ window.switchDisplayTab = function(tabId) {
   document.getElementById('tab-' + tabId).classList.add('active');
 };
 
+window.switchSystemTab = function(tabId) {
+  // Update buttons
+  document.querySelectorAll('#page-system .tab-btn').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  event.currentTarget.classList.add('active');
+
+  // Update panes
+  document.querySelectorAll('#page-system .tab-pane').forEach(pane => {
+    pane.classList.remove('active');
+  });
+  document.getElementById('sys-tab-' + tabId).classList.add('active');
+};
+
 document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initDashboard();

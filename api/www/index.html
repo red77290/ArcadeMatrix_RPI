@@ -18,6 +18,9 @@
 </head>
 <body>
   <div id="app">
+    <!-- Sidebar Overlay for Mobile -->
+    <div id="sidebar-overlay"></div>
+    
     <!-- Sidebar Navigation -->
     <nav id="sidebar">
       <div class="logo">
@@ -55,7 +58,10 @@
       <!-- Dashboard Page -->
       <section id="page-dashboard" class="page active">
         <header class="page-header">
-          <h1 data-i18n="nav_dashboard">Dashboard</h1>
+          <div class="header-left">
+            <button id="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+            <h1 data-i18n="nav_dashboard">Dashboard</h1>
+          </div>
           <div id="status-badge" class="status-badge online">● Online</div>
         </header>
 
@@ -109,7 +115,10 @@
       <!-- Display Page -->
       <section id="page-display" class="page">
         <header class="page-header">
-          <h1 data-i18n="nav_display">Display Configuration</h1>
+          <div class="header-left">
+            <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+            <h1 data-i18n="nav_display">Display Settings</h1>
+          </div>
         </header>
         
         <div class="card glass shadow">
@@ -275,7 +284,10 @@
       <!-- Media Page -->
       <section id="page-media" class="page">
         <header class="page-header">
-          <h1 data-i18n="nav_media">Media</h1>
+          <div class="header-left">
+            <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+            <h1 data-i18n="nav_media">Media Management</h1>
+          </div>
         </header>
         <div class="card glass shadow">
           <h3>Custom Marquee Image</h3>
@@ -297,7 +309,10 @@
       <!-- Message Page -->
       <section id="page-message" class="page">
         <header class="page-header">
-          <h1 data-i18n="nav_message">Message</h1>
+          <div class="header-left">
+            <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+            <h1 data-i18n="nav_message">Custom Message</h1>
+          </div>
         </header>
         <div class="card glass shadow">
           <h3>Custom Marquee Message</h3>
@@ -305,31 +320,72 @@
             <label>Text</label>
             <input type="text" id="msg-input" class="input" placeholder="Type text to scroll...">
           </div>
-          <button id="btn-send-message" class="btn btn-primary" style="margin-top: 1rem;">Send to Matrix 🚀</button>
+          <div class="form-grid col-3" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Color (Hex)</label>
+              <input type="color" id="msg-color" class="input" value="#ffffff" style="height: 42px; padding: 0.2rem;">
+            </div>
+            <div class="form-group">
+              <label>Size (Scale)</label>
+              <input type="number" id="msg-size" class="input" value="1" min="1" max="5">
+            </div>
+            <div class="form-group">
+              <label>Direction</label>
+              <select id="msg-direction" class="input">
+                <option value="left">Scroll Left</option>
+                <option value="right">Scroll Right</option>
+                <option value="up">Scroll Up</option>
+                <option value="down">Scroll Down</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label>Speed (Higher = Slower)</label>
+              <input type="number" id="msg-speed" class="input" value="30">
+            </div>
+            <div class="form-group">
+              <label>Timeout (Seconds)</label>
+              <input type="number" id="msg-timeout" class="input" value="10">
+            </div>
+          </div>
+          <button id="btn-send-message" class="btn btn-primary" style="margin-top: 1.5rem;">Send to Matrix 🚀</button>
         </div>
       </section>
 
       <!-- System Page -->
       <section id="page-system" class="page">
         <header class="page-header">
-          <h1 data-i18n="nav_system">System</h1>
+          <div class="header-left">
+            <button class="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+            <h1 data-i18n="nav_system">System Management</h1>
+          </div>
         </header>
         
         <!-- Hardware Settings -->
         <div class="card glass shadow" style="margin-bottom: 2rem;">
           <h3>Matrix Hardware Configuration</h3>
-          <div class="form-grid">
+          <div class="form-grid col-4">
             <div class="form-group">
               <label>Rows (Height)</label>
-              <input type="number" id="hw-rows" class="input" value="32" disabled>
+              <input type="number" id="hw-rows" class="input" value="32">
             </div>
             <div class="form-group">
               <label>Cols (Width)</label>
-              <input type="number" id="hw-cols" class="input" value="64" disabled>
+              <input type="number" id="hw-cols" class="input" value="64">
             </div>
             <div class="form-group">
               <label>Slowdown</label>
               <input type="number" id="hw-slowdown" class="input">
+            </div>
+            <div class="form-group">
+              <label>HAT / Mapping</label>
+              <select id="hw-mapping" class="input">
+                <option value="regular">Regular</option>
+                <option value="adafruit-hat">Adafruit HAT</option>
+                <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
+                <option value="compute-module">Compute Module</option>
+              </select>
             </div>
           </div>
           <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem;">Save Hardware Settings</button>
@@ -428,5 +484,36 @@
   </div>
 
   <script type="module" src="/js/app.js"></script>
+  <script>
+    function toggleSidebar() {
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('sidebar-overlay');
+      if (sidebar.classList.contains('open')) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('open');
+      } else {
+        sidebar.classList.add('open');
+        overlay.classList.add('open');
+      }
+    }
+
+    // Auto-close sidebar when clicking a nav item on mobile
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+          if (window.innerWidth <= 768) {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebar-overlay').classList.remove('open');
+          }
+        });
+      });
+
+      // Close sidebar when clicking overlay
+      document.getElementById('sidebar-overlay').addEventListener('click', () => {
+        document.getElementById('sidebar').classList.remove('open');
+        document.getElementById('sidebar-overlay').classList.remove('open');
+      });
+    });
+  </script>
 </body>
 </html>

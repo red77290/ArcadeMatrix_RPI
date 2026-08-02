@@ -290,6 +290,7 @@ async function initSettings() {
     document.getElementById('hw-rows').value = s.matrix_rows;
     document.getElementById('hw-cols').value = s.matrix_cols;
     document.getElementById('hw-slowdown').value = s.matrix_slowdown;
+    document.getElementById('hw-mapping').value = s.matrix_mapping || 'regular';
     
     // MQTT
     document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
@@ -389,9 +390,17 @@ async function initSettings() {
   if (btnSaveHw) {
     btnSaveHw.addEventListener('click', async () => {
       const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 0;
+      const rows = parseInt(document.getElementById('hw-rows').value) || 32;
+      const cols = parseInt(document.getElementById('hw-cols').value) || 64;
+      const mapping = document.getElementById('hw-mapping').value || 'regular';
       try {
-        await API.post('/api/settings', { matrix_slowdown: slowdown });
-        window.showToast('Hardware settings saved!', 'success');
+        await API.post('/api/settings', { 
+          matrix_slowdown: slowdown,
+          matrix_rows: rows,
+          matrix_cols: cols,
+          matrix_mapping: mapping
+        });
+        window.showToast('Hardware settings saved! Restart required.', 'success');
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }
@@ -403,15 +412,21 @@ async function initSettings() {
   if (btnSendMsg) {
     btnSendMsg.addEventListener('click', async () => {
       const text = document.getElementById('msg-input').value;
+      const color = document.getElementById('msg-color')?.value || '#ffffff';
+      const size = parseInt(document.getElementById('msg-size')?.value) || 1;
+      const direction = document.getElementById('msg-direction')?.value || 'left';
+      const speed = parseInt(document.getElementById('msg-speed')?.value) || 30;
+      const timeout = parseInt(document.getElementById('msg-timeout')?.value) || 10;
+      
       if (!text) return;
       try {
         await API.post('/api/message', {
           text: text,
-          color: '#ffffff',
-          size: 1,
-          direction: 'left',
-          speed: 30,
-          timeoutSeconds: 10
+          color: color,
+          size: size,
+          direction: direction,
+          speed: speed,
+          timeoutSeconds: timeout
         });
         window.showToast('Message sent!', 'success');
       } catch (e) {

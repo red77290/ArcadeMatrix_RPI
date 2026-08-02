@@ -115,6 +115,15 @@ async fn post_settings(
     if let Some(v) = body.get("matrix_slowdown").and_then(|v| v.as_u64()) {
         s.matrix_slowdown = v as u32;
     }
+    if let Some(v) = body.get("matrix_rows").and_then(|v| v.as_u64()) {
+        s.matrix_rows = v as u32;
+    }
+    if let Some(v) = body.get("matrix_cols").and_then(|v| v.as_u64()) {
+        s.matrix_cols = v as u32;
+    }
+    if let Some(v) = body.get("matrix_mapping").and_then(|v| v.as_str()) {
+        s.matrix_mapping = v.to_string();
+    }
 
     // Clock settings
     if let Some(v) = body.get("clock_theme").and_then(|v| v.as_i64()) {

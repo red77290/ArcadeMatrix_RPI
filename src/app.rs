@@ -130,6 +130,12 @@ impl ArcadeMatrixApp {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         }
 
+        // Force clear BOTH hardware buffers to permanently erase the startup IP
+        matrix.clear();
+        matrix.update();
+        matrix.clear();
+        matrix.update();
+
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let r = running.clone();
         tokio::spawn(async move {
@@ -340,5 +346,9 @@ impl ArcadeMatrixApp {
             last_frame = std::time::Instant::now();
             tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
         }
+
+        matrix.clear();
+        matrix.update();
+        Ok(())
     }
 }

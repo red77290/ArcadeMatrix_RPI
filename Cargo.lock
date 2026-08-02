@@ -355,6 +355,7 @@ dependencies = [
  "gif 0.13.3",
  "image",
  "imageproc",
+ "mime_guess",
  "parking_lot",
  "rand 0.8.7",
  "reqwest",

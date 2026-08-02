@@ -551,6 +551,7 @@ async fn api_power(
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
     let state = web::Data::new(AppState { config });
     let serve_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www");
+    tracing::info!("Starting web server on port {}, serving files from: {:?}", port, serve_dir);
 
     HttpServer::new(move || {
         App::new()

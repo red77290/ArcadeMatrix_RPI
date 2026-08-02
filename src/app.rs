@@ -130,8 +130,20 @@ impl ArcadeMatrixApp {
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         }
 
+        let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let r = running.clone();
+        tokio::spawn(async move {
+            let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {},
+                _ = sigterm.recv() => {},
+            }
+            tracing::info!("Received shutdown signal, stopping...");
+            r.store(false, Ordering::SeqCst);
+        });
+
         // 2. Main rotation and engine loop
-        loop {
+        while running.load(Ordering::SeqCst) {
             // Standby / Night mode check
             let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
                 let s = self.config.settings.read();

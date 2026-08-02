@@ -52,9 +52,9 @@ impl ClockEngine {
 
         // Short time string for display clocks
         let time_str = if settings.time_24h {
-            now.format("%H:%M").to_string()
+            now.format("%H:%M:%S").to_string()
         } else {
-            now.format("%I:%M").to_string()
+            now.format("%I:%M:%S").to_string()
         };
 
         let hours = now.hour();

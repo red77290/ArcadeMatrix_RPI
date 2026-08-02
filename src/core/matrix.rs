@@ -112,7 +112,7 @@ impl HardwareMatrix {
         options.set_cols(cols);
         options.set_chain_length(chain);
         options.set_parallel(parallel);
-        options.set_brightness(brightness).unwrap_or(());
+        options.set_brightness(100).unwrap_or(());
         if !hardware_mapping.is_empty() {
             options.set_hardware_mapping(hardware_mapping);
         }

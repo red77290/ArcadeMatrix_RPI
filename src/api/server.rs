@@ -554,9 +554,9 @@ use rust_embed::RustEmbed;
 #[folder = "api/www/"]
 struct WebAssets;
 
-async fn serve_static(path: web::Path<String>) -> impl actix_web::Responder {
-    let mut p = path.into_inner();
-    if p.is_empty() || p == "/" {
+async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder {
+    let mut p = req.path().trim_start_matches('/').to_string();
+    if p.is_empty() {
         p = "index.html".to_string();
     }
     match WebAssets::get(&p) {

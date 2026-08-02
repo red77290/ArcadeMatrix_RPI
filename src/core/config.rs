@@ -19,7 +19,7 @@ pub struct ConfigSettings {
     pub matrix_pwm_lsb_nanoseconds: u32,
 
     // TIME
-    pub time_24h: bool,
+    pub time_format: String,
     pub time_font: String,
     pub time_size: u32,
     pub time_theme: i32,
@@ -89,7 +89,7 @@ impl Default for ConfigSettings {
             matrix_pwm_bits: 11,
             matrix_pwm_lsb_nanoseconds: 130,
 
-            time_24h: true,
+            time_format: "%H:%M:%S".to_string(),
             time_font: "PressStart2P.ttf".to_string(),
             time_size: 2,
             time_theme: 0,
@@ -220,8 +220,8 @@ impl Config {
         }
 
         // TIME
-        if let Ok(Some(val)) = ini.getbool("TIME", "FORMAT_24H") {
-            settings.time_24h = val;
+        if let Some(v) = ini.get("TIME", "FORMAT") {
+            settings.time_format = v;
         }
         if let Some(v) = ini.get("TIME", "CLOCK_FONT") {
             settings.time_font = v;
@@ -395,7 +395,7 @@ impl Config {
             Some(s.matrix_pwm_lsb_nanoseconds.to_string()),
         );
 
-        ini.set("TIME", "FORMAT_24H", Some(s.time_24h.to_string()));
+        ini.set("TIME", "FORMAT", Some(s.time_format));
         ini.set("TIME", "CLOCK_FONT", Some(s.time_font));
         ini.set("TIME", "CLOCK_SIZE", Some(s.time_size.to_string()));
         ini.set("TIME", "THEME", Some(s.time_theme.to_string()));

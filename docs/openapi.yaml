@@ -68,6 +68,10 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                time_format:
+                  type: string
+                  description: Chrono strftime format for the clock (e.g. %H:%M:%S)
       responses:
         '200':
           description: Settings successfully updated

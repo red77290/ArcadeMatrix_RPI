@@ -356,7 +356,7 @@ async function initSettings() {
     // Clock
     document.getElementById('cfg-clock-theme').value = s.clock_theme;
     document.getElementById('cfg-clock-font').value = s.clock_font;
-    document.getElementById('cfg-clock-24h').value = s.format_24h ? 'true' : 'false';
+    document.getElementById('cfg-clock-format').value = s.time_format;
     document.getElementById('cfg-clock-size').value = s.time_size || 2;
     document.getElementById('cfg-ntp-server').value = s.ntp_server || 'pool.ntp.org';
     document.getElementById('cfg-timezone').value = s.timezone || 'Europe/Paris';
@@ -416,7 +416,7 @@ async function initSettings() {
           const payload = {
             clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
             clock_font: document.getElementById('cfg-clock-font').value,
-            format_24h: document.getElementById('cfg-clock-24h').value === 'true',
+            time_format: document.getElementById('cfg-clock-format').value,
             time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
             ntp_server: document.getElementById('cfg-ntp-server').value,
             timezone: document.getElementById('cfg-timezone').value,

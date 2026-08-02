@@ -59,7 +59,7 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "clock_theme": s.time_theme,
         "clock_color_1": s.clock_color_1,
         "clock_color_2": s.clock_color_2,
-        "format_24h": s.time_24h,
+        "time_format": s.time_format,
         "date_size": s.date_size,
         "date_font": s.date_font,
         "date_theme": s.date_theme,
@@ -167,8 +167,8 @@ async fn post_settings(
     if let Some(v) = body.get("clock_offset_y").and_then(|v| v.as_i64()) {
         s.time_offset_y = v as i32;
     }
-    if let Some(v) = body.get("format_24h").and_then(|v| v.as_bool()) {
-        s.time_24h = v;
+    if let Some(v) = body.get("time_format").and_then(|v| v.as_str()) {
+        s.time_format = v.to_string();
     }
 
     // Date settings

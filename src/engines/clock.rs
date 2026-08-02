@@ -44,18 +44,10 @@ impl ClockEngine {
         let now = Local::now();
 
         // Full time string with seconds (for binary clock)
-        let time_str_full = if settings.time_24h {
-            now.format("%H:%M:%S").to_string()
-        } else {
-            now.format("%I:%M:%S %p").to_string()
-        };
+        let time_str_full = now.format(&settings.time_format).to_string();
 
         // Short time string for display clocks
-        let time_str = if settings.time_24h {
-            now.format("%H:%M:%S").to_string()
-        } else {
-            now.format("%I:%M:%S").to_string()
-        };
+        let time_str = now.format(&settings.time_format).to_string();
 
         let hours = now.hour();
         let minutes = now.minute();

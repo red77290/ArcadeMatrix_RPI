@@ -94,6 +94,11 @@ unsafe impl Send for HardwareMatrix {}
 unsafe impl Sync for HardwareMatrix {}
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+extern "C" {
+    fn led_matrix_set_brightness(matrix: *mut std::ffi::c_void, brightness: u8);
+}
+
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl HardwareMatrix {
     pub fn new(
         rows: u32,
@@ -168,9 +173,14 @@ impl MatrixBackend for HardwareMatrix {
         self.canvas = Some(self.matrix.swap(canvas));
     }
 
-    fn set_brightness(&mut self, _brightness: u8) {
-        // Hardware brightness cannot be changed dynamically via this Rust wrapper without access to the internal handle.
-        // The application handles dynamic changes by triggering a graceful restart (reload_flag)
-        // when brightness is changed via UI or MQTT, which re-initializes the matrix with the new brightness.
+    fn set_brightness(&mut self, brightness: u8) {
+        self.brightness = brightness.min(100);
+        let matrix_ptr = &self.matrix as *const _ as *const *mut std::ffi::c_void;
+        unsafe {
+            let handle = *matrix_ptr;
+            if !handle.is_null() {
+                led_matrix_set_brightness(handle, self.brightness);
+            }
+        }
     }
 }

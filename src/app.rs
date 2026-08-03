@@ -329,24 +329,64 @@ impl ArcadeMatrixApp {
             // Handle forced engine (Custom Message, Marquee Image)
             let forced = self.config.force_engine.lock().clone();
             if let Some(ref mode) = forced {
+                // Clear the flag immediately so we don't infinitely trigger it
+                *self.config.force_engine.lock() = None;
+
                 if mode == "message" {
                     if let Some(ref payload_val) = *self.config.message_payload.lock() {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
-                            matrix.clear();
-                            message_engine.render(matrix.as_mut(), &payload);
-                            matrix.update();
-                            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                            let start_time = std::time::Instant::now();
+                            let timeout =
+                                std::time::Duration::from_secs(payload.timeout_seconds as u64);
+
+                            // Reset position to right edge
+                            message_engine.reset(matrix.width() as f32);
+
+                            // Block and render exclusively
+                            while start_time.elapsed() < timeout {
+                                if self.config.reload_flag.load(Ordering::Relaxed) {
+                                    break;
+                                }
+
+                                // Check if another engine was forced while we were scrolling
+                                if self.config.force_engine.lock().is_some() {
+                                    break;
+                                }
+
+                                matrix.clear();
+                                let finished = message_engine.render(matrix.as_mut(), &payload);
+                                matrix.update();
+
+                                if finished {
+                                    break; // Message fully scrolled off screen
+                                }
+
+                                tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+                            }
+
+                            // Resume normal flow after message completes
+                            last_frame = std::time::Instant::now();
+                            rotation_state.mode_start_time = std::time::Instant::now();
                             continue;
                         }
                     }
                 } else if mode == "marquee" {
                     if let Some(ref img) = *self.config.image_obj.lock() {
-                        matrix.clear();
-                        marquee_engine.render(matrix.as_mut(), img);
-                        matrix.update();
-                        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        while !self.config.reload_flag.load(Ordering::Relaxed) {
+                            if self.config.force_engine.lock().is_some() {
+                                break;
+                            }
+
+                            matrix.clear();
+                            marquee_engine.render(matrix.as_mut(), img);
+                            matrix.update();
+                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                        }
+
+                        last_frame = std::time::Instant::now();
+                        rotation_state.mode_start_time = std::time::Instant::now();
                         continue;
                     }
                 }
@@ -364,7 +404,7 @@ impl ArcadeMatrixApp {
                     speed: 40,
                     timeout_seconds: 60,
                 };
-                message_engine.render(matrix.as_mut(), &payload);
+                let _ = message_engine.render(matrix.as_mut(), &payload);
                 matrix.update();
                 last_frame = std::time::Instant::now();
                 tokio::time::sleep(std::time::Duration::from_millis(33)).await;
@@ -444,7 +484,7 @@ impl ArcadeMatrixApp {
                             timeout_seconds: 10,
                         };
 
-                        message_engine.render(matrix.as_mut(), &payload);
+                        let _ = message_engine.render(matrix.as_mut(), &payload);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(10)
                         {
@@ -458,11 +498,12 @@ impl ArcadeMatrixApp {
                             >(payload_val.clone())
                             {
                                 matrix.clear();
-                                message_engine.render(matrix.as_mut(), &payload);
-                                if rotation_state.mode_start_time.elapsed()
-                                    >= std::time::Duration::from_secs(
-                                        payload.timeout_seconds as u64,
-                                    )
+                                let finished = message_engine.render(matrix.as_mut(), &payload);
+                                if finished
+                                    || rotation_state.mode_start_time.elapsed()
+                                        >= std::time::Duration::from_secs(
+                                            payload.timeout_seconds as u64,
+                                        )
                                 {
                                     rotation_state.next_mode(&idle_list);
                                 }

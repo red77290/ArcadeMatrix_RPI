@@ -26,7 +26,11 @@ impl MessageEngine {
         }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, payload: &MessagePayload) {
+    pub fn reset(&mut self, width: f32) {
+        self.offset_x = width;
+    }
+
+    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, payload: &MessagePayload) -> bool {
         let move_px = 33.0 / payload.speed.max(1) as f32; // Assuming ~33ms frame time
         self.offset_x -= move_px;
 
@@ -39,8 +43,10 @@ impl MessageEngine {
             }
         }
 
+        let mut finished = false;
         if self.offset_x < -(text_w as f32) {
             self.offset_x = matrix.width() as f32;
+            finished = true;
         }
 
         // Decode RGB565 integer sent from Web UI
@@ -58,5 +64,7 @@ impl MessageEngine {
             Some((r, g, b)),
             None,
         );
+
+        finished
     }
 }

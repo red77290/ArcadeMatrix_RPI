@@ -70,7 +70,7 @@ impl ArcadeMatrixApp {
             if let Ok(content) = std::fs::read_to_string(boot_config) {
                 let disable_wifi_cmd = "dtoverlay=disable-wifi";
                 let s = self.config.settings.read().clone();
-                let should_be_disabled = s.wifi_disable_internal;
+                let should_be_disabled = !s.matrix_disable_hardware_pulsing;
                 let is_disabled = content.contains(disable_wifi_cmd);
 
                 if should_be_disabled && !is_disabled {

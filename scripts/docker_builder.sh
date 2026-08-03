@@ -11,7 +11,7 @@ if [ "$ARCH" = "aarch64" ]; then
     export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
     export CC=aarch64-linux-gnu-gcc
     export CXX=aarch64-linux-gnu-g++
-    export USER_DEFINES="-mcpu=cortex-a72"
+    export USER_DEFINES="-mcpu=cortex-a53"
     QEMU_BIN="/usr/bin/qemu-aarch64-static"
 else
     IMG_URL="https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz"

@@ -28,7 +28,7 @@ echo '=> Compiling for 64-bit (aarch64)...'
 export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
 export CC=aarch64-linux-gnu-gcc
 export CXX=aarch64-linux-gnu-g++
-export USER_DEFINES="-mcpu=cortex-a72"
+export USER_DEFINES="-mcpu=cortex-a53"
 CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build --release --target aarch64-unknown-linux-gnu
 "
 fi

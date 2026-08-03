@@ -276,7 +276,7 @@ impl ArcadeMatrixApp {
             r.store(false, Ordering::SeqCst);
         });
 
-        let mut last_mode = String::new();
+        let mut last_index = usize::MAX;
         // 2. Main rotation and engine loop
         while running.load(Ordering::SeqCst) {
             matrix.clear();
@@ -423,7 +423,9 @@ impl ArcadeMatrixApp {
             };
 
             if !idle_list.is_empty() {
-                let current_mode = &idle_list[rotation_state.current_index % idle_list.len()];
+                let current_index = rotation_state.current_index;
+                let current_mode = &idle_list[current_index % idle_list.len()];
+                let mode_just_changed = current_index != last_index;
 
                 matrix.clear();
                 match current_mode.as_str() {
@@ -454,7 +456,7 @@ impl ArcadeMatrixApp {
                     "gifs" => {
                         let gifs_count = self.config.settings.read().idle_gifs_count as u32;
 
-                        if last_mode != "gifs" {
+                        if mode_just_changed {
                             gifs_played = 0;
                             let selected = self.config.settings.read().selected_gifs.clone();
                             gif_engine.play_random_playlist_gif(&selected);
@@ -526,7 +528,7 @@ impl ArcadeMatrixApp {
                         clock_engine.render(matrix.as_mut(), &self.config);
                     }
                 }
-                last_mode = current_mode.to_string();
+                last_index = current_index;
 
                 // Composite fighter overlay on every frame if sprites are loaded
                 let settings = self.config.settings.read();

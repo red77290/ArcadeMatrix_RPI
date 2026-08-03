@@ -41,8 +41,8 @@ impl RotationState {
         if rotation_list.is_empty() {
             return None;
         }
-        self.current_index = (self.current_index + 1) % rotation_list.len();
+        self.current_index = self.current_index.wrapping_add(1);
         self.mode_start_time = std::time::Instant::now();
-        Some(&rotation_list[self.current_index])
+        Some(&rotation_list[self.current_index % rotation_list.len()])
     }
 }

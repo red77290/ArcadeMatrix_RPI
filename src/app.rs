@@ -59,6 +59,44 @@ impl ArcadeMatrixApp {
                     .spawn()
                     .ok();
             }
+
+            // Manage internal Wi-Fi state via config.txt
+            let boot_config = if std::path::Path::new("/boot/firmware/config.txt").exists() {
+                "/boot/firmware/config.txt"
+            } else {
+                "/boot/config.txt"
+            };
+
+            if let Ok(content) = std::fs::read_to_string(boot_config) {
+                let disable_wifi_cmd = "dtoverlay=disable-wifi";
+                let s = self.config.settings.read().clone();
+                let should_be_disabled = s.wifi_disable_internal;
+                let is_disabled = content.contains(disable_wifi_cmd);
+
+                if should_be_disabled && !is_disabled {
+                    info!(
+                        "Disabling internal Wi-Fi in {} (Reboot required)",
+                        boot_config
+                    );
+                    let new_content = format!("{}\n{}\n", content.trim(), disable_wifi_cmd);
+                    if let Err(e) = std::fs::write(boot_config, new_content) {
+                        tracing::error!("Failed to write to {}: {}", boot_config, e);
+                    }
+                } else if !should_be_disabled && is_disabled {
+                    info!(
+                        "Enabling internal Wi-Fi in {} (Reboot required)",
+                        boot_config
+                    );
+                    let new_content = content
+                        .lines()
+                        .filter(|line| !line.contains(disable_wifi_cmd))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    if let Err(e) = std::fs::write(boot_config, new_content) {
+                        tracing::error!("Failed to write to {}: {}", boot_config, e);
+                    }
+                }
+            }
         }
 
         // 0. Setup Wi-Fi if needed (like the Python version did)

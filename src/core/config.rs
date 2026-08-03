@@ -80,6 +80,7 @@ pub struct ConfigSettings {
     pub wifi_ssid: String,
     pub wifi_pass: String,
     pub wifi_configured: bool,
+    pub wifi_disable_internal: bool,
 }
 
 impl Default for ConfigSettings {
@@ -155,6 +156,7 @@ impl Default for ConfigSettings {
             wifi_ssid: "".to_string(),
             wifi_pass: "".to_string(),
             wifi_configured: false,
+            wifi_disable_internal: false,
         }
     }
 }
@@ -403,6 +405,9 @@ impl Config {
         if let Ok(Some(val)) = ini.getbool("WIFI", "CONFIGURED") {
             settings.wifi_configured = val;
         }
+        if let Ok(Some(val)) = ini.getbool("WIFI", "DISABLE_INTERNAL_WIFI") {
+            settings.wifi_disable_internal = val;
+        }
     }
 
     pub fn save(&self) -> bool {
@@ -410,6 +415,15 @@ impl Config {
         let s = self.settings.read().clone();
 
         let mut ini = Ini::new();
+        ini.set("WIFI", "SSID", Some(s.wifi_ssid));
+        ini.set("WIFI", "PASS", Some(s.wifi_pass));
+        ini.set("WIFI", "CONFIGURED", Some(s.wifi_configured.to_string()));
+        ini.set(
+            "WIFI",
+            "DISABLE_INTERNAL_WIFI",
+            Some(s.wifi_disable_internal.to_string()),
+        );
+
         ini.set("MATRIX", "ROWS", Some(s.matrix_rows.to_string()));
         ini.set("MATRIX", "COLS", Some(s.matrix_cols.to_string()));
         ini.set("MATRIX", "CHAIN", Some(s.matrix_chain.to_string()));
@@ -527,10 +541,6 @@ impl Config {
 
         ini.set("API", "AUTH_ENABLED", Some(s.api_auth_enabled.to_string()));
         ini.set("API", "TOKEN", Some(s.api_token));
-
-        ini.set("WIFI", "SSID", Some(s.wifi_ssid));
-        ini.set("WIFI", "PASS", Some(s.wifi_pass));
-        ini.set("WIFI", "CONFIGURED", Some(s.wifi_configured.to_string()));
 
         ini.write(&file_path).is_ok()
     }

@@ -54,7 +54,8 @@ ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
 
 echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
 cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini
-chown pi:pi $PROJ_DIR/data/conf.ini || true
+cp $PROJ_DIR/conf.ini.backup $PROJ_DIR/data/conf.ini.backup || true
+chown pi:pi $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
 
 # Create symlink for conf.ini
 rm -f $PROJ_DIR/conf.ini || true

@@ -50,6 +50,17 @@ pub struct WeatherEngine {
 
 impl WeatherEngine {
     pub fn new() -> Self {
+        // Clean up corrupt weather icons on startup
+        if let Ok(entries) = std::fs::read_dir("weather_icons") {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.len() == 0 || image::open(entry.path()).is_err() {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+
         Self {
             base_renderer: BaseRenderer::new(),
             forecasts: Vec::new(),
@@ -236,9 +247,11 @@ impl WeatherEngine {
             // Try to download from OpenWeatherMap
             let url = format!("http://openweathermap.org/img/wn/{}@2x.png", icon_name);
             if let Ok(resp) = reqwest::blocking::get(&url) {
-                if let Ok(bytes) = resp.bytes() {
-                    let _ = std::fs::create_dir_all("weather_icons");
-                    let _ = std::fs::write(&icon_path, &bytes);
+                if resp.status().is_success() {
+                    if let Ok(bytes) = resp.bytes() {
+                        let _ = std::fs::create_dir_all("weather_icons");
+                        let _ = std::fs::write(&icon_path, &bytes);
+                    }
                 }
             }
         }

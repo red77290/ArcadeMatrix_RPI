@@ -237,11 +237,12 @@ impl ArcadeMatrixApp {
 
         let mut rotation_state = RotationState::new();
         let mut last_frame = std::time::Instant::now();
+        let mut gifs_played = 0;
 
         // 1. Display startup IP Address banner on DMD matrix
         let startup_payload = MessagePayload {
             text: format!("IP: {}", local_ip),
-            color: "#00ffc8".to_string(),
+            color: 0x07FF, // Cyan RGB565
             size: 1,
             direction: "left".to_string(),
             speed: 30,
@@ -351,6 +352,25 @@ impl ArcadeMatrixApp {
                 }
             }
 
+            // If MQTT is enabled, we act as a dedicated DMD for Recalbox and wait for games.
+            let mqtt_enabled = self.config.settings.read().mqtt_enabled;
+            if mqtt_enabled {
+                matrix.clear();
+                let payload = crate::engines::message::MessagePayload {
+                    text: "Waiting for Recalbox...".to_string(),
+                    color: 0xFD20, // Orange
+                    size: if matrix.height() >= 64 { 2 } else { 1 },
+                    direction: "left".to_string(),
+                    speed: 40,
+                    timeout_seconds: 60,
+                };
+                message_engine.render(matrix.as_mut(), &payload);
+                matrix.update();
+                last_frame = std::time::Instant::now();
+                tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+                continue;
+            }
+
             // Rotation sequence execution
             let (idle_list, clock_dur, date_dur, weather_dur) = {
                 let s = self.config.settings.read();
@@ -392,23 +412,32 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "gifs" => {
+                        let gifs_count = self.config.settings.read().idle_gifs_count as u32;
+
                         if last_mode != "gifs" {
+                            gifs_played = 0;
                             let selected = self.config.settings.read().selected_gifs.clone();
                             gif_engine.play_random_playlist_gif(&selected);
                         }
+
                         let dt = last_frame.elapsed();
                         gif_engine.render_next_frame(matrix.as_mut(), dt);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
-                        {
-                            rotation_state.next_mode(&idle_list);
+
+                        if gif_engine.has_finished_loops(1) {
+                            gifs_played += 1;
+                            if gifs_played >= gifs_count {
+                                rotation_state.next_mode(&idle_list);
+                            } else {
+                                let selected = self.config.settings.read().selected_gifs.clone();
+                                gif_engine.play_random_playlist_gif(&selected);
+                            }
                         }
                     }
                     "network" => {
                         let ip = get_local_ip();
                         let payload = crate::engines::message::MessagePayload {
                             text: format!("IP: {}", ip),
-                            color: "#00ffc8".to_string(),
+                            color: 0x07FF,
                             size: 1,
                             direction: "left".to_string(),
                             speed: 30,

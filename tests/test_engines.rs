@@ -54,8 +54,8 @@ fn test_message_engine() {
     let mut matrix = MockMatrix::new(64, 32);
     let mut engine = MessageEngine::new();
     let payload = MessagePayload {
-        text: "Scrolling Message".to_string(),
-        color: "#ff0000".to_string(),
+        text: "Test Msg".to_string(),
+        color: 0xF800, // Red in RGB565
         size: 1,
         direction: "left".to_string(),
         speed: 2,

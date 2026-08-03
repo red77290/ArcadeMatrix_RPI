@@ -15,6 +15,7 @@ pub struct GifEngine {
     frame_elapsed: Duration,
     target_width: u32,
     target_height: u32,
+    loop_count: u32,
 }
 
 impl GifEngine {
@@ -27,6 +28,7 @@ impl GifEngine {
             frame_elapsed: Duration::ZERO,
             target_width,
             target_height,
+            loop_count: 0,
         }
     }
 
@@ -74,6 +76,7 @@ impl GifEngine {
             self.frames = frames;
             self.frame_index = 0;
             self.frame_elapsed = Duration::ZERO;
+            self.loop_count = 0;
             true
         } else {
             false
@@ -150,12 +153,20 @@ impl GifEngine {
         self.frame_elapsed += dt;
         let (_, delay) = self.frames[self.frame_index];
 
-        if self.frame_elapsed >= delay {
-            self.frame_elapsed = Duration::ZERO;
-            self.frame_index = (self.frame_index + 1) % self.frames.len();
+        while self.frame_elapsed >= delay {
+            self.frame_elapsed -= delay;
+            self.frame_index += 1;
+            if self.frame_index >= self.frames.len() {
+                self.frame_index = 0;
+                self.loop_count += 1;
+            }
         }
 
         let (ref img, _) = self.frames[self.frame_index];
         matrix.draw_image(img, 0, 0);
+    }
+
+    pub fn has_finished_loops(&self, target_loops: u32) -> bool {
+        self.loop_count >= target_loops
     }
 }

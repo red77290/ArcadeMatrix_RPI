@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-PI_IP="192.168.1.169"
+PI_IP="192.168.1.149"
 PI_USER="pi"
 PI_PASS="raspberry"
 BIN_PATH="target/aarch64-unknown-linux-gnu/release/arcadematrix"

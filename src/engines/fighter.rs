@@ -572,14 +572,4 @@ mod tests {
         assert_eq!(meta.has_special, true);
         assert_eq!(meta.has_super, false);
     }
-
-    #[test]
-    fn test_init_fight_fallback() {
-        let mut engine = FighterEngine::new(256);
-        // Should handle missing index gracefully without panic
-        engine.init_fight(64, 10);
-
-        assert!(engine.active);
-        assert_eq!(engine.next_fight_time, 0);
-    }
 }

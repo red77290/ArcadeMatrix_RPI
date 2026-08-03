@@ -3,7 +3,7 @@ use arcadematrix::core::dmd_cache::DmdCache;
 use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
 use arcadematrix::engines::clock::ClockEngine;
 use arcadematrix::engines::date::DateEngine;
-use arcadematrix::engines::fighter::{FighterEngine, FighterSprite};
+use arcadematrix::engines::fighter::FighterEngine;
 use arcadematrix::engines::gif::GifEngine;
 use arcadematrix::engines::marquee::MarqueeEngine;
 use arcadematrix::engines::message::{MessageEngine, MessagePayload};

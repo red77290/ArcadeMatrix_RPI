@@ -73,6 +73,31 @@ El script hará automáticamente lo siguiente:
 2. Descargar y compilar el driver `hzeller/rpi-rgb-led-matrix`.
 3. Configurar `systemd` para iniciar ArcadeMatrix automáticamente al arrancar.
 
+### Opción 3: Smart Deploy a través de ordenador
+Si deseas compilar la aplicación en tu propio ordenador (mucho más rápido) y desplegarla automáticamente en la Raspberry Pi, puedes usar los scripts de despliegue inteligente basados en Docker.
+
+**En macOS / Linux:**
+```bash
+bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
+# Ejemplo: bash scripts/deploy.sh 192.168.1.149 pi raspberry
+```
+
+**En Windows (PowerShell):**
+```powershell
+.\scripts\deploy.ps1 -PI_IP "192.168.1.149" -PI_USER "pi" -PI_PASS "raspberry"
+```
+*El script detectará automáticamente la arquitectura de tu Pi, compilará el binario usando Docker, detendrá el servicio remoto, subirá el archivo y reiniciará la aplicación.*
+
+---
+
+## ⚠️ Advertencia de Hardware: Wi-Fi & Interferencias (Líneas VHS)
+
+Las Raspberry Pi (especialmente Pi 3 y Zero W) comparten el reloj del bus Wi-Fi interno con el controlador de hardware **PWM/PCM** utilizado por la matriz LED.
+
+**Tienes dos opciones:**
+1. **Imagen Perfecta (Sin Wi-Fi interno)**: En `conf.ini`, si `disable_hardware_pulsing = false`, la matriz monopoliza el controlador de hardware. La imagen será perfecta (sin parpadeos), pero **el chip Wi-Fi interno fallará (crash)**. Para tener Wi-Fi Y una imagen perfecta, debes conectar un adaptador USB Wi-Fi (Dongle).
+2. **Wi-Fi interno Activo (Parpadeo ligero)**: En `conf.ini`, si `disable_hardware_pulsing = true`, la matriz usará renderizado por software. El Wi-Fi funcionará perfectamente, pero verás un ligero efecto de "líneas VHS" o parpadeo en la matriz.
+
 ---
 
 ## 🎨 Gestión de medios
@@ -172,6 +197,7 @@ Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
 | `HARDWARE_MAPPING` | `adafruit-hat` | Type of HAT/wiring used. (`adafruit-hat`, `adafruit-hat-pwm`, `regular-pi1`, `regular`). |
 | `CHAIN` / `PARALLEL` | `1` / `1` | `CHAIN` for horizontal daisy-chaining. `PARALLEL` for vertical stacking on multiple HUB75 ports. |
 | `SLOWDOWN` | `2` | Hardware slowdown (1 to 4). Increase if your Matrix has flickering or visual artifacts (especially Pi 3/4). |
+| `disable_hardware_pulsing`| `false` | **CRÍTICO:** Cámbialo a `true` para evitar que el chip Wi-Fi interno falle (a costa de un ligero parpadeo). |
 | `BRIGHTNESS` | `100` | Global matrix brightness (1 to 100). |
 | `RGB_SEQUENCE` | `RGB` | Color order. Change to `RBG` or `BGR` if your colors look swapped. |
 

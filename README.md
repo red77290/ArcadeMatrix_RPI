@@ -74,6 +74,31 @@ The script will automatically:
 2. Download and compile the `hzeller/rpi-rgb-led-matrix` driver.
 3. Setup `systemd` to automatically start ArcadeMatrix on boot.
 
+### Option 3: Smart Deploy via Computer
+If you want to compile the application on your own computer (much faster) and automatically deploy it to the Raspberry Pi, you can use the smart Docker-based deployment scripts.
+
+**On macOS / Linux:**
+```bash
+bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
+# Example: bash scripts/deploy.sh 192.168.1.149 pi raspberry
+```
+
+**On Windows (PowerShell):**
+```powershell
+.\scripts\deploy.ps1 -PI_IP "192.168.1.149" -PI_USER "pi" -PI_PASS "raspberry"
+```
+*The script will auto-detect your Pi's architecture, compile the binary via Docker, stop the remote service, upload the file, and restart the application.*
+
+---
+
+## ⚠️ Hardware Warning: Wi-Fi & Interference (VHS Lines)
+
+Raspberry Pis (especially Pi 3 and Zero W) share their internal Wi-Fi bus clock with the **PWM/PCM** hardware controller used by the LED matrix.
+
+**You have two choices:**
+1. **Perfect Image (No Internal Wi-Fi)**: In `conf.ini`, if `disable_hardware_pulsing = false`, the matrix monopolizes the hardware controller. The image will be perfect (flicker-free), but **the internal Wi-Fi chip will crash**. To have both Wi-Fi AND a perfect image, you must plug in a USB Wi-Fi Dongle.
+2. **Active Internal Wi-Fi (Slight Flicker)**: In `conf.ini`, if `disable_hardware_pulsing = true`, the matrix will fall back to software rendering. The Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
+
 ---
 
 ## 🎨 Media Management
@@ -173,6 +198,7 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | `HARDWARE_MAPPING` | `adafruit-hat` | Type of HAT/wiring used. (`adafruit-hat`, `adafruit-hat-pwm`, `regular-pi1`, `regular`). |
 | `CHAIN` / `PARALLEL` | `1` / `1` | `CHAIN` for horizontal daisy-chaining. `PARALLEL` for vertical stacking on multiple HUB75 ports. |
 | `SLOWDOWN` | `2` | Hardware slowdown (1 to 4). Increase if your Matrix has flickering or visual artifacts (especially Pi 3/4). |
+| `disable_hardware_pulsing`| `false` | **CRITICAL:** Set to `true` to prevent the internal Wi-Fi chip from crashing (at the cost of slight flickering). |
 | `BRIGHTNESS` | `100` | Global matrix brightness (1 to 100). |
 | `RGB_SEQUENCE` | `RGB` | Color order. Change to `RBG` or `BGR` if your colors look swapped. |
 

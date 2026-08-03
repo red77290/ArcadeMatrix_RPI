@@ -511,12 +511,18 @@ async fn api_wifi(
         }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            tracing::error!("nmcli failed. stdout: {}, stderr: {}", stdout, stderr);
             HttpResponse::InternalServerError().json(
                 json!({"status": "error", "message": format!("Failed to connect: {}", stderr)}),
             )
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)})),
+        Err(e) => {
+            tracing::error!("Failed to execute nmcli: {}", e);
+            HttpResponse::InternalServerError().json(
+                json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)}),
+            )
+        }
     }
 }
 

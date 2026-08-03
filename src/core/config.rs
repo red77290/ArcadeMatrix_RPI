@@ -74,6 +74,11 @@ pub struct ConfigSettings {
     // API
     pub api_auth_enabled: bool,
     pub api_token: String,
+
+    // WIFI
+    pub wifi_ssid: String,
+    pub wifi_pass: String,
+    pub wifi_configured: bool,
 }
 
 impl Default for ConfigSettings {
@@ -143,7 +148,11 @@ impl Default for ConfigSettings {
             mqtt_pass: "".to_string(),
 
             api_auth_enabled: false,
-            api_token: "arcadematrix_secret_token".to_string(),
+            api_token: "9101d2ff5928c93107e537aa3c07a282".to_string(),
+
+            wifi_ssid: "".to_string(),
+            wifi_pass: "".to_string(),
+            wifi_configured: false,
         }
     }
 }
@@ -374,6 +383,17 @@ impl Config {
         if let Some(v) = ini.get("API", "TOKEN") {
             settings.api_token = v;
         }
+
+        // WIFI
+        if let Some(v) = ini.get("WIFI", "SSID") {
+            settings.wifi_ssid = v;
+        }
+        if let Some(v) = ini.get("WIFI", "PASS") {
+            settings.wifi_pass = v;
+        }
+        if let Ok(Some(val)) = ini.getbool("WIFI", "CONFIGURED") {
+            settings.wifi_configured = val;
+        }
     }
 
     pub fn save(&self) -> bool {
@@ -493,6 +513,10 @@ impl Config {
 
         ini.set("API", "AUTH_ENABLED", Some(s.api_auth_enabled.to_string()));
         ini.set("API", "TOKEN", Some(s.api_token));
+
+        ini.set("WIFI", "SSID", Some(s.wifi_ssid));
+        ini.set("WIFI", "PASS", Some(s.wifi_pass));
+        ini.set("WIFI", "CONFIGURED", Some(s.wifi_configured.to_string()));
 
         ini.write(&file_path).is_ok()
     }

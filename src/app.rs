@@ -42,6 +42,29 @@ impl ArcadeMatrixApp {
 
     pub async fn run(&self) -> std::io::Result<()> {
         info!("Starting ArcadeMatrix RPi v{}", env!("CARGO_PKG_VERSION"));
+        
+        // 0. Setup Wi-Fi if needed (like the Python version did)
+        {
+            let s = self.config.settings.read().clone();
+            if !s.wifi_ssid.is_empty() && !s.wifi_configured {
+                info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
+                let output = std::process::Command::new("sudo")
+                    .args(["nmcli", "dev", "wifi", "connect", &s.wifi_ssid, "password", &s.wifi_pass])
+                    .output();
+                if let Ok(out) = output {
+                    if out.status.success() {
+                        info!("Wi-Fi successfully connected via nmcli!");
+                        let mut ws = self.config.settings.write();
+                        ws.wifi_configured = true;
+                        drop(ws);
+                        self.config.save();
+                    } else {
+                        tracing::error!("Failed to connect to Wi-Fi: {}", String::from_utf8_lossy(&out.stderr));
+                    }
+                }
+            }
+        }
+
         let local_ip = get_local_ip();
         info!("ArcadeMatrix RPi IP Address: {}", local_ip);
 

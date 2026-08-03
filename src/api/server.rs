@@ -493,37 +493,27 @@ async fn api_wifi(
             .json(json!({"status": "error", "message": "Missing ssid or password"}));
     }
 
-    let output = tokio::process::Command::new("sudo")
-        .args(["nmcli", "dev", "wifi", "connect", ssid, "password", pass])
-        .output()
-        .await;
+    // We DO NOT run nmcli live here because the LED Matrix hardware PWM/PCM
+    // interferes with the Wi-Fi chip and causes scans to fail (EMI/Hardware conflict).
+    // Instead, we save the credentials, set configured to false, and restart the app.
+    // The app will connect to Wi-Fi at boot before initializing the LED Matrix.
 
-    match output {
-        Ok(out) if out.status.success() => {
-            let mut ws = data.config.settings.write();
-            ws.wifi_ssid = ssid.to_string();
-            ws.wifi_pass = pass.to_string();
-            ws.wifi_configured = true;
-            drop(ws);
-            data.config.save();
-            HttpResponse::Ok()
-                .json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"}))
-        }
-        Ok(out) => {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            tracing::error!("nmcli failed. stdout: {}, stderr: {}", stdout, stderr);
-            HttpResponse::InternalServerError().json(
-                json!({"status": "error", "message": format!("Failed to connect: {}", stderr)}),
-            )
-        }
-        Err(e) => {
-            tracing::error!("Failed to execute nmcli: {}", e);
-            HttpResponse::InternalServerError().json(
-                json!({"status": "error", "message": format!("Failed to execute nmcli: {}", e)}),
-            )
-        }
-    }
+    let mut ws = data.config.settings.write();
+    ws.wifi_ssid = ssid.to_string();
+    ws.wifi_pass = pass.to_string();
+    ws.wifi_configured = false; // Trigger nmcli on next boot
+    drop(ws);
+    data.config.save();
+
+    // Trigger app restart
+    data.config
+        .reload_flag
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
+    HttpResponse::Ok().json(json!({
+        "status": "success",
+        "message": "Wi-Fi credentials saved! Restarting application to connect..."
+    }))
 }
 
 #[post("/api/mqtt/install")]

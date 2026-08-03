@@ -57,6 +57,7 @@ pub struct ConfigSettings {
     pub idle_sprite_count: u32,
     pub idle_fighter_interval: u32,
     pub selected_gifs: Vec<String>,
+    pub selected_sprites: Vec<String>,
 
     // STANDBY / NIGHT
     pub standby_enabled: bool,
@@ -135,6 +136,7 @@ impl Default for ConfigSettings {
             idle_sprite_count: 1,
             idle_fighter_interval: 10,
             selected_gifs: vec![],
+            selected_sprites: vec![],
 
             standby_enabled: false,
             standby_turn_off: "23:00".to_string(),
@@ -339,6 +341,13 @@ impl Config {
         }
         if let Some(v) = ini.get("IDLE", "SELECTED_GIFS") {
             settings.selected_gifs = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Some(v) = ini.get("IDLE", "SELECTED_SPRITES") {
+            settings.selected_sprites = v
                 .split(',')
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())

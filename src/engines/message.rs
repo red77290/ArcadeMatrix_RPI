@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessagePayload {
     pub text: String,
-    pub color: u32,
+    pub color: String,
     pub size: u32,
     pub direction: String,
     pub speed: u32,
@@ -49,10 +49,17 @@ impl MessageEngine {
             finished = true;
         }
 
-        // Decode RGB565 integer sent from Web UI
-        let r = ((payload.color >> 11) & 0x1F) as u8 * 8;
-        let g = ((payload.color >> 5) & 0x3F) as u8 * 4;
-        let b = (payload.color & 0x1F) as u8 * 8;
+        let mut r = 255;
+        let mut g = 255;
+        let mut b = 255;
+
+        if payload.color.starts_with('#') && payload.color.len() == 7 {
+            if let Ok(c) = u32::from_str_radix(&payload.color[1..], 16) {
+                r = ((c >> 16) & 0xFF) as u8;
+                g = ((c >> 8) & 0xFF) as u8;
+                b = (c & 0xFF) as u8;
+            }
+        }
 
         self.base_renderer.render_text(
             matrix,

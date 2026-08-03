@@ -242,7 +242,7 @@ impl ArcadeMatrixApp {
         // 1. Display startup IP Address banner on DMD matrix
         let startup_payload = MessagePayload {
             text: format!("IP: {}", local_ip),
-            color: 0x07FF, // Cyan RGB565
+            color: "#00ffc8".to_string(), // Cyan
             size: 1,
             direction: "left".to_string(),
             speed: 30,
@@ -398,7 +398,7 @@ impl ArcadeMatrixApp {
                 matrix.clear();
                 let payload = crate::engines::message::MessagePayload {
                     text: "Waiting for Recalbox...".to_string(),
-                    color: 0xFD20, // Orange
+                    color: "#ff8c00".to_string(), // Orange
                     size: if matrix.height() >= 64 { 2 } else { 1 },
                     direction: "left".to_string(),
                     speed: 40,
@@ -477,7 +477,7 @@ impl ArcadeMatrixApp {
                         let ip = get_local_ip();
                         let payload = crate::engines::message::MessagePayload {
                             text: format!("IP: {}", ip),
-                            color: 0x07FF,
+                            color: "#00ffc8".to_string(),
                             size: 1,
                             direction: "left".to_string(),
                             speed: 30,

@@ -55,7 +55,7 @@ fn test_message_engine() {
     let mut engine = MessageEngine::new();
     let payload = MessagePayload {
         text: "Test Msg".to_string(),
-        color: 0xF800, // Red in RGB565
+        color: "#ff0000".to_string(), // Red string
         size: 1,
         direction: "left".to_string(),
         speed: 2,

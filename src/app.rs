@@ -43,6 +43,24 @@ impl ArcadeMatrixApp {
     pub async fn run(&self) -> std::io::Result<()> {
         info!("Starting ArcadeMatrix RPi v{}", env!("CARGO_PKG_VERSION"));
 
+        #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+        {
+            // The rgb-led-matrix C++ library automatically drops privileges from root to the 'daemon' user.
+            // Since the API requires running commands like nmcli, reboot, and shutdown, we must dynamically
+            // allow the 'daemon' user to run these commands via sudo without a password.
+            let sudoers_file = "/etc/sudoers.d/010_arcadematrix_daemon";
+            let sudoers_content =
+                "daemon ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /sbin/shutdown, /sbin/reboot\n";
+            if std::fs::read_to_string(sudoers_file).unwrap_or_default() != sudoers_content {
+                info!("Granting sudo privileges to daemon user for system commands...");
+                std::fs::write(sudoers_file, sudoers_content).ok();
+                std::process::Command::new("chmod")
+                    .args(["0440", sudoers_file])
+                    .spawn()
+                    .ok();
+            }
+        }
+
         // 0. Setup Wi-Fi if needed (like the Python version did)
         {
             let s = self.config.settings.read().clone();

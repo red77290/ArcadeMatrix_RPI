@@ -444,7 +444,7 @@ async fn api_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
     }
     std::process::Command::new("sh")
         .arg("-c")
-        .arg("sleep 1 && /sbin/reboot")
+        .arg("sleep 1 && sudo /sbin/reboot")
         .spawn()
         .ok();
     HttpResponse::Ok().json(json!({"status": "success", "message": "Rebooting..."}))
@@ -457,7 +457,7 @@ async fn api_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Respo
     }
     std::process::Command::new("sh")
         .arg("-c")
-        .arg("sleep 1 && /sbin/shutdown -h now")
+        .arg("sleep 1 && sudo /sbin/shutdown -h now")
         .spawn()
         .ok();
     HttpResponse::Ok().json(json!({"status": "success", "message": "Shutting down..."}))
@@ -499,8 +499,16 @@ async fn api_wifi(
         .await;
 
     match output {
-        Ok(out) if out.status.success() => HttpResponse::Ok()
-            .json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"})),
+        Ok(out) if out.status.success() => {
+            let mut ws = data.config.settings.write();
+            ws.wifi_ssid = ssid.to_string();
+            ws.wifi_pass = pass.to_string();
+            ws.wifi_configured = true;
+            drop(ws);
+            data.config.save();
+            HttpResponse::Ok()
+                .json(json!({"status": "success", "message": "Connected to Wi-Fi successfully!"}))
+        }
         Ok(out) => {
             let stderr = String::from_utf8_lossy(&out.stderr);
             HttpResponse::InternalServerError().json(

@@ -358,9 +358,9 @@ dependencies = [
  "imageproc",
  "mime_guess",
  "parking_lot",
+ "pi-led-matrix",
  "rand 0.8.7",
  "reqwest",
- "rpi-led-matrix",
  "rumqttc",
  "rust-embed",
  "rusttype",
@@ -461,12 +461,6 @@ checksum = "e7178fe5f7d460b13895ebb9dcb28a3a6216d2df2574a0806cb51b555d297f38"
 dependencies = [
  "arrayvec 0.7.8",
 ]
-
-[[package]]
-name = "az"
-version = "1.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be5eb007b7cacc6c660343e96f650fedf4b5a77512399eb952ca6642cf8d13f7"
 
 [[package]]
 name = "base64"
@@ -903,16 +897,6 @@ name = "either"
 version = "1.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e5e8f6c15a24b9a3ee5efec809ccd006d3b30e8b3bb63c39af737c7f87daa1d"
-
-[[package]]
-name = "embedded-graphics-core"
-version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b8b1239db5f3eeb7e33e35bd10bd014e7b2537b17e071f726a09351431337cfa"
-dependencies = [
- "az",
- "byteorder",
-]
 
 [[package]]
 name = "encoding_rs"
@@ -2176,6 +2160,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "pi-led-matrix"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac56930b27b3b5e1d0f6c210f1baa747a99e15c5cc177baab10919b8fd8f1474"
+dependencies = [
+ "libc",
+ "pi-led-matrix-sys",
+]
+
+[[package]]
+name = "pi-led-matrix-sys"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "940e8adc3d63915db2bbb94a79ee44018bb3f957a0e8a69d36da5acd501fca8e"
+dependencies = [
+ "cc",
+ "copy_dir",
+ "libc",
+]
+
+[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2610,27 +2615,6 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "rpi-led-matrix"
-version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dad33d57f9596dd7778b97c962d2b61f12f0a7ba9e6687e97660cbdeabc5b670"
-dependencies = [
- "embedded-graphics-core",
- "libc",
- "rpi-led-matrix-sys",
-]
-
-[[package]]
-name = "rpi-led-matrix-sys"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c8a1a28f8e8825eb093134821795c2f48954e207f46715225828af9d2fc9008"
-dependencies = [
- "copy_dir",
- "libc",
 ]
 
 [[package]]

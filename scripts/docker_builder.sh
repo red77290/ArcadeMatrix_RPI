@@ -8,10 +8,18 @@ echo "📥 Downloading latest Raspberry Pi OS Lite ($ARCH Bookworm)..."
 if [ "$ARCH" = "aarch64" ]; then
     IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
     BIN_TARGET="aarch64-unknown-linux-gnu"
+    export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+    export CC=aarch64-linux-gnu-gcc
+    export CXX=aarch64-linux-gnu-g++
+    export USER_DEFINES="-mcpu=cortex-a72"
     QEMU_BIN="/usr/bin/qemu-aarch64-static"
 else
     IMG_URL="https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz"
     BIN_TARGET="armv7-unknown-linux-gnueabihf"
+    export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig
+    export CC=arm-linux-gnueabihf-gcc
+    export CXX=arm-linux-gnueabihf-g++
+    export USER_DEFINES="-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard"
     QEMU_BIN="/usr/bin/qemu-arm-static"
 fi
 

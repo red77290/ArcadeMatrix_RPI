@@ -66,29 +66,61 @@ impl ArcadeMatrixApp {
             let s = self.config.settings.read().clone();
             if !s.wifi_ssid.is_empty() && !s.wifi_configured {
                 info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
-                let output = std::process::Command::new("sudo")
-                    .args([
-                        "nmcli",
-                        "dev",
-                        "wifi",
-                        "connect",
-                        &s.wifi_ssid,
-                        "password",
-                        &s.wifi_pass,
-                    ])
-                    .output();
-                if let Ok(out) = output {
-                    if out.status.success() {
-                        info!("Wi-Fi successfully connected via nmcli!");
-                        let mut ws = self.config.settings.write();
-                        ws.wifi_configured = true;
-                        drop(ws);
-                        self.config.save();
-                    } else {
-                        tracing::error!(
-                            "Failed to connect to Wi-Fi: {}",
-                            String::from_utf8_lossy(&out.stderr)
-                        );
+
+                // Set country code and unblock wifi
+                std::process::Command::new("sudo")
+                    .args(["raspi-config", "nonint", "do_wifi_country", "FR"])
+                    .output()
+                    .ok();
+                std::process::Command::new("sudo")
+                    .args(["rfkill", "unblock", "wifi"])
+                    .output()
+                    .ok();
+                std::thread::sleep(std::time::Duration::from_secs(2));
+
+                let safe_ssid = s.wifi_ssid.replace(" ", "_").replace("/", "_");
+                let nm_content = format!(
+                    "[connection]\nid={safe_ssid}\ntype=wifi\nautoconnect=true\n\n\
+                    [wifi]\nmode=infrastructure\nssid={ssid}\n\n\
+                    [wifi-security]\nkey-mgmt=wpa-psk\npsk={pass}\n\n\
+                    [ipv4]\nmethod=auto\n\n\
+                    [ipv6]\naddr-gen-mode=default\nmethod=auto\n",
+                    safe_ssid = safe_ssid,
+                    ssid = s.wifi_ssid,
+                    pass = s.wifi_pass
+                );
+
+                let profile_path = format!(
+                    "/etc/NetworkManager/system-connections/{}.nmconnection",
+                    safe_ssid
+                );
+                if let Err(e) = std::fs::write(&profile_path, nm_content) {
+                    tracing::error!("Failed to write NetworkManager profile: {}", e);
+                } else {
+                    std::process::Command::new("sudo")
+                        .args(["chmod", "600", &profile_path])
+                        .output()
+                        .ok();
+                    std::process::Command::new("sudo")
+                        .args(["nmcli", "connection", "reload"])
+                        .output()
+                        .ok();
+                    let output = std::process::Command::new("sudo")
+                        .args(["nmcli", "connection", "up", &safe_ssid])
+                        .output()
+                        .ok();
+
+                    if let Some(out) = output {
+                        if out.status.success() {
+                            info!("Connected to Wi-Fi successfully!");
+                            let mut ws = self.config.settings.write();
+                            ws.wifi_configured = true;
+                            drop(ws);
+                            self.config.save();
+                        } else {
+                            let stderr = String::from_utf8_lossy(&out.stderr);
+                            tracing::error!("Failed to bring up Wi-Fi connection: {}", stderr);
+                        }
                     }
                 }
             }

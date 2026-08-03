@@ -113,7 +113,9 @@ impl HardwareMatrix {
         options.set_cols(cols);
         options.set_chain_length(chain);
         options.set_parallel(parallel);
-        options.set_brightness(100).unwrap_or(());
+        options
+            .set_brightness(brightness.min(100).max(1))
+            .unwrap_or(());
         if !hardware_mapping.is_empty() {
             options.set_hardware_mapping(hardware_mapping);
         }
@@ -152,12 +154,7 @@ impl MatrixBackend for HardwareMatrix {
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
         if x >= 0 && y >= 0 && x < self.width() as i32 && y < self.height() as i32 {
-            let scale = self.brightness as f32 / 100.0;
-            let color = LedColor {
-                red: (red as f32 * scale) as u8,
-                green: (green as f32 * scale) as u8,
-                blue: (blue as f32 * scale) as u8,
-            };
+            let color = LedColor { red, green, blue };
             self.canvas.as_mut().unwrap().set(x, y, &color);
         }
     }
@@ -171,7 +168,9 @@ impl MatrixBackend for HardwareMatrix {
         self.canvas = Some(self.matrix.swap(canvas));
     }
 
-    fn set_brightness(&mut self, brightness: u8) {
-        self.brightness = brightness.min(100);
+    fn set_brightness(&mut self, _brightness: u8) {
+        // Hardware brightness cannot be changed dynamically via this Rust wrapper without access to the internal handle.
+        // The application handles dynamic changes by triggering a graceful restart (reload_flag)
+        // when brightness is changed via UI or MQTT, which re-initializes the matrix with the new brightness.
     }
 }

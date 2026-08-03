@@ -73,6 +73,7 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "matrix_rgb_sequence": s.matrix_rgb_sequence,
         "matrix_pwm_bits": s.matrix_pwm_bits,
         "matrix_pwm_lsb_nanoseconds": s.matrix_pwm_lsb_nanoseconds,
+        "matrix_disable_hardware_pulsing": s.matrix_disable_hardware_pulsing,
         "mqtt_enabled": s.mqtt_enabled,
         "mqtt_broker": s.mqtt_broker,
         "mqtt_port": s.mqtt_port,

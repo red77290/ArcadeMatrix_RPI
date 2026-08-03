@@ -8,7 +8,7 @@ fn test_default_config_settings() {
     assert_eq!(settings.matrix_cols, 64);
     assert_eq!(settings.matrix_chain, 1);
     assert_eq!(settings.matrix_parallel, 1);
-    assert_eq!(settings.time_24h, true);
+    assert_eq!(settings.time_format, "%H:%M:%S");
     assert_eq!(settings.time_font, "PressStart2P.ttf");
     assert_eq!(settings.time_size, 2);
     assert_eq!(settings.time_theme, 0);

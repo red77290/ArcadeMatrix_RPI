@@ -76,7 +76,7 @@ fn test_marquee_engine() {
 
 #[test]
 fn test_gif_engine_init() {
-    let mut gif_engine = GifEngine::new();
+    let mut gif_engine = GifEngine::new(64, 32);
     let mut matrix = MockMatrix::new(64, 32);
 
     gif_engine.render_next_frame(&mut matrix, std::time::Duration::from_millis(50));
@@ -87,7 +87,7 @@ fn test_gif_engine_init() {
 fn test_fighter_engine_initialization() {
     let mut engine = FighterEngine::new(64);
     let mut matrix = MockMatrix::new(64, 32);
-    engine.init_fight(32);
+    engine.init_fight(32, 10);
     engine.composite(&mut matrix);
 }
 

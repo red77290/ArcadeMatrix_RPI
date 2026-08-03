@@ -14,7 +14,7 @@ use crate::engines::message::{MessageEngine, MessagePayload};
 use crate::engines::weather::WeatherEngine;
 
 use std::net::UdpSocket;
-use std::os::unix::process::CommandExt;
+
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::info;
@@ -71,6 +71,7 @@ impl ArcadeMatrixApp {
                     cfg.matrix_slowdown,
                     cfg.matrix_pwm_bits,
                     cfg.matrix_pwm_lsb_nanoseconds,
+                    cfg.matrix_disable_hardware_pulsing,
                     cfg.matrix_brightness as u8,
                 ) {
                     Ok(hw) => Box::new(hw),
@@ -107,11 +108,10 @@ impl ArcadeMatrixApp {
         let mut weather_engine = WeatherEngine::new();
         let mut gif_engine = GifEngine::new(width, height);
         let mut fighter_engine = FighterEngine::new(width);
+        let interval = self.config.settings.read().idle_fighter_interval;
+        fighter_engine.init_fight(height, interval);
         let marquee_engine = MarqueeEngine::new();
         let mut message_engine = MessageEngine::new();
-
-        // Initialize fighter engine if sprites are present
-        fighter_engine.init_fight(height);
 
         let mut rotation_state = RotationState::new();
         let mut last_frame = std::time::Instant::now();
@@ -159,10 +159,8 @@ impl ArcadeMatrixApp {
             // Auto-restart if configuration requires hardware reload
             if self.config.reload_flag.swap(false, Ordering::Relaxed) {
                 tracing::info!("Configuration changed! Restarting application to apply hardware settings...");
-                let err = std::process::Command::new(std::env::current_exe().unwrap())
-                    .args(std::env::args().skip(1))
-                    .exec();
-                tracing::error!("Failed to restart process: {}", err);
+                // Cleanly exit the loop. The process will drop the matrix and exit with code 0.
+                // Systemd's Restart=always will relaunch the process cleanly after 3 seconds.
                 break;
             }
 
@@ -337,16 +335,20 @@ impl ArcadeMatrixApp {
                 last_mode = current_mode.to_string();
                 
                 // Composite fighter overlay on every frame if sprites are loaded
-                let sprite_count = self.config.settings.read().idle_sprite_count;
+                let settings = self.config.settings.read();
+                let sprite_count = settings.idle_sprite_count;
                 if sprite_count > 0 {
+                    fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 }
                 matrix.update();
             } else {
 
                 clock_engine.render(matrix.as_mut(), &self.config);
-                let sprite_count = self.config.settings.read().idle_sprite_count;
+                let settings = self.config.settings.read();
+                let sprite_count = settings.idle_sprite_count;
                 if sprite_count > 0 {
+                    fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 }
                 matrix.update();

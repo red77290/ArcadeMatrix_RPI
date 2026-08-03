@@ -105,6 +105,7 @@ impl HardwareMatrix {
         slowdown: u32,
         pwm_bits: u32,
         pwm_lsb: u32,
+        disable_hardware_pulsing: bool,
         brightness: u8,
     ) -> Result<Self, String> {
         let mut options = LedMatrixOptions::new();
@@ -121,6 +122,7 @@ impl HardwareMatrix {
         }
         let _ = options.set_pwm_bits(pwm_bits as u8);
         options.set_pwm_lsb_nanoseconds(pwm_lsb);
+        options.set_hardware_pulsing(!disable_hardware_pulsing);
 
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown);

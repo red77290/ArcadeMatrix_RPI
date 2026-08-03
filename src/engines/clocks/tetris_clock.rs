@@ -1,4 +1,6 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::base_renderer::ArcadeFont;
+use std::collections::HashSet;
 use rand::Rng;
 
 #[derive(Clone, PartialEq)]
@@ -42,74 +44,34 @@ impl TetrisClock {
     /// Builds target pixel positions for each character of `time_str`,
     /// treating each character as a grid of block_size×block_size cells.
     /// Returns Vec<Vec<(f32, f32)>> indexed by character index.
-    fn build_targets(&self, time_str: &str, w: u32, h: u32) -> Vec<Vec<(f32, f32)>> {
-        // 4×6 bitmap glyphs for digits 0-9 and colon
-        let digit_glyphs: [u8; 10 * 24] = [
-            // 0
-            0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, // 1
-            0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 1, // 2
-            0, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, // 3
-            1, 1, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, // 4
-            0, 0, 1, 1, 0, 1, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, // 5
-            1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 1, 0, // 6
-            0, 1, 1, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, // 7
-            1, 1, 1, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, // 8
-            0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0, // 9
-            0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0,
-        ];
-        let colon_glyph: [u8; 24] = [
-            0, 0, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        ];
-
-        let char_w = 4;
-        let char_h = 6;
-        let spacing = 1i32;
+    fn build_targets(
+        &self,
+        time_str: &str,
+        w: u32,
+        h: u32,
+        font: &ArcadeFont<'_>,
+        scale_val: u32,
+    ) -> Vec<Vec<(f32, f32)>> {
         let block = self.block_size;
+        let (pixels_by_char, text_width, text_height) = font.get_pixel_map(time_str, scale_val as f32);
 
-        // Compute total pixel width of rendered string
-        let mut total_px_w: i32 = 0;
-        for ch in time_str.chars() {
-            if ch == ':' {
-                total_px_w += 2 * block + spacing;
-            } else {
-                total_px_w += char_w * block + spacing;
-            }
-        }
-        if !time_str.is_empty() {
-            total_px_w -= spacing;
-        }
-
-        let total_px_h = char_h * block;
-        let start_x = ((w as i32) - total_px_w) / 2;
-        let start_y = ((h as i32) - total_px_h) / 2;
+        let start_x = ((w as i32) - text_width) / 2;
+        let start_y = ((h as i32) - text_height) / 2;
 
         let mut result: Vec<Vec<(f32, f32)>> = Vec::new();
-        let mut cur_x = start_x;
 
-        for (char_idx, ch) in time_str.chars().enumerate() {
+        for char_pixels in pixels_by_char {
             let mut targets = Vec::new();
-            if ch == ':' {
-                // Colon: two dots
-                let dot_y1 = start_y + (char_h * block) / 3;
-                let dot_y2 = start_y + (2 * char_h * block) / 3;
-                targets.push((cur_x as f32, dot_y1 as f32));
-                targets.push((cur_x as f32, dot_y2 as f32));
-                cur_x += 2 * block + spacing;
-            } else if let Some(d) = ch.to_digit(10) {
-                let glyph_base = (d as usize) * (char_w as usize * char_h as usize);
-                for row in 0..char_h {
-                    for col in 0..char_w {
-                        let px = digit_glyphs[glyph_base + (row * char_w + col) as usize];
-                        if px == 1 {
-                            let tx = cur_x + col * block;
-                            let ty = start_y + row * block;
-                            targets.push((tx as f32, ty as f32));
-                        }
-                    }
-                }
-                cur_x += char_w * block + spacing;
-            } else {
-                cur_x += char_w * block + spacing;
+            let mut block_set = HashSet::new();
+            
+            for (gx, gy) in char_pixels {
+                block_set.insert((gx / block as i32, gy / block as i32));
+            }
+            
+            for (bx, by) in block_set {
+                let tx = start_x + (bx * block as i32);
+                let ty = start_y + (by * block as i32);
+                targets.push((tx as f32, ty as f32));
             }
             result.push(targets);
         }
@@ -117,10 +79,19 @@ impl TetrisClock {
         result
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, time_str: &str) {
+    pub fn render(
+        &mut self,
+        matrix: &mut dyn MatrixBackend,
+        time_str: &str,
+        font: &ArcadeFont<'_>,
+        scale: u32,
+    ) {
         let w = matrix.width();
         let h = matrix.height();
         let mut rng = rand::thread_rng();
+
+        // Match python parity for falling speed
+        self.base_dy = (h as f32 / 15.0).max(1.5);
 
         let colors_normal: [(u8, u8, u8); 7] = [
             (0, 240, 240),
@@ -135,8 +106,8 @@ impl TetrisClock {
             [(15, 56, 15), (48, 98, 48), (139, 172, 15), (155, 188, 15)];
 
         if self.last_time_str != time_str {
-            let targets_by_char = self.build_targets(time_str, w, h);
-            let last_targets_by_char = self.build_targets(&self.last_time_str, w, h);
+            let targets_by_char = self.build_targets(time_str, w, h, font, scale);
+            let last_targets_by_char = self.build_targets(&self.last_time_str, w, h, font, scale);
 
             // Find which character indices changed
             let changed: Vec<usize> = time_str

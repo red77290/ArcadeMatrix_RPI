@@ -286,7 +286,9 @@ body {
   pointer-events: none;
 }
 [data-tooltip]:hover::after,
-[data-tooltip]:hover::before {
+[data-tooltip]:hover::before,
+[data-tooltip]:focus::after,
+[data-tooltip]:focus::before {
   opacity: 1;
   visibility: visible;
   transform: translateX(-50%) scale(1);

@@ -1,13 +1,13 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::base_renderer::BaseRenderer;
 use rand::Rng;
 
 struct MatrixColumn {
     x: i32,
     y: f32,
     speed: f32,
-    trail_len: usize,
-    char_code: u32, // Katakana codepoint offset (0x30A0 - 0x30FF)
-    char_timer: u32,
+    last_grid_y: i32,
+    char_code: char, // Real Katakana character
 }
 
 pub struct TrueMatrixRenderer {
@@ -16,6 +16,7 @@ pub struct TrueMatrixRenderer {
     buffer: Vec<Vec<(u8, u8, u8)>>,
     width: u32,
     height: u32,
+    renderer: BaseRenderer,
 }
 
 impl TrueMatrixRenderer {
@@ -27,25 +28,28 @@ impl TrueMatrixRenderer {
         let kw = (kh * 2 / 3).max(3);
         let col_spacing = (width as i32 / 20).max(kw + 3) as usize;
 
+        // Match python spacing: i * 10
+        let col_spacing = 10;
         let columns = (0..width as i32)
             .step_by(col_spacing)
             .map(|x| MatrixColumn {
                 x,
-                y: rng.gen_range(-h..0.0),
+                y: rng.gen_range(-h..-10.0), // Match python init
                 speed: rng.gen_range(8.0_f32..12.0),
-                trail_len: rng.gen_range(4..12),
-                char_code: rng.gen_range(0u32..96),
-                char_timer: 0,
+                last_grid_y: -100,
+                char_code: std::char::from_u32(rng.gen_range(0x30A0..0x3100)).unwrap_or('ア'),
             })
             .collect();
 
         let buffer = vec![vec![(0u8, 0u8, 0u8); width as usize]; height as usize];
+        let renderer = BaseRenderer::from_font_path("DotGothic16.ttf");
 
         Self {
             columns,
             buffer,
             width,
             height,
+            renderer,
         }
     }
 
@@ -54,56 +58,45 @@ impl TrueMatrixRenderer {
         let h = self.height;
         let w = self.width;
 
-        // 1. Fade the entire buffer (simulates RGBA alpha-composite overlay each frame)
+        // 1. Fade the entire buffer. Python used alpha 40 (~15% fade per jump).
+        // Since we run at ~25fps and cross a grid cell every 3 frames, we use 0.94.
+        // 0.94^3 = 0.83 (17% fade per jump).
         for row in self.buffer.iter_mut() {
             for px in row.iter_mut() {
-                px.0 = (px.0 as f32 * 0.82) as u8;
-                px.1 = (px.1 as f32 * 0.82) as u8;
-                px.2 = (px.2 as f32 * 0.82) as u8;
+                px.0 = (px.0 as f32 * 0.94) as u8;
+                px.1 = (px.1 as f32 * 0.94) as u8;
+                px.2 = (px.2 as f32 * 0.94) as u8;
             }
         }
 
-        // 2. Advance columns and paint into buffer
         for col in &mut self.columns {
-            col.y += col.speed * 0.3; // Step per render call (called ~25fps)
-            col.char_timer += 1;
-            if col.char_timer > 3 {
-                col.char_timer = 0;
-                col.char_code = rng.gen_range(0u32..96);
-            }
+            col.y += col.speed * 0.3; // Moves ~3px per frame
 
-            if col.y > h as f32 {
-                if rng.gen_bool(0.1) {
-                    col.y = rng.gen_range(-20.0_f32..-10.0);
-                }
-                // else reset to top next frame
-                col.y = rng.gen_range(-20.0_f32..-10.0);
-                col.speed = rng.gen_range(8.0_f32..12.0);
-                col.trail_len = rng.gen_range(4..12);
-            }
+            let grid_y = (col.y as i32 / 10) * 10; // Snap to 10px vertical grid
+            
+            if grid_y != col.last_grid_y {
+                col.last_grid_y = grid_y;
+                col.char_code = std::char::from_u32(rng.gen_range(0x30A0..0x3100)).unwrap_or('ア');
 
-            let head_y = col.y as i32;
-            if head_y >= 0 && head_y < h as i32 && col.x >= 0 && col.x < w as i32 {
-                // Bright head pixel — occasional white flicker
-                let is_white = rng.gen_bool(0.15);
-                let head_color = if is_white {
-                    (255, 255, 255)
-                } else {
-                    (180, 255, 180)
-                };
-                self.buffer[head_y as usize][col.x as usize] = head_color;
+                if grid_y > -20 && grid_y < h as i32 {
+                    let is_white = rng.gen_bool(0.2); // Match python < 0.2
+                    let head_color = if is_white {
+                        (255, 255, 255)
+                    } else {
+                        (180, 255, 180)
+                    };
 
-                let kh = (h as i32 / 9).max(5).min(20);
-                let kw = (kh * 2 / 3).max(3);
-
-                // Draw pseudo-kanji based on char_code
-                for cy in 0..kh {
-                    for cx in 0..kw {
-                        // Use bits of char_code + cx + cy as a pseudo-random toggle
-                        let bit = (col.char_code >> ((cy * kw + cx) % 32)) & 1;
-                        if bit == 1 {
-                            let py = head_y - cy;
-                            let px = col.x + cx;
+                    let char_str = col.char_code.to_string();
+                    let font = self.renderer.font();
+                    
+                    // Python size 12
+                    let (pixels, _, _) = font.get_pixel_map(&char_str, 1.5);
+                    
+                    for char_pixels in pixels {
+                        for &(gx, gy) in &char_pixels {
+                            let px = col.x + gx;
+                            let py = grid_y + gy;
+                            
                             if py >= 0 && py < h as i32 && px >= 0 && px < w as i32 {
                                 self.buffer[py as usize][px as usize] = head_color;
                             }
@@ -112,29 +105,12 @@ impl TrueMatrixRenderer {
                 }
             }
 
-            // Trail behind head
-            for i in 1..col.trail_len {
-                let kh = (h as i32 / 9).max(5).min(20);
-                let kw = (kh * 2 / 3).max(3);
-
-                let trail_y = head_y - i as i32;
-                if trail_y >= 0 && trail_y < h as i32 {
-                    let intensity = (255.0 * (1.0 - i as f32 / col.trail_len as f32)) as u8;
-                    for cx in 0..kw {
-                        let px = col.x + cx;
-                        if px >= 0 && px < w as i32 {
-                            let existing = self.buffer[trail_y as usize][px as usize];
-                            let bit = (col.char_code >> (((i as i32 % kh) * kw + cx as i32) % 32)) & 1;
-                            if bit == 1 {
-                                self.buffer[trail_y as usize][px as usize] = (
-                                    existing.0.max(0),
-                                    existing.1.max(intensity),
-                                    existing.2.max(0),
-                                );
-                            }
-                        }
-                    }
+            if col.y > h as f32 {
+                // Match Python probability. Checked every frame (3x more often), so 0.05 gives plenty of rain.
+                if rng.gen_bool(0.05) {
+                    col.y = rng.gen_range(-20.0_f32..-10.0);
                 }
+                col.speed = rng.gen_range(8.0_f32..12.0);
             }
         }
 

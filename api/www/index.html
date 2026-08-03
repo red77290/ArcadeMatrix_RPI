@@ -106,6 +106,7 @@
             <h3>System Control</h3>
             <div class="action-buttons">
               <button id="btn-reboot" class="btn btn-warning">Reboot System</button>
+              <button id="btn-restart-app" class="btn btn-warning" style="margin-left: 0.5rem; background: var(--bg-card); color: var(--text-color); border: 1px solid var(--border-color);">Restart App</button>
               <button id="btn-shutdown" class="btn btn-danger">Shutdown</button>
             </div>
           </div>
@@ -321,7 +322,10 @@
             </div>
             <div class="form-group">
               <label>Sprites on screen</label>
-              <input type="number" id="cfg-sprite-count" class="input" min="0" max="3">
+              <select id="cfg-sprite-enable" class="input">
+                <option value="true">ON</option>
+                <option value="false">OFF</option>
+              </select>
             </div>
             <div class="form-group">
               <label>Fighter Interval (s)</label>
@@ -510,6 +514,15 @@
               <div class="form-group">
                 <label>PWM LSB (ns) <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_lsb">?</span></label>
                 <input type="number" id="hw-pwm-lsb" class="input" value="130">
+              </div>
+              <div class="form-group">
+                <label>Disable Hardware Pulsing <span class="tooltip-icon" title="Fixes audio conflicts but uses more CPU">?</span></label>
+                <div style="display: flex; align-items: center; height: 100%;">
+                  <label class="switch">
+                    <input type="checkbox" id="hw-disable-pulsing">
+                    <span class="slider"></span>
+                  </label>
+                </div>
               </div>
             </div>
             <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Save Hardware Settings</button>

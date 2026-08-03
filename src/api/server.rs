@@ -9,20 +9,8 @@ struct AppState {
     config: Arc<Config>,
 }
 
-fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
-    let s = config.settings.read();
-    if !s.api_auth_enabled {
-        return Ok(());
-    }
-    let auth_header = req
-        .headers()
-        .get("X-API-Token")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    if auth_header != s.api_token {
-        return Err(HttpResponse::Unauthorized()
-            .json(json!({"status": "error", "message": "Missing or invalid X-API-Token"})));
-    }
+fn check_auth(_req: &HttpRequest, _config: &Config) -> Result<(), HttpResponse> {
+    // Authentication temporarily disabled per user request
     Ok(())
 }
 
@@ -32,7 +20,8 @@ async fn api_fonts() -> impl Responder {
     if let Ok(entries) = std::fs::read_dir("fonts") {
         for entry in entries.flatten() {
             if let Ok(name) = entry.file_name().into_string() {
-                if name.ends_with(".ttf") || name.ends_with(".otf") {
+                let lower_name = name.to_lowercase();
+                if lower_name.ends_with(".ttf") || lower_name.ends_with(".otf") || lower_name.ends_with(".bdf") {
                     fonts.push(name);
                 }
             }
@@ -138,6 +127,9 @@ async fn post_settings(
     }
     if let Some(v) = body.get("matrix_pwm_lsb_nanoseconds").and_then(|v| v.as_u64()) {
         s.matrix_pwm_lsb_nanoseconds = v as u32;
+    }
+    if let Some(v) = body.get("matrix_disable_hardware_pulsing").and_then(|v| v.as_bool()) {
+        s.matrix_disable_hardware_pulsing = v;
     }
 
     // Clock settings
@@ -293,6 +285,7 @@ async fn post_settings(
         old_s.matrix_rgb_sequence != s.matrix_rgb_sequence ||
         old_s.matrix_pwm_bits != s.matrix_pwm_bits ||
         old_s.matrix_pwm_lsb_nanoseconds != s.matrix_pwm_lsb_nanoseconds ||
+        old_s.matrix_disable_hardware_pulsing != s.matrix_disable_hardware_pulsing ||
         old_s.mqtt_enabled != s.mqtt_enabled ||
         old_s.mqtt_broker != s.mqtt_broker ||
         old_s.mqtt_port != s.mqtt_port ||
@@ -443,13 +436,11 @@ async fn api_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = tokio::process::Command::new("sudo")
-            .arg("reboot")
-            .status()
-            .await;
-    });
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg("sleep 1 && /sbin/reboot")
+        .spawn()
+        .ok();
     HttpResponse::Ok().json(json!({"status": "success", "message": "Rebooting..."}))
 }
 
@@ -458,14 +449,24 @@ async fn api_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Respo
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        let _ = tokio::process::Command::new("sudo")
-            .args(["shutdown", "now"])
-            .status()
-            .await;
-    });
+    std::process::Command::new("sh")
+        .arg("-c")
+        .arg("sleep 1 && /sbin/shutdown -h now")
+        .spawn()
+        .ok();
     HttpResponse::Ok().json(json!({"status": "success", "message": "Shutting down..."}))
+}
+
+#[post("/api/system/restart_app")]
+async fn api_restart_app(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    
+    // Set the reload flag to true, triggering a safe matrix drop and process exec in app.rs
+    data.config.reload_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+    
+    HttpResponse::Ok().json(json!({"status": "success", "message": "Restarting application..."}))
 }
 
 #[post("/api/wifi")]
@@ -649,6 +650,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_system_info)
             .service(api_reboot)
             .service(api_shutdown)
+            .service(api_restart_app)
             .service(api_sprites_playlists)
             .service(api_sprites_playlists_selected)
             .service(api_sprites_playlists_save)

@@ -1,4 +1,6 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::BaseRenderer;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct SlotMachineClock {
     last_minute: i32,
@@ -23,7 +25,13 @@ impl SlotMachineClock {
         }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, time_str: &str) {
+    pub fn render(
+        &mut self,
+        matrix: &mut dyn MatrixBackend,
+        time_str: &str,
+        font: &ArcadeFont<'_>,
+        scale: u32,
+    ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
         self.anim_frame += 1;
@@ -46,12 +54,8 @@ impl SlotMachineClock {
             self.current_time = time_str.to_string();
         }
 
-        // Estimated text metrics (approximate for the digit block font)
-        let char_w = 6i32;
-        let char_h = 10i32;
-        let text_len = self.current_time.len() as i32;
-        let tw = text_len * char_w;
-        let th = char_h;
+        // Accurate text metrics from font
+        let (_, tw, th) = font.get_pixel_map(&self.current_time, scale as f32);
 
         let tx = (w - tw) / 2;
         let ty = (h - th) / 2;
@@ -82,10 +86,10 @@ impl SlotMachineClock {
                 self.y_offset = 0.0;
             }
 
-            // Draw blurred spinning text (grey placeholder chars)
+            // Draw blurred spinning text
             let blur_y = ty + (self.y_offset as i32 % (th * 2));
-            self.draw_text_pixels(matrix, "88:88", tx, blur_y - th * 2, (80, 80, 80));
-            self.draw_text_pixels(matrix, "00:00", tx, blur_y, (40, 40, 40));
+            BaseRenderer::draw_text_at(matrix, "88:88", font, scale as f32, tx, blur_y - th * 2, (80, 80, 80), (0, 0, 0));
+            BaseRenderer::draw_text_at(matrix, "00:00", font, scale as f32, tx, blur_y, (40, 40, 40), (0, 0, 0));
 
             // Clip: mask overflow above and below the frame
             for x in 0..w {
@@ -98,7 +102,7 @@ impl SlotMachineClock {
             }
         } else {
             // Static time display
-            self.draw_text_pixels(matrix, &self.current_time.clone(), tx, ty, (255, 255, 255));
+            BaseRenderer::draw_text_at(matrix, &self.current_time.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
 
             // Winning golden border blink
             if (self.anim_frame / 20) % 2 == 0 {
@@ -130,48 +134,5 @@ impl SlotMachineClock {
             right_col.2,
         );
         matrix.set_pixel(tx + tw + 8, led_y, right_col.0, right_col.1, right_col.2);
-    }
-
-    /// Minimal pixel-font text renderer for 5×7-ish characters (uses 3×5 digit map from PongClock logic)
-    fn draw_text_pixels(
-        &self,
-        matrix: &mut dyn MatrixBackend,
-        text: &str,
-        x: i32,
-        y: i32,
-        color: (u8, u8, u8),
-    ) {
-        let segments: [[u8; 15]; 10] = [
-            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1], // 0
-            [0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1], // 1
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1], // 2
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 3
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1], // 4
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 5
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1], // 6
-            [1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], // 7
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1], // 8
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 9
-        ];
-        let mut cx = x;
-        for ch in text.chars() {
-            if ch == ':' {
-                matrix.set_pixel(cx + 1, y + 1, color.0, color.1, color.2);
-                matrix.set_pixel(cx + 1, y + 3, color.0, color.1, color.2);
-                cx += 3;
-                continue;
-            }
-            if let Some(d) = ch.to_digit(10) {
-                let d = d as usize;
-                for row in 0..5i32 {
-                    for col in 0..3i32 {
-                        if segments[d][(row * 3 + col) as usize] == 1 {
-                            matrix.set_pixel(cx + col, y + row, color.0, color.1, color.2);
-                        }
-                    }
-                }
-            }
-            cx += 4;
-        }
     }
 }

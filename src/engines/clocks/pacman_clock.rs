@@ -1,4 +1,6 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::BaseRenderer;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct PacmanClock {
     pac_x: f32,
@@ -33,14 +35,16 @@ impl PacmanClock {
         time_str: &str,
         _hours: u32,
         minutes: u32,
+        font: &ArcadeFont<'_>,
+        scale: u32,
     ) {
         let w = matrix.width() as f32;
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
-        // Adapt radius and speed to matrix size
-        self.radius = ((h / 8.0) as i32).max(3).min(6);
-        self.speed = (w / 40.0).max(1.5);
+        // Adapt radius and speed to matrix size (match Python)
+        self.radius = ((6.0 * h / 32.0) as i32).max(4);
+        self.speed = (3.0 * w / 64.0).max(1.5);
 
         let now_min = minutes as i32;
 
@@ -61,21 +65,27 @@ impl PacmanClock {
 
         if !self.transitioning {
             // Static display: draw time in center + scattered pellets
-            self.draw_time_text(matrix, &self.new_time_str.clone(), w as i32, h as i32);
+            let text_w = time_str.len() as i32 * 8 * scale as i32; // approximation for centering
+            let tx = (w as i32 - text_w) / 2;
+            let ty = (h as i32 - 10 * scale as i32) / 2;
+            BaseRenderer::draw_text_at(matrix, &self.new_time_str.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
 
             // Scattered pellets
-            for i in 0..5u32 {
-                let px = ((self.anim_frame.wrapping_mul(7).wrapping_add(i * 97)) % w as u32) as i32;
-                let py2 =
-                    ((self.anim_frame.wrapping_mul(5).wrapping_add(i * 53)) % h as u32) as i32;
-                matrix.set_pixel(px, py2, 255, 183, 174);
+            for i in 0..5 {
+                let px = ((self.anim_frame as f32 * 0.1 + i as f32).sin() * (w / 2.0)) + (w / 2.0);
+                let py = ((self.anim_frame as f32 * 0.15 + (i * 2) as f32).cos() * (h / 2.0)) + (h / 2.0);
+                matrix.set_pixel(px as i32, py as i32, 255, 183, 174);
             }
         } else {
             // Transition animation
             self.pac_x += self.speed;
 
+            let text_w = time_str.len() as i32 * 8 * scale as i32;
+            let tx = (w as i32 - text_w) / 2;
+            let ty = (h as i32 - 10 * scale as i32) / 2;
+
             // Draw old time (being "eaten" — visible only ahead of pac-man)
-            self.draw_time_text(matrix, &self.old_time_str.clone(), w as i32, h as i32);
+            BaseRenderer::draw_text_at(matrix, &self.old_time_str.clone(), font, scale as f32, tx, ty, (100, 100, 100), (0, 0, 0));
 
             // Black mask over eaten portion (left of pac-man)
             for x in 0..self.pac_x as i32 {
@@ -86,7 +96,7 @@ impl PacmanClock {
 
             // Draw new time (revealed behind pac-man)
             let reveal_x = (self.pac_x as i32 - self.radius * 4).max(0);
-            self.draw_time_text(matrix, &self.new_time_str.clone(), w as i32, h as i32);
+            BaseRenderer::draw_text_at(matrix, &self.new_time_str.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
             // Black mask over unrevealed portion (right of reveal wave)
             for x in reveal_x..w as i32 {
                 for y in 0..h as i32 {
@@ -117,12 +127,7 @@ impl PacmanClock {
                 );
             }
 
-            // Pellets ahead of pac-man
-            let mut px_pel = self.pac_x as i32 + self.radius * 2;
-            while px_pel < w as i32 {
-                matrix.set_pixel(px_pel, py, 255, 184, 82);
-                px_pel += 6;
-            }
+            // (No extra pellets ahead of pacman to match Python exactly)
 
             // Check if transition is done
             if self.pac_x >= w + self.radius as f32 * 3.0 {
@@ -195,54 +200,5 @@ impl PacmanClock {
         // Blue pupils
         matrix.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
         matrix.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
-    }
-
-    fn draw_time_text(&self, matrix: &mut dyn MatrixBackend, time_str: &str, w: i32, h: i32) {
-        let char_w = 4i32;
-        let char_h = 5i32;
-        let text_w = time_str.len() as i32 * char_w;
-        let tx = (w - text_w) / 2;
-        let ty = (h - char_h) / 2;
-        Self::draw_pixels(matrix, time_str, tx, ty, (255, 255, 255));
-    }
-
-    fn draw_pixels(
-        matrix: &mut dyn MatrixBackend,
-        text: &str,
-        x: i32,
-        y: i32,
-        color: (u8, u8, u8),
-    ) {
-        let segments: [[u8; 15]; 10] = [
-            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1],
-            [0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-        ];
-        let mut cx = x;
-        for ch in text.chars() {
-            if ch == ':' {
-                matrix.set_pixel(cx + 1, y + 1, color.0, color.1, color.2);
-                matrix.set_pixel(cx + 1, y + 3, color.0, color.1, color.2);
-                cx += 3;
-                continue;
-            }
-            if let Some(d) = ch.to_digit(10) {
-                for row in 0..5i32 {
-                    for col in 0..3i32 {
-                        if segments[d as usize][(row * 3 + col) as usize] == 1 {
-                            matrix.set_pixel(cx + col, y + row, color.0, color.1, color.2);
-                        }
-                    }
-                }
-            }
-            cx += 4;
-        }
     }
 }

@@ -112,6 +112,21 @@ function initDashboard() {
     });
   }
 
+  const btnRestartApp = document.getElementById('btn-restart-app');
+  if (btnRestartApp) {
+    btnRestartApp.addEventListener('click', async () => {
+      if (confirm('Are you sure you want to soft restart the application? (Hardware config will be reapplied)')) {
+        try {
+          await API.post('/api/system/restart_app');
+          window.showToast('Restarting application...', 'info');
+          setTimeout(() => location.reload(), 2000);
+        } catch (e) {
+          window.showToast('Failed to restart application', 'error');
+        }
+      }
+    });
+  }
+
   const btnShutdown = document.getElementById('btn-shutdown');
   if (btnShutdown) {
     btnShutdown.addEventListener('click', async () => {
@@ -373,6 +388,7 @@ async function initSettings() {
     document.getElementById('hw-slowdown').value = s.matrix_slowdown;
     document.getElementById('hw-pwm-bits').value = s.matrix_pwm_bits;
     document.getElementById('hw-pwm-lsb').value = s.matrix_pwm_lsb_nanoseconds;
+    document.getElementById('hw-disable-pulsing').checked = s.matrix_disable_hardware_pulsing;
     
     // MQTT
     document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
@@ -424,7 +440,7 @@ async function initSettings() {
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
     document.getElementById('cfg-dur-gifs').value = s.idle_gifs_count || 5;
-    document.getElementById('cfg-sprite-count').value = s.idle_sprite_count || 1;
+    document.getElementById('cfg-sprite-enable').value = (s.idle_sprite_count > 0) ? 'true' : 'false';
     document.getElementById('cfg-fighter-int').value = s.idle_fighter_interval || 5;
 
     // Night Mode
@@ -478,7 +494,7 @@ async function initSettings() {
           date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
           weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
           gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 5,
-          idle_sprite_count: parseInt(document.getElementById('cfg-sprite-count').value) || 1,
+          idle_sprite_count: document.getElementById('cfg-sprite-enable').value === 'true' ? 2 : 0,
           idle_fighter_interval: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
 
           night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
@@ -509,6 +525,7 @@ async function initSettings() {
       const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 2;
       const pwmBits = parseInt(document.getElementById('hw-pwm-bits').value) || 11;
       const pwmLsb = parseInt(document.getElementById('hw-pwm-lsb').value) || 130;
+      const disablePulsing = document.getElementById('hw-disable-pulsing').checked;
       
       try {
         await API.post('/api/settings', { 
@@ -520,7 +537,8 @@ async function initSettings() {
           matrix_rgb_sequence: rgb,
           matrix_slowdown: slowdown,
           matrix_pwm_bits: pwmBits,
-          matrix_pwm_lsb_nanoseconds: pwmLsb
+          matrix_pwm_lsb_nanoseconds: pwmLsb,
+          matrix_disable_hardware_pulsing: disablePulsing
         });
         window.showToast('Hardware settings saved! Restart required.', 'success');
       } catch (e) {

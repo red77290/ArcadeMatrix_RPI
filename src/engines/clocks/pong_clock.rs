@@ -1,5 +1,7 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::BaseRenderer;
 use rand::Rng;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct PongClock {
     ball_x: f32,
@@ -58,7 +60,14 @@ impl PongClock {
         }
     }
 
-    pub fn update_and_render(&mut self, matrix: &mut dyn MatrixBackend, hours: u32, minutes: u32) {
+    pub fn update_and_render(
+        &mut self,
+        matrix: &mut dyn MatrixBackend,
+        hours: u32,
+        minutes: u32,
+        font: &ArcadeFont<'_>,
+        scale: u32,
+    ) {
         let w = matrix.width() as f32;
         let h = matrix.height() as f32;
 
@@ -144,26 +153,31 @@ impl PongClock {
 
         // Left paddle
         let p1_top = (self.p1_y - self.pad_h / 2.0) as i32;
+        let pad_thick = ((w / 128.0) as i32).max(2);
         for dy in 0..self.pad_h as i32 {
-            matrix.set_pixel(
-                self.pad_w,
-                (p1_top + dy).clamp(0, h as i32 - 1),
-                255,
-                255,
-                255,
-            );
+            for dx in 0..pad_thick {
+                matrix.set_pixel(
+                    self.pad_w + dx,
+                    (p1_top + dy).clamp(0, h as i32 - 1),
+                    255,
+                    255,
+                    255,
+                );
+            }
         }
 
         // Right paddle
         let p2_top = (self.p2_y - self.pad_h / 2.0) as i32;
         for dy in 0..self.pad_h as i32 {
-            matrix.set_pixel(
-                (w as i32) - self.pad_w - 1,
-                (p2_top + dy).clamp(0, h as i32 - 1),
-                255,
-                255,
-                255,
-            );
+            for dx in 0..pad_thick {
+                matrix.set_pixel(
+                    (w as i32) - self.pad_w - 1 - dx,
+                    (p2_top + dy).clamp(0, h as i32 - 1),
+                    255,
+                    255,
+                    255,
+                );
+            }
         }
 
         // Ball (square, ball_size × ball_size)
@@ -179,45 +193,35 @@ impl PongClock {
             }
         }
 
-        // Scores drawn as digit dots at top center
-        // Left score (hours) — left of center
-        self.draw_score_digit(matrix, self.score_left, (w / 2.0 - 12.0) as i32, 1);
-        // Separator colon
-        matrix.set_pixel((w / 2.0) as i32, 2, 200, 200, 200);
-        matrix.set_pixel((w / 2.0) as i32, 4, 200, 200, 200);
-        // Right score (minutes) — right of center
-        self.draw_score_digit(matrix, self.score_right, (w / 2.0 + 4.0) as i32, 1);
-    }
+        // Scores drawn as TTF text at top center
+        let score_left_str = format!("{:02}", self.score_left);
+        let score_right_str = format!("{:02}", self.score_right);
 
-    /// Draws a small 2-digit number at (x, y) using 3×5 pixel font segments.
-    fn draw_score_digit(&self, matrix: &mut dyn MatrixBackend, value: u32, x: i32, y: i32) {
-        let tens = value / 10;
-        let units = value % 10;
-        self.draw_tiny_digit(matrix, tens, x, y);
-        self.draw_tiny_digit(matrix, units, x + 4, y);
-    }
-
-    fn draw_tiny_digit(&self, matrix: &mut dyn MatrixBackend, d: u32, x: i32, y: i32) {
-        // 3×5 bitmaps for 0–9 (rows top to bottom, cols left to right)
-        let segments: [[u8; 15]; 10] = [
-            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1], // 0
-            [0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1], // 1
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1], // 2
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 3
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1], // 4
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 5
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1], // 6
-            [1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0], // 7
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1], // 8
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1], // 9
-        ];
-        let d = (d % 10) as usize;
-        for row in 0..5i32 {
-            for col in 0..3i32 {
-                if segments[d][(row * 3 + col) as usize] == 1 {
-                    matrix.set_pixel(x + col, y + row, 200, 200, 200);
-                }
-            }
-        }
+        // Approximate width of 2 digits
+        let digit_width = 15.0 * scale as f32;
+        
+        // Left score
+        BaseRenderer::draw_text_at(
+            matrix,
+            &score_left_str,
+            font,
+            scale as f32,
+            (w / 2.0 - digit_width - 4.0) as i32,
+            4,
+            (200, 200, 200),
+            (0, 0, 0),
+        );
+        
+        // Right score
+        BaseRenderer::draw_text_at(
+            matrix,
+            &score_right_str,
+            font,
+            scale as f32,
+            (w / 2.0 + 8.0) as i32,
+            4,
+            (200, 200, 200),
+            (0, 0, 0),
+        );
     }
 }

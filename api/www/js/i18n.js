@@ -71,6 +71,7 @@ export function setLanguage(lang) {
     const key = el.getAttribute('data-i18n-tooltip');
     if (dict[key]) {
       el.setAttribute('data-tooltip', dict[key]);
+      el.setAttribute('tabindex', '0'); // For mobile focus
     }
   });
 }

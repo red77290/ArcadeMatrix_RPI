@@ -18,6 +18,8 @@ pub struct ClockEngine {
     versus: VersusClock,
     slot_machine: SlotMachineClock,
     last_font: String,
+    last_theme: i32,
+    last_size: u32,
 }
 
 impl ClockEngine {
@@ -36,6 +38,8 @@ impl ClockEngine {
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
             last_font: String::new(),
+            last_theme: -1, // Invalid dummy default
+            last_size: 0,
         }
     }
 
@@ -54,10 +58,36 @@ impl ClockEngine {
         let seconds = now.second();
 
         // Reload font from disk if the config font changes
+        let mut reset_clocks = false;
         if settings.time_font != self.last_font {
             self.base_renderer = BaseRenderer::from_font_path(&settings.time_font);
             self.last_font = settings.time_font.clone();
+            reset_clocks = true;
         }
+        if settings.time_theme != self.last_theme {
+            self.last_theme = settings.time_theme;
+            reset_clocks = true;
+        }
+        if settings.time_size != self.last_size {
+            self.last_size = settings.time_size;
+            reset_clocks = true;
+        }
+
+        if reset_clocks {
+            let w = matrix.width() as u32;
+            let h = matrix.height() as u32;
+            self.pong = PongClock::new(w, h);
+            self.tetris = TetrisClock::new(false);
+            self.tetris_gb = TetrisClock::new(true);
+            self.word = WordClock::new();
+            self.binary = BinaryClock::new();
+            self.pacman = PacmanClock::new();
+            self.versus = VersusClock::new();
+            self.slot_machine = SlotMachineClock::new();
+            matrix.clear(); // Clear artifact pixels from old layout
+        }
+
+        let font = self.base_renderer.font();
 
         match settings.time_theme {
             18 => {
@@ -86,22 +116,15 @@ impl ClockEngine {
                     None,
                 );
             }
-            20 => {
-                self.flip.render(
-                    matrix,
-                    &time_str,
-                    settings.time_offset_x,
-                    settings.time_offset_y,
-                );
-            }
-            22 => self.pong.update_and_render(matrix, hours, minutes),
-            23 => self.tetris.render(matrix, &time_str),
-            24 => self.word.render(matrix, hours, minutes),
-            25 => self.binary.render(matrix, hours, minutes, seconds),
-            26 => self.pacman.render(matrix, &time_str, hours, minutes),
-            27 => self.versus.render(matrix, hours, minutes),
-            28 => self.slot_machine.render(matrix, &time_str),
-            29 => self.tetris_gb.render(matrix, &time_str),
+            20 => self.flip.render(matrix, &time_str, &font, settings.time_size, settings.time_offset_x, settings.time_offset_y),
+            22 => self.pong.update_and_render(matrix, hours, minutes, &font, settings.time_size),
+            23 => self.tetris.render(matrix, &time_str, &font, settings.time_size),
+            24 => self.pacman.render(matrix, &time_str, hours, minutes, &font, settings.time_size),
+            25 => self.word.render(matrix, hours, minutes, &font, settings.time_size, &settings.weather_lang),
+            26 => self.binary.render(matrix, hours, minutes, seconds, &font, settings.time_size),
+            27 => self.versus.render(matrix, hours, minutes, &font, settings.time_size),
+            28 => self.slot_machine.render(matrix, &time_str, &font, settings.time_size),
+            29 => self.tetris_gb.render(matrix, &time_str, &font, settings.time_size),
             _ => self.base_renderer.render_text(
                 matrix,
                 &time_str,

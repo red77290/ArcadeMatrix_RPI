@@ -66,13 +66,8 @@ impl DateEngine {
                 );
             }
             20 => {
-                // Flip renderer (theme 20 = flip clock style for date)
-                self.flip.render(
-                    matrix,
-                    &date_str,
-                    settings.date_offset_x,
-                    settings.date_offset_y,
-                );
+                let font = self.base_renderer.font();
+                self.flip.render(matrix, &date_str, &font, settings.date_size, settings.date_offset_x, settings.date_offset_y);
             }
             _ => {
                 self.base_renderer.render_text(

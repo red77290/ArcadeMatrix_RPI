@@ -1,4 +1,5 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct BinaryClock;
 
@@ -7,7 +8,15 @@ impl BinaryClock {
         Self
     }
 
-    pub fn render(&self, matrix: &mut dyn MatrixBackend, hours: u32, minutes: u32, seconds: u32) {
+    pub fn render(
+        &self,
+        matrix: &mut dyn MatrixBackend,
+        hours: u32,
+        minutes: u32,
+        seconds: u32,
+        _font: &ArcadeFont<'_>,
+        _scale: u32,
+    ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
 

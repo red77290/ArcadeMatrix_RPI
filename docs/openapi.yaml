@@ -72,6 +72,9 @@ paths:
                 time_format:
                   type: string
                   description: Chrono strftime format for the clock (e.g. %H:%M:%S)
+                matrix_disable_hardware_pulsing:
+                  type: boolean
+                  description: Force software GPIO toggling to avoid PWM audio conflicts
       responses:
         '200':
           description: Settings successfully updated
@@ -112,6 +115,16 @@ paths:
       responses:
         '200':
           description: Device will reboot
+
+  /api/system/restart_app:
+    post:
+      tags:
+        - System
+      summary: Restart the application
+      description: Soft restarts the ArcadeMatrix application process without rebooting the OS. Useful to apply hardware changes safely.
+      responses:
+        '200':
+          description: Application restarting
 
   /api/system/shutdown:
     post:
@@ -197,6 +210,62 @@ paths:
       tags:
         - Media
       summary: Save active GIF playlists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                playlists:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Success
+
+  /api/playlists/play:
+    post:
+      tags:
+        - Media
+      summary: Trigger an immediate rotation to the requested GIF playlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                playlist_id:
+                  type: string
+      responses:
+        '200':
+          description: Playlist played
+
+  /api/sprites/playlists:
+    get:
+      tags:
+        - Media
+      summary: Get all Sprite playlists
+      responses:
+        '200':
+          description: JSON object mapping sprite categories to arrays of sprite IDs.
+
+  /api/sprites/playlists/selected:
+    get:
+      tags:
+        - Media
+      summary: Get active Sprite playlists
+      responses:
+        '200':
+          description: Selected sprite playlists
+
+  /api/sprites/playlists/save:
+    post:
+      tags:
+        - Media
+      summary: Save active Sprite playlists
       requestBody:
         required: true
         content:

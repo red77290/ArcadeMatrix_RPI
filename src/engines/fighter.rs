@@ -2,36 +2,47 @@ use crate::core::matrix::MatrixBackend;
 use byteorder::{LittleEndian, ReadBytesExt};
 use image::{Rgb, RgbImage};
 use rand::Rng;
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{BufReader, Read};
 use std::path::Path;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FighterState {
-    Walk,
-    Attack,
-    Hit,
-    Win,
-    Dead,
-}
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
 pub struct FighterSprite {
     pub width: u32,
     pub height: u32,
     pub frames: Vec<RgbImage>,
+    pub delays: Vec<u16>,
 }
 
 impl FighterSprite {
     pub fn load_fgt<P: AsRef<Path>>(path: P) -> Option<Self> {
-        let file = File::open(path).ok()?;
-        let mut reader = BufReader::new(file);
+        let file = File::open(path.as_ref()).ok()?;
+        let is_gz = path.as_ref().extension().and_then(|e| e.to_str()) == Some("gz");
+        
+        let reader: Box<dyn std::io::Read> = if is_gz {
+            Box::new(flate2::read::GzDecoder::new(file))
+        } else {
+            Box::new(file)
+        };
+        let mut reader = BufReader::new(reader);
+
+        let mut magic = [0u8; 4];
+        reader.read_exact(&mut magic).ok()?;
+        if magic != *b"FGT\x01" {
+            tracing::warn!("FGT bad magic: {:?}", magic);
+            return None;
+        }
 
         let width = reader.read_u16::<LittleEndian>().ok()? as u32;
         let height = reader.read_u16::<LittleEndian>().ok()? as u32;
         let frame_count = reader.read_u16::<LittleEndian>().ok()? as usize;
+        let _trans = reader.read_u16::<LittleEndian>().ok()?; // Transparent color (unused in this loop)
 
         let mut frames = Vec::new();
+        let mut delays = Vec::new();
         let pixel_count = (width * height) as usize;
 
         for _ in 0..frame_count {
@@ -45,24 +56,112 @@ impl FighterSprite {
                 let y = (i as u32) / width;
                 img.put_pixel(x, y, Rgb([r, g, b]));
             }
+            
+            // Read 2-byte delay at the end of each frame
+            let delay = reader.read_u16::<LittleEndian>().ok()?;
+            
             frames.push(img);
+            delays.push(delay);
         }
 
         Some(Self {
             width,
             height,
             frames,
+            delays,
         })
     }
 }
 
+#[derive(Deserialize, Clone, Debug)]
+pub struct FighterIndexMeta {
+    pub height: i32,
+    pub ground_y: i32,
+    #[serde(default)]
+    pub head_y: i32,
+    #[serde(default)]
+    pub origin_x: i32,
+    pub width: i32,
+    #[serde(default)]
+    pub has_special: bool,
+    #[serde(default)]
+    pub has_super: bool,
+}
+
+#[derive(Clone)]
+pub struct FighterChar {
+    pub name: String,
+    pub meta: FighterIndexMeta,
+    pub anims: HashMap<String, FighterSprite>,
+}
+
+impl FighterChar {
+    pub fn load_char<P: AsRef<Path>>(dir: P, meta: FighterIndexMeta) -> Option<Self> {
+        let dir = dir.as_ref();
+        let name = dir.file_name()?.to_str()?.to_string();
+
+        let mut anims = HashMap::new();
+
+        let mut try_load = |state: &str, files: &[&str]| {
+            for f in files {
+                let path = dir.join(f);
+                if let Some(sprite) = FighterSprite::load_fgt(&path) {
+                    tracing::info!("FGT loaded {}: {}x{}, {} frames", path.display(), sprite.width, sprite.height, sprite.frames.len());
+                    anims.insert(state.to_string(), sprite);
+                    return true;
+                }
+                
+                let gz_path = dir.join(format!("{}.gz", f));
+                if let Some(sprite) = FighterSprite::load_fgt(&gz_path) {
+                    tracing::info!("FGT loaded {}: {}x{}, {} frames", gz_path.display(), sprite.width, sprite.height, sprite.frames.len());
+                    anims.insert(state.to_string(), sprite);
+                    return true;
+                }
+            }
+            false
+        };
+
+        // Mandatory states
+        for action in &["walk", "attack", "hit", "win"] {
+            if !try_load(action, &[&format!("{}.fgt", action)]) {
+                // Fallbacks
+                match *action {
+                    "walk" => {
+                        if !try_load("walk", &["stand.fgt"]) {
+                            tracing::warn!("Failed to load walk.fgt or stand.fgt for {}", name);
+                            return None;
+                        }
+                    },
+                    "attack" => { try_load("attack", &["special1.fgt", "walk.fgt"]); },
+                    "hit" => { try_load("hit", &["fall.fgt", "dead.fgt", "walk.fgt"]); },
+                    "win" => { try_load("win", &["walk.fgt"]); },
+                    _ => {}
+                }
+            }
+        }
+        
+        // Optional states
+        for action in &["special1", "special2", "special3", "super1", "super2", "super3", "fall", "dead"] {
+            try_load(action, &[&format!("{}.fgt", action)]);
+        }
+
+        Some(Self { name, meta, anims })
+    }
+    
+    pub fn get_sprite(&self, state: &str) -> Option<&FighterSprite> {
+        self.anims.get(state).or_else(|| self.anims.get("walk"))
+    }
+}
+
 struct Player {
-    sprite: FighterSprite,
+    character: FighterChar,
     x: f32,
-    state: FighterState,
+    y: i32,
+    state: String,
     frame_idx: usize,
-    state_timer: u32,
-    flip: bool, // Mirror sprite horizontally
+    last_f: u128,
+    dead: bool,
+    dir: f32, // 1.0 (right) or -1.0 (left)
 }
 
 pub struct FighterEngine {
@@ -70,9 +169,16 @@ pub struct FighterEngine {
     matrix_height: u32,
     p1: Option<Player>,
     p2: Option<Player>,
-    fight_cooldown: u32,
     active: bool,
     sprite_dir: String,
+    last_move: u128,
+    fight_end: u128,
+    next_fight_time: u128,
+    interval_sec: u32,
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis()
 }
 
 impl FighterEngine {
@@ -82,217 +188,327 @@ impl FighterEngine {
             matrix_height: 64,
             p1: None,
             p2: None,
-            fight_cooldown: 0,
             active: false,
             sprite_dir: String::new(),
+            last_move: 0,
+            fight_end: 0,
+            next_fight_time: 0,
+            interval_sec: 10,
         }
     }
 
-    fn scan_fighters(dir: &str) -> Vec<String> {
-        std::fs::read_dir(dir)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter_map(|e| {
-                let p = e.path();
-                if p.extension().and_then(|x| x.to_str()) == Some("fgt") {
-                    p.to_str().map(|s| s.to_string())
-                } else {
-                    None
+    pub fn set_interval(&mut self, interval_sec: u32) {
+        self.interval_sec = interval_sec.max(1);
+    }
+    
+    fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
+        let index_path = Path::new(dir).join("index.json");
+        match std::fs::read_to_string(&index_path) {
+            Ok(content) => {
+                match serde_json::from_str::<HashMap<String, FighterIndexMeta>>(&content) {
+                    Ok(index) => return index,
+                    Err(e) => tracing::error!("Failed to parse {}: {}", index_path.display(), e),
                 }
-            })
-            .collect()
+            },
+            Err(e) => tracing::error!("Failed to read {}: {}", index_path.display(), e),
+        }
+        HashMap::new()
     }
 
-    fn load_random_pair(dir: &str) -> Option<(FighterSprite, FighterSprite)> {
-        let files = Self::scan_fighters(dir);
-        if files.len() < 2 {
-            return None;
-        }
-        let mut rng = rand::thread_rng();
-        let idx1 = rng.gen_range(0..files.len());
-        let mut idx2 = rng.gen_range(0..files.len());
-        while idx2 == idx1 {
-            idx2 = rng.gen_range(0..files.len());
-        }
-        let s1 = FighterSprite::load_fgt(&files[idx1])?;
-        let s2 = FighterSprite::load_fgt(&files[idx2])?;
-        Some((s1, s2))
-    }
-
-    pub fn init_fight(&mut self, matrix_height: u32) {
+    pub fn init_fight(&mut self, matrix_height: u32, interval_sec: u32) {
         self.matrix_height = matrix_height;
+        self.set_interval(interval_sec);
 
-        // Choose sprite directory based on matrix height
         let dir64 = "fighters_64";
         let dir32 = "fighters_32";
-        let dir = if matrix_height >= 64 && std::path::Path::new(dir64).exists() {
-            dir64
-        } else {
-            dir32
-        };
-        self.sprite_dir = dir.to_string();
-
-        if let Some((s1, s2)) = Self::load_random_pair(dir) {
-            let w = self.matrix_width as f32;
-            self.p1 = Some(Player {
-                x: 4.0,
-                state: FighterState::Walk,
-                frame_idx: 0,
-                state_timer: 0,
-                flip: false,
-                sprite: s1,
-            });
-            self.p2 = Some(Player {
-                x: w - 24.0,
-                state: FighterState::Walk,
-                frame_idx: 0,
-                state_timer: 0,
-                flip: true,
-                sprite: s2,
-            });
-            self.active = true;
-            self.fight_cooldown = 0;
+        
+        let mut index = Self::load_index(dir64);
+        let mut dir = dir64;
+        
+        if index.is_empty() || matrix_height < 64 {
+            index = Self::load_index(dir32);
+            dir = dir32;
         }
-    }
-
-    /// Overlay fighters on top of the current matrix frame.
-    /// Call this after every other engine renders.
-    pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
-        if !self.active {
+        
+        if index.is_empty() {
+            tracing::warn!("FighterEngine: No valid index.json found!");
+            self.next_fight_time = now_ms() + 5000; // Wait 5 seconds before retrying
             return;
         }
 
-        let w = self.matrix_width as f32;
-        let h = self.matrix_height as i32;
-
+        self.sprite_dir = dir.to_string();
+        
+        let fighters: Vec<(String, FighterIndexMeta)> = index.into_iter().collect();
+        if fighters.len() < 2 {
+            tracing::warn!("FighterEngine: Not enough characters in index.json");
+            self.next_fight_time = now_ms() + 5000;
+            return;
+        }
+        
         let mut rng = rand::thread_rng();
+        
+        let idx1 = rng.gen_range(0..fighters.len());
+        let (name1, meta1) = fighters[idx1].clone();
+        
+        // Find valid opponents (max 20% smaller, never taller)
+        let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters.iter()
+            .filter(|(name, meta)| {
+                name != &name1 && (meta.ground_y as f32) >= (meta1.ground_y as f32 * 0.8) && meta.ground_y <= meta1.ground_y
+            })
+            .collect();
+            
+        let (name2, meta2) = if !valid_opponents.is_empty() {
+            let idx2 = rng.gen_range(0..valid_opponents.len());
+            valid_opponents[idx2].clone()
+        } else {
+            // Fallback
+            let mut idx2 = rng.gen_range(0..fighters.len());
+            while idx2 == idx1 {
+                idx2 = rng.gen_range(0..fighters.len());
+            }
+            fighters[idx2].clone()
+        };
+        
+        tracing::info!("FighterEngine: Fight: {} (H:{}) vs {} (H:{})", name1, meta1.height, name2, meta2.height);
 
-        // Advance P1 AI
-        if let Some(ref mut p1) = self.p1 {
-            let p2_x = self.p2.as_ref().map(|p| p.x).unwrap_or(w / 2.0);
-            Self::advance_ai(p1, p2_x, true, &mut rng);
-        }
-        if let Some(ref mut p2) = self.p2 {
-            let p1_x = self.p1.as_ref().map(|p| p.x).unwrap_or(w / 2.0);
-            Self::advance_ai(p2, p1_x, false, &mut rng);
-        }
-
-        // Check hitbox: if close enough and attacking, trigger hit on opponent
-        if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
-            let dist = (p1.x - p2.x).abs();
-            if dist < (p1.sprite.width + 4) as f32 {
-                if p1.state == FighterState::Attack && p2.state == FighterState::Walk {
-                    p2.state = FighterState::Hit;
-                    p2.state_timer = 0;
-                }
-                if p2.state == FighterState::Attack && p1.state == FighterState::Walk {
-                    p1.state = FighterState::Hit;
-                    p1.state_timer = 0;
+        let char1_dir = Path::new(dir).join(&name1);
+        let char2_dir = Path::new(dir).join(&name2);
+        
+        let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
+        let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
+        
+        if let (Some(c1), Some(c2)) = (c1, c2) {
+            let c1_ground_at_0 = c1.meta.ground_y as i32 - c1.meta.head_y as i32;
+            let c2_ground_at_0 = c2.meta.ground_y as i32 - c2.meta.head_y as i32;
+            let fight_max_h = c1_ground_at_0.max(c2_ground_at_0);
+            
+            let y1 = fight_max_h - c1.meta.ground_y as i32;
+            let y2 = fight_max_h - c2.meta.ground_y as i32;
+            
+            // Mirror all sprites for Player 2
+            let mut mirrored_c2 = c2.clone();
+            for anim in mirrored_c2.anims.values_mut() {
+                for frame in &mut anim.frames {
+                    let w = frame.width();
+                    let h = frame.height();
+                    let mut flipped = RgbImage::new(w, h);
+                    for y in 0..h {
+                        for x in 0..w {
+                            flipped.put_pixel(w - 1 - x, y, *frame.get_pixel(x, y));
+                        }
+                    }
+                    *frame = flipped;
                 }
             }
-
-            // Check win/dead
-            let p1_dead = p1.state == FighterState::Dead;
-            let p2_dead = p2.state == FighterState::Dead;
-            if p1_dead || p2_dead {
-                self.fight_cooldown += 1;
-                if self.fight_cooldown > 60 {
-                    // Reset with new fighters
-                    let dir = self.sprite_dir.clone();
-                    let height = self.matrix_height;
-                    self.p1 = None;
-                    self.p2 = None;
-                    self.active = false;
-                    self.init_fight(height);
-                    return;
-                }
-            }
-        }
-
-        // Draw P1
-        if let Some(ref mut p1) = self.p1 {
-            let frame = &p1.sprite.frames[p1.frame_idx % p1.sprite.frames.len().max(1)];
-            let y = h - p1.sprite.height as i32;
-            draw_sprite(matrix, frame, p1.x as i32, y, p1.flip);
-            p1.frame_idx = p1.frame_idx.wrapping_add(1);
-        }
-
-        // Draw P2
-        if let Some(ref mut p2) = self.p2 {
-            let frame = &p2.sprite.frames[p2.frame_idx % p2.sprite.frames.len().max(1)];
-            let y = h - p2.sprite.height as i32;
-            draw_sprite(matrix, frame, p2.x as i32, y, p2.flip);
-            p2.frame_idx = p2.frame_idx.wrapping_add(1);
+            
+            self.p1 = Some(Player {
+                character: c1,
+                x: -(meta1.width as f32),
+                y: y1,
+                state: "walk".to_string(),
+                frame_idx: 0,
+                last_f: now_ms(),
+                dead: false,
+                dir: 1.0,
+            });
+            self.p2 = Some(Player {
+                character: mirrored_c2,
+                x: self.matrix_width as f32,
+                y: y2,
+                state: "walk".to_string(),
+                frame_idx: 0,
+                last_f: now_ms(),
+                dead: false,
+                dir: -1.0,
+            });
+            self.active = true;
+            self.last_move = now_ms();
+            self.fight_end = 0;
+        } else {
+            tracing::warn!("FighterEngine: Failed to load random pair");
+            self.next_fight_time = now_ms() + 5000;
         }
     }
 
-    fn advance_ai(player: &mut Player, opponent_x: f32, is_p1: bool, rng: &mut impl Rng) {
-        player.state_timer += 1;
-        let speed = 1.2f32;
+    pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
+        let now = now_ms();
+        
+        if !self.active {
+            if now >= self.next_fight_time {
+                let h = self.matrix_height;
+                let i = self.interval_sec;
+                self.init_fight(h, i);
+            }
+            return;
+        }
 
-        match player.state {
-            FighterState::Walk => {
-                // Walk toward opponent
-                let dir = if is_p1 {
-                    if opponent_x > player.x {
-                        1.0
-                    } else {
-                        -1.0
-                    }
-                } else {
-                    if opponent_x < player.x {
-                        -1.0
-                    } else {
-                        1.0
-                    }
-                };
-                player.x += dir * speed;
+        // Update animation frames
+        if let Some(ref mut p1) = self.p1 { Self::update_anim(p1, now); }
+        if let Some(ref mut p2) = self.p2 { Self::update_anim(p2, now); }
 
-                // Attack if close enough
-                let dist = (player.x - opponent_x).abs();
-                if dist < 20.0 && rng.gen_bool(0.05) {
-                    player.state = FighterState::Attack;
-                    player.state_timer = 0;
+        // Movement & Logic
+        if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
+            if p1.state == "walk" && p2.state == "walk" {
+                let elapsed = now.saturating_sub(self.last_move);
+                if elapsed >= 35 {
+                    let px_move = (elapsed / 35) as f32;
+                    p1.x += px_move;
+                    p2.x -= px_move;
+                    self.last_move += (px_move as u128) * 35;
+                    
+                    let p1_world_origin = p1.x + p1.character.meta.origin_x as f32;
+                    let p2_world_origin = p2.x + (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
+                    let dist = p2_world_origin - p1_world_origin;
+                    let engage_dist = (self.matrix_width as f32 * 0.4) as f32;
+                    
+                    if dist <= engage_dist {
+                        let mut rng = rand::thread_rng();
+                        let p1_attacks = rng.gen_bool(0.5);
+                        
+                        let (attacker, target) = if p1_attacks { (&mut *p1, &mut *p2) } else { (&mut *p2, &mut *p1) };
+                        
+                        let mut atk_state = "attack".to_string();
+                        let mut tgt_state = "hit".to_string();
+                        
+                        let r: f32 = rng.gen();
+                        if attacker.character.meta.has_super && r < 0.2 {
+                            let supers: Vec<String> = attacker.character.anims.keys().filter(|k| k.starts_with("super")).cloned().collect();
+                            if !supers.is_empty() {
+                                atk_state = supers[rng.gen_range(0..supers.len())].clone();
+                                tgt_state = if target.character.anims.contains_key("fall") { "fall".to_string() } else { "hit".to_string() };
+                            }
+                        } else if attacker.character.meta.has_special && r < 0.5 {
+                            let specials: Vec<String> = attacker.character.anims.keys().filter(|k| k.starts_with("special")).cloned().collect();
+                            if !specials.is_empty() {
+                                atk_state = specials[rng.gen_range(0..specials.len())].clone();
+                                tgt_state = if target.character.anims.contains_key("fall") { "fall".to_string() } else { "hit".to_string() };
+                            }
+                        }
+                        
+                        attacker.state = atk_state;
+                        target.state = tgt_state;
+                        
+                        attacker.frame_idx = 0;
+                        target.frame_idx = 0;
+                        attacker.last_f = now;
+                        target.last_f = now;
+                    }
                 }
             }
-            FighterState::Attack => {
-                if player.state_timer > 20 {
-                    player.state = FighterState::Walk;
-                    player.state_timer = 0;
+            
+            if p1.state == "fall" { p1.x += p1.dir * -2.0; }
+            if p2.state == "fall" { p2.x += p2.dir * -2.0; }
+            
+            if self.fight_end == 0 && (p1.dead || p2.dead) {
+                self.fight_end = now;
+            }
+            
+            if self.fight_end > 0 && now.saturating_sub(self.fight_end) > 2000 {
+                self.active = false;
+                self.next_fight_time = now + (self.interval_sec as u128 * 1000);
+            }
+        }
+
+        // Draw (loser behind, winner in front)
+        if let (Some(p1), Some(p2)) = (&self.p1, &self.p2) {
+            if p1.dead || p1.state == "hit" || p1.state == "fall" {
+                Self::draw_player(matrix, p1);
+                Self::draw_player(matrix, p2);
+            } else {
+                Self::draw_player(matrix, p2);
+                Self::draw_player(matrix, p1);
+            }
+        }
+    }
+
+    fn update_anim(p: &mut Player, now: u128) {
+        if let Some(anim) = p.character.get_sprite(&p.state) {
+            let mut delay = anim.delays[p.frame_idx.min(anim.delays.len().saturating_sub(1))] as u128;
+            if delay < 30 { delay = 30; }
+            
+            if now.saturating_sub(p.last_f) > delay {
+                p.frame_idx += 1;
+                p.last_f = now;
+                
+                if p.frame_idx >= anim.frames.len() {
+                    let s = p.state.as_str();
+                    if s == "walk" {
+                        p.frame_idx = 0;
+                    } else if s.starts_with("attack") || s.starts_with("special") || s.starts_with("super") {
+                        p.state = "win".to_string();
+                        p.frame_idx = 0;
+                    } else if s == "hit" || s == "fall" {
+                        p.frame_idx = anim.frames.len().saturating_sub(1);
+                        p.dead = true;
+                    } else if s == "win" {
+                        p.frame_idx = anim.frames.len().saturating_sub(1);
+                    }
+                }
+                
+                if p.state.starts_with("special") || p.state.starts_with("super") {
+                    p.x += p.dir * 2.0;
                 }
             }
-            FighterState::Hit => {
-                if player.state_timer > 15 {
-                    player.state = if rng.gen_bool(0.1) {
-                        FighterState::Dead
-                    } else {
-                        FighterState::Walk
-                    };
-                    player.state_timer = 0;
+        }
+    }
+
+    fn draw_player(matrix: &mut dyn MatrixBackend, p: &Player) {
+        if let Some(sprite) = p.character.get_sprite(&p.state) {
+            let frame = &sprite.frames[p.frame_idx.min(sprite.frames.len().saturating_sub(1))];
+            let start_x = p.x as i32;
+            let start_y = p.y;
+            
+            let w = frame.width() as i32;
+            let h = frame.height() as i32;
+
+            for y in 0..h {
+                for x in 0..w {
+                    let px = frame.get_pixel(x as u32, y as u32);
+                    if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                        matrix.set_pixel(start_x + x, start_y + y, px[0], px[1], px[2]);
+                    }
                 }
             }
-            FighterState::Win => {}
-            FighterState::Dead => {}
         }
     }
 }
 
-fn draw_sprite(matrix: &mut dyn MatrixBackend, img: &RgbImage, x: i32, y: i32, flip: bool) {
-    let (w, h) = img.dimensions();
-    for iy in 0..h {
-        for ix in 0..w {
-            let px = img.get_pixel(ix, iy);
-            // Treat pure black as transparent
-            if px[0] == 0 && px[1] == 0 && px[2] == 0 {
-                continue;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_fighter_index_parsing() {
+        let json = r#"{
+            "test_char": {
+                "height": 144,
+                "ground_y": 126,
+                "head_y": -30,
+                "origin_x": -15,
+                "width": 211,
+                "has_special": true,
+                "has_super": false
             }
-            let draw_x = if flip {
-                x + (w - 1 - ix) as i32
-            } else {
-                x + ix as i32
-            };
-            matrix.set_pixel(draw_x, y + iy as i32, px[0], px[1], px[2]);
-        }
+        }"#;
+
+        let parsed: Result<HashMap<String, FighterIndexMeta>, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok());
+        let map = parsed.unwrap();
+        
+        let meta = map.get("test_char").unwrap();
+        assert_eq!(meta.head_y, -30);
+        assert_eq!(meta.origin_x, -15);
+        assert_eq!(meta.has_special, true);
+        assert_eq!(meta.has_super, false);
+    }
+
+    #[test]
+    fn test_init_fight_fallback() {
+        let mut engine = FighterEngine::new(256);
+        // Should handle missing index gracefully without panic
+        engine.init_fight(64, 10);
+        
+        assert!(engine.active);
+        assert_eq!(engine.next_fight_time, 0);
     }
 }

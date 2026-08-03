@@ -17,6 +17,7 @@ pub struct ConfigSettings {
     pub matrix_rgb_sequence: String,
     pub matrix_pwm_bits: u32,
     pub matrix_pwm_lsb_nanoseconds: u32,
+    pub matrix_disable_hardware_pulsing: bool,
 
     // TIME
     pub time_format: String,
@@ -88,6 +89,7 @@ impl Default for ConfigSettings {
             matrix_rgb_sequence: "RGB".to_string(),
             matrix_pwm_bits: 11,
             matrix_pwm_lsb_nanoseconds: 130,
+            matrix_disable_hardware_pulsing: false,
 
             time_format: "%H:%M:%S".to_string(),
             time_font: "PressStart2P.ttf".to_string(),
@@ -215,8 +217,11 @@ impl Config {
         if let Ok(Some(val)) = ini.getuint("MATRIX", "PWM_BITS") {
             settings.matrix_pwm_bits = val as u32;
         }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "PWM_LSB_NANOSECONDS") {
+        if let Ok(Some(val)) = ini.getint("MATRIX", "pwm_lsb_nanoseconds") {
             settings.matrix_pwm_lsb_nanoseconds = val as u32;
+        }
+        if let Ok(Some(val)) = ini.getbool("MATRIX", "disable_hardware_pulsing") {
+            settings.matrix_disable_hardware_pulsing = val;
         }
 
         // TIME
@@ -391,8 +396,13 @@ impl Config {
         ini.set("MATRIX", "PWM_BITS", Some(s.matrix_pwm_bits.to_string()));
         ini.set(
             "MATRIX",
-            "PWM_LSB_NANOSECONDS",
+            "pwm_lsb_nanoseconds",
             Some(s.matrix_pwm_lsb_nanoseconds.to_string()),
+        );
+        ini.set(
+            "MATRIX",
+            "disable_hardware_pulsing",
+            Some(s.matrix_disable_hardware_pulsing.to_string()),
         );
 
         ini.set("TIME", "FORMAT", Some(s.time_format));

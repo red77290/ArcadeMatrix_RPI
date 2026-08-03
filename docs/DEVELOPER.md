@@ -64,14 +64,6 @@ cargo test
 
 For rapid iteration, you don't need to rebuild the entire 14GB `.img` file or compile directly on the slow Raspberry Pi. ArcadeMatrix includes cross-compilation scripts that work on any host OS (Windows, Linux, macOS) as long as Docker is installed.
 
-### 1. Build the Binary
-This command launches a lightweight Rust Docker container, installs the ARM64 cross-compiler toolchain, and compiles your Rust code natively in just a few seconds. The resulting binary is saved to `target/aarch64-unknown-linux-gnu/release/arcadematrix`.
-```bash
-bash scripts/build_local.sh
-```
+We provide a comprehensive suite of scripts for building locally and deploying directly to the Raspberry Pi over SSH.
 
-### 2. Deploy to the Raspberry Pi
-This command uses `scp` and `ssh` to push the newly compiled binary directly to your live Raspberry Pi and restarts the systemd service.
-```bash
-bash scripts/deploy_to_pi.sh pi@<YOUR_PI_IP_ADDRESS>
-```
+**Please see [SCRIPTS.md](SCRIPTS.md) for full details on how to configure and use the cross-compilation and deployment scripts for your operating system (macOS, Linux, or Windows).**

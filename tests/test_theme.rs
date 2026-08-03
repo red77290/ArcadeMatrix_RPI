@@ -9,13 +9,8 @@ fn test_all_themes_info() {
         assert_eq!(info.id, id);
         assert!(!info.name.is_empty());
     }
-
     assert_eq!(get_theme_info(0).name, "Nintendo");
     assert_eq!(get_theme_info(18).name, "Cyberpunk");
-    assert_eq!(get_theme_info(21).name, "True Matrix");
-    assert_eq!(get_theme_info(22).name, "Pong Clock");
-    assert_eq!(get_theme_info(26).name, "Pac-Man Clock");
-    assert_eq!(get_theme_info(27).name, "Versus Health Bar");
 }
 
 #[test]

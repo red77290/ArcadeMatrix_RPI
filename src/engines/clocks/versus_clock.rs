@@ -1,4 +1,6 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::BaseRenderer;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct VersusClock {
     anim_frame: u32,
@@ -9,7 +11,14 @@ impl VersusClock {
         Self { anim_frame: 0 }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, hours: u32, minutes: u32) {
+    pub fn render(
+        &mut self,
+        matrix: &mut dyn MatrixBackend,
+        hours: u32,
+        minutes: u32,
+        font: &ArcadeFont<'_>,
+        scale: u32,
+    ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
         self.anim_frame += 1;
@@ -81,16 +90,21 @@ impl VersusClock {
 
         // Time display (HH:MM) centered — draw shadow then foreground
         let time_str = format!("{:02}:{:02}", hours, minutes);
-        let char_w = 4i32;
-        let char_h = 5i32;
-        let text_w = time_str.len() as i32 * char_w;
+        let text_w = time_str.len() as i32 * 8 * scale as i32;
         let tx = (w - text_w) / 2;
-        let ty = (h - char_h) / 2 + 4;
+        let ty = (h - 10 * scale as i32) / 2 + 4;
 
-        // Drop shadow
-        self.draw_text_pixels(matrix, &time_str, tx + 1, ty + 1, (0, 0, 0));
-        // Main text
-        self.draw_text_pixels(matrix, &time_str, tx, ty, (255, 255, 255));
+        // Draw text with outline
+        BaseRenderer::draw_text_at(
+            matrix,
+            &time_str,
+            font,
+            scale as f32,
+            tx,
+            ty,
+            (255, 255, 255),
+            (0, 0, 0),
+        );
 
         // Bouncing fighter blobs at bottom corners
         let bounce1 = ((self.anim_frame as f32 * 0.2).sin() * 2.0) as i32;
@@ -134,47 +148,6 @@ impl VersusClock {
                     matrix.set_pixel(x + 7 + col as i32, y + row as i32, 255, 0, 0);
                 }
             }
-        }
-    }
-
-    fn draw_text_pixels(
-        &self,
-        matrix: &mut dyn MatrixBackend,
-        text: &str,
-        x: i32,
-        y: i32,
-        color: (u8, u8, u8),
-    ) {
-        let segments: [[u8; 15]; 10] = [
-            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1],
-            [0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-        ];
-        let mut cx = x;
-        for ch in text.chars() {
-            if ch == ':' {
-                matrix.set_pixel(cx, y + 1, color.0, color.1, color.2);
-                matrix.set_pixel(cx, y + 3, color.0, color.1, color.2);
-                cx += 2;
-                continue;
-            }
-            if let Some(d) = ch.to_digit(10) {
-                for row in 0..5i32 {
-                    for col in 0..3i32 {
-                        if segments[d as usize][(row * 3 + col) as usize] == 1 {
-                            matrix.set_pixel(cx + col, y + row, color.0, color.1, color.2);
-                        }
-                    }
-                }
-            }
-            cx += 4;
         }
     }
 }

@@ -1,4 +1,17 @@
 #!/bin/bash
-echo "Running cargo fmt..."
+set -e
+
+echo "🎨 Running cargo fmt..."
 cargo fmt
+
+echo "🔨 Running cargo check..."
+cargo check
+
+echo "🧪 Running cargo test..."
+cargo test
+
+# If we auto-formatted, we need to stage the formatting changes
+# so they are included in the commit.
 git add -u
+
+echo "✅ Pre-commit checks passed!"

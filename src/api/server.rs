@@ -505,14 +505,16 @@ async fn api_wifi(
     drop(ws);
     data.config.save();
 
-    // Trigger app restart
-    data.config
-        .reload_flag
-        .store(true, std::sync::atomic::Ordering::Relaxed);
+    // Trigger a full system reboot instead of just an app restart.
+    // The PWM/PCM hardware lock can crash the Wi-Fi chip until a full reboot.
+    std::process::Command::new("sudo")
+        .arg("/sbin/reboot")
+        .spawn()
+        .ok();
 
     HttpResponse::Ok().json(json!({
         "status": "success",
-        "message": "Wi-Fi credentials saved! Restarting application to connect..."
+        "message": "Wi-Fi credentials saved! Rebooting Raspberry Pi to apply and connect..."
     }))
 }
 

@@ -149,10 +149,7 @@ impl ClockEngine {
             23 => self
                 .tetris
                 .render(matrix, &time_str, &font, settings.time_size),
-            24 => self
-                .pacman
-                .render(matrix, &time_str, hours, minutes, &font, settings.time_size),
-            25 => self.word.render(
+            24 => self.word.render(
                 matrix,
                 hours,
                 minutes,
@@ -160,9 +157,12 @@ impl ClockEngine {
                 settings.time_size,
                 &settings.weather_lang,
             ),
-            26 => self
+            25 => self
                 .binary
                 .render(matrix, hours, minutes, seconds, &font, settings.time_size),
+            26 => self
+                .pacman
+                .render(matrix, &time_str, hours, minutes, &font, settings.time_size),
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, settings.time_size),

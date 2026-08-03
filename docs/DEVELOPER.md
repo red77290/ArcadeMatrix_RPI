@@ -8,6 +8,12 @@ Welcome to the ArcadeMatrix development guide. This document explains the core a
 
 Since the major refactoring, ArcadeMatrix strictly separates the **visual aesthetics (Renderers)** from the **behavioral logic (Clocks)**. Understanding this difference is crucial before you start coding.
 
+To automatically format code before every commit, we have included a pre-commit hook in the repository. Run the following command once to enable it locally:
+```bash
+git config core.hooksPath .githooks
+```
+This will ensure `cargo fmt` is always run before any code is committed.
+
 ### 1. Renderers (The "Theme")
 Located in `engines/renderers/`.
 A **Renderer** (e.g., `CyberpunkRenderer`, `FlipRenderer`) is purely aesthetic. It doesn't care if it's displaying the time, the date, or the weather. It takes a text string, a font, and draws it on top of a styled background or visual effect.

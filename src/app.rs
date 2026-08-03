@@ -42,14 +42,22 @@ impl ArcadeMatrixApp {
 
     pub async fn run(&self) -> std::io::Result<()> {
         info!("Starting ArcadeMatrix RPi v{}", env!("CARGO_PKG_VERSION"));
-        
+
         // 0. Setup Wi-Fi if needed (like the Python version did)
         {
             let s = self.config.settings.read().clone();
             if !s.wifi_ssid.is_empty() && !s.wifi_configured {
                 info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
                 let output = std::process::Command::new("sudo")
-                    .args(["nmcli", "dev", "wifi", "connect", &s.wifi_ssid, "password", &s.wifi_pass])
+                    .args([
+                        "nmcli",
+                        "dev",
+                        "wifi",
+                        "connect",
+                        &s.wifi_ssid,
+                        "password",
+                        &s.wifi_pass,
+                    ])
                     .output();
                 if let Ok(out) = output {
                     if out.status.success() {
@@ -59,7 +67,10 @@ impl ArcadeMatrixApp {
                         drop(ws);
                         self.config.save();
                     } else {
-                        tracing::error!("Failed to connect to Wi-Fi: {}", String::from_utf8_lossy(&out.stderr));
+                        tracing::error!(
+                            "Failed to connect to Wi-Fi: {}",
+                            String::from_utf8_lossy(&out.stderr)
+                        );
                     }
                 }
             }
@@ -166,7 +177,8 @@ impl ArcadeMatrixApp {
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
         let r = running.clone();
         tokio::spawn(async move {
-            let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {},
                 _ = sigterm.recv() => {},
@@ -181,7 +193,9 @@ impl ArcadeMatrixApp {
             matrix.clear();
             // Auto-restart if configuration requires hardware reload
             if self.config.reload_flag.swap(false, Ordering::Relaxed) {
-                tracing::info!("Configuration changed! Restarting application to apply hardware settings...");
+                tracing::info!(
+                    "Configuration changed! Restarting application to apply hardware settings..."
+                );
                 // Cleanly exit the loop. The process will drop the matrix and exit with code 0.
                 // Systemd's Restart=always will relaunch the process cleanly after 3 seconds.
                 break;
@@ -342,7 +356,6 @@ impl ArcadeMatrixApp {
                     }
                     "marquee" => {
                         if let Some(ref img) = *self.config.image_obj.lock() {
-
                             marquee_engine.render(matrix.as_mut(), img);
                         }
                         if rotation_state.mode_start_time.elapsed()
@@ -356,7 +369,7 @@ impl ArcadeMatrixApp {
                     }
                 }
                 last_mode = current_mode.to_string();
-                
+
                 // Composite fighter overlay on every frame if sprites are loaded
                 let settings = self.config.settings.read();
                 let sprite_count = settings.idle_sprite_count;
@@ -366,7 +379,6 @@ impl ArcadeMatrixApp {
                 }
                 matrix.update();
             } else {
-
                 clock_engine.render(matrix.as_mut(), &self.config);
                 let settings = self.config.settings.read();
                 let sprite_count = settings.idle_sprite_count;

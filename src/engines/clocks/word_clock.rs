@@ -1,6 +1,6 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::BaseRenderer;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 
 pub struct WordClock;
 
@@ -107,7 +107,9 @@ impl WordClock {
             line_heights.push(final_lh);
             total_h += final_lh + line_spacing;
         }
-        if total_h > 0 { total_h -= line_spacing; }
+        if total_h > 0 {
+            total_h -= line_spacing;
+        }
 
         let mut y = (h - total_h) / 2;
         for (i, line) in lines.iter().enumerate() {
@@ -118,16 +120,7 @@ impl WordClock {
             } else {
                 (255, 120, 0)
             };
-            BaseRenderer::draw_text_at(
-                matrix,
-                line,
-                font,
-                scale as f32,
-                x,
-                y,
-                color,
-                (0, 0, 0),
-            );
+            BaseRenderer::draw_text_at(matrix, line, font, scale as f32, x, y, color, (0, 0, 0));
             y += line_heights[i] + line_spacing;
         }
     }
@@ -144,16 +137,29 @@ impl WordClock {
         let h = matrix.height() as i32;
         let rounded_m = (minutes / 5) * 5;
         let past_half = minutes > 30;
-        let display_h = if past_half && rounded_m != 0 { (hours + 1) % 24 } else { hours };
+        let display_h = if past_half && rounded_m != 0 {
+            (hours + 1) % 24
+        } else {
+            hours
+        };
         let read_h = display_h % 12;
 
         let str_h = match display_h {
             0 => "MIDNIGHT",
             12 => "NOON",
             _ => match read_h {
-                1 => "ONE", 2 => "TWO", 3 => "THREE", 4 => "FOUR", 5 => "FIVE",
-                6 => "SIX", 7 => "SEVEN", 8 => "EIGHT", 9 => "NINE", 10 => "TEN",
-                11 => "ELEVEN", _ => "?",
+                1 => "ONE",
+                2 => "TWO",
+                3 => "THREE",
+                4 => "FOUR",
+                5 => "FIVE",
+                6 => "SIX",
+                7 => "SEVEN",
+                8 => "EIGHT",
+                9 => "NINE",
+                10 => "TEN",
+                11 => "ELEVEN",
+                _ => "?",
             },
         };
 
@@ -163,7 +169,11 @@ impl WordClock {
             30 => "HALF".to_string(),
             _ if past_half => {
                 let diff = 60 - rounded_m;
-                if diff == 15 { "A QUARTER".to_string() } else { format!("{}", diff) }
+                if diff == 15 {
+                    "A QUARTER".to_string()
+                } else {
+                    format!("{}", diff)
+                }
             }
             _ => format!("{}", rounded_m),
         };
@@ -205,16 +215,29 @@ impl WordClock {
         let h = matrix.height() as i32;
         let rounded_m = (minutes / 5) * 5;
         let past_half = minutes > 30;
-        let display_h = if past_half && rounded_m != 0 { (hours + 1) % 24 } else { hours };
+        let display_h = if past_half && rounded_m != 0 {
+            (hours + 1) % 24
+        } else {
+            hours
+        };
         let read_h = display_h % 12;
 
         let str_h = match display_h {
             0 => "MEDIANOCHE",
             12 => "MEDIODIA",
             _ => match read_h {
-                1 => "LA UNA", 2 => "LAS DOS", 3 => "LAS TRES", 4 => "LAS CUATRO", 5 => "LAS CINCO",
-                6 => "LAS SEIS", 7 => "LAS SIETE", 8 => "LAS OCHO", 9 => "LAS NUEVE", 10 => "LAS DIEZ",
-                11 => "LAS ONCE", _ => "?",
+                1 => "LA UNA",
+                2 => "LAS DOS",
+                3 => "LAS TRES",
+                4 => "LAS CUATRO",
+                5 => "LAS CINCO",
+                6 => "LAS SEIS",
+                7 => "LAS SIETE",
+                8 => "LAS OCHO",
+                9 => "LAS NUEVE",
+                10 => "LAS DIEZ",
+                11 => "LAS ONCE",
+                _ => "?",
             },
         };
 
@@ -224,7 +247,11 @@ impl WordClock {
             30 => "Y MEDIA".to_string(),
             _ if past_half => {
                 let diff = 60 - rounded_m;
-                if diff == 15 { "MENOS CUARTO".to_string() } else { format!("MENOS {}", diff) }
+                if diff == 15 {
+                    "MENOS CUARTO".to_string()
+                } else {
+                    format!("MENOS {}", diff)
+                }
             }
             _ => format!("Y {}", rounded_m),
         };
@@ -236,7 +263,11 @@ impl WordClock {
                 vec!["ES LA".to_string(), str_h.to_string(), str_m.to_string()]
             }
         } else {
-            let prefix = if read_h == 1 && display_h != 0 && display_h != 12 { "ES LA" } else { "SON LAS" };
+            let prefix = if read_h == 1 && display_h != 0 && display_h != 12 {
+                "ES LA"
+            } else {
+                "SON LAS"
+            };
             if rounded_m == 0 || rounded_m == 60 {
                 vec![prefix.to_string(), str_h.to_string(), str_m.to_string()]
             } else {
@@ -247,7 +278,15 @@ impl WordClock {
         self.draw_lines(matrix, &lines, font, scale, w, h);
     }
 
-    fn draw_lines(&self, matrix: &mut dyn MatrixBackend, lines: &[String], font: &ArcadeFont<'_>, scale: u32, w: i32, h: i32) {
+    fn draw_lines(
+        &self,
+        matrix: &mut dyn MatrixBackend,
+        lines: &[String],
+        font: &ArcadeFont<'_>,
+        scale: u32,
+        w: i32,
+        h: i32,
+    ) {
         let line_spacing = 4 * scale as i32;
         let mut total_h = 0;
         let mut line_heights = Vec::new();
@@ -258,13 +297,19 @@ impl WordClock {
             line_heights.push(final_lh);
             total_h += final_lh + line_spacing;
         }
-        if total_h > 0 { total_h -= line_spacing; }
+        if total_h > 0 {
+            total_h -= line_spacing;
+        }
 
         let mut y = (h - total_h) / 2;
         for (i, line) in lines.iter().enumerate() {
             let (_, lw, _) = font.get_pixel_map(line, scale as f32);
             let x = (w - lw) / 2;
-            let c = if i % 2 == 0 { (0, 220, 255) } else { (255, 120, 0) };
+            let c = if i % 2 == 0 {
+                (0, 220, 255)
+            } else {
+                (255, 120, 0)
+            };
             BaseRenderer::draw_text_at(matrix, line, font, scale as f32, x, y, c, (0, 0, 0));
             y += line_heights[i] + line_spacing;
         }

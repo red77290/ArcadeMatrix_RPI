@@ -21,7 +21,10 @@ async fn api_fonts() -> impl Responder {
         for entry in entries.flatten() {
             if let Ok(name) = entry.file_name().into_string() {
                 let lower_name = name.to_lowercase();
-                if lower_name.ends_with(".ttf") || lower_name.ends_with(".otf") || lower_name.ends_with(".bdf") {
+                if lower_name.ends_with(".ttf")
+                    || lower_name.ends_with(".otf")
+                    || lower_name.ends_with(".bdf")
+                {
                     fonts.push(name);
                 }
             }
@@ -125,10 +128,16 @@ async fn post_settings(
     if let Some(v) = body.get("matrix_pwm_bits").and_then(|v| v.as_u64()) {
         s.matrix_pwm_bits = v as u32;
     }
-    if let Some(v) = body.get("matrix_pwm_lsb_nanoseconds").and_then(|v| v.as_u64()) {
+    if let Some(v) = body
+        .get("matrix_pwm_lsb_nanoseconds")
+        .and_then(|v| v.as_u64())
+    {
         s.matrix_pwm_lsb_nanoseconds = v as u32;
     }
-    if let Some(v) = body.get("matrix_disable_hardware_pulsing").and_then(|v| v.as_bool()) {
+    if let Some(v) = body
+        .get("matrix_disable_hardware_pulsing")
+        .and_then(|v| v.as_bool())
+    {
         s.matrix_disable_hardware_pulsing = v;
     }
 
@@ -273,24 +282,21 @@ async fn post_settings(
         s.api_token = v.to_string();
     }
 
-
-
-    let needs_restart = 
-        old_s.matrix_slowdown != s.matrix_slowdown ||
-        old_s.matrix_rows != s.matrix_rows ||
-        old_s.matrix_cols != s.matrix_cols ||
-        old_s.matrix_chain != s.matrix_chain ||
-        old_s.matrix_parallel != s.matrix_parallel ||
-        old_s.matrix_mapping != s.matrix_mapping ||
-        old_s.matrix_rgb_sequence != s.matrix_rgb_sequence ||
-        old_s.matrix_pwm_bits != s.matrix_pwm_bits ||
-        old_s.matrix_pwm_lsb_nanoseconds != s.matrix_pwm_lsb_nanoseconds ||
-        old_s.matrix_disable_hardware_pulsing != s.matrix_disable_hardware_pulsing ||
-        old_s.mqtt_enabled != s.mqtt_enabled ||
-        old_s.mqtt_broker != s.mqtt_broker ||
-        old_s.mqtt_port != s.mqtt_port ||
-        old_s.mqtt_user != s.mqtt_user ||
-        old_s.mqtt_pass != s.mqtt_pass;
+    let needs_restart = old_s.matrix_slowdown != s.matrix_slowdown
+        || old_s.matrix_rows != s.matrix_rows
+        || old_s.matrix_cols != s.matrix_cols
+        || old_s.matrix_chain != s.matrix_chain
+        || old_s.matrix_parallel != s.matrix_parallel
+        || old_s.matrix_mapping != s.matrix_mapping
+        || old_s.matrix_rgb_sequence != s.matrix_rgb_sequence
+        || old_s.matrix_pwm_bits != s.matrix_pwm_bits
+        || old_s.matrix_pwm_lsb_nanoseconds != s.matrix_pwm_lsb_nanoseconds
+        || old_s.matrix_disable_hardware_pulsing != s.matrix_disable_hardware_pulsing
+        || old_s.mqtt_enabled != s.mqtt_enabled
+        || old_s.mqtt_broker != s.mqtt_broker
+        || old_s.mqtt_port != s.mqtt_port
+        || old_s.mqtt_user != s.mqtt_user
+        || old_s.mqtt_pass != s.mqtt_pass;
 
     drop(s);
     data.config.save();
@@ -462,10 +468,12 @@ async fn api_restart_app(req: HttpRequest, data: web::Data<AppState>) -> impl Re
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    
+
     // Set the reload flag to true, triggering a safe matrix drop and process exec in app.rs
-    data.config.reload_flag.store(true, std::sync::atomic::Ordering::Relaxed);
-    
+    data.config
+        .reload_flag
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
     HttpResponse::Ok().json(json!({"status": "success", "message": "Restarting application..."}))
 }
 
@@ -632,8 +640,14 @@ async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder 
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
     let state = web::Data::new(AppState { config });
-    let serve_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")).join("api/www");
-    tracing::info!("Starting web server on port {}, serving files from: {:?}", port, serve_dir);
+    let serve_dir = std::env::current_dir()
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .join("api/www");
+    tracing::info!(
+        "Starting web server on port {}, serving files from: {:?}",
+        port,
+        serve_dir
+    );
 
     HttpServer::new(move || {
         App::new()

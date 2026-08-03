@@ -1,7 +1,7 @@
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::base_renderer::ArcadeFont;
-use std::collections::HashSet;
 use rand::Rng;
+use std::collections::HashSet;
 
 #[derive(Clone, PartialEq)]
 enum BlockState {
@@ -53,7 +53,8 @@ impl TetrisClock {
         scale_val: u32,
     ) -> Vec<Vec<(f32, f32)>> {
         let block = self.block_size;
-        let (pixels_by_char, text_width, text_height) = font.get_pixel_map(time_str, scale_val as f32);
+        let (pixels_by_char, text_width, text_height) =
+            font.get_pixel_map(time_str, scale_val as f32);
 
         let start_x = ((w as i32) - text_width) / 2;
         let start_y = ((h as i32) - text_height) / 2;
@@ -63,11 +64,11 @@ impl TetrisClock {
         for char_pixels in pixels_by_char {
             let mut targets = Vec::new();
             let mut block_set = HashSet::new();
-            
+
             for (gx, gy) in char_pixels {
                 block_set.insert((gx / block as i32, gy / block as i32));
             }
-            
+
             for (bx, by) in block_set {
                 let tx = start_x + (bx * block as i32);
                 let ty = start_y + (by * block as i32);

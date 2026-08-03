@@ -1,6 +1,6 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::BaseRenderer;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 
 pub struct VersusClock {
     anim_frame: u32,

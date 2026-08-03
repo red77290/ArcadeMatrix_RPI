@@ -67,7 +67,14 @@ impl DateEngine {
             }
             20 => {
                 let font = self.base_renderer.font();
-                self.flip.render(matrix, &date_str, &font, settings.date_size, settings.date_offset_x, settings.date_offset_y);
+                self.flip.render(
+                    matrix,
+                    &date_str,
+                    &font,
+                    settings.date_size,
+                    settings.date_offset_x,
+                    settings.date_offset_y,
+                );
             }
             _ => {
                 self.base_renderer.render_text(

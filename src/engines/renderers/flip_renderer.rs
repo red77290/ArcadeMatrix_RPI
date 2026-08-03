@@ -1,6 +1,6 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::BaseRenderer;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 
 pub struct FlipRenderer {
     prev_chars: Vec<char>,
@@ -23,8 +23,12 @@ impl FlipRenderer {
             max_w = max_w.max(lw);
             max_h = max_h.max(lh);
         }
-        if max_w == 0 { max_w = 6 * scale as i32; }
-        if max_h == 0 { max_h = 10 * scale as i32; }
+        if max_w == 0 {
+            max_w = 6 * scale as i32;
+        }
+        if max_h == 0 {
+            max_h = 10 * scale as i32;
+        }
 
         let panel_w = (max_w + 2).max(4);
         let panel_h = (max_h + 4).max(8);
@@ -89,16 +93,16 @@ impl FlipRenderer {
                 if frame > 0 {
                     let shrink = if frame <= 4 { frame } else { 8 - frame } as i32;
                     let shrink_px = (shrink as f32 / 4.0 * (panel_h as f32 / 2.0)) as i32;
-                    
+
                     let top_y = start_y + shrink_px;
                     let bot_y = (start_y + panel_h - shrink_px - 1).max(top_y);
-                    
+
                     for dy in top_y..=bot_y {
                         for dx in 0..panel_w {
                             matrix.set_pixel(cx + dx, dy, 255, 255, 255);
                         }
                     }
-                    
+
                     let mid_y = start_y + panel_h / 2;
                     for dx in 0..panel_w {
                         matrix.set_pixel(cx + dx, mid_y, 0, 0, 0);
@@ -115,9 +119,18 @@ impl FlipRenderer {
                             matrix.set_pixel(cx + dx, start_y + dy, 255, 255, 255);
                         }
                     }
-                    
-                    BaseRenderer::draw_text_at(matrix, &ch.to_string(), font, scale as f32, cx + 1, start_y + 1, (0, 0, 0), (0, 0, 0));
-                    
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &ch.to_string(),
+                        font,
+                        scale as f32,
+                        cx + 1,
+                        start_y + 1,
+                        (0, 0, 0),
+                        (0, 0, 0),
+                    );
+
                     let mid_y = start_y + panel_h / 2;
                     for dx in 0..panel_w {
                         matrix.set_pixel(cx + dx, mid_y, 0, 0, 0);

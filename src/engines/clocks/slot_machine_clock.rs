@@ -1,6 +1,6 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::BaseRenderer;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 
 pub struct SlotMachineClock {
     last_minute: i32,
@@ -88,8 +88,26 @@ impl SlotMachineClock {
 
             // Draw blurred spinning text
             let blur_y = ty + (self.y_offset as i32 % (th * 2));
-            BaseRenderer::draw_text_at(matrix, "88:88", font, scale as f32, tx, blur_y - th * 2, (80, 80, 80), (0, 0, 0));
-            BaseRenderer::draw_text_at(matrix, "00:00", font, scale as f32, tx, blur_y, (40, 40, 40), (0, 0, 0));
+            BaseRenderer::draw_text_at(
+                matrix,
+                "88:88",
+                font,
+                scale as f32,
+                tx,
+                blur_y - th * 2,
+                (80, 80, 80),
+                (0, 0, 0),
+            );
+            BaseRenderer::draw_text_at(
+                matrix,
+                "00:00",
+                font,
+                scale as f32,
+                tx,
+                blur_y,
+                (40, 40, 40),
+                (0, 0, 0),
+            );
 
             // Clip: mask overflow above and below the frame
             for x in 0..w {
@@ -102,7 +120,16 @@ impl SlotMachineClock {
             }
         } else {
             // Static time display
-            BaseRenderer::draw_text_at(matrix, &self.current_time.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
+            BaseRenderer::draw_text_at(
+                matrix,
+                &self.current_time.clone(),
+                font,
+                scale as f32,
+                tx,
+                ty,
+                (255, 255, 255),
+                (0, 0, 0),
+            );
 
             // Winning golden border blink
             if (self.anim_frame / 20) % 2 == 0 {

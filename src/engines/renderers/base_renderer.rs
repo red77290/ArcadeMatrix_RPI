@@ -44,17 +44,27 @@ impl<'a> ArcadeFont<'a> {
                     }
                     pixels_by_char.push(char_pixels);
                 }
-                (pixels_by_char, max_x, (v_metrics.ascent - v_metrics.descent) as i32)
+                (
+                    pixels_by_char,
+                    max_x,
+                    (v_metrics.ascent - v_metrics.descent) as i32,
+                )
             }
             ArcadeFont::Bdf(font) => {
                 let mut pixels_by_char = Vec::new();
                 let mut cur_x = 0;
                 let scale_int = size.max(1.0) as i32;
-                
+
                 let global_bb = font.metadata.bounding_box.size;
-                let ascent = font.properties.try_get(bdf_parser::Property::FontAscent).unwrap_or(global_bb.y);
-                let descent = font.properties.try_get(bdf_parser::Property::FontDescent).unwrap_or(0);
-                
+                let ascent = font
+                    .properties
+                    .try_get(bdf_parser::Property::FontAscent)
+                    .unwrap_or(global_bb.y);
+                let descent = font
+                    .properties
+                    .try_get(bdf_parser::Property::FontDescent)
+                    .unwrap_or(0);
+
                 for c in text.chars() {
                     let mut char_pixels = Vec::new();
                     if let Some(glyph) = font.glyphs.get(c) {
@@ -62,7 +72,8 @@ impl<'a> ArcadeFont<'a> {
                         // In BDF, Y offsets are from baseline up. So top of bounding box is baseline - offset.y - size.y
                         let top_y = ascent - (bb.offset.y + bb.size.y);
                         let get_px = |gx: i32, gy: i32| -> bool {
-                            if gx < 0 || gy < 0 || gx >= bb.size.x as i32 || gy >= bb.size.y as i32 {
+                            if gx < 0 || gy < 0 || gx >= bb.size.x as i32 || gy >= bb.size.y as i32
+                            {
                                 false
                             } else {
                                 glyph.pixel(gx as usize, gy as usize)
@@ -74,11 +85,12 @@ impl<'a> ArcadeFont<'a> {
                             for x in -1..=(bb.size.x as i32) {
                                 let px = cur_x + bb.offset.x + x;
                                 let py = top_y + y;
-                                
+
                                 if get_px(x, y) {
                                     for sy in 0..scale_int {
                                         for sx in 0..scale_int {
-                                            char_pixels.push((px * scale_int + sx, py * scale_int + sy));
+                                            char_pixels
+                                                .push((px * scale_int + sx, py * scale_int + sy));
                                         }
                                     }
                                 }
@@ -90,7 +102,11 @@ impl<'a> ArcadeFont<'a> {
                     }
                     pixels_by_char.push(char_pixels);
                 }
-                (pixels_by_char, cur_x * scale_int, (ascent + descent) * scale_int)
+                (
+                    pixels_by_char,
+                    cur_x * scale_int,
+                    (ascent + descent) * scale_int,
+                )
             }
         }
     }
@@ -133,11 +149,17 @@ impl BaseRenderer {
                             custom_bdf_font: None,
                         };
                     } else {
-                        tracing::warn!("Font '{}' could not be parsed by rusttype, using embedded fallback.", path);
+                        tracing::warn!(
+                            "Font '{}' could not be parsed by rusttype, using embedded fallback.",
+                            path
+                        );
                     }
                 }
             }
-            Err(_) => tracing::warn!("Font '{}' not found on disk, using embedded fallback.", path),
+            Err(_) => tracing::warn!(
+                "Font '{}' not found on disk, using embedded fallback.",
+                path
+            ),
         }
         Self {
             custom_font_bytes: None,
@@ -151,8 +173,9 @@ impl BaseRenderer {
             return ArcadeFont::Bdf(bdf);
         }
         match &self.custom_font_bytes {
-            Some(bytes) => ArcadeFont::Ttf(Font::try_from_bytes(bytes.as_ref())
-                .unwrap_or_else(|| get_embedded_font().clone())),
+            Some(bytes) => ArcadeFont::Ttf(
+                Font::try_from_bytes(bytes.as_ref()).unwrap_or_else(|| get_embedded_font().clone()),
+            ),
             None => ArcadeFont::Ttf(get_embedded_font().clone()),
         }
     }
@@ -179,7 +202,12 @@ impl BaseRenderer {
             match &self.custom_font_bytes {
                 Some(bytes) => {
                     font_owned = Font::try_from_bytes(bytes.as_ref());
-                    ArcadeFont::Ttf(font_owned.as_ref().unwrap_or_else(|| get_embedded_font()).clone())
+                    ArcadeFont::Ttf(
+                        font_owned
+                            .as_ref()
+                            .unwrap_or_else(|| get_embedded_font())
+                            .clone(),
+                    )
                 }
                 None => ArcadeFont::Ttf(get_embedded_font().clone()),
             }
@@ -202,8 +230,20 @@ impl BaseRenderer {
                         // Arcade 3D Outline Effect, scaled by offset
                         // Draw colored drop shadow
                         for i in 1..=(offset * 2) {
-                            matrix.set_pixel(px + i, py + (offset * 2), secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px + (offset * 2), py + i, secondary.0, secondary.1, secondary.2);
+                            matrix.set_pixel(
+                                px + i,
+                                py + (offset * 2),
+                                secondary.0,
+                                secondary.1,
+                                secondary.2,
+                            );
+                            matrix.set_pixel(
+                                px + (offset * 2),
+                                py + i,
+                                secondary.0,
+                                secondary.1,
+                                secondary.2,
+                            );
                         }
                         // Black outline on edges
                         for i in 1..=offset {
@@ -211,7 +251,7 @@ impl BaseRenderer {
                             matrix.set_pixel(px + i, py, 0, 0, 0);
                             matrix.set_pixel(px, py - i, 0, 0, 0);
                             matrix.set_pixel(px, py + i, 0, 0, 0);
-                            
+
                             // Black outline around the shadow itself
                             matrix.set_pixel(px + (offset * 2) + i, py + (offset * 2), 0, 0, 0);
                             matrix.set_pixel(px + (offset * 2), py + (offset * 2) + i, 0, 0, 0);
@@ -285,4 +325,3 @@ impl BaseRenderer {
         }
     }
 }
-

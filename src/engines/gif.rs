@@ -1,5 +1,5 @@
 use crate::core::matrix::MatrixBackend;
-use image::{RgbImage};
+use image::RgbImage;
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::path::{Path, PathBuf};

@@ -494,9 +494,17 @@ impl Config {
             "SPRITE_COUNT",
             Some(s.idle_sprite_count.to_string()),
         );
-        ini.set("IDLE", "FIGHTER_INTERVAL_SEC", Some(s.idle_fighter_interval.to_string()));
+        ini.set(
+            "IDLE",
+            "FIGHTER_INTERVAL_SEC",
+            Some(s.idle_fighter_interval.to_string()),
+        );
         ini.set("IDLE", "SELECTED_GIFS", Some(s.selected_gifs.join(",")));
-        ini.set("IDLE", "SELECTED_SPRITES", Some(s.selected_sprites.join(",")));
+        ini.set(
+            "IDLE",
+            "SELECTED_SPRITES",
+            Some(s.selected_sprites.join(",")),
+        );
 
         ini.set(
             "STANDBY",

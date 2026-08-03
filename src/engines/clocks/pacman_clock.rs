@@ -1,6 +1,6 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::BaseRenderer;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use crate::engines::renderers::BaseRenderer;
 
 pub struct PacmanClock {
     pac_x: f32,
@@ -68,12 +68,22 @@ impl PacmanClock {
             let text_w = time_str.len() as i32 * 8 * scale as i32; // approximation for centering
             let tx = (w as i32 - text_w) / 2;
             let ty = (h as i32 - 10 * scale as i32) / 2;
-            BaseRenderer::draw_text_at(matrix, &self.new_time_str.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
+            BaseRenderer::draw_text_at(
+                matrix,
+                &self.new_time_str.clone(),
+                font,
+                scale as f32,
+                tx,
+                ty,
+                (255, 255, 255),
+                (0, 0, 0),
+            );
 
             // Scattered pellets
             for i in 0..5 {
                 let px = ((self.anim_frame as f32 * 0.1 + i as f32).sin() * (w / 2.0)) + (w / 2.0);
-                let py = ((self.anim_frame as f32 * 0.15 + (i * 2) as f32).cos() * (h / 2.0)) + (h / 2.0);
+                let py = ((self.anim_frame as f32 * 0.15 + (i * 2) as f32).cos() * (h / 2.0))
+                    + (h / 2.0);
                 matrix.set_pixel(px as i32, py as i32, 255, 183, 174);
             }
         } else {
@@ -85,7 +95,16 @@ impl PacmanClock {
             let ty = (h as i32 - 10 * scale as i32) / 2;
 
             // Draw old time (being "eaten" — visible only ahead of pac-man)
-            BaseRenderer::draw_text_at(matrix, &self.old_time_str.clone(), font, scale as f32, tx, ty, (100, 100, 100), (0, 0, 0));
+            BaseRenderer::draw_text_at(
+                matrix,
+                &self.old_time_str.clone(),
+                font,
+                scale as f32,
+                tx,
+                ty,
+                (100, 100, 100),
+                (0, 0, 0),
+            );
 
             // Black mask over eaten portion (left of pac-man)
             for x in 0..self.pac_x as i32 {
@@ -96,7 +115,16 @@ impl PacmanClock {
 
             // Draw new time (revealed behind pac-man)
             let reveal_x = (self.pac_x as i32 - self.radius * 4).max(0);
-            BaseRenderer::draw_text_at(matrix, &self.new_time_str.clone(), font, scale as f32, tx, ty, (255, 255, 255), (0, 0, 0));
+            BaseRenderer::draw_text_at(
+                matrix,
+                &self.new_time_str.clone(),
+                font,
+                scale as f32,
+                tx,
+                ty,
+                (255, 255, 255),
+                (0, 0, 0),
+            );
             // Black mask over unrevealed portion (right of reveal wave)
             for x in reveal_x..w as i32 {
                 for y in 0..h as i32 {

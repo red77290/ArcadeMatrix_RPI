@@ -1,7 +1,7 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 use rand::Rng;
-use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct PongClock {
     ball_x: f32,
@@ -199,7 +199,7 @@ impl PongClock {
 
         // Approximate width of 2 digits
         let digit_width = 15.0 * scale as f32;
-        
+
         // Left score
         BaseRenderer::draw_text_at(
             matrix,
@@ -211,7 +211,7 @@ impl PongClock {
             (200, 200, 200),
             (0, 0, 0),
         );
-        
+
         // Right score
         BaseRenderer::draw_text_at(
             matrix,

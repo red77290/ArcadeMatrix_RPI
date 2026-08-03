@@ -116,15 +116,43 @@ impl ClockEngine {
                     None,
                 );
             }
-            20 => self.flip.render(matrix, &time_str, &font, settings.time_size, settings.time_offset_x, settings.time_offset_y),
-            22 => self.pong.update_and_render(matrix, hours, minutes, &font, settings.time_size),
-            23 => self.tetris.render(matrix, &time_str, &font, settings.time_size),
-            24 => self.pacman.render(matrix, &time_str, hours, minutes, &font, settings.time_size),
-            25 => self.word.render(matrix, hours, minutes, &font, settings.time_size, &settings.weather_lang),
-            26 => self.binary.render(matrix, hours, minutes, seconds, &font, settings.time_size),
-            27 => self.versus.render(matrix, hours, minutes, &font, settings.time_size),
-            28 => self.slot_machine.render(matrix, &time_str, &font, settings.time_size),
-            29 => self.tetris_gb.render(matrix, &time_str, &font, settings.time_size),
+            20 => self.flip.render(
+                matrix,
+                &time_str,
+                &font,
+                settings.time_size,
+                settings.time_offset_x,
+                settings.time_offset_y,
+            ),
+            22 => self
+                .pong
+                .update_and_render(matrix, hours, minutes, &font, settings.time_size),
+            23 => self
+                .tetris
+                .render(matrix, &time_str, &font, settings.time_size),
+            24 => self
+                .pacman
+                .render(matrix, &time_str, hours, minutes, &font, settings.time_size),
+            25 => self.word.render(
+                matrix,
+                hours,
+                minutes,
+                &font,
+                settings.time_size,
+                &settings.weather_lang,
+            ),
+            26 => self
+                .binary
+                .render(matrix, hours, minutes, seconds, &font, settings.time_size),
+            27 => self
+                .versus
+                .render(matrix, hours, minutes, &font, settings.time_size),
+            28 => self
+                .slot_machine
+                .render(matrix, &time_str, &font, settings.time_size),
+            29 => self
+                .tetris_gb
+                .render(matrix, &time_str, &font, settings.time_size),
             _ => self.base_renderer.render_text(
                 matrix,
                 &time_str,

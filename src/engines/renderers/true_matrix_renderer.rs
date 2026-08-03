@@ -73,7 +73,7 @@ impl TrueMatrixRenderer {
             col.y += col.speed * 0.3; // Moves ~3px per frame
 
             let grid_y = (col.y as i32 / 10) * 10; // Snap to 10px vertical grid
-            
+
             if grid_y != col.last_grid_y {
                 col.last_grid_y = grid_y;
                 col.char_code = std::char::from_u32(rng.gen_range(0x30A0..0x3100)).unwrap_or('ア');
@@ -88,15 +88,15 @@ impl TrueMatrixRenderer {
 
                     let char_str = col.char_code.to_string();
                     let font = self.renderer.font();
-                    
+
                     // Python size 12
                     let (pixels, _, _) = font.get_pixel_map(&char_str, 1.5);
-                    
+
                     for char_pixels in pixels {
                         for &(gx, gy) in &char_pixels {
                             let px = col.x + gx;
                             let py = grid_y + gy;
-                            
+
                             if py >= 0 && py < h as i32 && px >= 0 && px < w as i32 {
                                 self.buffer[py as usize][px as usize] = head_color;
                             }

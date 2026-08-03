@@ -9,7 +9,7 @@ mod engines;
 use app::ArcadeMatrixApp;
 use tracing_subscriber::FmtSubscriber;
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
     let subscriber = FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)

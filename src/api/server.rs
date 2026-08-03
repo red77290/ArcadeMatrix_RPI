@@ -684,6 +684,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .route("/", web::get().to(serve_static))
             .route("/{_:.*}", web::get().to(serve_static))
     })
+    .workers(1)
     .bind(("0.0.0.0", port))?
     .run()
     .await

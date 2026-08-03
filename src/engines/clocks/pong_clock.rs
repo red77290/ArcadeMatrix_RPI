@@ -100,20 +100,30 @@ impl PongClock {
 
         // AI: move paddles toward ball (with optional deliberate miss)
         let tracking_speed = h / 20.0;
-        if self.force_miss_left {
-            // Deliberate miss: move away from ball
-            if self.ball_y < h / 2.0 {
-                self.p1_y = (self.p1_y + tracking_speed).min(h - self.pad_h / 2.0);
+
+        // AI Left
+        if self.dx < 0.0 {
+            // Ball moving left
+            if self.force_miss_left {
+                // Deliberate miss: move away from ball
+                let center_y = h / 2.0;
+                if self.ball_y < center_y {
+                    self.p1_y = (self.p1_y + tracking_speed).min(h - self.pad_h / 2.0);
+                } else {
+                    self.p1_y = (self.p1_y - tracking_speed).max(self.pad_h / 2.0);
+                }
             } else {
-                self.p1_y = (self.p1_y - tracking_speed).max(self.pad_h / 2.0);
+                let diff = self.ball_y - self.p1_y;
+                self.p1_y += diff.signum() * tracking_speed.min(diff.abs());
             }
-        } else {
-            let diff = self.ball_y - self.p1_y;
-            self.p1_y += diff.signum() * tracking_speed.min(diff.abs());
         }
 
-        let diff2 = self.ball_y - self.p2_y;
-        self.p2_y += diff2.signum() * tracking_speed.min(diff2.abs());
+        // AI Right
+        if self.dx > 0.0 {
+            // Ball moving right
+            let diff2 = self.ball_y - self.p2_y;
+            self.p2_y += diff2.signum() * tracking_speed.min(diff2.abs());
+        }
 
         // Left paddle collision
         if self.ball_x <= self.pad_w as f32 + self.ball_size as f32 {
@@ -197,8 +207,14 @@ impl PongClock {
         let score_left_str = format!("{:02}", self.score_left);
         let score_right_str = format!("{:02}", self.score_right);
 
-        // Approximate width of 2 digits
-        let digit_width = 15.0 * scale as f32;
+        // Get exact width for left score
+        let (left_pixels, _, _) = font.get_pixel_map(&score_left_str, scale as f32);
+        let mut left_w = 0;
+        for char_pixels in &left_pixels {
+            for &(px, _) in char_pixels {
+                left_w = left_w.max(px + 1);
+            }
+        }
 
         // Left score
         BaseRenderer::draw_text_at(
@@ -206,7 +222,7 @@ impl PongClock {
             &score_left_str,
             font,
             scale as f32,
-            (w / 2.0 - digit_width - 4.0) as i32,
+            (w / 2.0) as i32 - left_w - 4,
             4,
             (200, 200, 200),
             (0, 0, 0),
@@ -218,7 +234,7 @@ impl PongClock {
             &score_right_str,
             font,
             scale as f32,
-            (w / 2.0 + 8.0) as i32,
+            (w / 2.0) as i32 + 6,
             4,
             (200, 200, 200),
             (0, 0, 0),

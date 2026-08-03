@@ -65,9 +65,18 @@ impl PacmanClock {
 
         if !self.transitioning {
             // Static display: draw time in center + scattered pellets
-            let text_w = time_str.len() as i32 * 8 * scale as i32; // approximation for centering
+            let (pixels, _, _) = font.get_pixel_map(&self.new_time_str, scale as f32);
+            let mut text_w = 0;
+            let mut text_h = 0;
+            for char_pixels in &pixels {
+                for &(px, py) in char_pixels {
+                    text_w = text_w.max(px + 1);
+                    text_h = text_h.max(py + 1);
+                }
+            }
             let tx = (w as i32 - text_w) / 2;
-            let ty = (h as i32 - 10 * scale as i32) / 2;
+            let ty = (h as i32 - text_h) / 2;
+
             BaseRenderer::draw_text_at(
                 matrix,
                 &self.new_time_str.clone(),
@@ -90,9 +99,17 @@ impl PacmanClock {
             // Transition animation
             self.pac_x += self.speed;
 
-            let text_w = time_str.len() as i32 * 8 * scale as i32;
+            let (pixels, _, _) = font.get_pixel_map(&self.old_time_str, scale as f32);
+            let mut text_w = 0;
+            let mut text_h = 0;
+            for char_pixels in &pixels {
+                for &(px, py) in char_pixels {
+                    text_w = text_w.max(px + 1);
+                    text_h = text_h.max(py + 1);
+                }
+            }
             let tx = (w as i32 - text_w) / 2;
-            let ty = (h as i32 - 10 * scale as i32) / 2;
+            let ty = (h as i32 - text_h) / 2;
 
             // Draw old time (being "eaten" — visible only ahead of pac-man)
             BaseRenderer::draw_text_at(
@@ -115,13 +132,26 @@ impl PacmanClock {
 
             // Draw new time (revealed behind pac-man)
             let reveal_x = (self.pac_x as i32 - self.radius * 4).max(0);
+
+            let (new_pixels, _, _) = font.get_pixel_map(&self.new_time_str, scale as f32);
+            let mut new_w = 0;
+            let mut new_h = 0;
+            for char_pixels in &new_pixels {
+                for &(px, py) in char_pixels {
+                    new_w = new_w.max(px + 1);
+                    new_h = new_h.max(py + 1);
+                }
+            }
+            let new_tx = (w as i32 - new_w) / 2;
+            let new_ty = (h as i32 - new_h) / 2;
+
             BaseRenderer::draw_text_at(
                 matrix,
                 &self.new_time_str.clone(),
                 font,
                 scale as f32,
-                tx,
-                ty,
+                new_tx,
+                new_ty,
                 (255, 255, 255),
                 (0, 0, 0),
             );

@@ -90,9 +90,19 @@ impl VersusClock {
 
         // Time display (HH:MM) centered — draw shadow then foreground
         let time_str = format!("{:02}:{:02}", hours, minutes);
-        let text_w = time_str.len() as i32 * 8 * scale as i32;
+
+        let (pixels, _, _) = font.get_pixel_map(&time_str, scale as f32);
+        let mut text_w = 0;
+        let mut text_h = 0;
+        for char_pixels in &pixels {
+            for &(px, py) in char_pixels {
+                text_w = text_w.max(px + 1);
+                text_h = text_h.max(py + 1);
+            }
+        }
+
         let tx = (w - text_w) / 2;
-        let ty = (h - 10 * scale as i32) / 2 + 4;
+        let ty = (h - text_h) / 2 + 4;
 
         // Draw text with outline
         BaseRenderer::draw_text_at(

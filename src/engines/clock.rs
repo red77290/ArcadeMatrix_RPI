@@ -51,7 +51,11 @@ impl ClockEngine {
         let time_str_full = now.format(&settings.time_format).to_string();
 
         // Short time string for display clocks
-        let time_str = now.format(&settings.time_format).to_string();
+        let mut format_str = settings.time_format.clone();
+        if settings.time_theme == 19 && !format_str.contains("%S") {
+            format_str.push_str(":%S");
+        }
+        let time_str = now.format(&format_str).to_string();
 
         let hours = now.hour();
         let minutes = now.minute();
@@ -116,7 +120,7 @@ impl ClockEngine {
                     None,
                 );
             }
-            20 => self.flip.render(
+            19 => self.flip.render(
                 matrix,
                 &time_str,
                 &font,
@@ -124,6 +128,21 @@ impl ClockEngine {
                 settings.time_offset_x,
                 settings.time_offset_y,
             ),
+            20 => {
+                // Custom Gradient
+                let color1 = parse_hex_color(&settings.clock_color_1).unwrap_or((0, 255, 255));
+                let color2 = parse_hex_color(&settings.clock_color_2).unwrap_or((255, 0, 255));
+                self.base_renderer.render_text(
+                    matrix,
+                    &time_str,
+                    20,
+                    settings.time_size,
+                    settings.time_offset_x,
+                    settings.time_offset_y,
+                    Some(color1),
+                    Some(color2),
+                );
+            }
             22 => self
                 .pong
                 .update_and_render(matrix, hours, minutes, &font, settings.time_size),
@@ -183,5 +202,17 @@ impl ChronoTimeExt for chrono::DateTime<chrono::Local> {
     }
     fn second(&self) -> u32 {
         chrono::Timelike::second(self)
+    }
+}
+
+fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
+    let hex = hex.trim_start_matches('#');
+    if hex.len() == 6 {
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        Some((r, g, b))
+    } else {
+        None
     }
 }

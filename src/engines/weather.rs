@@ -140,6 +140,37 @@ impl WeatherEngine {
         }
     }
 
+    fn draw_arcade_text(
+        &self,
+        img: &mut RgbImage,
+        text: &str,
+        x: i32,
+        y: i32,
+        color: (u8, u8, u8),
+        scale: f32,
+    ) {
+        let font = self.base_renderer.font();
+        let (pixels_by_char, _, _) = font.get_pixel_map(text, scale);
+
+        for char_pixels in pixels_by_char {
+            for (px, py) in char_pixels {
+                let draw_x = x + px;
+                let draw_y = y + py;
+                if draw_x >= 0
+                    && draw_x < img.width() as i32
+                    && draw_y >= 0
+                    && draw_y < img.height() as i32
+                {
+                    img.put_pixel(
+                        draw_x as u32,
+                        draw_y as u32,
+                        image::Rgb([color.0, color.1, color.2]),
+                    );
+                }
+            }
+        }
+    }
+
     fn build_panorama(&mut self, mw: u32, mh: u32, offset_x: i32, offset_y: i32) {
         let num_slides = self.forecasts.len() as u32 + 1; // +1 for wrap-around
         let pano_w = mw * num_slides;
@@ -152,11 +183,13 @@ impl WeatherEngine {
             .chain(std::iter::once(self.forecasts[0].clone()))
             .collect();
 
+        let scale = if mh >= 64 { 2.0 } else { 1.0 };
+        let icon_size = if mh >= 64 { mh - 8 } else { mh - 4 }.max(8);
+
         for (i, slide) in slides.iter().enumerate() {
             let base_x = i as u32 * mw;
 
             // Try to load icon
-            let icon_size = (mh - 4).max(8);
             if let Some(icon) = self.load_icon(&slide.icon, icon_size) {
                 let icon_x = (base_x as i32 + offset_x + 2).max(0) as u32;
                 let icon_y = ((mh as i32 - icon.height() as i32) / 2 + offset_y).max(0) as u32;
@@ -164,18 +197,31 @@ impl WeatherEngine {
             }
 
             // Draw label and temp as pixel text directly onto panorama
-            let text_x = (base_x as i32 + offset_x + icon_size as i32 + 4).max(0);
-            let label_y = offset_y + 2;
-            let temp_y = label_y + 8;
+            let text_x =
+                (base_x as i32 + offset_x + icon_size as i32 + (8.0 * scale) as i32).max(0);
 
-            self.draw_text_to_image(
+            let (label_y, temp_y) = if scale >= 2.0 {
+                (offset_y + 8, offset_y + 36)
+            } else {
+                (offset_y + 4, offset_y + 16)
+            };
+
+            self.draw_arcade_text(
                 &mut panorama,
                 &slide.label,
                 text_x,
                 label_y,
                 (180, 180, 255),
+                scale,
             );
-            self.draw_text_to_image(&mut panorama, &slide.temp, text_x, temp_y, (255, 255, 255));
+            self.draw_arcade_text(
+                &mut panorama,
+                &slide.temp,
+                text_x,
+                temp_y,
+                (255, 255, 255),
+                scale,
+            );
         }
 
         self.panorama = Some(panorama);
@@ -198,11 +244,47 @@ impl WeatherEngine {
         }
 
         if let Ok(img) = image::open(&icon_path) {
+            let mut rgba = img.into_rgba8();
             // Crop to bounding box to remove transparent padding
-            let rgb = img.to_rgb8();
-            // Resize to icon_size
-            let resized = imageops::resize(&rgb, size, size, imageops::FilterType::Nearest);
-            Some(resized)
+            let mut min_x = rgba.width();
+            let mut min_y = rgba.height();
+            let mut max_x = 0;
+            let mut max_y = 0;
+
+            for (x, y, pixel) in rgba.enumerate_pixels() {
+                if pixel[3] > 0 {
+                    // Check alpha channel
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                }
+            }
+
+            if min_x <= max_x && min_y <= max_y {
+                let crop = imageops::crop(
+                    &mut rgba,
+                    min_x,
+                    min_y,
+                    max_x - min_x + 1,
+                    max_y - min_y + 1,
+                )
+                .to_image();
+                // Resize using high quality Lanczos3 filter
+                let resized = imageops::resize(&crop, size, size, imageops::FilterType::Lanczos3);
+
+                // Blend over black background to convert to RGB correctly
+                let mut rgb = RgbImage::new(size, size);
+                for (x, y, p) in resized.enumerate_pixels() {
+                    let alpha = p[3] as f32 / 255.0;
+                    let r = (p[0] as f32 * alpha) as u8;
+                    let g = (p[1] as f32 * alpha) as u8;
+                    let b = (p[2] as f32 * alpha) as u8;
+                    rgb.put_pixel(x, y, image::Rgb([r, g, b]));
+                }
+                return Some(rgb);
+            }
+            None
         } else {
             None
         }
@@ -259,130 +341,5 @@ impl WeatherEngine {
                 })
             })
             .collect();
-    }
-
-    /// Simple pixel-font renderer that draws directly onto an RgbImage buffer
-    fn draw_text_to_image(
-        &self,
-        img: &mut RgbImage,
-        text: &str,
-        x: i32,
-        y: i32,
-        color: (u8, u8, u8),
-    ) {
-        let segments: [[u8; 15]; 10] = [
-            [1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1],
-            [0, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 1, 0],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-            [1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1],
-        ];
-        let letter_bitmaps: [[u8; 15]; 26] = [
-            [0, 1, 0, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1], // A
-            [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 1, 0], // B
-            [0, 1, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 1], // C
-            [1, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0], // D
-            [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 1], // E
-            [1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 0, 0], // F
-            [0, 1, 1, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 1, 1], // G
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1], // H
-            [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1], // I
-            [0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1, 0], // J
-            [1, 0, 1, 1, 1, 0, 1, 0, 0, 1, 1, 0, 1, 0, 1], // K
-            [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 1], // L
-            [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1], // M
-            [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1], // N
-            [0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0], // O
-            [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 0, 0, 1, 0, 0], // P
-            [0, 1, 0, 1, 0, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1], // Q
-            [1, 1, 0, 1, 0, 1, 1, 1, 0, 1, 1, 0, 1, 0, 1], // R
-            [0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0], // S
-            [1, 1, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0], // T
-            [1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0], // U
-            [1, 0, 1, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0], // V
-            [1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1], // W
-            [1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1], // X
-            [1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0], // Y
-            [1, 1, 1, 0, 0, 1, 0, 1, 0, 1, 0, 0, 1, 1, 1], // Z
-        ];
-        let (img_w, img_h) = img.dimensions();
-        let mut cx = x;
-        for ch in text.chars() {
-            if ch == ':' || ch == '/' || ch == '-' {
-                if cx >= 0 && cx < img_w as i32 && y + 2 >= 0 && y + 2 < img_h as i32 {
-                    img.put_pixel(
-                        cx as u32,
-                        (y + 1) as u32,
-                        image::Rgb([color.0, color.1, color.2]),
-                    );
-                    img.put_pixel(
-                        cx as u32,
-                        (y + 3) as u32,
-                        image::Rgb([color.0, color.1, color.2]),
-                    );
-                }
-                cx += 2;
-                continue;
-            }
-            if ch == ' ' {
-                cx += 3;
-                continue;
-            }
-            if ch == '°' {
-                if cx >= 0 && y >= 0 && cx < img_w as i32 && y < img_h as i32 {
-                    img.put_pixel(cx as u32, y as u32, image::Rgb([color.0, color.1, color.2]));
-                }
-                cx += 2;
-                continue;
-            }
-            if ch == '+' {
-                for (row, col, set) in [(1, 1, 1), (2, 0, 1), (2, 1, 1), (2, 2, 1), (3, 1, 1)] {
-                    let px = cx + col;
-                    let py = y + row;
-                    if px >= 0 && py >= 0 && px < img_w as i32 && py < img_h as i32 && set == 1 {
-                        img.put_pixel(
-                            px as u32,
-                            py as u32,
-                            image::Rgb([color.0, color.1, color.2]),
-                        );
-                    }
-                }
-                cx += 4;
-                continue;
-            }
-            let bitmap_opt: Option<&[u8; 15]> = if let Some(d) = ch.to_digit(10) {
-                Some(&segments[d as usize])
-            } else {
-                let idx = ch.to_ascii_uppercase() as usize;
-                if idx >= 'A' as usize && idx <= 'Z' as usize {
-                    Some(&letter_bitmaps[idx - 'A' as usize])
-                } else {
-                    None
-                }
-            };
-            if let Some(bm) = bitmap_opt {
-                for row in 0..5i32 {
-                    for col in 0..3i32 {
-                        if bm[(row * 3 + col) as usize] == 1 {
-                            let px = cx + col;
-                            let py = y + row;
-                            if px >= 0 && py >= 0 && px < img_w as i32 && py < img_h as i32 {
-                                img.put_pixel(
-                                    px as u32,
-                                    py as u32,
-                                    image::Rgb([color.0, color.1, color.2]),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            cx += 4;
-        }
     }
 }

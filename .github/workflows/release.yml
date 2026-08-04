@@ -32,6 +32,8 @@ jobs:
     name: Build OTA Binary (${{ matrix.target }})
     needs: test
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
         target:

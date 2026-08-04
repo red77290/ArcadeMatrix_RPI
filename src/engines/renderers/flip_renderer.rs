@@ -1,9 +1,12 @@
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::base_renderer::ArcadeFont;
+use std::collections::HashMap;
 
 pub struct FlipRenderer {
     prev_chars: Vec<char>,
     flip_frame: Vec<u8>,
+    char_cache: HashMap<char, (Vec<Vec<(i32, i32)>>, i32, i32)>,
+    cached_scale: u32,
 }
 
 impl FlipRenderer {
@@ -11,16 +14,40 @@ impl FlipRenderer {
         Self {
             prev_chars: Vec::new(),
             flip_frame: Vec::new(),
+            char_cache: HashMap::new(),
+            cached_scale: 0,
         }
     }
 
-    fn get_layout(&self, font: &ArcadeFont<'_>, scale: u32) -> (i32, i32, i32) {
+    pub fn reset(&mut self) {
+        self.char_cache.clear();
+        self.cached_scale = 0;
+        self.prev_chars.clear();
+        self.flip_frame.clear();
+    }
+
+    fn get_pixel_map(
+        &mut self,
+        font: &ArcadeFont<'_>,
+        scale: u32,
+        ch: char,
+    ) -> &(Vec<Vec<(i32, i32)>>, i32, i32) {
+        if self.cached_scale != scale {
+            self.char_cache.clear();
+            self.cached_scale = scale;
+        }
+        self.char_cache
+            .entry(ch)
+            .or_insert_with(|| font.get_pixel_map(&ch.to_string(), scale as f32))
+    }
+
+    fn get_layout(&mut self, font: &ArcadeFont<'_>, scale: u32) -> (i32, i32, i32) {
         let mut max_w = 0;
         let mut max_h = 0;
         for ch in "0123456789AMP ".chars() {
-            let (_, lw, lh) = font.get_pixel_map(&ch.to_string(), scale as f32);
-            max_w = max_w.max(lw);
-            max_h = max_h.max(lh);
+            let (_, lw, lh) = self.get_pixel_map(font, scale, ch);
+            max_w = max_w.max(*lw);
+            max_h = max_h.max(*lh);
         }
         if max_w == 0 {
             max_w = 6 * scale as i32;
@@ -152,9 +179,8 @@ impl FlipRenderer {
                 matrix.set_pixel(cx + 1, start_y + 2 * panel_h / 3, 255, 255, 255);
                 cx += 2 + spacing;
             } else {
-                let (cur_pixels, cur_w, cur_h) = font.get_pixel_map(&cur.to_string(), scale as f32);
-                let (prev_pixels, prev_w, prev_h) =
-                    font.get_pixel_map(&prev.to_string(), scale as f32);
+                let (cur_pixels, cur_w, cur_h) = self.get_pixel_map(font, scale, cur).clone();
+                let (prev_pixels, prev_w, prev_h) = self.get_pixel_map(font, scale, prev).clone();
                 let cur_ox = (panel_w - cur_w) / 2;
                 let cur_oy = (panel_h - cur_h) / 2;
                 let prev_ox = (panel_w - prev_w) / 2;

@@ -218,62 +218,57 @@ impl BaseRenderer {
         let start_x = (matrix.width() as i32 - text_width) / 2 + offset_x;
         let start_y = (matrix.height() as i32 - text_height) / 2 + offset_y;
 
-        let offset = (size as i32).max(1);
+        let effect_depth = if size >= 5 { 2 } else { 1 };
+        let shadow_depth = effect_depth + 1;
+        let is_logo_theme = theme_id == 0 || theme_id == 1 || theme_id == 3; // Nintendo, Capcom, Sega
+        let is_3d_theme = theme_id >= 4 && theme_id <= 17;
+        let is_flip_theme = theme_id == 19;
 
-        if secondary != (0, 0, 0) {
+        let scale = (size as i32).max(1);
+        let offset = scale.max(1);
+        let shadow_depth = offset + 1;
+
+        // Draw Shadows/Outlines
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                let px = start_x + gx;
+                let py = start_y + gy;
+
+                if is_3d_theme {
+                    // Huge Solid 3D Extrusion starting at d=2 to avoid carve-out spikes!
+                    for d in 2..=(shadow_depth + 1) {
+                        matrix.set_pixel(px + d, py + d, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px + d - 1, py + d, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px + d, py + d - 1, secondary.0, secondary.1, secondary.2);
+                    }
+                } else if is_logo_theme {
+                    // 4-way Normal Outline
+                    matrix.set_pixel(px + offset, py, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px - offset, py, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px, py + offset, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px, py - offset, secondary.0, secondary.1, secondary.2);
+                } else if !is_flip_theme {
+                    matrix.set_pixel(
+                        px + offset,
+                        py + offset,
+                        secondary.0,
+                        secondary.1,
+                        secondary.2,
+                    );
+                }
+            }
+        }
+
+        if is_3d_theme {
+            // 4-way black carve-out (Fixes colors and color bleed without creating spikes)
             for char_pixels in &pixels_by_char {
                 for &(gx, gy) in char_pixels {
                     let px = start_x + gx;
                     let py = start_y + gy;
-
-                    if theme_id >= 4 && theme_id <= 17 {
-                        // Arcade 3D Outline Effect, scaled by offset
-                        // Draw colored drop shadow
-                        for i in 1..=(offset * 2) {
-                            matrix.set_pixel(
-                                px + i,
-                                py + (offset * 2),
-                                secondary.0,
-                                secondary.1,
-                                secondary.2,
-                            );
-                            matrix.set_pixel(
-                                px + (offset * 2),
-                                py + i,
-                                secondary.0,
-                                secondary.1,
-                                secondary.2,
-                            );
-                        }
-                        // Black outline on edges
-                        for i in 1..=offset {
-                            matrix.set_pixel(px - i, py, 0, 0, 0);
-                            matrix.set_pixel(px + i, py, 0, 0, 0);
-                            matrix.set_pixel(px, py - i, 0, 0, 0);
-                            matrix.set_pixel(px, py + i, 0, 0, 0);
-
-                            // Black outline around the shadow itself
-                            matrix.set_pixel(px + (offset * 2) + i, py + (offset * 2), 0, 0, 0);
-                            matrix.set_pixel(px + (offset * 2), py + (offset * 2) + i, 0, 0, 0);
-                        }
-                    } else if theme_id == 0 || theme_id == 1 || theme_id == 3 {
-                        // Normal Outline (8-way solid outline)
-                        for i in 1..=offset {
-                            matrix.set_pixel(px + i, py, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px - i, py, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px, py + i, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px, py - i, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px - i, py - i, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px + i, py - i, secondary.0, secondary.1, secondary.2);
-                            matrix.set_pixel(px - i, py + i, secondary.0, secondary.1, secondary.2);
-                        }
-                    } else if theme_id != 19 {
-                        // Drop shadow (scaled and solid)
-                        for i in 1..=offset {
-                            matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
-                        }
-                    }
+                    matrix.set_pixel(px - 1, py, 0, 0, 0);
+                    matrix.set_pixel(px + 1, py, 0, 0, 0);
+                    matrix.set_pixel(px, py - 1, 0, 0, 0);
+                    matrix.set_pixel(px, py + 1, 0, 0, 0);
                 }
             }
         }
@@ -299,21 +294,19 @@ impl BaseRenderer {
 
         let offset = (size as i32).max(1);
 
-        if secondary != (0, 0, 0) {
-            for char_pixels in &pixels_by_char {
-                for &(gx, gy) in char_pixels {
-                    let px = x + gx;
-                    let py = y + gy;
-                    for i in 1..=offset {
-                        matrix.set_pixel(px - i, py, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px + i, py, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px, py - i, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px, py + i, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px - i, py - i, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px + i, py - i, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px - i, py + i, secondary.0, secondary.1, secondary.2);
-                    }
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                let px = x + gx;
+                let py = y + gy;
+                for i in 1..=offset {
+                    matrix.set_pixel(px - i, py, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px + i, py, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px, py - i, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px, py + i, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px - i, py - i, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px + i, py - i, secondary.0, secondary.1, secondary.2);
+                    matrix.set_pixel(px - i, py + i, secondary.0, secondary.1, secondary.2);
                 }
             }
         }

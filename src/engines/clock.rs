@@ -69,6 +69,11 @@ impl ClockEngine {
             reset_clocks = true;
         }
         if settings.time_theme != self.last_theme {
+            tracing::info!(
+                from = self.last_theme,
+                to = settings.time_theme,
+                "clock theme change -> resetting sub-clocks"
+            );
             self.last_theme = settings.time_theme;
             reset_clocks = true;
         }
@@ -88,6 +93,7 @@ impl ClockEngine {
             self.pacman = PacmanClock::new();
             self.versus = VersusClock::new();
             self.slot_machine = SlotMachineClock::new();
+            self.flip.reset();
             matrix.clear(); // Clear artifact pixels from old layout
         }
 
@@ -172,16 +178,18 @@ impl ClockEngine {
             29 => self
                 .tetris_gb
                 .render(matrix, &time_str, &font, settings.time_size),
-            _ => self.base_renderer.render_text(
-                matrix,
-                &time_str,
-                settings.time_theme,
-                settings.time_size,
-                settings.time_offset_x,
-                settings.time_offset_y,
-                None,
-                None,
-            ),
+            _ => {
+                self.base_renderer.render_text(
+                    matrix,
+                    &time_str,
+                    settings.time_theme,
+                    settings.time_size,
+                    settings.time_offset_x,
+                    settings.time_offset_y,
+                    None,
+                    None,
+                );
+            }
         }
     }
 }

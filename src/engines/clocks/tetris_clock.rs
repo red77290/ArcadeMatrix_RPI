@@ -53,11 +53,15 @@ impl TetrisClock {
         scale_val: u32,
     ) -> Vec<Vec<(f32, f32)>> {
         let block = self.block_size;
-        let (pixels_by_char, text_width, text_height) =
-            font.get_pixel_map(time_str, scale_val as f32);
+        let (pixels_by_char, text_width, text_height) = font.get_pixel_map(time_str, 1.0); // Use 1.0 to get unscaled raw pixels!
 
-        let start_x = ((w as i32) - text_width) / 2;
-        let start_y = ((h as i32) - text_height) / 2;
+        // Since scale_val = 1.0, the text_width and text_height are raw pixels.
+        // We scale them by block_size to get the final dimensions on the matrix.
+        let scaled_width = text_width * block;
+        let scaled_height = text_height * block;
+
+        let start_x = ((w as i32) - scaled_width) / 2;
+        let start_y = ((h as i32) - scaled_height) / 2;
 
         let mut result: Vec<Vec<(f32, f32)>> = Vec::new();
 
@@ -66,7 +70,8 @@ impl TetrisClock {
             let mut block_set = HashSet::new();
 
             for (gx, gy) in char_pixels {
-                block_set.insert((gx / block as i32, gy / block as i32));
+                // Since pixels are raw, each pixel becomes exactly one Tetris block!
+                block_set.insert((gx, gy));
             }
 
             for (bx, by) in block_set {
@@ -93,6 +98,8 @@ impl TetrisClock {
 
         // Match python parity for falling speed
         self.base_dy = (h as f32 / 15.0).max(1.5);
+        // Compute block size dynamically based on matrix height (like ESP32 logic)
+        self.block_size = scale.max(1) as i32;
 
         let colors_normal: [(u8, u8, u8); 7] = [
             (0, 240, 240),

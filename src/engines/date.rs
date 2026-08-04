@@ -27,16 +27,22 @@ impl DateEngine {
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
         let settings = config.settings.read();
         let now = Local::now();
-        let date_str = now.format(&settings.date_format).to_string();
+        let mut format_str = settings.date_format.clone();
+        format_str = format_str.replace("YYYY", "%Y");
+        format_str = format_str.replace("YY", "%y");
+        format_str = format_str.replace("MM", "%m");
+        format_str = format_str.replace("DD", "%d");
+        let date_str = now.format(&format_str).to_string();
 
         // Reload font if changed
         if settings.date_font != self.last_font {
             self.base_renderer = BaseRenderer::from_font_path(&settings.date_font);
             self.last_font = settings.date_font.clone();
+            self.flip.reset();
         }
 
-        let color1 = parse_hex_color(&settings.date_color_1).unwrap_or((255, 255, 255));
-        let color2 = parse_hex_color(&settings.date_color_2).unwrap_or((255, 255, 255));
+        let color1 = parse_hex_color(&settings.date_color_1);
+        let color2 = parse_hex_color(&settings.date_color_2);
 
         match settings.date_theme {
             18 => {
@@ -48,7 +54,7 @@ impl DateEngine {
                     settings.date_size,
                     settings.date_offset_x,
                     settings.date_offset_y,
-                    Some(color1),
+                    color1,
                     None,
                 );
             }
@@ -84,8 +90,8 @@ impl DateEngine {
                     settings.date_size,
                     settings.date_offset_x,
                     settings.date_offset_y,
-                    Some(color1),
-                    Some(color2),
+                    color1,
+                    color2,
                 );
             }
             _ => {
@@ -96,8 +102,8 @@ impl DateEngine {
                     settings.date_size,
                     settings.date_offset_x,
                     settings.date_offset_y,
-                    Some(color1),
-                    Some(color2),
+                    None,
+                    None,
                 );
             }
         }

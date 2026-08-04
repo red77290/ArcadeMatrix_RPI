@@ -57,7 +57,7 @@ sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "
         echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service
     else
         echo '⚠️ Service not found, running full autoInstall.sh setup...'
-        echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/autoInstall.sh
+        echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash ~/ArcadeMatrix_RPi/autoInstall.sh
     fi"
 
 echo "✅ Deployment successful!"

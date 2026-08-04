@@ -118,7 +118,7 @@ jobs:
 
       - name: Run Build Image Script
         run: |
-          chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/build_local.sh scripts/chroot_setup.sh
+          chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/build.sh scripts/chroot_setup.sh
           TARGET_SIZE="${{ github.event.inputs.image_size || '14G' }}"
           sudo ./scripts/build_image.sh $TARGET_SIZE ${{ matrix.arch }}
 

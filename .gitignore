@@ -5,7 +5,7 @@
 # Media files
 fighters_32/*
 fighters_64/*
-gifs/*
+# gifs/*
 # Allow the default font to be committed but ignore others
 fonts/*
 !fonts/*.bdf

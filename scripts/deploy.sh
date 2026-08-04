@@ -48,11 +48,17 @@ sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "e
 echo "📤 3. Uploading correct binary..."
 sshpass -p "${PI_PASS}" scp -o StrictHostKeyChecking=no "$BIN_PATH" "${PI_USER}@${PI_IP}:/home/${PI_USER}/arcadematrix_temp"
 
-echo "⚙️  4. Moving binary, setting permissions, and restarting service..."
+echo "⚙️  4. Moving binary and starting service..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "
     echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix && \
     echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix && \
-    echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
+    if systemctl list-unit-files | grep -q arcadematrix.service; then
+        echo '✅ Service already installed, restarting only...'
+        echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service
+    else
+        echo '⚠️ Service not found, running full autoInstall.sh setup...'
+        echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/autoInstall.sh
+    fi"
 
-echo "✅ Deployment successful! Service has been restarted."
+echo "✅ Deployment successful!"
 echo "=========================================================="

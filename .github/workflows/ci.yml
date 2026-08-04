@@ -21,6 +21,13 @@ jobs:
       - name: Check Formatting
         run: cargo fmt --check
 
+      - name: Configure Git for Cargo
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p ~/.cargo
+          echo "[net]" >> ~/.cargo/config.toml
+          echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+
       - name: Clippy Linter
         run: cargo clippy -- -D warnings
 

@@ -34,3 +34,8 @@ data/
 target/
 Cargo.lock.tmp
 *.profraw
+
+# C++ Dependency Clones
+rust-rpi-rgb-led-matrix/
+rust-rpi-rgb-led-matrix-local/
+

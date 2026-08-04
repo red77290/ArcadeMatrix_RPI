@@ -111,9 +111,8 @@ mount --bind /proc /mnt/rootfs/proc
 
 echo "📁 Copying ArcadeMatrix project into image..."
 mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi
-# Only copy scripts and the configuration, no heavy source code or target/ directory
-cp /workspace/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
-cp -r /workspace/scripts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+# Only copy the configuration to root for backup, we will place scripts on DATA partition
+cp /workspace/data/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 
 echo "📁 Injecting cross-compiled Rust binary..."
@@ -127,8 +126,11 @@ cp -r /workspace/fighters_32 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/n
 cp -r /workspace/fighters_64 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/gifs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/fonts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/weather_icons /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/api/www /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/www 2>/dev/null || true
-ln -s /home/pi/ArcadeMatrix_RPi/data/www /mnt/rootfs/home/pi/ArcadeMatrix_RPi/api/www || true
+cp -r /workspace/scripts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/docs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 
 echo "📝 Injecting chroot setup script (only for systemd & symlinks)..."
 cp /workspace/scripts/chroot_setup.sh /mnt/rootfs/tmp/chroot_setup.sh

@@ -22,6 +22,7 @@ mkdir -p $PROJ_DIR/data/gifs
 mkdir -p $PROJ_DIR/data/fonts
 mkdir -p $PROJ_DIR/data/fighters_32
 mkdir -p $PROJ_DIR/data/fighters_64
+mkdir -p $PROJ_DIR/data/weather_icons
 
 # Move existing fonts, gifs, and fighters to data partition
 if [ -d "$PROJ_DIR/fonts" ]; then
@@ -40,6 +41,10 @@ if [ -d "$PROJ_DIR/fighters_64" ]; then
     cp -r $PROJ_DIR/fighters_64/* $PROJ_DIR/data/fighters_64/ || true
     rm -rf $PROJ_DIR/fighters_64
 fi
+if [ -d "$PROJ_DIR/weather_icons" ]; then
+    cp -r $PROJ_DIR/weather_icons/* $PROJ_DIR/data/weather_icons/ || true
+    rm -rf $PROJ_DIR/weather_icons
+fi
 
 chown -R pi:pi $PROJ_DIR/data || true
 
@@ -51,6 +56,8 @@ ln -s $PROJ_DIR/data/gifs $PROJ_DIR/gifs
 ln -s $PROJ_DIR/data/fonts $PROJ_DIR/fonts
 ln -s $PROJ_DIR/data/fighters_32 $PROJ_DIR/fighters_32
 ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
+ln -s $PROJ_DIR/data/weather_icons $PROJ_DIR/weather_icons
+ln -s $PROJ_DIR/data/scripts $PROJ_DIR/scripts
 
 echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
 cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini

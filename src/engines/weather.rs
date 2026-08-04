@@ -84,8 +84,11 @@ impl WeatherEngine {
                 s.weather_offset_y,
             )
         };
-
-        self.lang = lang;
+        if self.lang != lang {
+            self.lang = lang.clone();
+            self.last_fetch = None;
+            self.panorama = None;
+        }
 
         if api_key.is_empty() || city.is_empty() {
             self.base_renderer.render_text(

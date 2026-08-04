@@ -16,6 +16,8 @@ export const translations = {
     tt_hw_slowdown: "GPIO Slowdown. Crucial for modern Raspberry Pis to prevent flickering (Pi 3 = 1-2, Pi 4 = 2-3, Pi 5 = 4).",
     tt_hw_pwm_bits: "Lowering this increases refresh rate but reduces color depth. 11 is default.",
     tt_hw_pwm_lsb: "Adjust only if you experience ghosting or brightness artifacts. Default 130.",
+    tt_hw_disable_pulsing: "DANGER: Checking this disables DMA and uses CPU spin-loops (100% CPU usage), which WILL freeze single-core Pis. Keep UNCHECKED for DMA (requires disabling OS audio).",
+    tt_hw_limit_refresh: "Refresh rate limit. Set to 0 to uncap (forces 120Hz internally to prevent CPU lockups).",
   },
   fr: {
     nav_dashboard: "Tableau de bord",
@@ -34,6 +36,8 @@ export const translations = {
     tt_hw_slowdown: "Ralentissement GPIO. Indispensable pour éviter le clignotement sur les Pi récents (Pi 3 = 1-2, Pi 4 = 2-3).",
     tt_hw_pwm_bits: "Baisser cette valeur augmente la fluidité mais réduit les nuances de couleurs. 11 par défaut.",
     tt_hw_pwm_lsb: "Ajustez uniquement en cas d'effets fantômes (ghosting). 130 par défaut.",
+    tt_hw_disable_pulsing: "DANGER : Cocher ceci désactive le DMA et sature le CPU à 100%, ce qui plantera les Pi monocœurs ! Laissez DÉCOCHÉ pour utiliser le DMA (nécessite de couper l'audio de l'OS).",
+    tt_hw_limit_refresh: "Limite de rafraîchissement. 0 pour illimité (forcé à 120Hz en interne pour éviter un freeze CPU).",
   },
   es: {
     nav_dashboard: "Panel",
@@ -52,6 +56,8 @@ export const translations = {
     tt_hw_slowdown: "Ralentización GPIO. Crucial para evitar parpadeos en Pi recientes (Pi 3 = 1-2, Pi 4 = 2-3).",
     tt_hw_pwm_bits: "Bajar este valor aumenta la tasa de refresco pero reduce la profundidad de color. 11 por defecto.",
     tt_hw_pwm_lsb: "Ajusta esto solo si experimentas efecto fantasma (ghosting). 130 por defecto.",
+    tt_hw_disable_pulsing: "PELIGRO: Marcar esto desactiva DMA y satura el CPU al 100%, lo que congelará las Pi de un solo núcleo. Dejar DESMARCADO (requiere desactivar el audio del SO).",
+    tt_hw_limit_refresh: "Límite de refresco. 0 para ilimitado (forzado a 120Hz internamente para evitar el bloqueo del CPU).",
   }
 };
 

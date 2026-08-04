@@ -84,10 +84,11 @@ fn test_gif_engine_init() {
 }
 
 #[test]
-fn test_fighter_engine_initialization() {
-    let mut engine = FighterEngine::new(64);
+fn test_fighter_engine_init() {
+    let mut engine = FighterEngine::new(64, 64);
     let mut matrix = MockMatrix::new(64, 32);
-    engine.init_fight(32, 10);
+    // Fighter engine shouldn't crash on init
+    engine.init_fight(64, 10);
     engine.composite(&mut matrix);
 }
 

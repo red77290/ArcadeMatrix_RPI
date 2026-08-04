@@ -17,6 +17,7 @@ pub struct ConfigSettings {
     pub matrix_rgb_sequence: String,
     pub matrix_pwm_bits: u32,
     pub matrix_pwm_lsb_nanoseconds: u32,
+    pub matrix_limit_refresh_rate_hz: u32,
     pub matrix_disable_hardware_pulsing: bool,
 
     // TIME
@@ -96,6 +97,7 @@ impl Default for ConfigSettings {
             matrix_rgb_sequence: "RGB".to_string(),
             matrix_pwm_bits: 11,
             matrix_pwm_lsb_nanoseconds: 130,
+            matrix_limit_refresh_rate_hz: 0,
             matrix_disable_hardware_pulsing: false,
 
             time_format: "%H:%M:%S".to_string(),
@@ -164,6 +166,7 @@ impl Default for ConfigSettings {
 pub struct Config {
     pub config_file: Mutex<PathBuf>,
     pub reload_flag: AtomicBool,
+    pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
     pub matrix_brightness: AtomicU32,
     pub force_engine: Mutex<Option<String>>,
@@ -183,6 +186,7 @@ impl Config {
         Self {
             config_file: Mutex::new(path_buf),
             reload_flag: AtomicBool::new(false),
+            reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
             matrix_brightness: AtomicU32::new(initial_brightness),
             force_engine: Mutex::new(None),
@@ -230,10 +234,22 @@ impl Config {
         if let Ok(Some(val)) = ini.getuint("MATRIX", "PWM_BITS") {
             settings.matrix_pwm_bits = val as u32;
         }
-        if let Ok(Some(val)) = ini.getint("MATRIX", "pwm_lsb_nanoseconds") {
-            settings.matrix_pwm_lsb_nanoseconds = val as u32;
+        if let Some(val) = ini
+            .get("MATRIX", "PWM_LSB_NANOSECONDS")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            settings.matrix_pwm_lsb_nanoseconds = val;
         }
-        if let Ok(Some(val)) = ini.getbool("MATRIX", "disable_hardware_pulsing") {
+        if let Some(val) = ini
+            .get("MATRIX", "LIMIT_REFRESH_RATE_HZ")
+            .and_then(|s| s.parse::<u32>().ok())
+        {
+            settings.matrix_limit_refresh_rate_hz = val;
+        }
+        if let Some(val) = ini
+            .get("MATRIX", "DISABLE_HARDWARE_PULSING")
+            .and_then(|s| s.parse::<bool>().ok())
+        {
             settings.matrix_disable_hardware_pulsing = val;
         }
 
@@ -433,6 +449,11 @@ impl Config {
             "MATRIX",
             "pwm_lsb_nanoseconds",
             Some(s.matrix_pwm_lsb_nanoseconds.to_string()),
+        );
+        ini.set(
+            "MATRIX",
+            "limit_refresh_rate_hz",
+            Some(s.matrix_limit_refresh_rate_hz.to_string()),
         );
         ini.set(
             "MATRIX",

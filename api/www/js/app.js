@@ -389,6 +389,7 @@ async function initSettings() {
     document.getElementById('hw-pwm-bits').value = s.matrix_pwm_bits;
     document.getElementById('hw-pwm-lsb').value = s.matrix_pwm_lsb_nanoseconds;
     document.getElementById('hw-disable-pulsing').checked = s.matrix_disable_hardware_pulsing;
+    document.getElementById('hw-limit-refresh').value = s.matrix_limit_refresh_rate_hz;
     
     // MQTT
     document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
@@ -408,8 +409,8 @@ async function initSettings() {
     document.getElementById('cfg-clock-size').value = s.time_size || 2;
     document.getElementById('cfg-ntp-server').value = s.ntp_server || 'pool.ntp.org';
     document.getElementById('cfg-timezone').value = s.timezone || 'Europe/Paris';
-    document.getElementById('cfg-clock-color1').value = s.clock_color_1;
-    document.getElementById('cfg-clock-color2').value = s.clock_color_2;
+    document.getElementById('cfg-clock-color1').value = s.clock_color_1.toLowerCase();
+    document.getElementById('cfg-clock-color2').value = s.clock_color_2.toLowerCase();
     document.getElementById('cfg-clock-x').value = s.clock_offset_x;
     document.getElementById('cfg-clock-y').value = s.clock_offset_y;
 
@@ -418,8 +419,8 @@ async function initSettings() {
     document.getElementById('cfg-date-font').value = s.date_font;
     document.getElementById('cfg-date-format').value = s.date_format;
     document.getElementById('cfg-date-size').value = s.date_size || 1;
-    document.getElementById('cfg-date-color1').value = s.date_color_1;
-    document.getElementById('cfg-date-color2').value = s.date_color_2;
+    document.getElementById('cfg-date-color1').value = s.date_color_1.toLowerCase();
+    document.getElementById('cfg-date-color2').value = s.date_color_2.toLowerCase();
     document.getElementById('cfg-date-x').value = s.date_offset_x;
     document.getElementById('cfg-date-y').value = s.date_offset_y;
 
@@ -439,9 +440,9 @@ async function initSettings() {
     document.getElementById('cfg-dur-clock').value = s.clock_duration_sec;
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
-    document.getElementById('cfg-dur-gifs').value = s.idle_gifs_count || 5;
-    document.getElementById('cfg-sprite-enable').value = (s.idle_sprite_count > 0) ? 'true' : 'false';
-    document.getElementById('cfg-fighter-int').value = s.idle_fighter_interval || 5;
+    document.getElementById('cfg-dur-gifs').value = s.gifs_count || 5;
+    document.getElementById('cfg-sprite-enable').value = (s.sprite_count > 0) ? 'true' : 'false';
+    document.getElementById('cfg-fighter-int').value = s.fighter_interval_sec || 5;
 
     // Night Mode
     document.getElementById('cfg-night-enable').value = s.night_mode_enabled ? 'true' : 'false';
@@ -526,6 +527,7 @@ async function initSettings() {
       const pwmBits = parseInt(document.getElementById('hw-pwm-bits').value) || 11;
       const pwmLsb = parseInt(document.getElementById('hw-pwm-lsb').value) || 130;
       const disablePulsing = document.getElementById('hw-disable-pulsing').checked;
+      const limitRefresh = parseInt(document.getElementById('hw-limit-refresh').value) || 120;
       
       try {
         await API.post('/api/settings', { 
@@ -538,9 +540,13 @@ async function initSettings() {
           matrix_slowdown: slowdown,
           matrix_pwm_bits: pwmBits,
           matrix_pwm_lsb_nanoseconds: pwmLsb,
-          matrix_disable_hardware_pulsing: disablePulsing
+          matrix_disable_hardware_pulsing: disablePulsing,
+          matrix_limit_refresh_rate_hz: limitRefresh
         });
-        window.showToast('Hardware settings saved! Restart required.', 'success');
+        window.showToast('Hardware settings saved! Restarting app...', 'success');
+        setTimeout(async () => {
+          await API.post('/api/system/restart_app');
+        }, 1500);
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }

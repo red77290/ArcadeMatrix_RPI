@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufReader, Read};
 use std::path::Path;
+use std::sync::mpsc::{channel, Receiver};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Clone)]
@@ -195,6 +197,8 @@ pub struct FighterEngine {
     fight_end: u128,
     next_fight_time: u128,
     interval_sec: u32,
+    loading: bool,
+    rx: Option<Receiver<(Player, Player)>>,
 }
 
 fn now_ms() -> u128 {
@@ -205,10 +209,10 @@ fn now_ms() -> u128 {
 }
 
 impl FighterEngine {
-    pub fn new(width: u32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         Self {
             matrix_width: width,
-            matrix_height: 64,
+            matrix_height: height,
             p1: None,
             p2: None,
             active: false,
@@ -217,6 +221,8 @@ impl FighterEngine {
             fight_end: 0,
             next_fight_time: 0,
             interval_sec: 10,
+            loading: false,
+            rx: None,
         }
     }
 
@@ -239,134 +245,147 @@ impl FighterEngine {
     }
 
     pub fn init_fight(&mut self, matrix_height: u32, interval_sec: u32) {
+        if self.loading {
+            return;
+        }
+        self.loading = true;
         self.matrix_height = matrix_height;
         self.set_interval(interval_sec);
 
-        let dir64 = "fighters_64";
-        let dir32 = "fighters_32";
+        let (tx, rx) = channel();
+        self.rx = Some(rx);
+        let matrix_width = self.matrix_width;
+        let matrix_height = self.matrix_height;
 
-        let mut index = Self::load_index(dir64);
-        let mut dir = dir64;
+        thread::spawn(move || {
+            let dir64 = "fighters_64";
+            let dir32 = "fighters_32";
 
-        if index.is_empty() || matrix_height < 64 {
-            index = Self::load_index(dir32);
-            dir = dir32;
-        }
+            let mut index = Self::load_index(dir64);
+            let mut dir = dir64;
 
-        if index.is_empty() {
-            tracing::warn!("FighterEngine: No valid index.json found!");
-            self.next_fight_time = now_ms() + 5000; // Wait 5 seconds before retrying
-            return;
-        }
-
-        self.sprite_dir = dir.to_string();
-
-        let fighters: Vec<(String, FighterIndexMeta)> = index.into_iter().collect();
-        if fighters.len() < 2 {
-            tracing::warn!("FighterEngine: Not enough characters in index.json");
-            self.next_fight_time = now_ms() + 5000;
-            return;
-        }
-
-        let mut rng = rand::thread_rng();
-
-        let idx1 = rng.gen_range(0..fighters.len());
-        let (name1, meta1) = fighters[idx1].clone();
-
-        // Find valid opponents (max 20% smaller, never taller)
-        let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters
-            .iter()
-            .filter(|(name, meta)| {
-                name != &name1
-                    && (meta.ground_y as f32) >= (meta1.ground_y as f32 * 0.8)
-                    && meta.ground_y <= meta1.ground_y
-            })
-            .collect();
-
-        let (name2, meta2) = if !valid_opponents.is_empty() {
-            let idx2 = rng.gen_range(0..valid_opponents.len());
-            valid_opponents[idx2].clone()
-        } else {
-            // Fallback
-            let mut idx2 = rng.gen_range(0..fighters.len());
-            while idx2 == idx1 {
-                idx2 = rng.gen_range(0..fighters.len());
+            if index.is_empty() || matrix_height < 64 {
+                index = Self::load_index(dir32);
+                dir = dir32;
             }
-            fighters[idx2].clone()
-        };
 
-        tracing::info!(
-            "FighterEngine: Fight: {} (H:{}) vs {} (H:{})",
-            name1,
-            meta1.height,
-            name2,
-            meta2.height
-        );
+            if index.is_empty() {
+                tracing::warn!("FighterEngine: No valid index.json found!");
+                return;
+            }
 
-        let char1_dir = Path::new(dir).join(&name1);
-        let char2_dir = Path::new(dir).join(&name2);
+            let fighters: Vec<(String, FighterIndexMeta)> = index.into_iter().collect();
+            if fighters.len() < 2 {
+                tracing::warn!("FighterEngine: Not enough characters in index.json");
+                return;
+            }
 
-        let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
-        let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
+            let mut rng = rand::thread_rng();
 
-        if let (Some(c1), Some(c2)) = (c1, c2) {
-            let c1_ground_at_0 = c1.meta.ground_y as i32 - c1.meta.head_y as i32;
-            let c2_ground_at_0 = c2.meta.ground_y as i32 - c2.meta.head_y as i32;
-            let fight_max_h = c1_ground_at_0.max(c2_ground_at_0);
+            let idx1 = rng.gen_range(0..fighters.len());
+            let (name1, meta1) = fighters[idx1].clone();
 
-            let y1 = fight_max_h - c1.meta.ground_y as i32;
-            let y2 = fight_max_h - c2.meta.ground_y as i32;
+            let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters
+                .iter()
+                .filter(|(name, meta)| {
+                    name != &name1
+                        && (meta.ground_y as f32) >= (meta1.ground_y as f32 * 0.8)
+                        && meta.ground_y <= meta1.ground_y
+                })
+                .collect();
 
-            // Mirror all sprites for Player 2
-            let mut mirrored_c2 = c2.clone();
-            for anim in mirrored_c2.anims.values_mut() {
-                for frame in &mut anim.frames {
-                    let w = frame.width();
-                    let h = frame.height();
-                    let mut flipped = RgbImage::new(w, h);
-                    for y in 0..h {
-                        for x in 0..w {
-                            flipped.put_pixel(w - 1 - x, y, *frame.get_pixel(x, y));
-                        }
-                    }
-                    *frame = flipped;
+            let (name2, meta2) = if !valid_opponents.is_empty() {
+                let idx2 = rng.gen_range(0..valid_opponents.len());
+                valid_opponents[idx2].clone()
+            } else {
+                let mut idx2 = rng.gen_range(0..fighters.len());
+                while idx2 == idx1 {
+                    idx2 = rng.gen_range(0..fighters.len());
                 }
-            }
+                fighters[idx2].clone()
+            };
 
-            self.p1 = Some(Player {
-                character: c1,
-                x: -(meta1.width as f32),
-                y: y1,
-                state: "walk".to_string(),
-                frame_idx: 0,
-                last_f: now_ms(),
-                dead: false,
-                dir: 1.0,
-            });
-            self.p2 = Some(Player {
-                character: mirrored_c2,
-                x: self.matrix_width as f32,
-                y: y2,
-                state: "walk".to_string(),
-                frame_idx: 0,
-                last_f: now_ms(),
-                dead: false,
-                dir: -1.0,
-            });
-            self.active = true;
-            self.last_move = now_ms();
-            self.fight_end = 0;
-        } else {
-            tracing::warn!("FighterEngine: Failed to load random pair");
-            self.next_fight_time = now_ms() + 5000;
-        }
+            tracing::info!(
+                "FighterEngine: Fight: {} (H:{}) vs {} (H:{})",
+                name1,
+                meta1.height,
+                name2,
+                meta2.height
+            );
+
+            let char1_dir = Path::new(dir).join(&name1);
+            let char2_dir = Path::new(dir).join(&name2);
+
+            let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
+            let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
+
+            if let (Some(c1), Some(c2)) = (c1, c2) {
+                let c1_ground_at_0 = c1.meta.ground_y as i32 - c1.meta.head_y as i32;
+                let c2_ground_at_0 = c2.meta.ground_y as i32 - c2.meta.head_y as i32;
+                let fight_max_h = c1_ground_at_0.max(c2_ground_at_0);
+
+                let y1 = fight_max_h - c1.meta.ground_y as i32;
+                let y2 = fight_max_h - c2.meta.ground_y as i32;
+
+                let mut mirrored_c2 = c2.clone();
+                for anim in mirrored_c2.anims.values_mut() {
+                    for frame in &mut anim.frames {
+                        let w = frame.width();
+                        let h = frame.height();
+                        let mut flipped = RgbImage::new(w, h);
+                        for y in 0..h {
+                            for x in 0..w {
+                                flipped.put_pixel(w - 1 - x, y, *frame.get_pixel(x, y));
+                            }
+                        }
+                        *frame = flipped;
+                    }
+                }
+
+                let p1 = Player {
+                    character: c1,
+                    x: -(meta1.width as f32),
+                    y: y1,
+                    state: "walk".to_string(),
+                    frame_idx: 0,
+                    last_f: now_ms(),
+                    dead: false,
+                    dir: 1.0,
+                };
+                let p2 = Player {
+                    character: mirrored_c2,
+                    x: matrix_width as f32,
+                    y: y2,
+                    state: "walk".to_string(),
+                    frame_idx: 0,
+                    last_f: now_ms(),
+                    dead: false,
+                    dir: -1.0,
+                };
+                let _ = tx.send((p1, p2));
+            } else {
+                tracing::warn!("FighterEngine: Failed to load random pair");
+            }
+        });
     }
 
     pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
         let now = now_ms();
 
+        if let Some(rx) = &self.rx {
+            if let Ok((p1, p2)) = rx.try_recv() {
+                self.p1 = Some(p1);
+                self.p2 = Some(p2);
+                self.active = true;
+                self.loading = false;
+                self.rx = None;
+                self.last_move = now;
+                self.fight_end = 0;
+            }
+        }
+
         if !self.active {
-            if now >= self.next_fight_time {
+            if !self.loading && now >= self.next_fight_time {
                 let h = self.matrix_height;
                 let i = self.interval_sec;
                 self.init_fight(h, i);

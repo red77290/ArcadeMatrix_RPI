@@ -75,6 +75,9 @@ paths:
                 matrix_disable_hardware_pulsing:
                   type: boolean
                   description: Force software GPIO toggling to avoid PWM audio conflicts
+                matrix_limit_refresh_rate_hz:
+                  type: integer
+                  description: Limit the hardware refresh rate in Hz to reduce DMA bandwidth usage (0 for unlimited)
       responses:
         '200':
           description: Settings successfully updated

@@ -9,8 +9,24 @@ struct AppState {
     config: Arc<Config>,
 }
 
-fn check_auth(_req: &HttpRequest, _config: &Config) -> Result<(), HttpResponse> {
-    // Authentication temporarily disabled per user request
+fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
+    let s = config.settings.read();
+    if !s.api_auth_enabled {
+        return Ok(());
+    }
+
+    let supplied = req
+        .headers()
+        .get("X-API-Token")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    if supplied.is_empty() || supplied != s.api_token {
+        return Err(HttpResponse::Unauthorized().json(json!({
+            "status": "error",
+            "message": "Missing or invalid X-API-Token header"
+        })));
+    }
+
     Ok(())
 }
 
@@ -74,6 +90,7 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "matrix_pwm_bits": s.matrix_pwm_bits,
         "matrix_pwm_lsb_nanoseconds": s.matrix_pwm_lsb_nanoseconds,
         "matrix_disable_hardware_pulsing": s.matrix_disable_hardware_pulsing,
+        "matrix_limit_refresh_rate_hz": s.matrix_limit_refresh_rate_hz,
         "mqtt_enabled": s.mqtt_enabled,
         "mqtt_broker": s.mqtt_broker,
         "mqtt_port": s.mqtt_port,
@@ -140,6 +157,12 @@ async fn post_settings(
         .and_then(|v| v.as_bool())
     {
         s.matrix_disable_hardware_pulsing = v;
+    }
+    if let Some(v) = body
+        .get("matrix_limit_refresh_rate_hz")
+        .and_then(|v| v.as_u64())
+    {
+        s.matrix_limit_refresh_rate_hz = v as u32;
     }
 
     // Clock settings
@@ -302,6 +325,10 @@ async fn post_settings(
     drop(s);
     data.config.save();
 
+    data.config
+        .reset_rotation
+        .store(true, std::sync::atomic::Ordering::Relaxed);
+
     if needs_restart {
         data.config
             .reload_flag
@@ -413,8 +440,9 @@ async fn play_selected_playlists(
 
 #[get("/api/system_info")]
 async fn api_system_info() -> impl Responder {
-    let mut sys = System::new_all();
-    sys.refresh_all();
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
 
     let cpu_load = sys.global_cpu_usage();
     let ram_used = sys.used_memory() / (1024 * 1024);
@@ -496,7 +524,7 @@ async fn api_wifi(
 
     // We DO NOT run nmcli live here because the LED Matrix hardware PWM/PCM
     // interferes with the Wi-Fi chip and causes scans to fail (EMI/Hardware conflict).
-    // Instead, we save the credentials, set configured to false, and restart the app.
+    // Instead, we save the credentials, set configured to false, unblock wifi, and restart the app/system.
     // The app will connect to Wi-Fi at boot before initializing the LED Matrix.
 
     let mut ws = data.config.settings.write();
@@ -505,6 +533,20 @@ async fn api_wifi(
     ws.wifi_configured = false; // Trigger nmcli on next boot
     drop(ws);
     data.config.save();
+
+    // Unblock Wi-Fi and set default country code to avoid rfkill block
+    let _ = std::process::Command::new("sudo")
+        .arg("rfkill")
+        .arg("unblock")
+        .arg("wifi")
+        .status();
+
+    let _ = std::process::Command::new("sudo")
+        .arg("raspi-config")
+        .arg("nonint")
+        .arg("do_wifi_country")
+        .arg("FR")
+        .status();
 
     // Trigger a full system reboot instead of just an app restart.
     // The PWM/PCM hardware lock can crash the Wi-Fi chip until a full reboot.

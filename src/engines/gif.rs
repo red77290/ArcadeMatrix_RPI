@@ -16,6 +16,8 @@ pub struct GifEngine {
     target_width: u32,
     target_height: u32,
     loop_count: u32,
+    /// Index of the frame last actually drawn to the matrix (for swap-skip)
+    last_drawn_index: Option<usize>,
 }
 
 impl GifEngine {
@@ -29,6 +31,7 @@ impl GifEngine {
             target_width,
             target_height,
             loop_count: 0,
+            last_drawn_index: None,
         }
     }
 
@@ -77,6 +80,7 @@ impl GifEngine {
             self.frame_index = 0;
             self.frame_elapsed = Duration::ZERO;
             self.loop_count = 0;
+            self.last_drawn_index = None;
             true
         } else {
             false
@@ -141,13 +145,23 @@ impl GifEngine {
         false
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.frames.is_empty()
+    }
+
     /// Renders the current GIF frame to the matrix.
     /// Call this every iteration; it internally tracks elapsed time and
     /// advances to the next frame only when the frame's own delay has elapsed.
     /// `dt` = time elapsed since the last render call.
-    pub fn render_next_frame(&mut self, matrix: &mut dyn MatrixBackend, dt: Duration) {
+    ///
+    /// Returns `true` if a new frame was actually drawn (i.e. the displayed
+    /// image changed), `false` if the current frame is identical to the one
+    /// already on the panel. Callers can skip the (memory-bus heavy) canvas
+    /// swap when this returns `false`, which drastically reduces DDR traffic
+    /// and prevents Wi-Fi/SDIO DMA starvation during playback.
+    pub fn render_next_frame(&mut self, matrix: &mut dyn MatrixBackend, dt: Duration) -> bool {
         if self.frames.is_empty() {
-            return;
+            return false;
         }
 
         self.frame_elapsed += dt;
@@ -162,11 +176,28 @@ impl GifEngine {
             }
         }
 
+        // Skip redraw + swap when the frame hasn't advanced since last draw.
+        if self.last_drawn_index == Some(self.frame_index) {
+            return false;
+        }
+
         let (ref img, _) = self.frames[self.frame_index];
         matrix.draw_image(img, 0, 0);
+        self.last_drawn_index = Some(self.frame_index);
+        true
     }
 
     pub fn has_finished_loops(&self, target_loops: u32) -> bool {
         self.loop_count >= target_loops
+    }
+
+    /// Force-redraw the current frame to the matrix without advancing.
+    /// Used when an overlay (e.g. fighters) forces a swap every iteration and
+    /// the gif image must be present on the freshly-cleared canvas.
+    pub fn redraw_current(&mut self, matrix: &mut dyn MatrixBackend) {
+        if let Some((ref img, _)) = self.frames.get(self.frame_index) {
+            matrix.draw_image(img, 0, 0);
+            self.last_drawn_index = Some(self.frame_index);
+        }
     }
 }

@@ -45,9 +45,6 @@ impl ArcadeMatrixApp {
 
         #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
         {
-            // The rgb-led-matrix C++ library automatically drops privileges from root to the 'daemon' user.
-            // Since the API requires running commands like nmcli, reboot, and shutdown, we must dynamically
-            // allow the 'daemon' user to run these commands via sudo without a password.
             let sudoers_file = "/etc/sudoers.d/010_arcadematrix_daemon";
             let sudoers_content =
                 "daemon ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /sbin/shutdown, /sbin/reboot\n";
@@ -60,7 +57,6 @@ impl ArcadeMatrixApp {
                     .ok();
             }
 
-            // Manage internal Wi-Fi state via config.txt
             let boot_config = if std::path::Path::new("/boot/firmware/config.txt").exists() {
                 "/boot/firmware/config.txt"
             } else {
@@ -99,13 +95,12 @@ impl ArcadeMatrixApp {
             }
         }
 
-        // 0. Setup Wi-Fi if needed (like the Python version did)
+        // 0. Setup Wi-Fi if needed
         {
             let s = self.config.settings.read().clone();
             if !s.wifi_ssid.is_empty() && !s.wifi_configured {
                 info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
 
-                // Set country code and unblock wifi
                 std::process::Command::new("sudo")
                     .args(["raspi-config", "nonint", "do_wifi_country", "FR"])
                     .output()
@@ -167,45 +162,174 @@ impl ArcadeMatrixApp {
         let local_ip = get_local_ip();
         info!("ArcadeMatrix RPi IP Address: {}", local_ip);
 
+        // Start API server in its own thread, strictly single-threaded.
+        // We use a custom current_thread Tokio runtime for Actix to prevent it from
+        // spawning a multi-threaded reactor that spans all CPU cores and chokes Wi-Fi IRQs.
+        // This perfectly matches the Python Flask behavior.
         let config_clone = Arc::clone(&self.config);
-        std::thread::spawn(move || {
-            let sys = actix_web::rt::System::new();
-            if let Err(e) = sys.block_on(run_server(config_clone, 8080)) {
-                tracing::error!("API Server crashed: {}", e);
-            }
-        });
+        std::thread::Builder::new()
+            .name("api-server".to_string())
+            .spawn(move || {
+                let rt = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap();
+                let sys = actix_web::rt::System::with_tokio_rt(|| rt);
+                if let Err(e) = sys.block_on(run_server(config_clone, 8080)) {
+                    tracing::error!("API Server crashed: {}", e);
+                }
+            })
+            .expect("Failed to spawn API thread");
 
         // Start MQTT client background worker
         crate::engines::network::start_mqtt_client(Arc::clone(&self.config));
 
-        // Initialize hardware matrix on Linux target or MockMatrix fallback
+        // Graceful shutdown flag, shared with the render loop.
+        let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
+
+        // Oneshot used by the render thread to notify the async runtime that it
+        // exited on its own (e.g. a configuration change set reload_flag). Without
+        // it, run() would await the shutdown signals forever after a self-restart.
+        let (render_done_tx, render_done_rx) = tokio::sync::oneshot::channel::<()>();
+
+        // Run the render loop in a dedicated OS thread, completely isolated from
+        // the tokio async runtime. This is the same architecture as Python where
+        // the matrix render loop runs in the main thread and the web server in a
+        // daemon thread. This prevents tokio from scheduling async I/O tasks
+        // (HTTP, MQTT, Wi-Fi IRQs) in the same OS thread as the LED DMA engine.
+        let config_for_render = Arc::clone(&self.config);
+        let running_for_render = Arc::clone(&running);
+        let render_handle = std::thread::Builder::new()
+            .name("matrix-render".to_string())
+            .stack_size(8 * 1024 * 1024) // 8MB stack for render thread
+            .spawn(move || {
+                // No CPU pinning here: we rely on the kernel's isolcpus=3 (set by autoInstall.sh)
+                // to reserve core 3 for the hzeller DMA thread, exactly like the Python version.
+                // The OS scheduler freely distributes our render thread and other work across
+                // the remaining cores (0, 1, 2).
+                Self::render_loop(config_for_render, local_ip, running_for_render);
+                let _ = render_done_tx.send(());
+            })
+            .expect("Failed to spawn render thread");
+
+        // Await either an OS shutdown signal or the render loop self-exiting.
+        //
+        // We AWAIT here rather than blocking on render_handle.join(). This is
+        // critical: main() uses a `current_thread` Tokio runtime, so blocking the
+        // main thread would starve the signal futures and SIGTERM would never be
+        // observed. systemd would then SIGKILL us after its stop timeout, skipping
+        // the LED matrix destructor and leaving GPIO/DMA locked -> the next start
+        // fails with "Couldn't create LedMatrix" and falls back to a black screen.
+        #[cfg(unix)]
+        {
+            let mut sigterm =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+            let mut sigint =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+            tokio::select! {
+                _ = sigterm.recv() => tracing::info!("SIGTERM received, shutting down."),
+                _ = sigint.recv() => tracing::info!("SIGINT received, shutting down."),
+                _ = render_done_rx => tracing::info!("Render loop exited on its own (self-restart)."),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = render_done_rx => {}
+            }
+        }
+
+        // Ask the render loop to stop and wait for it, so the LED matrix
+        // destructor runs and releases GPIO/DMA cleanly before we exit.
+        running.store(false, std::sync::atomic::Ordering::SeqCst);
+        let _ = render_handle.join();
+        Ok(())
+    }
+
+    fn render_loop(
+        config: Arc<Config>,
+        local_ip: String,
+        running: Arc<std::sync::atomic::AtomicBool>,
+    ) {
+        // Initialize hardware matrix
         let mut matrix: Box<dyn MatrixBackend> = {
             #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
             {
-                let cfg = self.config.settings.read();
-                match HardwareMatrix::new(
-                    cfg.matrix_rows,
-                    cfg.matrix_cols,
-                    cfg.matrix_chain,
-                    cfg.matrix_parallel,
-                    &cfg.matrix_mapping,
-                    &cfg.matrix_rgb_sequence,
-                    cfg.matrix_slowdown,
-                    cfg.matrix_pwm_bits,
-                    cfg.matrix_pwm_lsb_nanoseconds,
-                    cfg.matrix_disable_hardware_pulsing,
-                    cfg.matrix_brightness as u8,
-                ) {
-                    Ok(hw) => Box::new(hw),
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to initialize HardwareMatrix, falling back to MockMatrix: {}",
-                            e
-                        );
-                        Box::new(MockMatrix::new(
-                            cfg.matrix_cols * cfg.matrix_chain,
-                            cfg.matrix_rows,
-                        ))
+                // Snapshot the matrix config, then release the settings lock so we
+                // never hold it across the (potentially retried) hardware init.
+                let (
+                    rows,
+                    cols,
+                    chain,
+                    parallel,
+                    mapping,
+                    rgb_sequence,
+                    slowdown,
+                    pwm_bits,
+                    pwm_lsb,
+                    disable_pulsing,
+                    brightness,
+                    limit_refresh,
+                ) = {
+                    let cfg = config.settings.read();
+                    (
+                        cfg.matrix_rows,
+                        cfg.matrix_cols,
+                        cfg.matrix_chain,
+                        cfg.matrix_parallel,
+                        cfg.matrix_mapping.clone(),
+                        cfg.matrix_rgb_sequence.clone(),
+                        cfg.matrix_slowdown,
+                        cfg.matrix_pwm_bits,
+                        cfg.matrix_pwm_lsb_nanoseconds,
+                        cfg.matrix_disable_hardware_pulsing,
+                        cfg.matrix_brightness as u8,
+                        cfg.matrix_limit_refresh_rate_hz,
+                    )
+                };
+
+                // Retry hardware init instead of instantly falling back to a Mock
+                // (black) matrix. After a "restart to apply settings" the previous
+                // process can still hold the GPIO/DMA for a moment, which makes the
+                // very next init fail with "Couldn't create LedMatrix". Retrying
+                // until the hardware is released prevents a permanent black screen.
+                const MAX_INIT_ATTEMPTS: u32 = 30;
+                let mut attempt = 0u32;
+                loop {
+                    match HardwareMatrix::new(
+                        rows,
+                        cols,
+                        chain,
+                        parallel,
+                        &mapping,
+                        &rgb_sequence,
+                        slowdown,
+                        pwm_bits,
+                        pwm_lsb,
+                        disable_pulsing,
+                        brightness,
+                        limit_refresh,
+                    ) {
+                        Ok(hw) => break Box::new(hw) as Box<dyn MatrixBackend>,
+                        Err(e) => {
+                            attempt += 1;
+                            if attempt >= MAX_INIT_ATTEMPTS {
+                                tracing::error!(
+                                    "Failed to initialize hardware matrix after {} attempts: {} \u{2014} falling back to Mock (BLACK SCREEN)",
+                                    attempt,
+                                    e
+                                );
+                                break Box::new(MockMatrix::new(64, 32)) as Box<dyn MatrixBackend>;
+                            }
+                            tracing::warn!(
+                                "Hardware matrix init failed (attempt {}/{}): {} \u{2014} previous process may still hold the GPIO, retrying in 1s",
+                                attempt,
+                                MAX_INIT_ATTEMPTS,
+                                e
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                        }
                     }
                 }
             }
@@ -213,13 +337,16 @@ impl ArcadeMatrixApp {
                 target_os = "linux",
                 any(target_arch = "arm", target_arch = "aarch64")
             )))]
-            {
-                let cfg = self.config.settings.read();
-                Box::new(MockMatrix::new(
-                    cfg.matrix_cols * cfg.matrix_chain,
-                    cfg.matrix_rows,
-                ))
-            }
+            Box::new(MockMatrix::new(
+                {
+                    let cfg = config.settings.read();
+                    cfg.matrix_cols * cfg.matrix_chain
+                },
+                {
+                    let cfg = config.settings.read();
+                    cfg.matrix_rows
+                },
+            ))
         };
 
         let width = matrix.width();
@@ -229,9 +356,7 @@ impl ArcadeMatrixApp {
         let mut date_engine = DateEngine::new(width, height);
         let mut weather_engine = WeatherEngine::new();
         let mut gif_engine = GifEngine::new(width, height);
-        let mut fighter_engine = FighterEngine::new(width);
-        let interval = self.config.settings.read().idle_fighter_interval;
-        fighter_engine.init_fight(height, interval);
+        let mut fighter_engine = FighterEngine::new(width, height);
         let marquee_engine = MarqueeEngine::new();
         let mut message_engine = MessageEngine::new();
 
@@ -239,10 +364,10 @@ impl ArcadeMatrixApp {
         let mut last_frame = std::time::Instant::now();
         let mut gifs_played = 0;
 
-        // 1. Display startup IP Address banner on DMD matrix
+        // Display startup IP Address banner
         let startup_payload = MessagePayload {
             text: format!("IP: {}", local_ip),
-            color: "#00ffc8".to_string(), // Cyan
+            color: "#00ffc8".to_string(),
             size: 1,
             direction: "left".to_string(),
             speed: 30,
@@ -254,45 +379,38 @@ impl ArcadeMatrixApp {
             matrix.clear();
             message_engine.render(matrix.as_mut(), &startup_payload);
             matrix.update();
-            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            std::thread::sleep(std::time::Duration::from_millis(30));
         }
 
-        // Force clear BOTH hardware buffers to permanently erase the startup IP
         matrix.clear();
         matrix.update();
         matrix.clear();
         matrix.update();
 
-        let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
-        let r = running.clone();
-        tokio::spawn(async move {
-            let mut sigterm =
-                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).unwrap();
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {},
-                _ = sigterm.recv() => {},
-            }
-            tracing::info!("Received shutdown signal, stopping...");
-            r.store(false, Ordering::SeqCst);
-        });
-
+        // The actual SIGTERM is handled by tokio in the async context, which updates the 'running' atomic bool.
         let mut last_index = usize::MAX;
-        // 2. Main rotation and engine loop
+
         while running.load(Ordering::SeqCst) {
             matrix.clear();
+
             // Auto-restart if configuration requires hardware reload
-            if self.config.reload_flag.swap(false, Ordering::Relaxed) {
+            if config.reload_flag.swap(false, Ordering::Relaxed) {
                 tracing::info!(
                     "Configuration changed! Restarting application to apply hardware settings..."
                 );
-                // Cleanly exit the loop. The process will drop the matrix and exit with code 0.
-                // Systemd's Restart=always will relaunch the process cleanly after 3 seconds.
                 break;
+            }
+
+            if config.reset_rotation.swap(false, Ordering::Relaxed) {
+                rotation_state.current_index = 0;
+                rotation_state.mode_start_time = std::time::Instant::now();
+                last_index = usize::MAX; // Force mode_just_changed to be true
+                tracing::info!("Display settings changed! Resetting rotation to index 0.");
             }
 
             // Standby / Night mode check
             let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
-                let s = self.config.settings.read();
+                let s = config.settings.read();
                 (
                     s.standby_enabled,
                     s.standby_turn_off.clone(),
@@ -308,32 +426,31 @@ impl ArcadeMatrixApp {
                 if night_bright == 0 {
                     matrix.clear();
                     matrix.update();
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 } else {
                     matrix.set_brightness(night_bright as u8);
                 }
             } else {
-                let bright = self.config.matrix_brightness.load(Ordering::Relaxed);
+                let bright = config.matrix_brightness.load(Ordering::Relaxed);
                 matrix.set_brightness(bright as u8);
             }
 
             // Power check
-            if !self.config.matrix_power.load(Ordering::Relaxed) {
+            if !config.matrix_power.load(Ordering::Relaxed) {
                 matrix.clear();
                 matrix.update();
-                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                std::thread::sleep(std::time::Duration::from_millis(100));
                 continue;
             }
 
             // Handle forced engine (Custom Message, Marquee Image)
-            let forced = self.config.force_engine.lock().clone();
+            let forced = config.force_engine.lock().clone();
             if let Some(ref mode) = forced {
-                // Clear the flag immediately so we don't infinitely trigger it
-                *self.config.force_engine.lock() = None;
+                *config.force_engine.lock() = None;
 
                 if mode == "message" {
-                    if let Some(ref payload_val) = *self.config.message_payload.lock() {
+                    if let Some(ref payload_val) = *config.message_payload.lock() {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
@@ -341,17 +458,13 @@ impl ArcadeMatrixApp {
                             let timeout =
                                 std::time::Duration::from_secs(payload.timeout_seconds as u64);
 
-                            // Reset position to right edge
                             message_engine.reset(matrix.width() as f32);
 
-                            // Block and render exclusively
                             while start_time.elapsed() < timeout {
-                                if self.config.reload_flag.load(Ordering::Relaxed) {
+                                if config.reload_flag.load(Ordering::Relaxed) {
                                     break;
                                 }
-
-                                // Check if another engine was forced while we were scrolling
-                                if self.config.force_engine.lock().is_some() {
+                                if config.force_engine.lock().is_some() {
                                     break;
                                 }
 
@@ -360,29 +473,28 @@ impl ArcadeMatrixApp {
                                 matrix.update();
 
                                 if finished {
-                                    break; // Message fully scrolled off screen
+                                    break;
                                 }
 
-                                tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+                                std::thread::sleep(std::time::Duration::from_millis(33));
                             }
 
-                            // Resume normal flow after message completes
                             last_frame = std::time::Instant::now();
                             rotation_state.mode_start_time = std::time::Instant::now();
                             continue;
                         }
                     }
                 } else if mode == "marquee" {
-                    if let Some(ref img) = *self.config.image_obj.lock() {
-                        while !self.config.reload_flag.load(Ordering::Relaxed) {
-                            if self.config.force_engine.lock().is_some() {
+                    if let Some(ref img) = *config.image_obj.lock() {
+                        while !config.reload_flag.load(Ordering::Relaxed) {
+                            if config.force_engine.lock().is_some() {
                                 break;
                             }
 
                             matrix.clear();
                             marquee_engine.render(matrix.as_mut(), img);
                             matrix.update();
-                            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                            std::thread::sleep(std::time::Duration::from_millis(100));
                         }
 
                         last_frame = std::time::Instant::now();
@@ -392,13 +504,13 @@ impl ArcadeMatrixApp {
                 }
             }
 
-            // If MQTT is enabled, we act as a dedicated DMD for Recalbox and wait for games.
-            let mqtt_enabled = self.config.settings.read().mqtt_enabled;
+            // MQTT mode: dedicated DMD for Recalbox
+            let mqtt_enabled = config.settings.read().mqtt_enabled;
             if mqtt_enabled {
                 matrix.clear();
                 let payload = crate::engines::message::MessagePayload {
                     text: "Waiting for Recalbox...".to_string(),
-                    color: "#ff8c00".to_string(), // Orange
+                    color: "#ff8c00".to_string(),
                     size: if matrix.height() >= 64 { 2 } else { 1 },
                     direction: "left".to_string(),
                     speed: 40,
@@ -407,13 +519,13 @@ impl ArcadeMatrixApp {
                 let _ = message_engine.render(matrix.as_mut(), &payload);
                 matrix.update();
                 last_frame = std::time::Instant::now();
-                tokio::time::sleep(std::time::Duration::from_millis(33)).await;
+                std::thread::sleep(std::time::Duration::from_millis(33));
                 continue;
             }
 
             // Rotation sequence execution
             let (idle_list, clock_dur, date_dur, weather_dur) = {
-                let s = self.config.settings.read();
+                let s = config.settings.read();
                 (
                     s.idle_rotation.clone(),
                     s.idle_clock_duration_sec,
@@ -428,9 +540,10 @@ impl ArcadeMatrixApp {
                 let mode_just_changed = current_index != last_index;
 
                 matrix.clear();
+                let mut should_update = true;
                 match current_mode.as_str() {
                     "clock" => {
-                        clock_engine.render(matrix.as_mut(), &self.config);
+                        clock_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(clock_dur as u64)
                         {
@@ -438,7 +551,7 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "date" => {
-                        date_engine.render(matrix.as_mut(), &self.config);
+                        date_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(date_dur as u64)
                         {
@@ -446,7 +559,7 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "weather" => {
-                        weather_engine.render(matrix.as_mut(), &self.config);
+                        weather_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(weather_dur as u64)
                         {
@@ -454,24 +567,41 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "gifs" => {
-                        let gifs_count = self.config.settings.read().idle_gifs_count as u32;
+                        let gifs_count = config.settings.read().idle_gifs_count as u32;
 
                         if mode_just_changed {
                             gifs_played = 0;
-                            let selected = self.config.settings.read().selected_gifs.clone();
-                            gif_engine.play_random_playlist_gif(&selected);
+                            let selected = config.settings.read().selected_gifs.clone();
+                            if !gif_engine.play_random_playlist_gif(&selected) {
+                                gifs_played = gifs_count; // Force advance if failed
+                            }
                         }
 
                         let dt = last_frame.elapsed();
-                        gif_engine.render_next_frame(matrix.as_mut(), dt);
+                        let sprites_on = config.settings.read().idle_sprite_count > 0;
+                        let frame_changed = gif_engine.render_next_frame(matrix.as_mut(), dt);
+                        if sprites_on {
+                            // Fighter overlay animates every iteration: the gif image
+                            // must be present on the freshly-cleared canvas.
+                            if !frame_changed {
+                                gif_engine.redraw_current(matrix.as_mut());
+                            }
+                        } else {
+                            // Skip the (memory-bus heavy) canvas swap when the gif
+                            // frame is unchanged: prevents DDR/SDIO DMA starvation
+                            // that was dropping Wi-Fi packets during playback.
+                            should_update = frame_changed;
+                        }
 
-                        if gif_engine.has_finished_loops(1) {
+                        if gif_engine.has_finished_loops(1) || gif_engine.is_empty() {
                             gifs_played += 1;
                             if gifs_played >= gifs_count {
                                 rotation_state.next_mode(&idle_list);
                             } else {
-                                let selected = self.config.settings.read().selected_gifs.clone();
-                                gif_engine.play_random_playlist_gif(&selected);
+                                let selected = config.settings.read().selected_gifs.clone();
+                                if !gif_engine.play_random_playlist_gif(&selected) {
+                                    gifs_played = gifs_count; // Force advance if failed
+                                }
                             }
                         }
                     }
@@ -494,7 +624,7 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "message" => {
-                        if let Some(ref payload_val) = *self.config.message_payload.lock() {
+                        if let Some(ref payload_val) = *config.message_payload.lock() {
                             if let Ok(payload) = serde_json::from_value::<
                                 crate::engines::message::MessagePayload,
                             >(payload_val.clone())
@@ -515,7 +645,7 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "marquee" => {
-                        if let Some(ref img) = *self.config.image_obj.lock() {
+                        if let Some(ref img) = *config.image_obj.lock() {
                             marquee_engine.render(matrix.as_mut(), img);
                         }
                         if rotation_state.mode_start_time.elapsed()
@@ -525,22 +655,24 @@ impl ArcadeMatrixApp {
                         }
                     }
                     _ => {
-                        clock_engine.render(matrix.as_mut(), &self.config);
+                        clock_engine.render(matrix.as_mut(), &config);
                     }
                 }
                 last_index = current_index;
 
-                // Composite fighter overlay on every frame if sprites are loaded
-                let settings = self.config.settings.read();
+                // Composite fighter overlay
+                let settings = config.settings.read();
                 let sprite_count = settings.idle_sprite_count;
                 if sprite_count > 0 {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 }
-                matrix.update();
+                if should_update {
+                    matrix.update();
+                }
             } else {
-                clock_engine.render(matrix.as_mut(), &self.config);
-                let settings = self.config.settings.read();
+                clock_engine.render(matrix.as_mut(), &config);
+                let settings = config.settings.read();
                 let sprite_count = settings.idle_sprite_count;
                 if sprite_count > 0 {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
@@ -549,22 +681,36 @@ impl ArcadeMatrixApp {
                 matrix.update();
             }
 
-            // Adaptive sleep: animated modes at ~30fps, static at ~5fps
-            let is_animated = matches!(
-                idle_list
-                    .get(rotation_state.current_index % idle_list.len().max(1))
-                    .map(|s| s.as_str()),
-                Some("clock") | Some("gifs") | Some("network") | Some("message")
-            );
-            let theme = self.config.settings.read().time_theme;
-            let fast_theme = matches!(theme, 18 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
-            let sleep_ms = if is_animated || fast_theme { 33 } else { 200 };
+            // Adaptive sleep: match Python timing exactly
+            // - Fast/animated themes: 33ms (~30fps)
+            // - Static themes (clock, date, weather): 1000ms like Python (time.sleep(1))
+            // This gives the CPU and Wi-Fi IRQs plenty of breathing room.
+            let current_mode_str = idle_list
+                .get(rotation_state.current_index % idle_list.len().max(1))
+                .map(|s| s.as_str())
+                .unwrap_or("");
+            let is_animated = matches!(current_mode_str, "gifs" | "network" | "message");
+
+            let theme = if current_mode_str == "date" {
+                config.settings.read().date_theme
+            } else {
+                config.settings.read().time_theme
+            };
+
+            let fast_theme = matches!(theme, 18 | 19 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
+            let sprite_active = config.settings.read().idle_sprite_count > 0;
+
+            let sleep_ms = if is_animated || fast_theme || sprite_active {
+                40 // ~25fps, same as Python fast mode (time.sleep(0.04))
+            } else {
+                1000 // 1s for static modes, exactly like Python (time.sleep(1))
+            };
             last_frame = std::time::Instant::now();
-            tokio::time::sleep(std::time::Duration::from_millis(sleep_ms)).await;
+            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }
 
         matrix.clear();
         matrix.update();
-        Ok(())
+        tracing::info!("Render loop exited cleanly.");
     }
 }

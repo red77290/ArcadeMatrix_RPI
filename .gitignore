@@ -39,3 +39,7 @@ Cargo.lock.tmp
 rust-rpi-rgb-led-matrix/
 rust-rpi-rgb-led-matrix-local/
 
+# Antigravity Temp Files
+scratch/
+.tempmediaStorage/
+

@@ -618,9 +618,6 @@ async fn api_marquee(
         Ok(img) => {
             *data.config.image_obj.lock() = Some(img.to_rgb8());
             *data.config.force_engine.lock() = Some("marquee".to_string());
-            data.config
-                .reload_flag
-                .store(true, std::sync::atomic::Ordering::Relaxed);
             HttpResponse::Ok().json(
                 json!({"status": "success", "message": "Marquee image received and displayed"}),
             )

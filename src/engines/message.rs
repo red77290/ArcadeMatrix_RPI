@@ -13,6 +13,25 @@ pub struct MessagePayload {
     pub timeout_seconds: u32,
 }
 
+impl MessagePayload {
+    pub fn new(
+        text: String,
+        color: &str,
+        size: u32,
+        direction: &str,
+        timeout_seconds: u32,
+    ) -> Self {
+        Self {
+            text,
+            color: color.to_string(),
+            size,
+            direction: direction.to_string(),
+            speed: 50,
+            timeout_seconds,
+        }
+    }
+}
+
 pub struct MessageEngine {
     base_renderer: BaseRenderer,
     offset_x: f32,
@@ -32,7 +51,12 @@ impl MessageEngine {
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, payload: &MessagePayload) -> bool {
         let move_px = 33.0 / payload.speed.max(1) as f32; // Assuming ~33ms frame time
-        self.offset_x -= move_px;
+
+        if payload.direction == "none" {
+            self.offset_x = 0.0;
+        } else {
+            self.offset_x -= move_px;
+        }
 
         let font = self.base_renderer.font();
         let (pixels, _, _) = font.get_pixel_map(&payload.text, payload.size as f32);
@@ -44,7 +68,7 @@ impl MessageEngine {
         }
 
         let mut finished = false;
-        if self.offset_x < -(text_w as f32) {
+        if payload.direction != "none" && self.offset_x < -(text_w as f32) {
             self.offset_x = matrix.width() as f32;
             finished = true;
         }

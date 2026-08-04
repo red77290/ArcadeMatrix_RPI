@@ -365,14 +365,8 @@ impl ArcadeMatrixApp {
         let mut gifs_played = 0;
 
         // Display startup IP Address banner
-        let startup_payload = MessagePayload {
-            text: format!("IP: {}", local_ip),
-            color: "#00ffc8".to_string(),
-            size: 1,
-            direction: "left".to_string(),
-            speed: 30,
-            timeout_seconds: 4,
-        };
+        let startup_payload =
+            MessagePayload::new(format!("IP: {}", local_ip), "#00ffc8", 1, "left", 4);
 
         let start_time = std::time::Instant::now();
         while start_time.elapsed() < std::time::Duration::from_secs(4) {
@@ -450,7 +444,8 @@ impl ArcadeMatrixApp {
                 *config.force_engine.lock() = None;
 
                 if mode == "message" {
-                    if let Some(ref payload_val) = *config.message_payload.lock() {
+                    let payload_val_opt = config.message_payload.lock().clone();
+                    if let Some(payload_val) = payload_val_opt {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
@@ -460,7 +455,7 @@ impl ArcadeMatrixApp {
 
                             message_engine.reset(matrix.width() as f32);
 
-                            while start_time.elapsed() < timeout {
+                            while start_time.elapsed() < timeout && running.load(Ordering::SeqCst) {
                                 if config.reload_flag.load(Ordering::Relaxed) {
                                     break;
                                 }
@@ -485,14 +480,17 @@ impl ArcadeMatrixApp {
                         }
                     }
                 } else if mode == "marquee" {
-                    if let Some(ref img) = *config.image_obj.lock() {
-                        while !config.reload_flag.load(Ordering::Relaxed) {
+                    let img_opt = config.image_obj.lock().clone();
+                    if let Some(img) = img_opt {
+                        while !config.reload_flag.load(Ordering::Relaxed)
+                            && running.load(Ordering::SeqCst)
+                        {
                             if config.force_engine.lock().is_some() {
                                 break;
                             }
 
                             matrix.clear();
-                            marquee_engine.render(matrix.as_mut(), img);
+                            marquee_engine.render(matrix.as_mut(), &img);
                             matrix.update();
                             std::thread::sleep(std::time::Duration::from_millis(100));
                         }
@@ -504,23 +502,25 @@ impl ArcadeMatrixApp {
                 }
             }
 
-            // MQTT mode: dedicated DMD for Recalbox
+            // MQTT mode: dedicated DMD for Recalbox/Batocera (only when no active game event)
             let mqtt_enabled = config.settings.read().mqtt_enabled;
             if mqtt_enabled {
-                matrix.clear();
-                let payload = crate::engines::message::MessagePayload {
-                    text: "Waiting for Recalbox...".to_string(),
-                    color: "#ff8c00".to_string(),
-                    size: if matrix.height() >= 64 { 2 } else { 1 },
-                    direction: "left".to_string(),
-                    speed: 40,
-                    timeout_seconds: 60,
-                };
-                let _ = message_engine.render(matrix.as_mut(), &payload);
-                matrix.update();
-                last_frame = std::time::Instant::now();
-                std::thread::sleep(std::time::Duration::from_millis(33));
-                continue;
+                let current_force = config.force_engine.lock().clone();
+                if current_force.is_none() {
+                    matrix.clear();
+                    let payload = crate::engines::message::MessagePayload::new(
+                        "Waiting for Content...".to_string(),
+                        "#ff8c00",
+                        if matrix.height() >= 64 { 2 } else { 1 },
+                        "left",
+                        60, // Arbitrary for idle
+                    );
+                    let _ = message_engine.render(matrix.as_mut(), &payload);
+                    matrix.update();
+                    last_frame = std::time::Instant::now();
+                    std::thread::sleep(std::time::Duration::from_millis(33));
+                    continue;
+                }
             }
 
             // Rotation sequence execution
@@ -607,14 +607,13 @@ impl ArcadeMatrixApp {
                     }
                     "network" => {
                         let ip = get_local_ip();
-                        let payload = crate::engines::message::MessagePayload {
-                            text: format!("IP: {}", ip),
-                            color: "#00ffc8".to_string(),
-                            size: 1,
-                            direction: "left".to_string(),
-                            speed: 30,
-                            timeout_seconds: 10,
-                        };
+                        let payload = crate::engines::message::MessagePayload::new(
+                            format!("IP: {}", ip),
+                            "#00ffc8",
+                            1,
+                            "left",
+                            10,
+                        );
 
                         let _ = message_engine.render(matrix.as_mut(), &payload);
                         if rotation_state.mode_start_time.elapsed()
@@ -624,7 +623,8 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "message" => {
-                        if let Some(ref payload_val) = *config.message_payload.lock() {
+                        let payload_val_opt = config.message_payload.lock().clone();
+                        if let Some(payload_val) = payload_val_opt {
                             if let Ok(payload) = serde_json::from_value::<
                                 crate::engines::message::MessagePayload,
                             >(payload_val.clone())
@@ -645,8 +645,9 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "marquee" => {
-                        if let Some(ref img) = *config.image_obj.lock() {
-                            marquee_engine.render(matrix.as_mut(), img);
+                        let img_opt = config.image_obj.lock().clone();
+                        if let Some(img) = img_opt {
+                            marquee_engine.render(matrix.as_mut(), &img);
                         }
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(30)

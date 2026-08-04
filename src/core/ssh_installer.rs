@@ -84,19 +84,23 @@ fi
         let script_path = format!("{}/arcadematrix_mqtt.sh", target_dir);
 
         tracing::info!("Creating directory {}...", target_dir);
-        let mut channel = sess.channel_session().unwrap();
-        channel.exec(&format!("mkdir -p {}", target_dir)).ok();
-        channel.wait_close().ok();
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
+            channel.wait_close().ok();
+        }
 
         tracing::info!("Uploading script to {}...", script_path);
-        let mut channel = sess.channel_session().unwrap();
-        channel
-            .exec(&format!(
-                "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
-                script_path, script_content, script_path
-            ))
-            .ok();
-        channel.wait_close().ok();
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec(&format!(
+                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
+                    script_path, script_content, script_path
+                ))
+                .ok();
+            channel.wait_close().ok();
+        }
     } else {
         // Recalbox Daemon — ultra-lightweight, zero image processing
         let daemon_code = format!(
@@ -183,49 +187,63 @@ fi
 "#;
 
         tracing::info!("Creating directory {}...", target_dir);
-        let mut channel = sess.channel_session().unwrap();
-        channel.exec(&format!("mkdir -p {}", target_dir)).ok();
-        channel.wait_close().ok();
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
+            channel.wait_close().ok();
+        }
 
         tracing::info!("Cleaning up ALL legacy scripts...");
-        let mut channel = sess.channel_session().unwrap();
-        channel.exec(&format!(
-            "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
-            target_dir
-        )).ok();
-        channel.wait_close().ok();
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel.exec(&format!(
+                "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
+                target_dir
+            )).ok();
+            channel.wait_close().ok();
+        }
 
         let daemon_path = "/recalbox/share/arcadematrix_daemon.py";
-        let mut channel = sess.channel_session().unwrap();
-        channel
-            .exec(&format!(
-                "cat > {} << 'EOF'\n{}\nEOF\n",
-                daemon_path, daemon_code
-            ))
-            .ok();
-        channel.wait_close().ok();
+        tracing::info!("Uploading script to {}...", daemon_path);
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec(&format!(
+                    "cat > {} << 'EOF'\n{}\nEOF\n",
+                    daemon_path, daemon_code
+                ))
+                .ok();
+            channel.wait_close().ok();
+        }
 
         let launcher_path = format!("{}/arcadematrix_launcher(permanent).sh", target_dir);
-        let mut channel = sess.channel_session().unwrap();
-        channel
-            .exec(&format!(
-                "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
-                launcher_path, launcher_code, launcher_path
-            ))
-            .ok();
-        channel.wait_close().ok();
+        tracing::info!("Uploading script to {}...", launcher_path);
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec(&format!(
+                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
+                    launcher_path, launcher_code, launcher_path
+                ))
+                .ok();
+            channel.wait_close().ok();
+        }
 
-        let mut channel = sess.channel_session().unwrap();
-        channel
-            .exec(&format!("rm -f {}/arcadematrix_mqtt.sh", target_dir))
-            .ok();
-        channel.wait_close().ok();
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec(&format!("rm -f {}/arcadematrix_mqtt.sh", target_dir))
+                .ok();
+            channel.wait_close().ok();
+        }
     }
 
     tracing::info!("Rebooting target system...");
-    let mut channel = sess.channel_session().unwrap();
-    channel.exec("sleep 1 && reboot").ok();
-    channel.wait_close().ok();
+    {
+        let mut channel = sess.channel_session().unwrap();
+        channel.exec("sleep 1 && reboot").ok();
+        channel.wait_close().ok();
+    }
 
     Ok(format!(
         "Successfully installed! {} is now rebooting...",

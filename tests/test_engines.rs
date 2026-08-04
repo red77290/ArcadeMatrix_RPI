@@ -53,14 +53,7 @@ fn test_weather_engine_init() {
 fn test_message_engine() {
     let mut matrix = MockMatrix::new(64, 32);
     let mut engine = MessageEngine::new();
-    let payload = MessagePayload {
-        text: "Test Msg".to_string(),
-        color: "#ff0000".to_string(), // Red string
-        size: 1,
-        direction: "left".to_string(),
-        speed: 2,
-        timeout_seconds: 5,
-    };
+    let payload = MessagePayload::new("Test".to_string(), "#ff0000", 1, "left", 30);
 
     engine.render(&mut matrix, &payload);
 }
@@ -97,6 +90,6 @@ fn test_dmd_cache_lookup() {
     let temp_dir = tempfile::tempdir().unwrap();
     let cache = DmdCache::new(temp_dir.path());
     assert!(cache
-        .get_marquee_path("invalid_sys", "invalid_game")
+        .get_cached_path("invalid_sys", "invalid_game")
         .is_none());
 }

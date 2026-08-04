@@ -78,13 +78,16 @@ impl MatrixBackend for MockMatrix {
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-use rpi_led_matrix::{LedCanvas, LedColor, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
+use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 pub struct HardwareMatrix {
     matrix: LedMatrix,
     canvas: Option<LedCanvas>,
     brightness: u8,
+    width: u32,
+    height: u32,
+    buffer: image::RgbImage,
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
@@ -96,6 +99,21 @@ unsafe impl Sync for HardwareMatrix {}
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 extern "C" {
     fn led_matrix_set_brightness(matrix: *mut std::ffi::c_void, brightness: u8);
+    // Bulk pixel upload from the hzeller C API. Copies the whole RGB buffer in a
+    // single FFI crossing (the inner per-pixel loop runs in C++), instead of
+    // issuing one FFI call per pixel. This mirrors Python's canvas.SetImage()
+    // and is ~1000x fewer FFI crossings per frame, which keeps the render thread
+    // light enough that the web API and Wi-Fi DMA are no longer starved.
+    fn set_image(
+        canvas: *mut std::ffi::c_void,
+        canvas_offset_x: std::ffi::c_int,
+        canvas_offset_y: std::ffi::c_int,
+        image_buffer: *const u8,
+        buffer_size_bytes: usize,
+        image_width: std::ffi::c_int,
+        image_height: std::ffi::c_int,
+        is_bgr: std::ffi::c_char,
+    );
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
@@ -112,6 +130,7 @@ impl HardwareMatrix {
         pwm_lsb: u32,
         disable_hardware_pulsing: bool,
         brightness: u8,
+        limit_refresh: u32,
     ) -> Result<Self, String> {
         let mut options = LedMatrixOptions::new();
         options.set_rows(rows);
@@ -131,6 +150,10 @@ impl HardwareMatrix {
         options.set_pwm_lsb_nanoseconds(pwm_lsb);
         options.set_hardware_pulsing(!disable_hardware_pulsing);
 
+        // Pass limit_refresh directly from conf.ini, no override.
+        // Python doesn't set this at all (defaults to 0 in the C++ lib).
+        options.set_limit_refresh(limit_refresh);
+
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown);
         rt_options.set_drop_privileges(false);
@@ -138,11 +161,15 @@ impl HardwareMatrix {
         let matrix = LedMatrix::new(Some(options), Some(rt_options))
             .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;
         let canvas = matrix.offscreen_canvas();
+        let (w, h) = canvas.canvas_size();
 
         Ok(Self {
             matrix,
             canvas: Some(canvas),
             brightness,
+            width: w as u32,
+            height: h as u32,
+            buffer: image::RgbImage::new(w as u32, h as u32),
         })
     }
 }
@@ -150,31 +177,72 @@ impl HardwareMatrix {
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl MatrixBackend for HardwareMatrix {
     fn width(&self) -> u32 {
-        self.canvas.as_ref().unwrap().canvas_size().0 as u32
+        self.width
     }
 
     fn height(&self) -> u32 {
-        self.canvas.as_ref().unwrap().canvas_size().1 as u32
+        self.height
     }
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
-        if x >= 0 && y >= 0 && x < self.width() as i32 && y < self.height() as i32 {
-            let color = LedColor { red, green, blue };
-            self.canvas.as_mut().unwrap().set(x, y, &color);
+        if x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32 {
+            self.buffer
+                .put_pixel(x as u32, y as u32, image::Rgb([red, green, blue]));
+        }
+    }
+
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32) {
+        let (w, h) = img.dimensions();
+        for dy in 0..h {
+            let py = offset_y + dy as i32;
+            if py >= 0 && py < self.height as i32 {
+                for dx in 0..w {
+                    let px = offset_x + dx as i32;
+                    if px >= 0 && px < self.width as i32 {
+                        self.buffer
+                            .put_pixel(px as u32, py as u32, *img.get_pixel(dx, dy));
+                    }
+                }
+            }
         }
     }
 
     fn clear(&mut self) {
-        self.canvas.as_mut().unwrap().clear();
+        self.buffer.as_flat_samples_mut().as_mut_slice().fill(0);
     }
 
     fn update(&mut self) {
+        if let Some(ref canvas) = self.canvas {
+            let handle = unsafe {
+                *(canvas as *const rpi_led_matrix::LedCanvas as *const *mut std::ffi::c_void)
+            };
+            if !handle.is_null() {
+                unsafe {
+                    set_image(
+                        handle,
+                        0,
+                        0,
+                        self.buffer.as_raw().as_ptr(),
+                        self.buffer.len(),
+                        self.width as std::ffi::c_int,
+                        self.height as std::ffi::c_int,
+                        0, // is_bgr = false
+                    );
+                }
+            }
+        }
+
         let canvas = self.canvas.take().unwrap();
         self.canvas = Some(self.matrix.swap(canvas));
     }
 
     fn set_brightness(&mut self, brightness: u8) {
-        self.brightness = brightness.min(100);
+        let new_b = brightness.min(100);
+        if self.brightness == new_b {
+            return; // Avoid hammering the C++ library
+        }
+        self.brightness = new_b;
+
         let matrix_ptr = &self.matrix as *const _ as *const *mut std::ffi::c_void;
         unsafe {
             let handle = *matrix_ptr;

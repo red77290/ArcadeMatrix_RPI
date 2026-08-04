@@ -4,3 +4,4 @@ pub mod matrix;
 pub mod rotation;
 pub mod ssh_installer;
 pub mod theme;
+pub mod wifi;

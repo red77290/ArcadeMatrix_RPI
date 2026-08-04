@@ -32,13 +32,29 @@ if command -v apt-get &> /dev/null; then
 fi
 
 # 3. Check if we are in the project root
-if [ ! -f "Cargo.toml" ]; then
-    echo "Cargo.toml not found. It looks like you ran this script standalone."
-    echo "Cloning the ArcadeMatrix_RPI repository..."
-    git clone https://github.com/red77290/ArcadeMatrix_RPI.git
-    cd ArcadeMatrix_RPI || { echo "Failed to enter directory"; exit 1; }
+if [ -z "$SKIP_BUILD" ]; then
+    if [ ! -f "Cargo.toml" ]; then
+        echo "Cargo.toml not found. It looks like you ran this script standalone."
+        echo "Cloning the ArcadeMatrix_RPI repository..."
+        git clone https://github.com/red77290/ArcadeMatrix_RPI.git
+        cd ArcadeMatrix_RPI || { echo "Failed to enter directory"; exit 1; }
+    else
+        echo "Found Cargo.toml, proceeding with local files..."
+    fi
 else
-    echo "Found Cargo.toml, proceeding with local files..."
+    echo "SKIP_BUILD is set, skipping git clone."
+    ACTUAL_USER=${SUDO_USER:-$USER}
+    ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
+    
+    if [ -d "$ACTUAL_HOME/ArcadeMatrix_RPI" ]; then
+        echo "Navigating to existing repository at $ACTUAL_HOME/ArcadeMatrix_RPI"
+        cd "$ACTUAL_HOME/ArcadeMatrix_RPI" || true
+    elif [ -d "$ACTUAL_HOME/ArcadeMatrix_RPi" ]; then
+        echo "Navigating to existing repository at $ACTUAL_HOME/ArcadeMatrix_RPi"
+        cd "$ACTUAL_HOME/ArcadeMatrix_RPi" || true
+    else
+        echo "WARNING: Could not find ArcadeMatrix_RPI in $ACTUAL_HOME"
+    fi
 fi
 
 CURRENT_DIR=$(pwd)
@@ -108,13 +124,20 @@ EOF"
     fi
 fi
 
+# Disable triggerhappy service which is known to cause PWM flickering
+sudo systemctl disable triggerhappy 2>/dev/null || true
+
 # 6. Setup Systemd Service (Linux only)
 if command -v systemctl &> /dev/null; then
     sudo systemctl disable triggerhappy 2>/dev/null || true
     echo "Setting up systemd service for auto-start..."
     SERVICE_FILE="/etc/systemd/system/arcadematrix.service"
 
-    sudo bash -c "cat > $SERVICE_FILE << EOF
+    # No CPUAffinity here: we rely on isolcpus=3 in cmdline.txt (like the Python version).
+    # The kernel reserves core 3 for the hzeller DMA thread, and the OS scheduler
+    # freely distributes our process across cores 0, 1, 2.
+
+    sudo bash -c "cat > $SERVICE_FILE <<EOF
 [Unit]
 Description=ArcadeMatrix RPi Daemon (Rust)
 After=network.target
@@ -126,6 +149,7 @@ StandardOutput=inherit
 StandardError=inherit
 Restart=always
 RestartSec=3
+TimeoutStopSec=10
 User=root
 
 [Install]

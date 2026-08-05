@@ -238,21 +238,22 @@ def process_character(char_dir, out_dir):
     if orig_w <= 0 or orig_h <= 0: return False
     
     EXTRACT_MODE = globals().get('EXTRACT_MODE', 'FULLSIZE')
+    CUSTOM_SCALE = globals().get('CUSTOM_SCALE', None)
     
-    if EXTRACT_MODE == 'SCALED':
+    if CUSTOM_SCALE is not None and float(CUSTOM_SCALE) > 0:
+        scale = float(CUSTOM_SCALE)
+    elif EXTRACT_MODE == 'SCALED':
         scale = 1.0
         if walk_h > TARGET_HEIGHT:
             scale = TARGET_HEIGHT / walk_h
-        canvas_w = max(1, int(orig_w * scale))
-        canvas_h = TARGET_HEIGHT
     else:
         # FULLSIZE Mode
         scale = 1.0
         if TARGET_HEIGHT == 32:
             scale = 0.5
             
-        canvas_w = max(1, int(orig_w * scale))
-        canvas_h = max(1, int(orig_h * scale))
+    canvas_w = max(1, int(orig_w * scale))
+    canvas_h = max(1, int(orig_h * scale))
         
     ground_y = int(-global_min_y * scale)
     origin_x = int(-global_min_x * scale)
@@ -353,12 +354,16 @@ if __name__ == "__main__":
     parser.add_argument("--dest", "-o", dest="dest", type=str, default="fighters_32", help="Output directory for the generated .fgt files and index (default: ./fighters_32)")
     parser.add_argument("--mode", type=str, choices=['SCALED', 'FULLSIZE'], default='FULLSIZE', 
                         help="SCALED: Resize character to perfectly fit screen height (for standard ESP32). FULLSIZE: Extract at 1:1 original scale (for RPi or ESP32-S3 with PSRAM).")
+    parser.add_argument("--scale", "--scaling", dest="scale", type=float, default=None,
+                        help="Custom scaling factor (e.g. 0.5 for 50%%, 0.8, 2.0). Overrides default SCALED/FULLSIZE mode calculations when specified.")
     parser.add_argument("--compress", action="store_true", help="Compress the output .fgt files using gzip (.fgt.gz). Ideal for RPi to save space.")
     args = parser.parse_args()
 
-    # Set the global mode so process_character can see it
+    # Set global options so process_character can see them
     global EXTRACT_MODE
     EXTRACT_MODE = args.mode
+    global CUSTOM_SCALE
+    CUSTOM_SCALE = args.scale
     global COMPRESS_FGT
     COMPRESS_FGT = args.compress
 

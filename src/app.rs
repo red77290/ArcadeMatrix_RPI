@@ -355,6 +355,8 @@ impl ArcadeMatrixApp {
         let mut clock_engine = ClockEngine::new(width, height);
         let mut date_engine = DateEngine::new(width, height);
         let mut weather_engine = WeatherEngine::new();
+        let mut crypto_engine = crate::engines::crypto::CryptoEngine::new(width, height);
+        let mut stock_engine = crate::engines::stock::StockEngine::new(width, height);
         let mut gif_engine = GifEngine::new(width, height);
         let mut fighter_engine = FighterEngine::new(width, height);
         let marquee_engine = MarqueeEngine::new();
@@ -562,6 +564,22 @@ impl ArcadeMatrixApp {
                         weather_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(weather_dur as u64)
+                        {
+                            rotation_state.next_mode(&idle_list);
+                        }
+                    }
+                    "crypto" => {
+                        crypto_engine.render(matrix.as_mut(), &config);
+                        if rotation_state.mode_start_time.elapsed()
+                            >= std::time::Duration::from_secs(10)
+                        {
+                            rotation_state.next_mode(&idle_list);
+                        }
+                    }
+                    "stocks" | "stock" => {
+                        stock_engine.render(matrix.as_mut(), &config);
+                        if rotation_state.mode_start_time.elapsed()
+                            >= std::time::Duration::from_secs(10)
                         {
                             rotation_state.next_mode(&idle_list);
                         }

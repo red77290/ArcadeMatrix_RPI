@@ -35,7 +35,9 @@ graph TD
         ClockE[ClockEngine]
         DateE[DateEngine]
         WeathE[WeatherEngine]
-        Rot --> ClockE & DateE & WeathE
+        CryptoE[CryptoEngine]
+        StockE[StockEngine]
+        Rot --> ClockE & DateE & WeathE & CryptoE & StockE
     end
 
     subgraph Logic & Aesthetic Layer

@@ -126,6 +126,8 @@
           <button class="tab-btn active" onclick="switchDisplayTab('clock')">🕒 Clock</button>
           <button class="tab-btn" onclick="switchDisplayTab('date')">📅 Date</button>
           <button class="tab-btn" onclick="switchDisplayTab('weather')">☁️ Weather</button>
+          <button class="tab-btn" onclick="switchDisplayTab('crypto')">📈 Crypto</button>
+          <button class="tab-btn" onclick="switchDisplayTab('stock')">📊 Stocks</button>
           <button class="tab-btn" onclick="switchDisplayTab('idle')">🔄 Idle & Night</button>
         </div>
         
@@ -326,6 +328,58 @@
         </div>
         </div>
 
+        <div id="tab-crypto" class="tab-pane">
+        <div class="card glass shadow" style="margin-top: 2rem;">
+          <h3>📈 Real-Time Crypto Ticker</h3>
+          <p class="text-muted">Live quotes fetched directly on display from Binance / CoinGecko.</p>
+          <div class="form-grid col-3">
+            <div class="form-group">
+              <label>Duration per Token (s)</label>
+              <input type="number" id="cfg-dur-crypto" class="input" value="5" min="2" max="60">
+            </div>
+            <div class="form-group">
+              <label>Refresh Rate (Minutes)</label>
+              <input type="number" id="cfg-cache-crypto" class="input" value="1" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label>Search Symbols</label>
+              <input type="text" id="crypto-search-input" class="input" placeholder="🔍 Search BTC, ETH, SOL, DOGE, XRP...">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label>Selected Crypto Symbols (Comma Separated)</label>
+            <input type="text" id="cfg-crypto-symbols" class="input" value="BTC,ETH,SOL,DOGE">
+          </div>
+          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
+        </div>
+        </div>
+
+        <div id="tab-stock" class="tab-pane">
+        <div class="card glass shadow" style="margin-top: 2rem;">
+          <h3>📊 Real-Time Stock Market Ticker</h3>
+          <p class="text-muted">Live stock prices & 24h % changes fetched from Yahoo Finance.</p>
+          <div class="form-grid col-3">
+            <div class="form-group">
+              <label>Duration per Stock (s)</label>
+              <input type="number" id="cfg-dur-stock" class="input" value="5" min="2" max="60">
+            </div>
+            <div class="form-group">
+              <label>Refresh Rate (Minutes)</label>
+              <input type="number" id="cfg-cache-stock" class="input" value="1" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label>Search Symbols</label>
+              <input type="text" id="stock-search-input" class="input" placeholder="🔍 Search AAPL, NVDA, TSLA, MSFT, GOOGL...">
+            </div>
+          </div>
+          <div class="form-group" style="margin-top: 1rem;">
+            <label>Selected Stock Tickers (Comma Separated)</label>
+            <input type="text" id="cfg-stock-symbols" class="input" value="AAPL,NVDA,TSLA,MSFT">
+          </div>
+          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
+        </div>
+        </div>
+
         <div id="tab-idle" class="tab-pane">
         <div class="card glass shadow" style="margin-top: 2rem;">
           <h3>🔄 Idle Rotation & Night Mode</h3>
@@ -335,6 +389,8 @@
               <label class="toggle-btn"><input type="checkbox" value="clock" id="rot-clock" style="display:none;"> <span class="toggle-label">🕒 Clock</span></label>
               <label class="toggle-btn"><input type="checkbox" value="date" id="rot-date" style="display:none;"> <span class="toggle-label">📅 Date</span></label>
               <label class="toggle-btn"><input type="checkbox" value="weather" id="rot-weather" style="display:none;"> <span class="toggle-label">☁️ Weather</span></label>
+              <label class="toggle-btn"><input type="checkbox" value="crypto" id="rot-crypto" style="display:none;"> <span class="toggle-label">📈 Crypto</span></label>
+              <label class="toggle-btn"><input type="checkbox" value="stocks" id="rot-stocks" style="display:none;"> <span class="toggle-label">📊 Stocks</span></label>
               <label class="toggle-btn"><input type="checkbox" value="gifs" id="rot-gifs" style="display:none;"> <span class="toggle-label">🎬 GIFs</span></label>
             </div>
             <input type="hidden" id="cfg-rotation">

@@ -104,6 +104,10 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "weather_api_key": s.weather_api_key,
         "weather_city": s.weather_city,
         "weather_lang": s.weather_lang,
+        "crypto_symbols": s.crypto_symbols.join(","),
+        "crypto_cache_ttl_min": s.crypto_cache_ttl_min,
+        "stock_symbols": s.stock_symbols.join(","),
+        "stock_cache_ttl_min": s.stock_cache_ttl_min,
     }))
 }
 
@@ -265,6 +269,28 @@ async fn post_settings(
     }
     if let Some(v) = body.get("idle_sprite_count").and_then(|v| v.as_u64()) {
         s.idle_sprite_count = v as u32;
+    }
+
+    // Crypto & Stock settings
+    if let Some(v) = body.get("crypto_symbols").and_then(|v| v.as_str()) {
+        s.crypto_symbols = v
+            .split(',')
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect();
+    }
+    if let Some(v) = body.get("crypto_cache_ttl_min").and_then(|v| v.as_u64()) {
+        s.crypto_cache_ttl_min = v as u32;
+    }
+    if let Some(v) = body.get("stock_symbols").and_then(|v| v.as_str()) {
+        s.stock_symbols = v
+            .split(',')
+            .map(|item| item.trim().to_string())
+            .filter(|item| !item.is_empty())
+            .collect();
+    }
+    if let Some(v) = body.get("stock_cache_ttl_min").and_then(|v| v.as_u64()) {
+        s.stock_cache_ttl_min = v as u32;
     }
 
     // Standby / Night mode

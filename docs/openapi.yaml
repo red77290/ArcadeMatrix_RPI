@@ -75,6 +75,18 @@ paths:
                 matrix_disable_hardware_pulsing:
                   type: boolean
                   description: Force software GPIO toggling to avoid PWM audio conflicts
+                crypto_symbols:
+                  type: string
+                  description: "Comma-separated crypto token symbols (e.g. BTC,ETH,SOL,DOGE)"
+                crypto_cache_ttl_min:
+                  type: integer
+                  description: "Crypto quote cache TTL in minutes (refresh rate, default 1)"
+                stock_symbols:
+                  type: string
+                  description: "Comma-separated stock ticker symbols (e.g. AAPL,NVDA,TSLA,MSFT)"
+                stock_cache_ttl_min:
+                  type: integer
+                  description: "Stock quote cache TTL in minutes (refresh rate, default 1)"
                 matrix_limit_refresh_rate_hz:
                   type: integer
                   description: Limit the hardware refresh rate in Hz to reduce DMA bandwidth usage (0 for unlimited)

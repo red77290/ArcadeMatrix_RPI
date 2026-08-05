@@ -19,6 +19,7 @@ pub struct ConfigSettings {
     pub matrix_pwm_lsb_nanoseconds: u32,
     pub matrix_limit_refresh_rate_hz: u32,
     pub matrix_disable_hardware_pulsing: bool,
+    pub matrix_driver_chip: String,
 
     // TIME
     pub time_format: String,
@@ -60,6 +61,12 @@ pub struct ConfigSettings {
     pub selected_gifs: Vec<String>,
     pub selected_sprites: Vec<String>,
 
+    // CRYPTO & STOCKS
+    pub crypto_symbols: Vec<String>,
+    pub crypto_cache_ttl_min: u32,
+    pub stock_symbols: Vec<String>,
+    pub stock_cache_ttl_min: u32,
+
     // STANDBY / NIGHT
     pub standby_enabled: bool,
     pub standby_turn_off: String,
@@ -99,6 +106,7 @@ impl Default for ConfigSettings {
             matrix_pwm_lsb_nanoseconds: 130,
             matrix_limit_refresh_rate_hz: 0,
             matrix_disable_hardware_pulsing: false,
+            matrix_driver_chip: "SHIFTREG".to_string(),
 
             time_format: "%H:%M:%S".to_string(),
             time_font: "PressStart2P.ttf".to_string(),
@@ -140,6 +148,21 @@ impl Default for ConfigSettings {
             idle_fighter_interval: 10,
             selected_gifs: vec![],
             selected_sprites: vec![],
+
+            crypto_symbols: vec![
+                "BTC".to_string(),
+                "ETH".to_string(),
+                "SOL".to_string(),
+                "DOGE".to_string(),
+            ],
+            crypto_cache_ttl_min: 1,
+            stock_symbols: vec![
+                "AAPL".to_string(),
+                "NVDA".to_string(),
+                "TSLA".to_string(),
+                "MSFT".to_string(),
+            ],
+            stock_cache_ttl_min: 1,
 
             standby_enabled: false,
             standby_turn_off: "23:00".to_string(),
@@ -251,6 +274,9 @@ impl Config {
             .and_then(|s| s.parse::<bool>().ok())
         {
             settings.matrix_disable_hardware_pulsing = val;
+        }
+        if let Some(v) = ini.get("MATRIX", "DRIVER_CHIP") {
+            settings.matrix_driver_chip = v;
         }
 
         // TIME
@@ -372,6 +398,34 @@ impl Config {
                 .collect();
         }
 
+        // CRYPTO & STOCKS
+        if let Some(v) = ini.get("CRYPTO", "SYMBOLS") {
+            settings.crypto_symbols = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(Some(val)) = ini.getuint("CRYPTO", "CACHE_TTL_MIN") {
+            settings.crypto_cache_ttl_min = val as u32;
+        }
+        if let Some(v) = ini
+            .get("STOCK", "SYMBOLS")
+            .or_else(|| ini.get("STOCKS", "SYMBOLS"))
+        {
+            settings.stock_symbols = v
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+        if let Ok(Some(val)) = ini
+            .getuint("STOCK", "CACHE_TTL_MIN")
+            .or_else(|_| ini.getuint("STOCKS", "CACHE_TTL_MIN"))
+        {
+            settings.stock_cache_ttl_min = val as u32;
+        }
+
         // STANDBY
         if let Ok(Some(val)) = ini.getbool("STANDBY", "NIGHT_MODE_ENABLED") {
             settings.standby_enabled = val;
@@ -460,6 +514,7 @@ impl Config {
             "disable_hardware_pulsing",
             Some(s.matrix_disable_hardware_pulsing.to_string()),
         );
+        ini.set("MATRIX", "DRIVER_CHIP", Some(s.matrix_driver_chip));
 
         ini.set("TIME", "FORMAT", Some(s.time_format));
         ini.set("TIME", "CLOCK_FONT", Some(s.time_font));
@@ -531,6 +586,19 @@ impl Config {
             "IDLE",
             "SELECTED_SPRITES",
             Some(s.selected_sprites.join(",")),
+        );
+
+        ini.set("CRYPTO", "SYMBOLS", Some(s.crypto_symbols.join(",")));
+        ini.set(
+            "CRYPTO",
+            "CACHE_TTL_MIN",
+            Some(s.crypto_cache_ttl_min.to_string()),
+        );
+        ini.set("STOCK", "SYMBOLS", Some(s.stock_symbols.join(",")));
+        ini.set(
+            "STOCK",
+            "CACHE_TTL_MIN",
+            Some(s.stock_cache_ttl_min.to_string()),
         );
 
         ini.set(

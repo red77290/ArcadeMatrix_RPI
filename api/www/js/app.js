@@ -431,6 +431,14 @@ async function initSettings() {
     document.getElementById('cfg-weather-x').value = s.weather_offset_x || 0;
     document.getElementById('cfg-weather-y').value = s.weather_offset_y || 0;
 
+    // Crypto & Stock
+    if (document.getElementById('cfg-crypto-symbols')) document.getElementById('cfg-crypto-symbols').value = s.crypto_symbols || 'BTC,ETH,SOL,DOGE';
+    if (document.getElementById('cfg-dur-crypto')) document.getElementById('cfg-dur-crypto').value = s.crypto_duration_sec || 5;
+    if (document.getElementById('cfg-cache-crypto')) document.getElementById('cfg-cache-crypto').value = s.crypto_cache_ttl_min || 1;
+    if (document.getElementById('cfg-stock-symbols')) document.getElementById('cfg-stock-symbols').value = s.stock_symbols || 'AAPL,NVDA,TSLA,MSFT';
+    if (document.getElementById('cfg-dur-stock')) document.getElementById('cfg-dur-stock').value = s.stock_duration_sec || 5;
+    if (document.getElementById('cfg-cache-stock')) document.getElementById('cfg-cache-stock').value = s.stock_cache_ttl_min || 1;
+
     // Rotation
     document.getElementById('cfg-rotation').value = s.rotation;
     const rotationArr = (s.rotation || '').split(',').map(x => x.trim());
@@ -489,6 +497,13 @@ async function initSettings() {
             weather_lang: document.getElementById('cfg-weather-lang').value,
             weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
             weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
+
+            crypto_symbols: document.getElementById('cfg-crypto-symbols') ? document.getElementById('cfg-crypto-symbols').value : 'BTC,ETH,SOL,DOGE',
+            crypto_duration_sec: parseInt(document.getElementById('cfg-dur-crypto')?.value) || 5,
+            crypto_cache_ttl_min: parseInt(document.getElementById('cfg-cache-crypto')?.value) || 1,
+            stock_symbols: document.getElementById('cfg-stock-symbols') ? document.getElementById('cfg-stock-symbols').value : 'AAPL,NVDA,TSLA,MSFT',
+            stock_duration_sec: parseInt(document.getElementById('cfg-dur-stock')?.value) || 5,
+            stock_cache_ttl_min: parseInt(document.getElementById('cfg-cache-stock')?.value) || 1,
 
             rotation: selectedRotations,
             clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,

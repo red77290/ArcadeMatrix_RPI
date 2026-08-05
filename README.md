@@ -17,6 +17,7 @@ This project replicates the awesome features of the ESP32 version while complete
 * **Dynamically Loadable Fonts (`.ttf`)**: No more hardcoded font files! Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
 * **Unlimited Clock/Date Sizes & Offsets**: You are no longer restricted to Size 1, 2, or 3. You can set the size to any number, and position the text freely on massive matrix panels (e.g. 256x64).
 * **Massive Clock Selection**: Enjoy a variety of animated clocks including the classic Arcade, Binary, Cyberpunk, Flip, Word, and the brand new **Pac-Man**, **Tetris**, **SlotMachine**, and **Versus (Mugen)** clocks!
+* 📈 **Real-Time Crypto & Stock Tickers**: Live price quotes & 24h % badges from CoinGecko, Binance, and Yahoo Finance with configurable TTL cache.
 * **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
 * **Custom Smooth Gradients**: In addition to classic Publisher themes (Nintendo, Capcom, Sega...), you can now choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
 * **Dynamic Image Playlists (GIF/PNG/JPG)**: Read actual `.gif` and `.png` files dynamically straight from the filesystem without SD card fragmentation issues.
@@ -222,6 +223,12 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
 | `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
 | `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
+
+### 📈 [CRYPTO] & 📊 [STOCK]
+| Parameter | Default | Description |
+|---|---|---|
+| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
+| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
 
 ### 🌙 [STANDBY]
 | Parameter | Default | Description |

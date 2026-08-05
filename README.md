@@ -148,6 +148,18 @@ Unlike native Recalbox scripts that run (and freeze the system) on every joystic
 
 ---
 
+## ⚡ Hardware & Power Requirements
+
+### 🔋 Battery Autonomy Estimation (10,000 mAh Power Bank / 31.5 Wh Usable at 5V)
+- **128x32 Panels (e.g. 2x P4 64x32) @ 10% Brightness**:
+  - **Raspberry Pi Zero 2 W / Pi 3A+**: **~12 to 13 Hours** continuous operation (~2.5W total draw).
+  - **Raspberry Pi 3B+ / Pi 4**: **~7.5 to 8.5 Hours** continuous operation (~4.1W total draw).
+- **256x64 Panels (e.g. 2x P2 128x64) @ 10% Brightness**:
+  - **Raspberry Pi Zero 2 W / Pi 3A+**: **~8 to 9.5 Hours** continuous operation (~3.8W total draw).
+  - **Raspberry Pi 3B+ / Pi 4**: **~5.5 to 6.5 Hours** continuous operation (~5.4W total draw).
+
+---
+
 ## 🔧 Matrix Configuration
 If you have a matrix larger than 64x64 or 128x32, or if you are using a non-Adafruit HAT, you may need to tweak the `hzeller` arguments in `src/core/matrix.rs`. By default, it's set to `--led-gpio-mapping=adafruit-hat` and `128x32`.
 

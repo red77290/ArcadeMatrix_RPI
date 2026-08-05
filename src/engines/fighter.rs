@@ -440,7 +440,7 @@ impl FighterEngine {
                         let mut tgt_state = "hit".to_string();
 
                         let r: f32 = rng.gen();
-                        if attacker.character.meta.has_super && r < 0.2 {
+                        if attacker.character.meta.has_super && r < 0.50 {
                             let supers: Vec<String> = attacker
                                 .character
                                 .anims
@@ -456,7 +456,7 @@ impl FighterEngine {
                                     "hit".to_string()
                                 };
                             }
-                        } else if attacker.character.meta.has_special && r < 0.5 {
+                        } else if attacker.character.meta.has_special && r < 0.80 {
                             let specials: Vec<String> = attacker
                                 .character
                                 .anims

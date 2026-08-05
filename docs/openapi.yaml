@@ -87,6 +87,12 @@ paths:
                 stock_cache_ttl_min:
                   type: integer
                   description: "Stock quote cache TTL in minutes (refresh rate, default 1)"
+                sprite_count:
+                  type: integer
+                  description: "Sprite/Fighter overlay toggle (0 = disabled/OFF, 2 = enabled/ON)"
+                fighter_interval_sec:
+                  type: integer
+                  description: "Interval in seconds between MUGEN fights"
                 matrix_limit_refresh_rate_hz:
                   type: integer
                   description: Limit the hardware refresh rate in Hz to reduce DMA bandwidth usage (0 for unlimited)

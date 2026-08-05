@@ -285,12 +285,21 @@ impl FighterEngine {
             let idx1 = rng.gen_range(0..fighters.len());
             let (name1, meta1) = fighters[idx1].clone();
 
+            let h1 = (meta1.ground_y - meta1.head_y).max(meta1.height) as f32;
+
             let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters
                 .iter()
                 .filter(|(name, meta)| {
-                    name != &name1
-                        && (meta.ground_y as f32) >= (meta1.ground_y as f32 * 0.8)
-                        && meta.ground_y <= meta1.ground_y
+                    if name == &name1 {
+                        return false;
+                    }
+                    let h2 = (meta.ground_y - meta.head_y).max(meta.height) as f32;
+                    if h1 <= 0.0 || h2 <= 0.0 {
+                        return true;
+                    }
+                    let min_h = h1.min(h2);
+                    let max_h = h1.max(h2);
+                    (min_h / max_h) >= 0.80
                 })
                 .collect();
 

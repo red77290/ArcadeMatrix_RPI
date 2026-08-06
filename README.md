@@ -94,11 +94,33 @@ bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
 
 ## ⚠️ Hardware Warning: Wi-Fi & Interference (VHS Lines)
 
-Raspberry Pis (especially Pi 3 and Zero W) share their internal Wi-Fi bus clock with the **PWM/PCM** hardware controller used by the LED matrix.
+Raspberry Pis (especially Pi 3 and Zero W) share their internal Wi-Fi bus clock with the **PWM/PCM** hardware controller used by the LED matrix. 
 
-**You have two choices:**
-1. **Perfect Image (No Internal Wi-Fi)**: In `conf.ini`, if `disable_hardware_pulsing = false`, the matrix monopolizes the hardware controller. The image will be perfect (flicker-free), but **the internal Wi-Fi chip will crash**. To have both Wi-Fi AND a perfect image, you must plug in a USB Wi-Fi Dongle.
-2. **Active Internal Wi-Fi (Slight Flicker)**: In `conf.ini`, if `disable_hardware_pulsing = true`, the matrix will fall back to software rendering. The Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
+When driving large matrices (like **256x64**), the DMA controller must push massive amounts of data to the GPIO pins. If hardware pulsing is enabled (`disable_hardware_pulsing = false`), this creates intense DMA bandwidth saturation that **starves the internal SDIO Wi-Fi chip**, causing severe packet loss, lag, and disconnections.
+
+While an unstable Wi-Fi might be acceptable if you only use the Web UI occasionally to change the clock, it completely breaks features that rely on a stable internet connection or local network:
+* **Recalbox/Batocera/Pixelcade MQTT Sync**: Will drop messages or disconnect.
+* **Crypto & Stock Tickers**: API calls will timeout and fail.
+* **Weather**: API calls will timeout.
+
+**Solutions for 256x64 users:**
+1. **Use an Ethernet (RJ45) cable** (Pi 3B/4): Bypasses the SDIO Wi-Fi chip entirely.
+2. **Use a USB Wi-Fi Dongle**: USB controllers use a different internal bus and are immune to the PWM DMA starvation.
+3. **Set `disable_hardware_pulsing = true`**: Forces the matrix to use CPU bit-banging instead of hardware DMA. Your Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
+
+*(Note: **128x32** matrices require 4x less DMA bandwidth, so they usually run perfectly fine with hardware pulsing enabled and internal Wi-Fi active).*
+
+*(Note on **Raspberry Pi 4**: The Pi 4 uses a much faster PCIe architecture and DMA controller. It is highly likely that it is NOT impacted by this 256x64 Wi-Fi saturation bug. However, this has not been officially tested yet as we do not have a Pi 4 on hand to confirm.)*
+
+### Raspberry Pi Matrix Compatibility Table
+
+| Matrix Size | Network / Pulse Configuration | Image Quality | Wi-Fi / API / MQTT |
+|-------------|-----------------------------|----------------|-------------------|
+| **128x32**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | **Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | **USB Wi-Fi Dongle** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = true` | ⚠️ Slight Flicker | ✅ Stable |
+| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ❌ Broken / Timeouts |
 
 ---
 

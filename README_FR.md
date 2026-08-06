@@ -17,6 +17,7 @@ Ce projet reproduit les excellentes fonctionnalités de la version ESP32 tout en
 * **Polices chargeables dynamiquement (`.ttf`)** : fini les fichiers de police codés en dur ! Déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
 * **Tailles et décalages d'horloge/date illimités** : vous n'êtes plus limité aux tailles 1, 2 ou 3. Vous pouvez définir n'importe quelle taille et positionner librement le texte sur d'immenses panneaux matriciels (ex. 256x64).
 * **Sélection massive d'horloges** : profitez d'une variété d'horloges animées comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les toutes nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine** et **Versus (Mugen)** !
+* 📈 **Tickers Crypto & Bourse en temps réel** : cotations en direct et badges % sur 24h depuis CoinGecko, Binance et Yahoo Finance avec cache configurable.
 * **Véritable pluie numérique Matrix (Katakana)** : un effet Matrix entièrement personnalisé, ultra fluide et authentique (`DotGothic16`) avec des Katakana demi-largeur qui tombent et un texte en espace négatif d'« LED éteintes » qui perce la pluie.
 * **Dégradés fluides personnalisés** : en plus des thèmes classiques Publisher (Nintendo, Capcom, Sega...), vous pouvez désormais choisir un thème **Custom Color / Gradient** et sélectionner deux couleurs pour générer un dégradé dynamique.
 * **Playlists d'images dynamiques (GIF/PNG/JPG)** : lisez de vrais fichiers `.gif` et `.png` dynamiquement directement depuis le système de fichiers, sans problèmes de fragmentation de carte SD.
@@ -95,9 +96,31 @@ bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
 
 Les Raspberry Pi (particulièrement les Pi 3 et Zero W) partagent l'horloge de leur bus Wi-Fi interne avec le contrôleur **PWM/PCM** utilisé par la matrice LED.
 
-**Vous avez deux choix :**
-1. **L'image parfaite (Sans Wi-Fi interne)** : Dans `conf.ini`, si `disable_hardware_pulsing = false`, la matrice monopolise le contrôleur matériel. L'image sera parfaite (sans scintillement), mais **la puce Wi-Fi interne va crasher**. Pour avoir le Wi-Fi ET l'image parfaite, vous devez brancher un Dongle Wi-Fi USB.
-2. **Wi-Fi interne actif (Scintillement léger)** : Dans `conf.ini`, si `disable_hardware_pulsing = true`, la matrice utilisera un rendu logiciel. Le Wi-Fi fonctionnera parfaitement, mais vous verrez un léger effet de "lignes VHS" sur la matrice.
+Lorsque l'on pilote de très grandes matrices (comme du **256x64**), le contrôleur DMA doit pousser une quantité massive de données vers les broches GPIO. Si le pulsing matériel est activé (`disable_hardware_pulsing = false`), cela crée une intense saturation de la bande passante DMA qui **asphyxie la puce Wi-Fi interne (SDIO)**, provoquant de sévères pertes de paquets, du lag, et des déconnexions.
+
+Bien qu'un Wi-Fi instable puisse être tolérable si vous utilisez l'interface Web uniquement pour changer l'horloge de temps en temps, cela casse complètement les fonctionnalités qui dépendent d'une connexion internet ou locale stable :
+* **Recalbox/Batocera/Pixelcade (MQTT)** : Perte des messages ou déconnexion du broker.
+* **Crypto & Bourse (Stocks)** : Les appels API vont subir des timeouts et échoueront.
+* **Météo (Weather)** : Les appels API échoueront.
+
+**Solutions pour les utilisateurs de matrice 256x64 :**
+1. **Utiliser un câble Ethernet (RJ45)** (Pi 3B/4) : Contourne complètement la puce Wi-Fi SDIO.
+2. **Utiliser un Dongle Wi-Fi USB** : Les contrôleurs USB utilisent un bus interne différent et sont immunisés contre la saturation DMA du PWM.
+3. **Mettre `disable_hardware_pulsing = true`** : Force la matrice à utiliser un rendu logiciel (CPU bit-banging) au lieu du DMA matériel. Votre Wi-Fi fonctionnera à la perfection, mais vous verrez un léger effet de "lignes VHS" (scintillement) sur la matrice.
+
+*(Note : Les matrices **128x32** nécessitent 4 fois moins de bande passante DMA, elles fonctionnent donc généralement très bien avec le pulsing matériel activé et le Wi-Fi interne).*
+
+*(Note concernant le **Raspberry Pi 4** : Le Pi 4 utilise une architecture PCIe et un contrôleur DMA beaucoup plus rapides. Il est très probable qu'il ne soit PAS impacté par ce bug de saturation Wi-Fi en 256x64. Cependant, cela n'a pas encore été testé officiellement car nous n'avons pas de Pi 4 sous la main pour le confirmer.)*
+
+### Tableau de Compatibilité Raspberry Pi & Résolution
+
+| Résolution de la matrice | Configuration Réseau / Hardware Pulsing | Qualité d'Image | Wi-Fi / APIs / MQTT |
+|-------------|-----------------------------|----------------|-------------------|
+| **128x32**  | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
+| **256x64**  | **Câble Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
+| **256x64**  | **Dongle Wi-Fi USB** + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
+| **256x64**  | Wi-Fi Interne + `disable_hardware_pulsing = true` | ⚠️ Léger scintillement | ✅ Stable |
+| **256x64**  | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ❌ Crash Wi-Fi / Timeouts |
 
 ---
 
@@ -222,6 +245,12 @@ C'est particulièrement utile pour configurer le Wi-Fi avant le premier démarra
 | `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
 | `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
 | `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
+
+### 📈 [CRYPTO] & 📊 [STOCK]
+| Parameter | Default | Description |
+|---|---|---|
+| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
+| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
 
 ### 🌙 [STANDBY]
 | Parameter | Default | Description |

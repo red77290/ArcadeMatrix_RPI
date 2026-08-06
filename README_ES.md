@@ -15,6 +15,7 @@ Este proyecto replica las increíbles funciones de la versión ESP32 eliminando 
 * **Fuentes cargables dinámicamente (`.ttf`)**: ¡se acabaron los archivos de fuente hardcodeados! Deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
 * **Tamaños y desplazamientos de reloj/fecha ilimitados**: ya no estás restringido a los tamaños 1, 2 o 3. Puedes establecer cualquier tamaño y colocar el texto libremente en paneles de matriz enormes (p. ej. 256x64).
 * **Selección masiva de relojes**: disfruta de una variedad de relojes animados, incluidos los clásicos Arcade, Binary, Cyberpunk, Flip, Word, y los nuevos relojes **Pac-Man**, **Tetris**, **SlotMachine** y **Versus (Mugen)**.
+* 📈 **Tickers de Criptomonedas y Bolsa en tiempo real**: cotizaciones en vivo y distintivos % 24h de CoinGecko, Binance y Yahoo Finance con caché configurable.
 * **Lluvia digital Matrix real (Katakana)**: un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
 * **Gradientes suaves personalizados**: además de los temas clásicos Publisher (Nintendo, Capcom, Sega...), ahora puedes elegir un tema **Custom Color / Gradient** y seleccionar dos colores para generar un gradiente dinámico.
 * **Playlists de imágenes dinámicas (GIF/PNG/JPG)**: lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.
@@ -94,9 +95,31 @@ bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
 
 Las Raspberry Pi (especialmente Pi 3 y Zero W) comparten el reloj del bus Wi-Fi interno con el controlador de hardware **PWM/PCM** utilizado por la matriz LED.
 
-**Tienes dos opciones:**
-1. **Imagen Perfecta (Sin Wi-Fi interno)**: En `conf.ini`, si `disable_hardware_pulsing = false`, la matriz monopoliza el controlador de hardware. La imagen será perfecta (sin parpadeos), pero **el chip Wi-Fi interno fallará (crash)**. Para tener Wi-Fi Y una imagen perfecta, debes conectar un adaptador USB Wi-Fi (Dongle).
-2. **Wi-Fi interno Activo (Parpadeo ligero)**: En `conf.ini`, si `disable_hardware_pulsing = true`, la matriz usará renderizado por software. El Wi-Fi funcionará perfectamente, pero verás un ligero efecto de "líneas VHS" o parpadeo en la matriz.
+Al controlar matrices grandes (como **256x64**), el controlador DMA debe empujar una cantidad masiva de datos a los pines GPIO. Si el pulso de hardware está habilitado (`disable_hardware_pulsing = false`), esto crea una intensa saturación del ancho de banda DMA que **asfixia al chip Wi-Fi interno (SDIO)**, causando pérdida severa de paquetes, lag y desconexiones.
+
+Aunque un Wi-Fi inestable puede ser aceptable si solo usas la interfaz Web ocasionalmente para cambiar el reloj, esto rompe por completo las funciones que dependen de una conexión a internet o red local estable:
+* **Recalbox/Batocera/Pixelcade MQTT Sync**: perderá mensajes o se desconectará.
+* **Criptomonedas y Bolsa**: las llamadas a la API fallarán por timeout.
+* **Clima (Weather)**: las llamadas a la API fallarán por timeout.
+
+**Soluciones para usuarios de 256x64:**
+1. **Usar un cable Ethernet (RJ45)** (Pi 3B/4): Evita el chip Wi-Fi SDIO por completo.
+2. **Usar un adaptador Wi-Fi USB**: Los controladores USB usan un bus interno diferente y son inmunes a la saturación DMA del PWM.
+3. **Establecer `disable_hardware_pulsing = true`**: Obliga a la matriz a usar renderizado por software (CPU bit-banging) en lugar de DMA por hardware. Tu Wi-Fi funcionará perfectamente, pero verás un ligero efecto de "líneas VHS" (parpadeo) en la matriz.
+
+*(Nota: Las matrices **128x32** requieren 4 veces menos ancho de banda DMA, por lo que suelen funcionar perfectamente con el pulso de hardware habilitado y el Wi-Fi interno activo).*
+
+*(Nota sobre la **Raspberry Pi 4**: La Pi 4 usa una arquitectura PCIe y un controlador DMA mucho más rápidos. Es muy probable que NO se vea afectada por este error de saturación Wi-Fi en 256x64. Sin embargo, esto aún no se ha probado oficialmente ya que no tenemos una Pi 4 a mano para confirmarlo).*
+
+### Tabla de Compatibilidad Raspberry Pi & Resolución
+
+| Resolución Matriz | Configuración de Red / Hardware Pulsing | Calidad de Imagen | Wi-Fi / APIs / MQTT |
+|-------------|-----------------------------|----------------|-------------------|
+| **128x32**  | Wi-Fi Interno + `disable_hardware_pulsing = false` | ✅ Perfecta | ✅ Estable |
+| **256x64**  | **Cable Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Perfecta | ✅ Estable |
+| **256x64**  | **Adaptador Wi-Fi USB** + `disable_hardware_pulsing = false` | ✅ Perfecta | ✅ Estable |
+| **256x64**  | Wi-Fi Interno + `disable_hardware_pulsing = true` | ⚠️ Ligero parpadeo | ✅ Estable |
+| **256x64**  | Wi-Fi Interno + `disable_hardware_pulsing = false` | ✅ Perfecta | ❌ Roto / Timeouts |
 
 ---
 
@@ -221,6 +244,12 @@ Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
 | `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
 | `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
 | `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
+
+### 📈 [CRYPTO] & 📊 [STOCK]
+| Parameter | Default | Description |
+|---|---|---|
+| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
+| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
 
 ### 🌙 [STANDBY]
 | Parameter | Default | Description |

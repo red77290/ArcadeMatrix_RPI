@@ -158,6 +158,15 @@ impl HardwareMatrix {
         // Python doesn't set this at all (defaults to 0 in the C++ lib).
         options.set_limit_refresh(limit_refresh);
 
+        // WORKAROUND for hzeller/rpi-rgb-led-matrix bug:
+        // The C API wrapper `led-matrix-c.cc` uses a macro `if (rt_opts->drop_privileges)`
+        // which ignores the value `0` (false), meaning `rt_options.set_drop_privileges(false)`
+        // is completely ignored and it defaults to dropping privileges to `daemon` (uid 1).
+        // To prevent this, we trick the library into dropping privileges to root (uid 0)
+        // by faking the SUDO_UID and SUDO_GID environment variables.
+        std::env::set_var("SUDO_UID", "0");
+        std::env::set_var("SUDO_GID", "0");
+
         let mut rt_options = LedRuntimeOptions::new();
         rt_options.set_gpio_slowdown(slowdown);
         rt_options.set_drop_privileges(false);

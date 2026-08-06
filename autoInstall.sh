@@ -60,6 +60,7 @@ else
     ACTUAL_USER=${SUDO_USER:-$USER}
     ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
     
+    if [ -d "$ACTUAL_HOME/ArcadeMatrix_RPi" ]; then
         echo "Navigating to existing repository at $ACTUAL_HOME/ArcadeMatrix_RPi"
         cd "$ACTUAL_HOME/ArcadeMatrix_RPi" || true
     elif [ -d "$ACTUAL_HOME/ArcadeMatrix_RPI" ]; then

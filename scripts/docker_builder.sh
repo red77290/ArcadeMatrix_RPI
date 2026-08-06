@@ -82,8 +82,8 @@ else
     PART_DATA="${LOOP_DEV}p3"
 fi
 
-echo "🧹 Formatting DATA partition as exFAT..."
-mkfs.exfat $PART_DATA
+echo "🧹 Formatting DATA partition as exFAT with label DATA..."
+mkfs.exfat -L "DATA" $PART_DATA
 
 echo "📏 Expanding ROOT filesystem..."
 e2fsck -f -p $PART_ROOT || true
@@ -127,7 +127,6 @@ cp -r /workspace/fighters_64 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/n
 cp -r /workspace/gifs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/fonts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/weather_icons /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/api/www /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/www 2>/dev/null || true
 cp -r /workspace/scripts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/docs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true

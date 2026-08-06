@@ -131,6 +131,7 @@ impl HardwareMatrix {
         disable_hardware_pulsing: bool,
         brightness: u8,
         limit_refresh: u32,
+        driver_chip: &str,
     ) -> Result<Self, String> {
         let mut options = LedMatrixOptions::new();
         options.set_rows(rows);
@@ -149,6 +150,9 @@ impl HardwareMatrix {
         let _ = options.set_pwm_bits(pwm_bits as u8);
         options.set_pwm_lsb_nanoseconds(pwm_lsb);
         options.set_hardware_pulsing(!disable_hardware_pulsing);
+        if !driver_chip.is_empty() {
+            options.set_panel_type(driver_chip);
+        }
 
         // Pass limit_refresh directly from conf.ini, no override.
         // Python doesn't set this at all (defaults to 0 in the C++ lib).

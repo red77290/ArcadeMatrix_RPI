@@ -271,6 +271,7 @@ impl ArcadeMatrixApp {
                     disable_pulsing,
                     brightness,
                     limit_refresh,
+                    driver_chip,
                 ) = {
                     let cfg = config.settings.read();
                     (
@@ -286,6 +287,7 @@ impl ArcadeMatrixApp {
                         cfg.matrix_disable_hardware_pulsing,
                         cfg.matrix_brightness as u8,
                         cfg.matrix_limit_refresh_rate_hz,
+                        cfg.matrix_driver_chip.clone(),
                     )
                 };
 
@@ -310,6 +312,7 @@ impl ArcadeMatrixApp {
                         disable_pulsing,
                         brightness,
                         limit_refresh,
+                        &driver_chip,
                     ) {
                         Ok(hw) => break Box::new(hw) as Box<dyn MatrixBackend>,
                         Err(e) => {

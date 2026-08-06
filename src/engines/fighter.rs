@@ -230,6 +230,18 @@ impl FighterEngine {
         self.interval_sec = interval_sec.max(1);
     }
 
+    pub fn is_active(&self) -> bool {
+        self.active
+    }
+
+    pub fn stop(&mut self) {
+        self.active = false;
+        self.p1 = None;
+        self.p2 = None;
+        self.rx = None;
+        self.loading = false;
+    }
+
     fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
         let index_path = Path::new(dir).join("index.json");
         match std::fs::read_to_string(&index_path) {

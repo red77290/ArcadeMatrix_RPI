@@ -449,7 +449,7 @@ async function initSettings() {
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
     document.getElementById('cfg-dur-gifs').value = s.gifs_count || 5;
-    document.getElementById('cfg-sprite-enable').value = (s.sprite_count > 0) ? 'true' : 'false';
+    document.getElementById('cfg-sprite-enable').value = s.fighter_enabled ? 'true' : 'false';
     document.getElementById('cfg-fighter-int').value = s.fighter_interval_sec || 5;
 
     // Night Mode
@@ -510,7 +510,7 @@ async function initSettings() {
           date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
           weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
           gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 5,
-          idle_sprite_count: document.getElementById('cfg-sprite-enable').value === 'true' ? 2 : 0,
+          fighter_enabled: document.getElementById('cfg-sprite-enable').value === 'true',
           idle_fighter_interval: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
 
           night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',

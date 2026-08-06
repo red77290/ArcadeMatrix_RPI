@@ -154,6 +154,26 @@ impl CryptoEngine {
         None
     }
 
+    fn draw_plain_text(
+        &self,
+        matrix: &mut dyn MatrixBackend,
+        text: &str,
+        start_x: i32,
+        start_y: i32,
+        color: (u8, u8, u8),
+        scale: f32,
+    ) -> i32 {
+        let font = self.base_renderer.font();
+        let (pixels_by_char, text_width, _) = font.get_pixel_map(text, scale);
+
+        for char_pixels in pixels_by_char {
+            for (gx, gy) in char_pixels {
+                matrix.set_pixel(start_x + gx, start_y + gy, color.0, color.1, color.2);
+            }
+        }
+        text_width
+    }
+
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
         let (symbols, ttl_min) = {
             let s = config.settings.read();
@@ -199,6 +219,8 @@ impl CryptoEngine {
             Some((255, 60, 60)) // Red
         };
 
+        let badge_color_tuple = badge_color.unwrap_or((150, 150, 150));
+
         if height >= 64 {
             let scale = 2;
             let icon_x = 6;
@@ -232,45 +254,35 @@ impl CryptoEngine {
                 crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, scale, icon_color);
             }
 
-            self.base_renderer.render_text(
-                matrix,
-                symbol,
-                0,
-                2,
-                28,
-                6,
-                Some((255, 255, 255)),
-                None,
-            );
+            let sym_w = self.draw_plain_text(matrix, symbol, 28, 6, (255, 255, 255), 2.0);
 
-            let price_x = (matrix.width() as i32 - (price_str.len() as i32 * 12 + 6))
-                .max(28 + symbol.len() as i32 * 12 + 8);
+            let font = self.base_renderer.font();
+            let (_, price_w, _) = font.get_pixel_map(&price_str, 2.0);
 
-            self.base_renderer.render_text(
-                matrix,
-                &price_str,
-                0,
-                2,
-                price_x,
-                6,
-                Some((255, 215, 0)), // Gold
-                None,
-            );
+            let mut price_x = matrix.width() as i32 - price_w - 6;
+            if price_x < 28 + sym_w + 8 {
+                price_x = 28 + sym_w + 8;
+            }
+
+            self.draw_plain_text(matrix, &price_str, price_x, 6, (255, 215, 0), 2.0);
 
             // Draw divider line
-            for x in 6..(matrix.width() as i32 - 12) {
+            for x in 6..(matrix.width() as i32 - 6) {
                 matrix.set_pixel(x, 28, 60, 60, 60);
             }
 
             // Bottom Row: 24h Change
-            let full_pct = format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str);
-            self.base_renderer
-                .render_text(matrix, &full_pct, 0, 2, 6, 36, badge_color, None);
+            let full_pct = if !success || price <= 0.0 {
+                pct_str.clone()
+            } else {
+                format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str)
+            };
+            self.draw_plain_text(matrix, &full_pct, 6, 36, badge_color_tuple, 2.0);
         } else {
             let icon_x = 2;
             let icon_y = ((height as i32 - 16) / 2).max(0);
 
-            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 8) {
+            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
                 // Draw resized image with alpha blending over black
                 for y in 0..img.height() {
                     for x in 0..img.width() {
@@ -296,15 +308,15 @@ impl CryptoEngine {
                 };
 
                 let icon_color = crate::engines::icons::get_crypto_color(symbol);
-                crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 1, icon_color);
+                crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
             }
 
-            let line1 = format!("{} {}", symbol, price_str);
-            self.base_renderer
-                .render_text(matrix, &line1, 0, 1, 22, 4, Some((255, 215, 0)), None);
+            let sym_w = self.draw_plain_text(matrix, symbol, 20, 4, (255, 255, 255), 1.0);
 
-            self.base_renderer
-                .render_text(matrix, &pct_str, 0, 1, 22, 18, badge_color, None);
+            let price_x = 20 + sym_w + 6;
+            self.draw_plain_text(matrix, &price_str, price_x, 4, (255, 215, 0), 1.0);
+
+            self.draw_plain_text(matrix, &pct_str, 20, 18, badge_color_tuple, 1.0);
         }
     }
 }

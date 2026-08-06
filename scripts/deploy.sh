@@ -45,20 +45,43 @@ fi
 echo "🛑 2. Stopping arcadematrix service on Raspberry Pi..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
 
-echo "📤 3. Uploading correct binary..."
-sshpass -p "${PI_PASS}" scp -o StrictHostKeyChecking=no "$BIN_PATH" "${PI_USER}@${PI_IP}:/home/${PI_USER}/arcadematrix_temp"
+echo "🚀 Detecting project directory on Raspberry Pi..."
+TARGET_DIR=$(sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "ls -d /home/${PI_USER}/ArcadeMatrix_RP* 2>/dev/null | head -n 1")
 
-echo "⚙️  4. Moving binary and starting service..."
+if [ -z "$TARGET_DIR" ]; then
+    TARGET_DIR="/home/${PI_USER}/ArcadeMatrix_RPi"
+    sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "mkdir -p $TARGET_DIR"
+fi
+echo "✅ Target directory: $TARGET_DIR"
+
+echo "📤 3. Uploading correct binary to $TARGET_DIR..."
+sshpass -p "${PI_PASS}" scp -o StrictHostKeyChecking=no "$BIN_PATH" "${PI_USER}@${PI_IP}:$TARGET_DIR/arcadematrix"
+
+echo "⚙️  4. Starting service..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "
-    echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix && \
-    echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix && \
-    if systemctl list-unit-files | grep -q arcadematrix.service; then
-        echo '✅ Service already installed, restarting only...'
-        echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service
-    else
-        echo '⚠️ Service not found, running full autoInstall.sh setup...'
-        echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash ~/ArcadeMatrix_RPi/autoInstall.sh
-    fi"
+    chmod +x $TARGET_DIR/arcadematrix && \
+    echo '🔧 Forcing correct systemd service configuration...' && \
+    echo '${PI_PASS}' | sudo -S bash -c 'cat > /etc/systemd/system/arcadematrix.service <<EOF
+[Unit]
+Description=ArcadeMatrix RPi Daemon (Rust)
+After=network.target
+
+[Service]
+ExecStart=$TARGET_DIR/arcadematrix
+WorkingDirectory=$TARGET_DIR
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF' && \
+    echo '${PI_PASS}' | sudo -S systemctl daemon-reload && \
+    echo '${PI_PASS}' | sudo -S systemctl enable arcadematrix.service && \
+    echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
 
 echo "✅ Deployment successful!"
 echo "=========================================================="

@@ -76,6 +76,13 @@ echo "alias am-log='sudo journalctl -u arcadematrix -f'" >> /home/pi/.bash_alias
 echo "alias am-stop='sudo systemctl stop arcadematrix'" >> /home/pi/.bash_aliases
 echo "alias am-start='sudo systemctl start arcadematrix'" >> /home/pi/.bash_aliases
 chown pi:pi /home/pi/.bash_aliases
+
+# Fix traversal permissions for the 'daemon' user
+# The C++ RGB matrix library drops privileges to 'daemon', so 'daemon' must be
+# able to traverse /home/pi to access the FUSE mount and symlinks.
+echo "🔓 [chroot] Fixing /home/pi permissions for daemon..."
+chmod a+rx /home/pi
+
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 history -c

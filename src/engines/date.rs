@@ -3,7 +3,6 @@ use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::{
     BaseRenderer, CyberpunkRenderer, FlipRenderer, TrueMatrixRenderer,
 };
-use chrono::Local;
 
 pub struct DateEngine {
     base_renderer: BaseRenderer,
@@ -26,7 +25,13 @@ impl DateEngine {
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
         let settings = config.settings.read();
-        let now = Local::now();
+        let tz: chrono_tz::Tz = config
+            .settings
+            .read()
+            .timezone
+            .parse()
+            .unwrap_or(chrono_tz::UTC);
+        let now = chrono::Utc::now().with_timezone(&tz);
         let mut format_str = settings.date_format.clone();
         format_str = format_str.replace("YYYY", "%Y");
         format_str = format_str.replace("YY", "%y");

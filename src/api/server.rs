@@ -99,7 +99,7 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "date_duration_sec": s.idle_date_duration_sec,
         "weather_duration_sec": s.idle_weather_duration_sec,
         "gifs_count": s.idle_gifs_count,
-        "sprite_count": s.idle_sprite_count,
+        "fighter_enabled": s.idle_fighter_enabled,
         "fighter_interval_sec": s.idle_fighter_interval,
         "weather_api_key": s.weather_api_key,
         "weather_city": s.weather_city,
@@ -264,11 +264,11 @@ async fn post_settings(
     if let Some(v) = body.get("gifs_count").and_then(|v| v.as_u64()) {
         s.idle_gifs_count = v as u32;
     }
-    if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
+    if let Some(v) = body.get("fighter_interval_sec").and_then(|v| v.as_u64()) {
         s.idle_fighter_interval = v as u32;
     }
-    if let Some(v) = body.get("idle_sprite_count").and_then(|v| v.as_u64()) {
-        s.idle_sprite_count = v as u32;
+    if let Some(v) = body.get("fighter_enabled").and_then(|v| v.as_bool()) {
+        s.idle_fighter_enabled = v;
     }
 
     // Crypto & Stock settings
@@ -395,7 +395,7 @@ async fn get_playlists() -> impl Responder {
     if let Ok(entries) = std::fs::read_dir(gifs_dir) {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
-                let path_str = entry.path().to_string_lossy().to_string();
+                let path_str = entry.file_name().to_string_lossy().to_string();
                 let mut count = 0;
                 if let Ok(files) = std::fs::read_dir(entry.path()) {
                     count = files

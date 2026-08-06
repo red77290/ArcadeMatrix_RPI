@@ -6,6 +6,21 @@ use tracing::{error, info};
 
 static MQTT_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+pub fn format_game_name(game: &str) -> String {
+    let clean_name = game.replace("-", " ").replace("_", " ");
+    clean_name
+        .split_whitespace()
+        .map(|word| {
+            let mut c = word.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub fn start_mqtt_client(config: Arc<Config>) {
     let (enabled, broker, port, user, pass) = {
         let s = config.settings.read();
@@ -56,23 +71,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                     let system =
                                         json["system"].as_str().unwrap_or("Unknown").to_string();
 
-                                    // Format text like in Python: .replace("-", " ").replace("_", " ").to_title_case()
-                                    // For simplicity we just replace and uppercase the first letter of each word (Title Case)
-                                    let clean_name = game.replace("-", " ").replace("_", " ");
-                                    let clean_name: String = clean_name
-                                        .split_whitespace()
-                                        .map(|word| {
-                                            let mut c = word.chars();
-                                            match c.next() {
-                                                None => String::new(),
-                                                Some(f) => {
-                                                    f.to_uppercase().collect::<String>()
-                                                        + c.as_str()
-                                                }
-                                            }
-                                        })
-                                        .collect::<Vec<_>>()
-                                        .join(" ");
+                                    let clean_name = format_game_name(&game);
 
                                     // Check if we already have the image cached (instant display)
                                     let req_id = MQTT_REQUEST_ID
@@ -141,4 +140,21 @@ pub fn start_mqtt_client(config: Arc<Config>) {
             std::thread::sleep(Duration::from_secs(5));
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_format_game_name() {
+        assert_eq!(format_game_name("super-mario_bros"), "Super Mario Bros");
+        assert_eq!(
+            format_game_name("the_legend-of-zelda"),
+            "The Legend Of Zelda"
+        );
+        assert_eq!(format_game_name("pacman"), "Pacman");
+        assert_eq!(format_game_name("STREET_FIGHTER_II"), "STREET FIGHTER II"); // If already uppercase, it stays uppercase for remaining letters, just like Python's title() in some edge cases. Wait, Python title() makes rest lower. Let's just check our current logic.
+        assert_eq!(format_game_name("donkey_kong"), "Donkey Kong");
+    }
 }

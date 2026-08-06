@@ -1,21 +1,25 @@
+use crate::api::StockProvider;
 use crate::core::config::Config;
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::{Duration, Instant};
-use tracing::{info, warn};
+use tracing::warn;
 
 #[derive(Clone, Debug)]
-struct CachedQuote {
+pub struct CachedQuote {
     price: f64,
     change_24h: f64,
     last_fetch: Instant,
     has_data: bool,
+    image_url: Option<String>,
 }
 
 pub struct StockEngine {
     base_renderer: BaseRenderer,
     cache: HashMap<String, CachedQuote>,
+    providers: Vec<Box<dyn StockProvider>>,
     current_index: usize,
     last_switch: Instant,
 }
@@ -25,85 +29,54 @@ impl StockEngine {
         Self {
             base_renderer: BaseRenderer::new(),
             cache: HashMap::new(),
+            providers: Vec::new(),
             current_index: 0,
             last_switch: Instant::now(),
         }
     }
 
-    fn fetch_quote(&mut self, symbol: &str, cache_ttl_min: u32) -> (f64, f64, bool) {
-        let ttl =
-            Duration::from_secs((if cache_ttl_min > 0 { cache_ttl_min } else { 1 } * 60) as u64);
-        let now = Instant::now();
+    pub fn add_provider(&mut self, provider: Box<dyn StockProvider>) {
+        self.providers.push(provider);
+    }
 
-        // 1. Check if cache is fresh
+    fn fetch_quote(&mut self, symbol: &str, ttl_min: u64) -> (f64, f64, bool, Option<String>) {
+        let now = Instant::now();
+        let ttl_secs = (if ttl_min > 0 { ttl_min } else { 1 }) * 60;
+
+        // 1. Check Cache First
         if let Some(c) = self.cache.get(symbol) {
-            if c.has_data && now.duration_since(c.last_fetch) < ttl {
-                return (c.price, c.change_24h, true);
+            if c.has_data && now.duration_since(c.last_fetch).as_secs() < ttl_secs {
+                return (c.price, c.change_24h, true, c.image_url.clone());
             }
         }
 
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok();
+        let mut fetched = false;
+        let mut new_price = 0.0;
+        let mut new_change = 0.0;
+        let mut new_image_url = None;
 
-        if let Some(ref c) = client {
-            // Yahoo Finance v8 Chart API
-            let url1 = format!(
-                "https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=1d",
-                symbol
-            );
-            let url2 = format!(
-                "https://query2.finance.yahoo.com/v8/finance/chart/{}?interval=1d&range=1d",
-                symbol
-            );
-
-            let mut res = c.get(&url1).send();
-            if res.is_err() {
-                res = c.get(&url2).send();
+        for provider in &self.providers {
+            if let Some((price, change, img)) = provider.fetch_quote(symbol) {
+                new_price = price;
+                new_change = change;
+                new_image_url = img;
+                fetched = true;
+                break;
             }
+        }
 
-            if let Ok(resp) = res {
-                if resp.status().is_success() {
-                    if let Ok(json) = resp.json::<serde_json::Value>() {
-                        if let Some(meta) = json["chart"]["result"][0]["meta"].as_object() {
-                            let price = meta
-                                .get("regularMarketPrice")
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(0.0);
-                            let prev_close = meta
-                                .get("previousClose")
-                                .or_else(|| meta.get("chartPreviousClose"))
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(price);
-
-                            let change = if prev_close > 0.0 && price > 0.0 {
-                                ((price - prev_close) / prev_close) * 100.0
-                            } else {
-                                0.0
-                            };
-
-                            if price > 0.0 {
-                                self.cache.insert(
-                                    symbol.to_string(),
-                                    CachedQuote {
-                                        price,
-                                        change_24h: change,
-                                        last_fetch: now,
-                                        has_data: true,
-                                    },
-                                );
-                                info!(
-                                    "[Yahoo Stock] Quote for {}: ${:.2} ({:.2}%)",
-                                    symbol, price, change
-                                );
-                                return (price, change, true);
-                            }
-                        }
-                    }
-                }
-            }
+        if fetched && new_price > 0.0 {
+            self.cache.insert(
+                symbol.to_string(),
+                CachedQuote {
+                    price: new_price,
+                    change_24h: new_change,
+                    last_fetch: now,
+                    has_data: true,
+                    image_url: new_image_url.clone(),
+                },
+            );
+            return (new_price, new_change, true, new_image_url);
         }
 
         // Fallback to last known cached quote for THIS symbol if HTTP failed
@@ -113,11 +86,71 @@ impl StockEngine {
                     "[HTTP Failed] Reusing last known cached stock price for {}: ${:.2}",
                     symbol, c.price
                 );
-                return (c.price, c.change_24h, true);
+                return (c.price, c.change_24h, true, c.image_url.clone());
             }
         }
 
-        (0.0, 0.0, false)
+        (0.0, 0.0, false, None)
+    }
+
+    fn get_and_load_icon(
+        &self,
+        symbol: &str,
+        url: Option<String>,
+        size: u32,
+    ) -> Option<image::RgbaImage> {
+        let icon_path = format!("data/stock_icons/{}.png", symbol.to_lowercase());
+        if !Path::new(&icon_path).exists() {
+            if let Some(u) = url {
+                if let Ok(resp) = reqwest::blocking::get(&u) {
+                    if resp.status().is_success() {
+                        if let Ok(bytes) = resp.bytes() {
+                            let _ = std::fs::create_dir_all("data/stock_icons");
+                            let _ = std::fs::write(&icon_path, &bytes);
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(img) = image::open(&icon_path) {
+            let rgba = img.into_rgba8();
+            let mut min_x = rgba.width();
+            let mut min_y = rgba.height();
+            let mut max_x = 0;
+            let mut max_y = 0;
+
+            for (x, y, pixel) in rgba.enumerate_pixels() {
+                if pixel[3] > 0 {
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                }
+            }
+
+            let mut final_img = rgba.clone();
+            if min_x <= max_x && min_y <= max_y {
+                let crop_w = max_x - min_x + 1;
+                let crop_h = max_y - min_y + 1;
+                let mut cropped = image::RgbaImage::new(crop_w, crop_h);
+                for y in 0..crop_h {
+                    for x in 0..crop_w {
+                        cropped.put_pixel(x, y, *rgba.get_pixel(min_x + x, min_y + y));
+                    }
+                }
+                final_img = cropped;
+            }
+
+            let resized = image::imageops::resize(
+                &final_img,
+                size,
+                size,
+                image::imageops::FilterType::Triangle,
+            );
+            return Some(resized);
+        }
+        None
     }
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
@@ -137,7 +170,7 @@ impl StockEngine {
         }
 
         let symbol = &symbols[self.current_index % symbols.len()];
-        let (price, change, success) = self.fetch_quote(symbol, ttl_min);
+        let (price, change, success, image_url) = self.fetch_quote(symbol, ttl_min as u64);
 
         let height = matrix.height();
 
@@ -162,34 +195,106 @@ impl StockEngine {
         };
 
         if height >= 64 {
-            // Prominent 2-Row Layout (Size 2)
-            // Top Row: Symbol & Price
-            self.base_renderer
-                .render_text(matrix, symbol, 0, 2, 6, 6, Some((255, 255, 255)), None);
+            let scale = 2;
+            let icon_x = 6;
+            let icon_y = 6;
+
+            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
+                for y in 0..img.height() {
+                    for x in 0..img.width() {
+                        let p = img.get_pixel(x, y);
+                        if p[3] > 128 {
+                            matrix.set_pixel(
+                                icon_x + x as i32,
+                                icon_y + y as i32,
+                                p[0],
+                                p[1],
+                                p[2],
+                            );
+                        }
+                    }
+                }
+            } else {
+                let icon = match symbol.as_str() {
+                    "AAPL" => &crate::engines::icons::ICON_AAPL,
+                    "NVDA" => &crate::engines::icons::ICON_NVDA,
+                    "TSLA" => &crate::engines::icons::ICON_TSLA,
+                    _ => &crate::engines::icons::ICON_AAPL,
+                };
+                let icon_color = crate::engines::icons::get_stock_color(symbol);
+                crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, scale, icon_color);
+            }
+
+            self.base_renderer.render_text(
+                matrix,
+                symbol,
+                0,
+                2,
+                28,
+                6,
+                Some((255, 255, 255)),
+                None,
+            );
+
+            let price_x = (matrix.width() as i32 - (price_str.len() as i32 * 12 + 6))
+                .max(28 + symbol.len() as i32 * 12 + 8);
 
             self.base_renderer.render_text(
                 matrix,
                 &price_str,
                 0,
                 2,
-                70,
+                price_x,
                 6,
                 Some((0, 220, 255)), // Cyan
                 None,
             );
+
+            // Draw divider line
+            for x in 6..(matrix.width() as i32 - 12) {
+                matrix.set_pixel(x, 28, 60, 60, 60);
+            }
 
             // Bottom Row: 24h Change
             let full_pct = format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str);
             self.base_renderer
                 .render_text(matrix, &full_pct, 0, 2, 6, 36, badge_color, None);
         } else {
-            // Standard Resolution (32px high)
+            let icon_x = 2;
+            let icon_y = ((height as i32 - 16) / 2).max(0);
+
+            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 8) {
+                for y in 0..img.height() {
+                    for x in 0..img.width() {
+                        let p = img.get_pixel(x, y);
+                        if p[3] > 128 {
+                            matrix.set_pixel(
+                                icon_x + x as i32,
+                                icon_y + y as i32,
+                                p[0],
+                                p[1],
+                                p[2],
+                            );
+                        }
+                    }
+                }
+            } else {
+                let icon = match symbol.as_str() {
+                    "AAPL" => &crate::engines::icons::ICON_AAPL,
+                    "NVDA" => &crate::engines::icons::ICON_NVDA,
+                    "TSLA" => &crate::engines::icons::ICON_TSLA,
+                    _ => &crate::engines::icons::ICON_AAPL,
+                };
+                let icon_color = crate::engines::icons::get_stock_color(symbol);
+                crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+            }
+
             let line1 = format!("{} {}", symbol, price_str);
             self.base_renderer
-                .render_text(matrix, &line1, 0, 1, 2, 4, Some((0, 220, 255)), None);
+                .render_text(matrix, &line1, 0, 1, 22, 4, Some((0, 220, 255)), None);
 
             self.base_renderer
-                .render_text(matrix, &pct_str, 0, 1, 2, 18, badge_color, None);
+                .render_text(matrix, &pct_str, 0, 1, 22, 18, badge_color, None);
         }
     }
 }

@@ -56,7 +56,7 @@ pub struct ConfigSettings {
     pub idle_date_duration_sec: u32,
     pub idle_weather_duration_sec: u32,
     pub idle_gifs_count: u32,
-    pub idle_sprite_count: u32,
+    pub idle_fighter_enabled: bool,
     pub idle_fighter_interval: u32,
     pub selected_gifs: Vec<String>,
     pub selected_sprites: Vec<String>,
@@ -144,7 +144,7 @@ impl Default for ConfigSettings {
             idle_date_duration_sec: 10,
             idle_weather_duration_sec: 15,
             idle_gifs_count: 3,
-            idle_sprite_count: 1,
+            idle_fighter_enabled: true,
             idle_fighter_interval: 10,
             selected_gifs: vec![],
             selected_sprites: vec![],
@@ -377,8 +377,8 @@ impl Config {
         if let Ok(Some(val)) = ini.getuint("IDLE", "GIF_DURATION_SEC") {
             settings.idle_gifs_count = val as u32;
         }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "SPRITE_COUNT") {
-            settings.idle_sprite_count = val as u32;
+        if let Ok(Some(val)) = ini.getbool("IDLE", "FIGHTER_ENABLED") {
+            settings.idle_fighter_enabled = val;
         }
         if let Ok(Some(val)) = ini.getuint("IDLE", "FIGHTER_INTERVAL_SEC") {
             settings.idle_fighter_interval = val as u32;
@@ -501,17 +501,17 @@ impl Config {
         ini.set("MATRIX", "PWM_BITS", Some(s.matrix_pwm_bits.to_string()));
         ini.set(
             "MATRIX",
-            "pwm_lsb_nanoseconds",
+            "PWM_LSB_NANOSECONDS",
             Some(s.matrix_pwm_lsb_nanoseconds.to_string()),
         );
         ini.set(
             "MATRIX",
-            "limit_refresh_rate_hz",
+            "LIMIT_REFRESH_RATE_HZ",
             Some(s.matrix_limit_refresh_rate_hz.to_string()),
         );
         ini.set(
             "MATRIX",
-            "disable_hardware_pulsing",
+            "DISABLE_HARDWARE_PULSING",
             Some(s.matrix_disable_hardware_pulsing.to_string()),
         );
         ini.set("MATRIX", "DRIVER_CHIP", Some(s.matrix_driver_chip));
@@ -573,12 +573,16 @@ impl Config {
         );
         ini.set(
             "IDLE",
-            "SPRITE_COUNT",
-            Some(s.idle_sprite_count.to_string()),
+            "FIGHTER_ENABLED",
+            Some(if s.idle_fighter_enabled {
+                "true".to_string()
+            } else {
+                "false".to_string()
+            }),
         );
         ini.set(
             "IDLE",
-            "FIGHTER_INTERVAL_SEC",
+            "FIGHTER_INTERVAL",
             Some(s.idle_fighter_interval.to_string()),
         );
         ini.set("IDLE", "SELECTED_GIFS", Some(s.selected_gifs.join(",")));

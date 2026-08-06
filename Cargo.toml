@@ -55,6 +55,7 @@ flate2 = "1"
 
 # Misc
 chrono = "0.4"
+chrono-tz = "0.9.0"
 rand = "0.8"
 byteorder = "1"
 

@@ -73,3 +73,6 @@ For rapid iteration, you don't need to rebuild the entire 14GB `.img` file or co
 We provide a comprehensive suite of scripts for building locally and deploying directly to the Raspberry Pi over SSH.
 
 **Please see [SCRIPTS.md](SCRIPTS.md) for full details on how to configure and use the cross-compilation and deployment scripts for your operating system (macOS, Linux, or Windows).**
+
+## Unit Testing & TDD
+The project follows TDD principles for API integration. When adding a new API (e.g. for Crypto or Weather), implement the corresponding Provider interface (`ICryptoProvider` etc.) and write Unit Tests using Mock objects before wiring it up in `main.cpp` or `app.rs`. Tests must achieve maximum coverage for JSON parsing and fallback logic without requiring physical hardware.

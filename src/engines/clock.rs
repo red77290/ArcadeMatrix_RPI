@@ -2,7 +2,7 @@ use crate::core::config::Config;
 use crate::core::matrix::MatrixBackend;
 use crate::engines::clocks::*;
 use crate::engines::renderers::*;
-use chrono::Local;
+use chrono::Timelike;
 
 pub struct ClockEngine {
     base_renderer: BaseRenderer,
@@ -45,7 +45,13 @@ impl ClockEngine {
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
         let settings = config.settings.read();
-        let now = Local::now();
+        let tz: chrono_tz::Tz = config
+            .settings
+            .read()
+            .timezone
+            .parse()
+            .unwrap_or(chrono_tz::UTC);
+        let now = chrono::Utc::now().with_timezone(&tz);
 
         // Full time string with seconds (for binary clock)
         let time_str_full = now.format(&settings.time_format).to_string();
@@ -191,25 +197,6 @@ impl ClockEngine {
                 );
             }
         }
-    }
-}
-
-// Helper to expose chrono fields without re-deriving
-trait ChronoTimeExt {
-    fn hour(&self) -> u32;
-    fn minute(&self) -> u32;
-    fn second(&self) -> u32;
-}
-
-impl ChronoTimeExt for chrono::DateTime<chrono::Local> {
-    fn hour(&self) -> u32 {
-        chrono::Timelike::hour(self)
-    }
-    fn minute(&self) -> u32 {
-        chrono::Timelike::minute(self)
-    }
-    fn second(&self) -> u32 {
-        chrono::Timelike::second(self)
     }
 }
 

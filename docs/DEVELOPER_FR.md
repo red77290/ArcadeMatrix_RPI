@@ -127,3 +127,6 @@ Cette commande utilise `scp` et `ssh` pour pousser directement le nouveau binair
 ```bash
 bash scripts/deploy_to_pi.sh pi@<VOTRE_ADRESSE_IP_PI>
 ```
+
+## Tests Unitaires & TDD
+Le projet suit les principes TDD pour l'intégration des API. Lors de l'ajout d'une nouvelle API, implémentez l'interface Provider correspondante (`ICryptoProvider` etc.) et écrivez les tests unitaires avec des objets Mock avant l'intégration finale. Les tests doivent garantir une couverture maximale sur l'analyse JSON et la logique de fallback (secours) sans nécessiter de matériel physique.

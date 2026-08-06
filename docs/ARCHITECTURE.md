@@ -161,3 +161,6 @@ If you explore the `RetroPixelLED/ArcadeMatrix` repository, you will notice the 
 - **ESP32 (C++):** Uses a Monolithic Engine structure. RAM is extremely limited (320KB). Instead of drawing to an off-screen canvas, the ESP32 code often writes pixels directly to the DMA buffer or uses minimal 1D arrays. It does not use a separated "Renderer" pipeline to avoid dynamic memory allocation and pointer overhead. 
 
 *This architectural divergence is intentional and optimizes for the specific constraints of each hardware platform.*
+
+## Dependency Injection & Providers
+The project uses a Dependency Injection (DI) architecture for its API-driven engines (Crypto, Stock, Weather). Engines are decoupled from HTTP logic via interfaces (`IProvider` in C++, `traits` in Rust). This allows fallback mechanisms across multiple providers and enables comprehensive unit testing via Mocks.

@@ -4,6 +4,7 @@ pub mod crypto;
 pub mod date;
 pub mod fighter;
 pub mod gif;
+pub mod icons;
 pub mod marquee;
 pub mod message;
 pub mod network;

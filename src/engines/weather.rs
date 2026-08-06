@@ -1,43 +1,14 @@
+use crate::api::{DayForecast, WeatherProvider};
 use crate::core::config::Config;
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, RgbImage};
-use serde::Deserialize;
-use std::path::Path;
+
 use std::time::{Duration, Instant};
-
-#[derive(Deserialize, Clone)]
-struct ForecastMain {
-    temp: f32,
-    temp_min: f32,
-    temp_max: f32,
-}
-
-#[derive(Deserialize, Clone)]
-struct ForecastWeather {
-    icon: String,
-}
-
-#[derive(Deserialize, Clone)]
-struct ForecastEntry {
-    main: ForecastMain,
-    weather: Vec<ForecastWeather>,
-}
-
-#[derive(Deserialize)]
-struct ForecastApiResponse {
-    list: Vec<ForecastEntry>,
-}
-
-#[derive(Clone)]
-struct DayForecast {
-    label: String,
-    temp: String,
-    icon: String,
-}
 
 pub struct WeatherEngine {
     base_renderer: BaseRenderer,
+    providers: Vec<Box<dyn WeatherProvider>>,
     forecasts: Vec<DayForecast>,
     last_fetch: Option<Instant>,
     /// Pre-rendered panorama (3 × matrix_width) as RgbImage
@@ -50,19 +21,9 @@ pub struct WeatherEngine {
 
 impl WeatherEngine {
     pub fn new() -> Self {
-        // Clean up corrupt weather icons on startup
-        if let Ok(entries) = std::fs::read_dir("weather_icons") {
-            for entry in entries.flatten() {
-                if let Ok(meta) = entry.metadata() {
-                    if meta.len() == 0 || image::open(entry.path()).is_err() {
-                        let _ = std::fs::remove_file(entry.path());
-                    }
-                }
-            }
-        }
-
         Self {
             base_renderer: BaseRenderer::new(),
+            providers: Vec::new(),
             forecasts: Vec::new(),
             last_fetch: None,
             panorama: None,
@@ -71,6 +32,10 @@ impl WeatherEngine {
             scroll_start: Instant::now(),
             lang: "fr".to_string(),
         }
+    }
+
+    pub fn add_provider(&mut self, provider: Box<dyn WeatherProvider>) {
+        self.providers.push(provider);
     }
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
@@ -156,10 +121,10 @@ impl WeatherEngine {
 
     fn draw_arcade_text(
         &self,
-        img: &mut RgbImage,
+        img: &mut image::RgbaImage,
         text: &str,
-        x: i32,
-        y: i32,
+        start_x: i32,
+        start_y: i32,
         color: (u8, u8, u8),
         scale: f32,
     ) {
@@ -168,8 +133,8 @@ impl WeatherEngine {
 
         for char_pixels in pixels_by_char {
             for (px, py) in char_pixels {
-                let draw_x = x + px;
-                let draw_y = y + py;
+                let draw_x = start_x + px;
+                let draw_y = start_y + py;
                 if draw_x >= 0
                     && draw_x < img.width() as i32
                     && draw_y >= 0
@@ -178,7 +143,7 @@ impl WeatherEngine {
                     img.put_pixel(
                         draw_x as u32,
                         draw_y as u32,
-                        image::Rgb([color.0, color.1, color.2]),
+                        image::Rgba([color.0, color.1, color.2, 255]),
                     );
                 }
             }
@@ -188,7 +153,7 @@ impl WeatherEngine {
     fn build_panorama(&mut self, mw: u32, mh: u32, offset_x: i32, offset_y: i32) {
         let num_slides = self.forecasts.len() as u32 + 1; // +1 for wrap-around
         let pano_w = mw * num_slides;
-        let mut panorama = RgbImage::new(pano_w, mh);
+        let mut panorama = image::RgbaImage::new(pano_w, mh);
 
         let slides: Vec<DayForecast> = self
             .forecasts
@@ -203,12 +168,12 @@ impl WeatherEngine {
         for (i, slide) in slides.iter().enumerate() {
             let base_x = i as u32 * mw;
 
-            // Try to load icon
-            if let Some(icon) = self.load_icon(&slide.icon, icon_size) {
-                let icon_x = (base_x as i32 + offset_x + 2).max(0) as u32;
-                let icon_y = ((mh as i32 - icon.height() as i32) / 2 + offset_y).max(0) as u32;
-                imageops::overlay(&mut panorama, &icon, icon_x as i64, icon_y as i64);
-            }
+            self.draw_icon(
+                &mut panorama,
+                &slide.icon,
+                base_x as i32 + offset_x,
+                (mh as i32 - 24) / 2 + offset_y,
+            );
 
             // Draw label and temp as pixel text directly onto panorama
             let text_x =
@@ -238,71 +203,176 @@ impl WeatherEngine {
             );
         }
 
-        self.panorama = Some(panorama);
+        let mut rgb_panorama = RgbImage::new(pano_w, mh);
+        for y in 0..mh {
+            for x in 0..pano_w {
+                let px = panorama.get_pixel(x, y);
+                rgb_panorama.put_pixel(x, y, image::Rgb([px[0], px[1], px[2]]));
+            }
+        }
+
+        self.panorama = Some(rgb_panorama);
         self.panorama_w = pano_w;
         self.panorama_mw = mw;
         self.scroll_start = Instant::now();
     }
 
-    fn load_icon(&self, icon_name: &str, size: u32) -> Option<RgbImage> {
-        let icon_path = format!("weather_icons/{}.png", icon_name);
-        if !Path::new(&icon_path).exists() {
-            // Try to download from OpenWeatherMap
-            let url = format!("http://openweathermap.org/img/wn/{}@2x.png", icon_name);
-            if let Ok(resp) = reqwest::blocking::get(&url) {
-                if resp.status().is_success() {
-                    if let Ok(bytes) = resp.bytes() {
-                        let _ = std::fs::create_dir_all("weather_icons");
-                        let _ = std::fs::write(&icon_path, &bytes);
-                    }
-                }
+    fn draw_icon(&self, img: &mut image::RgbaImage, icon: &str, x: i32, y: i32) {
+        use image::Rgba;
+        use imageproc::drawing::{
+            draw_filled_circle_mut, draw_filled_rect_mut, draw_line_segment_mut,
+        };
+        use imageproc::rect::Rect;
+
+        // 24x24 pixel area for icons
+        let yellow = Rgba([255, 255, 0, 255]);
+        let dark_yellow = Rgba([255, 200, 0, 255]);
+        let light_grey = Rgba([200, 200, 200, 255]);
+        let dark_grey = Rgba([150, 150, 150, 255]);
+        let thunder_grey = Rgba([100, 100, 100, 255]);
+        let blue = Rgba([0, 150, 255, 255]);
+        let white = Rgba([255, 255, 255, 255]);
+        let green = Rgba([0, 255, 0, 255]);
+
+        if icon.contains("01") {
+            // Sun
+            draw_filled_circle_mut(img, (x + 12, y + 12), 6, yellow);
+            draw_line_segment_mut(
+                img,
+                ((x + 12) as f32, (y + 2) as f32),
+                ((x + 12) as f32, (y + 4) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 12) as f32, (y + 20) as f32),
+                ((x + 12) as f32, (y + 22) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 2) as f32, (y + 12) as f32),
+                ((x + 4) as f32, (y + 12) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 20) as f32, (y + 12) as f32),
+                ((x + 22) as f32, (y + 12) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 5) as f32, (y + 5) as f32),
+                ((x + 7) as f32, (y + 7) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 19) as f32, (y + 19) as f32),
+                ((x + 17) as f32, (y + 17) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 19) as f32, (y + 5) as f32),
+                ((x + 17) as f32, (y + 7) as f32),
+                dark_yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 5) as f32, (y + 19) as f32),
+                ((x + 7) as f32, (y + 17) as f32),
+                dark_yellow,
+            );
+        } else if icon.contains("02") || icon.contains("03") || icon.contains("04") {
+            // Clouds
+            if icon.contains("02") {
+                // Sun behind cloud
+                draw_filled_circle_mut(img, (x + 8, y + 8), 4, yellow);
             }
-        }
-
-        if let Ok(img) = image::open(&icon_path) {
-            let mut rgba = img.into_rgba8();
-            // Crop to bounding box to remove transparent padding
-            let mut min_x = rgba.width();
-            let mut min_y = rgba.height();
-            let mut max_x = 0;
-            let mut max_y = 0;
-
-            for (x, y, pixel) in rgba.enumerate_pixels() {
-                if pixel[3] > 0 {
-                    // Check alpha channel
-                    min_x = min_x.min(x);
-                    min_y = min_y.min(y);
-                    max_x = max_x.max(x);
-                    max_y = max_y.max(y);
-                }
-            }
-
-            if min_x <= max_x && min_y <= max_y {
-                let crop = imageops::crop(
-                    &mut rgba,
-                    min_x,
-                    min_y,
-                    max_x - min_x + 1,
-                    max_y - min_y + 1,
-                )
-                .to_image();
-                // Resize using high quality Lanczos3 filter
-                let resized = imageops::resize(&crop, size, size, imageops::FilterType::Lanczos3);
-
-                // Blend over black background to convert to RGB correctly
-                let mut rgb = RgbImage::new(size, size);
-                for (x, y, p) in resized.enumerate_pixels() {
-                    let alpha = p[3] as f32 / 255.0;
-                    let r = (p[0] as f32 * alpha) as u8;
-                    let g = (p[1] as f32 * alpha) as u8;
-                    let b = (p[2] as f32 * alpha) as u8;
-                    rgb.put_pixel(x, y, image::Rgb([r, g, b]));
-                }
-                return Some(rgb);
-            }
-            None
+            draw_filled_circle_mut(img, (x + 8, y + 14), 5, light_grey);
+            draw_filled_circle_mut(img, (x + 14, y + 11), 6, white);
+            draw_filled_circle_mut(img, (x + 20, y + 14), 5, light_grey);
+            draw_filled_rect_mut(img, Rect::at(x + 8, y + 14).of_size(12, 6), light_grey);
+        } else if icon.contains("09") || icon.contains("10") {
+            // Rain
+            draw_filled_circle_mut(img, (x + 8, y + 10), 5, dark_grey);
+            draw_filled_circle_mut(img, (x + 14, y + 8), 6, light_grey);
+            draw_filled_circle_mut(img, (x + 20, y + 10), 5, dark_grey);
+            draw_filled_rect_mut(img, Rect::at(x + 8, y + 10).of_size(12, 6), dark_grey);
+            draw_line_segment_mut(
+                img,
+                ((x + 8) as f32, (y + 18) as f32),
+                ((x + 6) as f32, (y + 22) as f32),
+                blue,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 14) as f32, (y + 18) as f32),
+                ((x + 12) as f32, (y + 22) as f32),
+                blue,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 20) as f32, (y + 18) as f32),
+                ((x + 18) as f32, (y + 22) as f32),
+                blue,
+            );
+        } else if icon.contains("11") {
+            // Thunder
+            draw_filled_circle_mut(img, (x + 8, y + 10), 5, thunder_grey);
+            draw_filled_circle_mut(img, (x + 14, y + 8), 6, dark_grey);
+            draw_filled_circle_mut(img, (x + 20, y + 10), 5, thunder_grey);
+            draw_filled_rect_mut(img, Rect::at(x + 8, y + 10).of_size(12, 6), thunder_grey);
+            draw_line_segment_mut(
+                img,
+                ((x + 14) as f32, (y + 16) as f32),
+                ((x + 10) as f32, (y + 20) as f32),
+                yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 10) as f32, (y + 20) as f32),
+                ((x + 16) as f32, (y + 20) as f32),
+                yellow,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 16) as f32, (y + 20) as f32),
+                ((x + 12) as f32, (y + 24) as f32),
+                yellow,
+            );
+        } else if icon.contains("13") {
+            // Snow
+            draw_filled_circle_mut(img, (x + 14, y + 14), 2, white);
+            draw_line_segment_mut(
+                img,
+                ((x + 14) as f32, (y + 8) as f32),
+                ((x + 14) as f32, (y + 20) as f32),
+                white,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 8) as f32, (y + 14) as f32),
+                ((x + 20) as f32, (y + 14) as f32),
+                white,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 10) as f32, (y + 10) as f32),
+                ((x + 18) as f32, (y + 18) as f32),
+                white,
+            );
+            draw_line_segment_mut(
+                img,
+                ((x + 18) as f32, (y + 10) as f32),
+                ((x + 10) as f32, (y + 18) as f32),
+                white,
+            );
         } else {
-            None
+            // Unknown
+            draw_filled_circle_mut(img, (x + 12, y + 12), 6, green);
         }
     }
 
@@ -310,52 +380,14 @@ impl WeatherEngine {
         self.last_fetch = Some(Instant::now());
         self.panorama = None; // Invalidate panorama cache
 
-        let url = format!(
-            "https://api.openweathermap.org/data/2.5/forecast?q={}&appid={}&units=metric&lang={}",
-            city, api_key, self.lang
-        );
-
-        let resp = match reqwest::blocking::get(&url) {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!("Weather fetch error: {}", e);
+        for provider in &self.providers {
+            if let Some(forecasts) = provider.fetch_forecast(api_key, city, &self.lang) {
+                self.forecasts = forecasts;
                 return;
             }
-        };
+        }
 
-        let data: ForecastApiResponse = match resp.json() {
-            Ok(d) => d,
-            Err(e) => {
-                tracing::warn!("Weather JSON parse error: {}", e);
-                return;
-            }
-        };
-
-        // Day 0 = list[0], Day 1 = list[8] (~24h), Day 2 = list[16] (~48h)
-        let indices = [0usize, 8, 16];
-        let labels = match self.lang.as_str() {
-            "fr" => ["AUJ", "DEM", "J+2"],
-            "es" => ["HOY", "MAÑ", "D+2"],
-            _ => ["NOW", "TMW", "D+2"],
-        };
-
-        self.forecasts = indices
-            .iter()
-            .zip(labels.iter())
-            .filter_map(|(&idx, &label)| {
-                data.list.get(idx).map(|entry| DayForecast {
-                    label: label.to_string(),
-                    temp: format!(
-                        "{:.0}°C ({:.0}/{:.0})",
-                        entry.main.temp, entry.main.temp_min, entry.main.temp_max
-                    ),
-                    icon: entry
-                        .weather
-                        .get(0)
-                        .map(|w| w.icon.clone())
-                        .unwrap_or_default(),
-                })
-            })
-            .collect();
+        tracing::warn!("Failed to fetch weather forecast from all providers");
+        self.forecasts.clear();
     }
 }

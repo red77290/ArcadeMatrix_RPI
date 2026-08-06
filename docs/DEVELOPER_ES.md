@@ -121,3 +121,6 @@ Este comando utiliza `scp` y `ssh` para subir el nuevo binario compilado directa
 ```bash
 bash scripts/deploy_to_pi.sh pi@<TU_DIRECCION_IP_PI>
 ```
+
+## Pruebas Unitarias y TDD
+El proyecto sigue los principios de TDD para la integración de API. Al agregar una nueva API, implemente la interfaz Provider correspondiente (`ICryptoProvider`, etc.) y escriba pruebas unitarias utilizando objetos Mock antes de conectarla. Las pruebas deben lograr la máxima cobertura en el análisis de JSON y la lógica de respaldo sin requerir hardware físico.

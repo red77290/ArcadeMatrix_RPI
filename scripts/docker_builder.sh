@@ -116,18 +116,17 @@ cp /workspace/data/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
 
 echo "📁 Injecting cross-compiled Rust binary..."
-mkdir -p /mnt/rootfs/usr/local/bin
-cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/usr/local/bin/arcadematrix
-chmod +x /mnt/rootfs/usr/local/bin/arcadematrix
+cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
+chmod +x /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."
-mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,weather_icons,scripts,docs}
+mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,scripts,docs}
 cp -r /workspace/fighters_32/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_32/ 2>/dev/null || true
 cp -r /workspace/fighters_64/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_64/ 2>/dev/null || true
 cp -r /workspace/gifs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/gifs/ 2>/dev/null || true
 cp -r /workspace/fonts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fonts/ 2>/dev/null || true
-cp -r /workspace/weather_icons/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/weather_icons/ 2>/dev/null || true
+
 cp -r /workspace/scripts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/scripts/ 2>/dev/null || true
 cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
 cp -r /workspace/docs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/docs/ 2>/dev/null || true

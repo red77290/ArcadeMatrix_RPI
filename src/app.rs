@@ -358,8 +358,14 @@ impl ArcadeMatrixApp {
         let mut clock_engine = ClockEngine::new(width, height);
         let mut date_engine = DateEngine::new(width, height);
         let mut weather_engine = WeatherEngine::new();
+        weather_engine.add_provider(Box::new(crate::api::OpenWeatherMapProvider));
+
         let mut crypto_engine = crate::engines::crypto::CryptoEngine::new(width, height);
+        crypto_engine.add_provider(Box::new(crate::api::CoinGeckoProvider));
+        crypto_engine.add_provider(Box::new(crate::api::BinanceProvider));
+
         let mut stock_engine = crate::engines::stock::StockEngine::new(width, height);
+        stock_engine.add_provider(Box::new(crate::api::YahooFinanceProvider));
         let mut gif_engine = GifEngine::new(width, height);
         let mut fighter_engine = FighterEngine::new(width, height);
         let marquee_engine = MarqueeEngine::new();
@@ -599,7 +605,7 @@ impl ArcadeMatrixApp {
                         }
 
                         let dt = last_frame.elapsed();
-                        let sprites_on = config.settings.read().idle_sprite_count > 0;
+                        let sprites_on = config.settings.read().idle_fighter_enabled;
                         let frame_changed = gif_engine.render_next_frame(matrix.as_mut(), dt);
                         if sprites_on {
                             // Fighter overlay animates every iteration: the gif image
@@ -684,8 +690,8 @@ impl ArcadeMatrixApp {
 
                 // Composite fighter overlay
                 let settings = config.settings.read();
-                let sprite_count = settings.idle_sprite_count;
-                if sprite_count > 0 {
+                let fighter_enabled = settings.idle_fighter_enabled;
+                if fighter_enabled {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 }
@@ -695,8 +701,8 @@ impl ArcadeMatrixApp {
             } else {
                 clock_engine.render(matrix.as_mut(), &config);
                 let settings = config.settings.read();
-                let sprite_count = settings.idle_sprite_count;
-                if sprite_count > 0 {
+                let fighter_enabled = settings.idle_fighter_enabled;
+                if fighter_enabled {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 }
@@ -720,7 +726,7 @@ impl ArcadeMatrixApp {
             };
 
             let fast_theme = matches!(theme, 18 | 19 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
-            let sprite_active = config.settings.read().idle_sprite_count > 0;
+            let sprite_active = config.settings.read().idle_fighter_enabled;
 
             let sleep_ms = if is_animated || fast_theme || sprite_active {
                 40 // ~25fps, same as Python fast mode (time.sleep(0.04))

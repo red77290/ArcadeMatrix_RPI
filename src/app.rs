@@ -694,6 +694,10 @@ impl ArcadeMatrixApp {
                 if fighter_enabled {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
+                } else if fighter_engine.is_active() {
+                    fighter_engine.stop();
+                    matrix.clear();
+                    should_update = true;
                 }
                 if should_update {
                     matrix.update();
@@ -705,6 +709,9 @@ impl ArcadeMatrixApp {
                 if fighter_enabled {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
+                } else if fighter_engine.is_active() {
+                    fighter_engine.stop();
+                    matrix.clear();
                 }
                 matrix.update();
             }

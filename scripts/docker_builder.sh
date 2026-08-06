@@ -4,17 +4,33 @@ echo "📦 Installing build dependencies inside Docker..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs exfat-fuse xz-utils sudo parted python3 rsync
 
-echo "📥 Downloading latest Raspberry Pi OS Lite (ARM64 Bookworm)..."
-IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
+echo "📥 Downloading latest Raspberry Pi OS Lite ($ARCH Bookworm)..."
+if [ "$ARCH" = "aarch64" ]; then
+    IMG_URL="https://downloads.raspberrypi.com/raspios_lite_arm64/images/raspios_lite_arm64-2024-07-04/2024-07-04-raspios-bookworm-arm64-lite.img.xz"
+    BIN_TARGET="aarch64-unknown-linux-gnu"
+    export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+    export CC=aarch64-linux-gnu-gcc
+    export CXX=aarch64-linux-gnu-g++
+    export USER_DEFINES="-mcpu=cortex-a53"
+    QEMU_BIN="/usr/bin/qemu-aarch64-static"
+else
+    IMG_URL="https://downloads.raspberrypi.com/raspios_lite_armhf/images/raspios_lite_armhf-2024-07-04/2024-07-04-raspios-bookworm-armhf-lite.img.xz"
+    BIN_TARGET="armv7-unknown-linux-gnueabihf"
+    export PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig
+    export CC=arm-linux-gnueabihf-gcc
+    export CXX=arm-linux-gnueabihf-g++
+    export USER_DEFINES="-mcpu=cortex-a7 -mfpu=neon-vfpv4 -mfloat-abi=hard"
+    QEMU_BIN="/usr/bin/qemu-arm-static"
+fi
 
 IMG_FILE="/tmp/ArcadeMatrix_Build_${RANDOM}.img"
 
-if [ -f "/workspace/raspios.img.xz" ]; then
-    echo "Using cached /workspace/raspios.img.xz"
-    cp /workspace/raspios.img.xz /tmp/raspios.img.xz
+if [ -f "/workspace/raspios_${ARCH}.img.xz" ]; then
+    echo "Using cached /workspace/raspios_${ARCH}.img.xz"
+    cp /workspace/raspios_${ARCH}.img.xz /tmp/raspios.img.xz
 else
     wget -O /tmp/raspios.img.xz "$IMG_URL"
-    cp /tmp/raspios.img.xz /workspace/raspios.img.xz || true
+    cp /tmp/raspios.img.xz /workspace/raspios_${ARCH}.img.xz || true
 fi
 
 echo "🗜️ Extracting OS image natively in /tmp..."
@@ -25,8 +41,8 @@ IMAGE_SIZE=${IMAGE_SIZE:-14G}
 echo "📏 Expanding image to total size of $IMAGE_SIZE for DATA partition..."
 truncate -s $IMAGE_SIZE $IMG_FILE
 
-echo "📏 Expanding ROOT partition (p2) to 4GB to make room for build tools..."
-parted -s $IMG_FILE resizepart 2 4096MiB
+echo "📏 Expanding ROOT partition (p2) to 8GB to make room for build tools..."
+parted -s $IMG_FILE resizepart 2 8192MiB
 
 echo "💽 Creating 3rd partition (DATA)..."
 # Get the starting sector for the new partition
@@ -66,8 +82,8 @@ else
     PART_DATA="${LOOP_DEV}p3"
 fi
 
-echo "🧹 Formatting DATA partition as exFAT..."
-mkfs.exfat $PART_DATA
+echo "🧹 Formatting DATA partition as exFAT with label DATA..."
+mkfs.exfat -L "DATA" $PART_DATA
 
 echo "📏 Expanding ROOT filesystem..."
 e2fsck -f -p $PART_ROOT || true
@@ -88,33 +104,57 @@ touch /mnt/rootfs/boot/firmware/ssh
 echo 'pi:$6$QM6/3dOlZrhCz7hG$RmgUadMoSC0mutMdHHhzjd52prRdb3zFcgOp5yZhza8LHQBwh.RbaFpBlf1YJSws6qz/H46VLIJ6YtQq6cNR/.' > /mnt/rootfs/boot/firmware/userconf.txt
 
 echo "🛠️ Preparing CHROOT environment..."
-cp /usr/bin/qemu-aarch64-static /mnt/rootfs/usr/bin/
+cp $QEMU_BIN /mnt/rootfs/usr/bin/
 mount --bind /dev /mnt/rootfs/dev
 mount --bind /sys /mnt/rootfs/sys
 mount --bind /proc /mnt/rootfs/proc
 
 echo "📁 Copying ArcadeMatrix project into image..."
 mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi
-# Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
-# Copy everything except the scripts/ and large media folders to avoid filling the 2GB root partition
-rsync -a --exclude='scripts' --exclude='.*' --exclude='venv' --exclude='*.img' --exclude='*.xz' --exclude='__pycache__' --exclude='fighters_32' --exclude='fighters_64' --exclude='gifs' --exclude='fonts' /workspace/ /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+# Only copy the configuration to root for backup, we will place scripts on DATA partition
+cp /workspace/data/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+
+echo "📁 Injecting cross-compiled Rust binary..."
+cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
+chmod +x /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."
-cp -r /workspace/fighters_32 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/fighters_64 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/gifs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/fonts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,scripts,docs}
+cp -r /workspace/fighters_32/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_32/ 2>/dev/null || true
+cp -r /workspace/fighters_64/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_64/ 2>/dev/null || true
+cp -r /workspace/gifs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/gifs/ 2>/dev/null || true
+cp -r /workspace/fonts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fonts/ 2>/dev/null || true
 
-echo "📝 Injecting chroot setup script..."
+cp -r /workspace/scripts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/scripts/ 2>/dev/null || true
+cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/docs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/docs/ 2>/dev/null || true
+
+echo "🎛️ Applying Kernel configurations directly to boot partition..."
+CONFIG_TXT="/mnt/rootfs/boot/firmware/config.txt"
+if grep -q "dtparam=audio=on" "$CONFIG_TXT"; then
+    sed -i 's/dtparam=audio=on/dtparam=audio=off/g' "$CONFIG_TXT"
+elif ! grep -q "dtparam=audio=off" "$CONFIG_TXT"; then
+    echo "dtparam=audio=off" >> "$CONFIG_TXT"
+fi
+sed -i 's/dtoverlay=vc4-kms-v3d$/dtoverlay=vc4-kms-v3d,noaudio/g' "$CONFIG_TXT"
+
+CMDLINE_TXT="/mnt/rootfs/boot/firmware/cmdline.txt"
+if ! grep -q "isolcpus=" "$CMDLINE_TXT"; then
+    sed -i '1 s/$/ isolcpus=3/' "$CMDLINE_TXT"
+fi
+
+mkdir -p /mnt/rootfs/etc/modprobe.d
+echo "blacklist snd_bcm2835" > /mnt/rootfs/etc/modprobe.d/snd-blacklist.conf
+
+echo "📝 Injecting chroot setup script (only for systemd & symlinks)..."
 cp /workspace/scripts/chroot_setup.sh /mnt/rootfs/tmp/chroot_setup.sh
 chmod +x /mnt/rootfs/tmp/chroot_setup.sh
 
-# Pass DATA partition UUID to chroot to setup fstab
-DATA_UUID=$(blkid -s UUID -o value $PART_DATA)
-echo "$DATA_UUID" > /mnt/rootfs/tmp/data_uuid.txt
+# We will use LABEL=DATA in fstab instead of UUID to be more robust
 
-echo "🚀 Entering ARM emulator to compile and obfuscate Python code..."
+echo "🚀 Entering ARM emulator to setup systemd services..."
 chroot /mnt/rootfs /bin/bash /tmp/chroot_setup.sh
 
 echo "🧹 Cleaning up mounts..."
@@ -128,5 +168,5 @@ umount /mnt/rootfs
 losetup -d $LOOP_DEV || true
 kpartx -d $LOOP_DEV || true
 
-mv $IMG_FILE /workspace/ArcadeMatrix_Release.img
-echo "🎉 Image built successfully: ArcadeMatrix_Release.img"
+mv $IMG_FILE /workspace/ArcadeMatrix_Release_${ARCH}.img
+echo "🎉 Image built successfully: ArcadeMatrix_Release_${ARCH}.img"

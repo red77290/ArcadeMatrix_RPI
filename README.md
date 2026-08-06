@@ -2,7 +2,7 @@
 
 # ArcadeMatrix RPi 🍓👾
 
-A Python-based port of the **ArcadeMatrix** project, specifically designed to run on a **Raspberry Pi** connected to an RGB LED Matrix (HUB75) via the Adafruit HAT or Joy-IT hardware.
+A native **Rust** port of the **ArcadeMatrix** project, specifically designed to run on a **Raspberry Pi** connected to an RGB LED Matrix (HUB75) via the Adafruit HAT or Joy-IT hardware.
 
 This project replicates the awesome features of the ESP32 version while completely removing its hardware limitations.
 
@@ -12,20 +12,26 @@ This project replicates the awesome features of the ESP32 version while complete
 
 ## 🌟 Features (RPi Exclusives vs ESP32)
 
+* 🔄 **Over-The-Air (OTA) Firmware Update**: Update the single standalone Rust binary directly from the Web UI without re-flashing your SD Card image!
+* 🚀 **Rust Native Performance**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
 * **Dynamically Loadable Fonts (`.ttf`)**: No more hardcoded font files! Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
 * **Unlimited Clock/Date Sizes & Offsets**: You are no longer restricted to Size 1, 2, or 3. You can set the size to any number, and position the text freely on massive matrix panels (e.g. 256x64).
 * **Massive Clock Selection**: Enjoy a variety of animated clocks including the classic Arcade, Binary, Cyberpunk, Flip, Word, and the brand new **Pac-Man**, **Tetris**, **SlotMachine**, and **Versus (Mugen)** clocks!
+* 📈 **Real-Time Crypto & Stock Tickers**: Live price quotes & 24h % badges from CoinGecko, Binance, and Yahoo Finance with configurable TTL cache.
 * **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
 * **Custom Smooth Gradients**: In addition to classic Publisher themes (Nintendo, Capcom, Sega...), you can now choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
 * **Dynamic Image Playlists (GIF/PNG/JPG)**: Read actual `.gif` and `.png` files dynamically straight from the filesystem without SD card fragmentation issues.
-* **Python Power**: The entire engine, API, and frontend are served by Python (`Pillow` for drawing, `Flask` for the API), allowing for much faster modification.
 
 ---
 
-## 🚀 Hardware Requirements
+## 🚀 Hardware Requirements & Compatibility
 
-1. **Raspberry Pi**: Any model up to Pi 4 (Zero 2 W, Pi 3, Pi 4). 
-   *(⚠️ **Pi 5 Warning**: The hzeller rgb-led-matrix library does NOT support the Pi 5 natively via GPIO due to the new RP1 chip. You must use an active adapter board for Pi 5! Pi 4 or Zero 2W are highly recommended).*
+Thanks to the ultra-lightweight native Rust implementation (~5 MB binary, ~10 MB RAM, 0% idle CPU overhead), **ArcadeMatrix now fully supports older legacy Raspberry Pi hardware without stutter or dropped frames**:
+
+1. **Raspberry Pi**: 
+   - **Legacy / Single-Core**: Pi 1 (B, B+, A+), Pi Zero, Pi Zero W *(Fully supported with zero lag thanks to Rust!)*
+   - **Multi-Core**: Pi 2, Pi 3, Pi 4, Pi Zero 2 W *(Recommended)*
+   - *(⚠️ **Pi 5 Warning**: The hzeller rgb-led-matrix library does NOT support the Pi 5 natively via GPIO due to the new RP1 chip. You must use an active adapter board for Pi 5!).*
 2. **RGB LED Matrix**: HUB75 panels (e.g., 64x64, 128x32, 256x64).
 3. **Adafruit RGB Matrix HAT** (or Joy-IT, or custom wiring).
 4. **MicroSD Card** (16GB or larger recommended for the Pre-compiled Image).
@@ -35,13 +41,19 @@ This project replicates the awesome features of the ESP32 version while complete
 ## 💾 Installation & Setup
 
 ### Option 1: Pre-compiled Image (Recommended for Users)
-We provide a pre-compiled, fully automated `.img` file, built and published automatically by CI
-on every tagged release (see `.github/workflows/release.yml` - gated on the full pytest suite
-passing first).
+We provide pre-compiled, fully automated `.img` files, built and published automatically by CI
+on every tagged release (see `.github/workflows/release.yml`).
 
-**[⬇️ Download the latest image](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release.img.xz)**
-(`.img.xz` - decompress with 7-Zip/Keka/`xz -d` before flashing. See the
-[full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)
+We provide two distinct images to support the entire Raspberry Pi ecosystem:
+
+1. **[⬇️ Download 64-bit Image (aarch64)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz)**
+   * **Compatibility:** Raspberry Pi 3, 4, 5, and Zero 2 W.
+   * **Note:** This is the highly recommended version for maximum performance.
+2. **[⬇️ Download 32-bit Image (armhf)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz)**
+   * **Compatibility:** All Raspberry Pis, including Raspberry Pi 1, 2, and the original Zero.
+
+*(Both are `.img.xz` files - decompress with 7-Zip/Keka/`xz -d` before flashing. See the
+[full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)*
 
 1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
 2. Once flashed, insert the SD card into your PC/Mac. You will see a large 8GB **DATA** USB drive appear!
@@ -59,9 +71,56 @@ curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/insta
 *(If the repository is private, you will need to `git clone` manually first and run `./install.sh` from inside the folder).*
 
 The script will automatically:
-1. Install Python 3, Flask, Pillow, and `build-essential`.
+1. Install Rust, Actix-web, image-rs, and `build-essential`.
 2. Download and compile the `hzeller/rpi-rgb-led-matrix` driver.
 3. Setup `systemd` to automatically start ArcadeMatrix on boot.
+
+### Option 3: Smart Deploy via Computer
+If you want to compile the application on your own computer (much faster) and automatically deploy it to the Raspberry Pi, you can use the smart Docker-based deployment scripts.
+
+**On macOS / Linux:**
+```bash
+bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
+# Example: bash scripts/deploy.sh 192.168.1.149 pi raspberry
+```
+
+**On Windows (PowerShell):**
+```powershell
+.\scripts\deploy.ps1 -PI_IP "192.168.1.149" -PI_USER "pi" -PI_PASS "raspberry"
+```
+*The script will auto-detect your Pi's architecture, compile the binary via Docker, stop the remote service, upload the file, and restart the application.*
+
+---
+
+## ⚠️ Hardware Warning: Wi-Fi & Interference (VHS Lines)
+
+Raspberry Pis (especially Pi 3 and Zero W) share their internal Wi-Fi bus clock with the **PWM/PCM** hardware controller used by the LED matrix. 
+
+When driving large matrices (like **256x64**), the DMA controller must push massive amounts of data to the GPIO pins. If hardware pulsing is enabled (`disable_hardware_pulsing = false`), this creates intense DMA bandwidth saturation that **starves the internal SDIO Wi-Fi chip**, causing severe packet loss, lag, and disconnections.
+
+While an unstable Wi-Fi might be acceptable if you only use the Web UI occasionally to change the clock, it completely breaks features that rely on a stable internet connection or local network:
+* **Recalbox/Batocera/Pixelcade MQTT Sync**: Will drop messages or disconnect.
+* **Crypto & Stock Tickers**: API calls will timeout and fail.
+* **Weather**: API calls will timeout.
+
+**Solutions for 256x64 users:**
+1. **Use an Ethernet (RJ45) cable** (Pi 3B/4): Bypasses the SDIO Wi-Fi chip entirely.
+2. **Use a USB Wi-Fi Dongle**: USB controllers use a different internal bus and are immune to the PWM DMA starvation.
+3. **Set `disable_hardware_pulsing = true`**: Forces the matrix to use CPU bit-banging instead of hardware DMA. Your Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
+
+*(Note: **128x32** matrices require 4x less DMA bandwidth, so they usually run perfectly fine with hardware pulsing enabled and internal Wi-Fi active).*
+
+*(Note on **Raspberry Pi 4**: The Pi 4 uses a much faster PCIe architecture and DMA controller. It is highly likely that it is NOT impacted by this 256x64 Wi-Fi saturation bug. However, this has not been officially tested yet as we do not have a Pi 4 on hand to confirm.)*
+
+### Raspberry Pi Matrix Compatibility Table
+
+| Matrix Size | Network / Pulse Configuration | Image Quality | Wi-Fi / API / MQTT |
+|-------------|-----------------------------|----------------|-------------------|
+| **128x32**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | **Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | **USB Wi-Fi Dongle** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = true` | ⚠️ Slight Flicker | ✅ Stable |
+| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ❌ Broken / Timeouts |
 
 ---
 
@@ -104,7 +163,7 @@ If you prefer manual installation, or if the network install fails:
 4. SSH into your Recalbox and run: `bash /recalbox/share/recalbox_setup_mqtt.sh`.
 
 ### How does the Daemon architecture work?
-Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Python Daemon in the background**.
+Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Rust Daemon in the background**.
 * **Zero Lag:** Consumes 0% CPU. EmulationStation suffers no stutter or lag, even when scrolling at max speed.
 * **Anti-Spam (Debounce):** If you scroll quickly through 50 games, the daemon won't flood the network. It only sends the message to the matrix if you pause on a game for more than 150 milliseconds.
 * **Thread Safety:** On the LED Matrix side, downloads and the drawing engine are separated by threads with robust locks, preventing freezing and image cache corruption.
@@ -112,7 +171,7 @@ Unlike native Recalbox scripts that run (and freeze the system) on every joystic
 ---
 
 ## 🔧 Matrix Configuration
-If you have a matrix larger than 64x64 or 128x32, or if you are using a non-Adafruit HAT, you may need to tweak the `hzeller` arguments in `core/matrix.py`. By default, it's set to `--led-gpio-mapping=adafruit-hat` and `128x32`.
+If you have a matrix larger than 64x64 or 128x32, or if you are using a non-Adafruit HAT, you may need to tweak the `hzeller` arguments in `src/core/matrix.rs`. By default, it's set to `--led-gpio-mapping=adafruit-hat` and `128x32`.
 
 You can also change Matrix brightness dynamically via the Web UI Settings.
 - Enable Standby/Night modes.
@@ -162,6 +221,7 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | `HARDWARE_MAPPING` | `adafruit-hat` | Type of HAT/wiring used. (`adafruit-hat`, `adafruit-hat-pwm`, `regular-pi1`, `regular`). |
 | `CHAIN` / `PARALLEL` | `1` / `1` | `CHAIN` for horizontal daisy-chaining. `PARALLEL` for vertical stacking on multiple HUB75 ports. |
 | `SLOWDOWN` | `2` | Hardware slowdown (1 to 4). Increase if your Matrix has flickering or visual artifacts (especially Pi 3/4). |
+| `disable_hardware_pulsing`| `false` | **CRITICAL:** Set to `true` to prevent the internal Wi-Fi chip from crashing (at the cost of slight flickering). |
 | `BRIGHTNESS` | `100` | Global matrix brightness (1 to 100). |
 | `RGB_SEQUENCE` | `RGB` | Color order. Change to `RBG` or `BGR` if your colors look swapped. |
 
@@ -185,6 +245,12 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
 | `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
 | `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
+
+### 📈 [CRYPTO] & 📊 [STOCK]
+| Parameter | Default | Description |
+|---|---|---|
+| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
+| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
 
 ### 🌙 [STANDBY]
 | Parameter | Default | Description |

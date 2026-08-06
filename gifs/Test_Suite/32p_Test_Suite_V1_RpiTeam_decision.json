@@ -1,0 +1,73 @@
+{
+  "task_id": "D77ED",
+  "file_info": {
+    "filename": "32p_Test_Suite_V1_RpiTeam.gif",
+    "video_width": 128,
+    "video_height": 32,
+    "duration_frames": 287
+  },
+  "camera_params": {
+    "strength": {
+      "value": 0.25,
+      "reason": "Optimal parameter defined by talking_closeup profile."
+    },
+    "smoothness": {
+      "value": 0.96,
+      "reason": "Optimal smoothness defined by talking_closeup profile."
+    }
+  },
+  "scene_classification": {
+    "winner": "talking_closeup",
+    "face_clip_mode": "closeup",
+    "scoreboard": {
+      "wide_shot": 0.0,
+      "action_moving": -4.5,
+      "action_horizontal": -3.0,
+      "platformer": -3.0965369762440993,
+      "fighting_2d": -1.0,
+      "talking_closeup": 3.0,
+      "talking_medium": 3.0,
+      "full_body_tall": 0.0,
+      "full_body_medium": 0.0,
+      "top_down_isometric": -5.0,
+      "first_person": 0.0,
+      "third_person": 0.0,
+      "menu_static": 0.0
+    }
+  },
+  "raw_signals": {
+    "tall_ratio": 0.875,
+    "fill_ratio": 0.875,
+    "body_aspect": 0.56,
+    "floor_in_lower": true,
+    "floor_var_score": 0.09137808135367492,
+    "x_variance": 0.04129736833399274,
+    "y_variance": 0.003958301718406752
+  },
+  "decisions": {
+    "face_priority": {
+      "value": true,
+      "reason": "Scene profile (talking_closeup) requires tight framing."
+    },
+    "auto_vertical_bias": {
+      "value": false,
+      "reason": "Disabled by talking_closeup profile."
+    },
+    "auto_bottom_crop": {
+      "value": false,
+      "reason": "Significant gap at the bottom or inherited from face priority."
+    },
+    "auto_top_crop": {
+      "value": false,
+      "reason": "No face priority required."
+    },
+    "pillarbox": {
+      "value": "L:0px",
+      "reason": "No intrusive black borders detected."
+    }
+  },
+  "auto_crop_margins": {
+    "top_pct": 0.0,
+    "bottom_pct": 0.0
+  }
+}

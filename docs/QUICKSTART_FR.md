@@ -13,7 +13,7 @@ Nous fournissons une image précompilée prête à l'emploi.
 3. Ouvrez le fichier `conf.ini` situé sur ce lecteur **DATA** pour y renseigner vos identifiants Wi-Fi (`SSID` et `PASS`) ainsi que la taille de votre matrice.
 4. Insérez la carte SD dans le Raspberry Pi et allumez-le. L'adresse IP s'affichera sur la matrice !
 
-## 2. Configuration Web
+## 2. Configuration Web & Mises à jour OTA
 
 Une fois le Pi allumé, ouvrez un navigateur sur votre téléphone ou PC et allez sur :
 `http://<RASPBERRY_IP>:8080`
@@ -22,6 +22,7 @@ Ici vous pourrez configurer :
 - Les couleurs, polices et thèmes de l'horloge et de la date.
 - Les fonctionnalités activées dans la boucle de rotation.
 - Les réglages de luminosité et de mode nuit.
+- 🔄 **Mise à jour du firmware (OTA)** : allez dans l'onglet **System**, glissez-déposez le binaire compilé `arcadematrix_vX.Y.Z_aarch64` et cliquez sur **Upload & Update Firmware** pour mettre à jour le système sans jamais re-flasher votre carte SD !
 
 ## 3. Ajout de contenu (GIFs, sprites, polices)
 
@@ -31,8 +32,6 @@ Le lecteur **DATA** apparaîtra comme une clé USB standard (format exFAT) :
 - **GIFs** : déposez-les dans le dossier `gifs/`.
 - **Sprites MUGEN** : utilisez notre extracteur pour générer des fichiers `.fgt` et placez-les dans `fighters_32/` ou `fighters_64/`.
 - **Fonts** : déposez des polices `.ttf` ou `.bdf` dans le dossier `fonts/`.
-
-*(L'ajout de médias se fait exclusivement en branchant la carte SD sur un ordinateur ou via SSH/SFTP. Si vous utilisez SSH, assurez-vous d'abord que la partition DATA est correctement montée. Il n'existe pas de fonction d'upload via le Web.)*
 
 ## 4. Connexion matérielle
 

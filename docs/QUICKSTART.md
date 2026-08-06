@@ -13,26 +13,25 @@ We provide a ready-to-use pre-compiled image.
 3. Open the `conf.ini` file located on this **DATA** drive to insert your Wi-Fi credentials (`SSID` and `PASS`) and your matrix size.
 4. Insert the SD card into the Raspberry Pi and turn it on. The IP address will be displayed on the matrix!
 
-## 2. Web Configuration
+## 2. Web Configuration & OTA Updates
 
-Once the Pi is powered on, open a browser on your phone or PC and go to:
+Once the Pi powers on, open a web browser on your phone or PC and navigate to:
 `http://<RASPBERRY_IP>:8080`
 
 Here you can configure:
-- Clock & Date colors, fonts, and themes.
-- Enabled features in the rotation loop.
-- Brightness and night mode settings.
+- Clock & Date themes, colors, fonts, and sizes.
+- Active features in the idle rotation loop.
+- Matrix brightness and Night Mode schedule.
+- 🔄 **Firmware Update (OTA)**: Navigate to the **System** tab, drag and drop the compiled binary `arcadematrix_vX.Y.Z_aarch64`, and click **Upload & Update Firmware** to update the daemon directly over Wi-Fi without ever re-flashing your SD Card!
 
 ## 3. Adding Content (GIFs, Sprites, Fonts)
 
-To add your own media, **simply plug your SD card into your PC/Mac**.
-The **DATA** drive will appear as a standard USB flash drive (exFAT format):
+To add your own media, **simply plug your SD Card into your PC/Mac**.
+The **DATA** partition will appear as a standard USB drive (exFAT format):
 
-- **GIFs**: Drop them in the `gifs/` folder.
-- **MUGEN Sprites**: Use our extractor to generate `.fgt` files and place them in `fighters_32/` or `fighters_64/`.
-- **Fonts**: Drop `.ttf` or `.bdf` fonts in the `fonts/` folder.
-
-*(Adding media is done exclusively by plugging the SD card into a computer or via SSH/SFTP. If using SSH, ensure the DATA partition is properly mounted first. There is no web upload feature).*
+- **GIFs**: Place them inside the `gifs/` folder.
+- **MUGEN Sprites**: Use our extractor tool to generate `.fgt` files and place them in `fighters_32/` or `fighters_64/`.
+- **Fonts**: Place `.ttf` or `.bdf` font files inside the `fonts/` folder.
 
 ## 4. Hardware Connection
 

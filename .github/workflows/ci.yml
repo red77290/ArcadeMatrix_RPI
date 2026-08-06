@@ -1,0 +1,35 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [ main, rust_migration ]
+  pull_request:
+    branches: [ main, rust_migration ]
+
+jobs:
+  check:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - name: Check Formatting
+        run: cargo fmt --check
+
+      - name: Configure Git for Cargo
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p ~/.cargo
+          echo "[net]" >> ~/.cargo/config.toml
+          echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+
+      - name: Clippy Linter
+        run: cargo clippy -- -D warnings
+
+      - name: Run Tests
+        run: cargo test --all-targets

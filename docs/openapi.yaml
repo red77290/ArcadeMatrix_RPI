@@ -68,6 +68,34 @@ paths:
           application/json:
             schema:
               type: object
+              properties:
+                time_format:
+                  type: string
+                  description: Chrono strftime format for the clock (e.g. %H:%M:%S)
+                matrix_disable_hardware_pulsing:
+                  type: boolean
+                  description: Force software GPIO toggling to avoid PWM audio conflicts
+                crypto_symbols:
+                  type: string
+                  description: "Comma-separated crypto token symbols (e.g. BTC,ETH,SOL,DOGE)"
+                crypto_cache_ttl_min:
+                  type: integer
+                  description: "Crypto quote cache TTL in minutes (refresh rate, default 1)"
+                stock_symbols:
+                  type: string
+                  description: "Comma-separated stock ticker symbols (e.g. AAPL,NVDA,TSLA,MSFT)"
+                stock_cache_ttl_min:
+                  type: integer
+                  description: "Stock quote cache TTL in minutes (refresh rate, default 1)"
+                sprite_count:
+                  type: integer
+                  description: "Sprite/Fighter overlay toggle (0 = disabled/OFF, 2 = enabled/ON)"
+                fighter_interval_sec:
+                  type: integer
+                  description: "Interval in seconds between MUGEN fights"
+                matrix_limit_refresh_rate_hz:
+                  type: integer
+                  description: Limit the hardware refresh rate in Hz to reduce DMA bandwidth usage (0 for unlimited)
       responses:
         '200':
           description: Settings successfully updated
@@ -108,6 +136,16 @@ paths:
       responses:
         '200':
           description: Device will reboot
+
+  /api/system/restart_app:
+    post:
+      tags:
+        - System
+      summary: Restart the application
+      description: Soft restarts the ArcadeMatrix application process without rebooting the OS. Useful to apply hardware changes safely.
+      responses:
+        '200':
+          description: Application restarting
 
   /api/system/shutdown:
     post:
@@ -208,6 +246,62 @@ paths:
         '200':
           description: Success
 
+  /api/playlists/play:
+    post:
+      tags:
+        - Media
+      summary: Trigger an immediate rotation to the requested GIF playlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                playlist_id:
+                  type: string
+      responses:
+        '200':
+          description: Playlist played
+
+  /api/sprites/playlists:
+    get:
+      tags:
+        - Media
+      summary: Get all Sprite playlists
+      responses:
+        '200':
+          description: JSON object mapping sprite categories to arrays of sprite IDs.
+
+  /api/sprites/playlists/selected:
+    get:
+      tags:
+        - Media
+      summary: Get active Sprite playlists
+      responses:
+        '200':
+          description: Selected sprite playlists
+
+  /api/sprites/playlists/save:
+    post:
+      tags:
+        - Media
+      summary: Save active Sprite playlists
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                playlists:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '200':
+          description: Success
+
   /api/clock:
     post:
       tags:
@@ -273,3 +367,49 @@ paths:
       responses:
         '200':
           description: Image received and displayed.
+
+  /api/version:
+    get:
+      tags:
+        - System
+      summary: Get Firmware Version
+      description: Returns the compiled firmware version, platform, architecture, and build timestamp.
+      responses:
+        '200':
+          description: Version object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  platform:
+                    type: string
+                  arch:
+                    type: string
+                  build_date:
+                    type: string
+
+  /api/update:
+    post:
+      tags:
+        - System
+      summary: Over-The-Air (OTA) Firmware Update
+      description: Uploads a new compiled binary executable to update the firmware and restarts the systemd daemon.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                firmware:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Firmware updated successfully. Device restarting.
+        '400':
+          description: Invalid binary format or architecture mismatch.
+

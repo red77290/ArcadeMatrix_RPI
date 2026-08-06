@@ -5,7 +5,7 @@
 # Media files
 fighters_32/*
 fighters_64/*
-gifs/*
+# gifs/*
 # Allow the default font to be committed but ignore others
 fonts/*
 !fonts/*.bdf
@@ -29,3 +29,17 @@ data/
 # Temporary files
 .fuse_hidden*
 *.zip
+
+# Rust
+target/
+Cargo.lock.tmp
+*.profraw
+
+# C++ Dependency Clones
+rust-rpi-rgb-led-matrix/
+rust-rpi-rgb-led-matrix-local/
+
+# Antigravity Temp Files
+scratch/
+.tempmediaStorage/
+

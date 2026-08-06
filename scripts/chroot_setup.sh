@@ -15,7 +15,6 @@ export SKIP_BUILD=1
 
 # 3. Add extra Release-only steps (DATA Partition)
 echo "🔗 [chroot] Configuring DATA partition..."
-DATA_UUID=$(cat /tmp/data_uuid.txt)
 
 # Initialize the DATA partition
 mkdir -p $PROJ_DIR/data/gifs
@@ -49,7 +48,7 @@ fi
 chown -R pi:pi $PROJ_DIR/data || true
 
 # Add DATA partition to fstab so it mounts on boot
-echo "UUID=$DATA_UUID  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
+echo "LABEL=DATA  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
 
 # Create symlinks to the DATA partition
 ln -s $PROJ_DIR/data/gifs $PROJ_DIR/gifs
@@ -68,8 +67,17 @@ chown pi:pi $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
 rm -f $PROJ_DIR/conf.ini || true
 ln -s $PROJ_DIR/data/conf.ini $PROJ_DIR/conf.ini
 
-echo "🧹 [chroot] Cleaning up..."
-rm -rf /tmp/chroot_setup.sh /tmp/data_uuid.txt
+echo "🧹 [chroot] Cleanup..."
+rm -f /tmp/chroot_setup.sh
+
+echo "✨ [chroot] Setup complete!"
+
+# 5. Add useful Bash aliases for the pi user
+echo "alias am='sudo systemctl restart arcadematrix'" >> /home/pi/.bash_aliases
+echo "alias am-log='sudo journalctl -u arcadematrix -f'" >> /home/pi/.bash_aliases
+echo "alias am-stop='sudo systemctl stop arcadematrix'" >> /home/pi/.bash_aliases
+echo "alias am-start='sudo systemctl start arcadematrix'" >> /home/pi/.bash_aliases
+chown pi:pi /home/pi/.bash_aliases
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 history -c

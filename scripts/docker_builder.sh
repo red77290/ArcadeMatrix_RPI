@@ -122,22 +122,38 @@ chmod +x /mnt/rootfs/usr/local/bin/arcadematrix
 chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."
-cp -r /workspace/fighters_32 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/fighters_64 /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/gifs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/fonts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/weather_icons /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/scripts /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,weather_icons,scripts,docs}
+cp -r /workspace/fighters_32/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_32/ 2>/dev/null || true
+cp -r /workspace/fighters_64/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_64/ 2>/dev/null || true
+cp -r /workspace/gifs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/gifs/ 2>/dev/null || true
+cp -r /workspace/fonts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fonts/ 2>/dev/null || true
+cp -r /workspace/weather_icons/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/weather_icons/ 2>/dev/null || true
+cp -r /workspace/scripts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/scripts/ 2>/dev/null || true
 cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/docs /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/docs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/docs/ 2>/dev/null || true
+
+echo "🎛️ Applying Kernel configurations directly to boot partition..."
+CONFIG_TXT="/mnt/rootfs/boot/firmware/config.txt"
+if grep -q "dtparam=audio=on" "$CONFIG_TXT"; then
+    sed -i 's/dtparam=audio=on/dtparam=audio=off/g' "$CONFIG_TXT"
+elif ! grep -q "dtparam=audio=off" "$CONFIG_TXT"; then
+    echo "dtparam=audio=off" >> "$CONFIG_TXT"
+fi
+sed -i 's/dtoverlay=vc4-kms-v3d$/dtoverlay=vc4-kms-v3d,noaudio/g' "$CONFIG_TXT"
+
+CMDLINE_TXT="/mnt/rootfs/boot/firmware/cmdline.txt"
+if ! grep -q "isolcpus=" "$CMDLINE_TXT"; then
+    sed -i '1 s/$/ isolcpus=3/' "$CMDLINE_TXT"
+fi
+
+mkdir -p /mnt/rootfs/etc/modprobe.d
+echo "blacklist snd_bcm2835" > /mnt/rootfs/etc/modprobe.d/snd-blacklist.conf
 
 echo "📝 Injecting chroot setup script (only for systemd & symlinks)..."
 cp /workspace/scripts/chroot_setup.sh /mnt/rootfs/tmp/chroot_setup.sh
 chmod +x /mnt/rootfs/tmp/chroot_setup.sh
 
-# Pass DATA partition UUID to chroot to setup fstab
-DATA_UUID=$(blkid -s UUID -o value $PART_DATA)
-echo "$DATA_UUID" > /mnt/rootfs/tmp/data_uuid.txt
+# We will use LABEL=DATA in fstab instead of UUID to be more robust
 
 echo "🚀 Entering ARM emulator to setup systemd services..."
 chroot /mnt/rootfs /bin/bash /tmp/chroot_setup.sh

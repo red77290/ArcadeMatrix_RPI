@@ -144,7 +144,14 @@ impl HardwareMatrix {
             options.set_hardware_mapping(hardware_mapping);
         }
         if !rgb_sequence.is_empty() {
-            options.set_led_rgb_sequence(rgb_sequence);
+            // Purposefully leak the CString pointer to prevent LedMatrixOptions Drop from freeing it,
+            // which would cause the C++ library to read garbage and revert to the default "RGB" mapping.
+            let ptr = std::ffi::CString::new(rgb_sequence).unwrap().into_raw();
+            unsafe {
+                // Free the original "RGB" pointer created by Default, but do NOT track the new pointer
+                let _ = std::ffi::CString::from_raw(options.0.led_rgb_sequence as *mut _);
+                options.0.led_rgb_sequence = ptr;
+            }
         }
         let _ = options.set_pwm_bits(pwm_bits as u8);
         options.set_pwm_lsb_nanoseconds(pwm_lsb);

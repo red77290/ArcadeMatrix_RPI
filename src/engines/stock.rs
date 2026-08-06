@@ -102,7 +102,8 @@ impl StockEngine {
         let icon_path = format!("data/stock_icons/{}.png", symbol.to_lowercase());
         if !Path::new(&icon_path).exists() {
             if let Some(u) = url {
-                if let Ok(resp) = reqwest::blocking::get(&u) {
+                let proxy_url = format!("https://wsrv.nl/?url={}&w=16&h=16&output=png", u);
+                if let Ok(resp) = reqwest::blocking::get(&proxy_url) {
                     if resp.status().is_success() {
                         if let Ok(bytes) = resp.bytes() {
                             let _ = std::fs::create_dir_all("data/stock_icons");

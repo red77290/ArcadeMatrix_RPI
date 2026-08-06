@@ -36,18 +36,17 @@ Si vous ajoutez une fonctionnalité complètement nouvelle (comme la récupérat
 
 ## Conventions de code
 
-* **Langage** : le dépôt principal utilise Python 3 pour le Raspberry Pi.
-* **Typage** : utilisez des annotations de type lorsque c'est possible pour clarifier les contrats Engine/Renderer.
-* **Tests** : toutes les routes API et la logique de configuration Core doivent avoir une couverture de routes de test à 100 %. Utilisez `pytest`.
+* **Langage** : le dépôt principal utilise Rust pour le Raspberry Pi.
+* **Typage** : utilisez pleinement le typage statique fort de Rust et ses Traits pour clarifier les contrats Engine/Renderer.
+* **Tests** : toutes les routes API et la logique de configuration Core doivent être couvertes par `cargo test`.
 * **Indépendance matérielle** : ne supposez pas que la matrice fait exactement 64x32. Utilisez toujours `self.config.matrix_width` et `self.config.matrix_height`.
 
 ## Ajouter un nouveau Renderer
 
-1. Créez un nouveau fichier dans `engines/renderers/my_custom_renderer.py`.
-2. Héritez de `BaseRenderer`.
-3. Redéfinissez `render(...)` pour le dessin statique.
-4. Redéfinissez `animate(...)` si votre renderer doit prendre le contrôle de la boucle de frames pour dessiner des transitions.
-5. Enregistrez-le dans `engines/renderers/__init__.py`.
+*Note : La procédure exacte est en cours de mise à jour pour l'architecture Rust.*
+1. Créez un nouveau fichier dans `src/engines/renderers/my_custom_renderer.rs`.
+2. Implémentez le trait `Renderer`.
+3. Enregistrez-le dans `src/engines/renderers/mod.rs`.
 
 ## Architecture Decision Records (ADR)
 

@@ -8,7 +8,7 @@ This document provides a comprehensive overview of the ArcadeMatrix architecture
 
 ## 1. Core Philosophy
 
-ArcadeMatrix is designed to drive a HUB75 LED Matrix using the `hzeller/rpi-rgb-led-matrix` C++ library via its Python bindings. The primary goals are:
+ArcadeMatrix is designed to drive a HUB75 LED Matrix using the `hzeller/rpi-rgb-led-matrix` C++ library via its Rust bindings. The primary goals are:
 - **Pixel-Perfect Rendering:** Support for sharp `.bdf` bitmap fonts and crisp sprites.
 - **Modularity:** Easy addition of new visual themes, clocks, and data sources.
 - **Responsiveness:** A snappy Web API that can interrupt and change the display instantly without crashing the hardware driver.
@@ -24,7 +24,7 @@ To keep the codebase maintainable, we strictly separate the logic of *what* to d
 ```mermaid
 graph TD
     subgraph Data Layer
-        API[Flask Web API]
+        API[Actix-web Web API]
         Config[conf.ini / ConfigLoader]
         Time[System Time]
         Network[Weather / MQTT APIs]
@@ -35,13 +35,15 @@ graph TD
         ClockE[ClockEngine]
         DateE[DateEngine]
         WeathE[WeatherEngine]
-        Rot --> ClockE & DateE & WeathE
+        CryptoE[CryptoEngine]
+        StockE[StockEngine]
+        Rot --> ClockE & DateE & WeathE & CryptoE & StockE
     end
 
     subgraph Logic & Aesthetic Layer
         ClockE -->|Theme ID 0-21| Renderers[Renderers: Cyberpunk, Flip, Matrix]
         ClockE -->|Theme ID 22+| SpClocks[Specialized Clocks: Pong, Tetris, PacMan]
-        Renderers --> Pil[Pillow Image Canvas]
+        Renderers --> Pil[image-rs Image Canvas]
         SpClocks --> Pil
     end
 
@@ -113,22 +115,22 @@ classDiagram
 ArcadeMatrix uses a dual-thread architecture.
 
 ### The Main Thread (Hardware & Rendering)
-The `rgbmatrix` library relies on highly precise hardware PWM to prevent flickering on the LED matrix. Because Python's Global Interpreter Lock (GIL) and context switching can disrupt this timing, **all rendering and hardware communication must occur strictly on the main thread.**
-- Do NOT use `asyncio` or spawn new threads for drawing.
-- `time.sleep()` is heavily utilized in engine loops to yield execution cleanly without starving the DMA buffer.
+The `rgbmatrix` library relies on highly precise hardware PWM to prevent flickering on the LED matrix. While Rust is incredibly fast and has no garbage collector, context switching can still disrupt hardware timing. Therefore, **all rendering and hardware communication must occur strictly on the main thread.**
+- `tokio::spawn` is used for background tasks, but the matrix update loop is strictly bound to the main thread.
+- `std::thread::sleep()` or `tokio::time::sleep()` is used to yield execution cleanly.
 
 ### The Background Thread (Web API)
-A lightweight Flask server runs on a secondary daemon thread (`api/server.py`). 
+A lightweight Actix-web server runs on a secondary daemon thread (`src/api/server.rs`). 
 - It serves the static frontend dashboard (built with Vite, vanilla JS/HTML/CSS - despite an
   earlier version of this doc, it is **not** Vue.js: verified against the actual bundle in
   `api/www/assets/`, no Vue runtime signatures present) and exposes REST endpoints.
 - **Communication:** The API thread never draws to the matrix directly. Instead, it writes to the shared `Config` object in memory and sets thread-safe flags (e.g., `config.reload_flag = True` or `config.force_engine = "weather"`). The Main Thread detects these flags during its next loop iteration and gracefully aborts/restarts the engine to reflect the new settings.
 
 ### The MQTT Thread (Pixelcade Integration)
-A `paho-mqtt` loop runs in its own thread to receive live game events from Recalbox or Batocera.
-- **Asynchronous Fetching:** When a game is selected, the thread instantly sets `force_engine = 'message'` to show fallback text, while simultaneously spawning a transient background thread via `DMDCache` to download the official Pixelcade marquee image from GitHub.
-- **Atomic Caching:** To prevent SD card corruption if multiple downloads race for the same file, the background thread writes to a temporary file (`.tmp.[thread_id]`) and uses `os.rename()` for atomic replacement.
-- **Deadlock Prevention:** The `DMDCache` uses a strict single-acquisition locking model for `self._lock` to assign request IDs. Background threads never execute callbacks while holding the lock, preventing classic reentrant lock deadlocks when the callback updates the Main Thread state.
+A `rumqttc` task runs in the background to receive live game events from Recalbox or Batocera.
+- **Asynchronous Fetching:** When a game is selected, the thread instantly sets `force_engine = 'message'` to show fallback text, while simultaneously spawning a transient background task via `tokio` to download the official Pixelcade marquee image from GitHub.
+- **Atomic Caching:** To prevent SD card corruption if multiple downloads race for the same file, the background task writes to a temporary file (`.tmp.[task_id]`) and uses `fs::rename()` for atomic replacement.
+- **Deadlock Prevention:** The Rust version uses `RwLock` and atomic variables instead of Python locks, completely avoiding GIL-related deadlocks when updating the Main Thread state.
 
 ---
 
@@ -136,7 +138,7 @@ A `paho-mqtt` loop runs in its own thread to receive live game events from Recal
 
 Because HUB75 matrices have extremely low resolutions (e.g., 64x32), standard TrueType (`.ttf`) fonts often look blurry due to anti-aliasing. To solve this, we use `.bdf` bitmap fonts.
 
-However, PIL (Pillow) does not natively support scaling `.bdf` fonts. Our architecture intercepts `.bdf` rendering:
+However, PIL (image-rs) does not natively support scaling `.bdf` fonts. Our architecture intercepts `.bdf` rendering:
 1. It draws the `.bdf` text to a 1-bit binary mask at its original 1x scale.
 2. It scales the mask using the `NEAREST` neighbor algorithm to multiply its size perfectly (2x, 3x, etc.) without blurring.
 3. It recolors the scaled mask and pastes it onto the final RGB canvas.
@@ -155,7 +157,10 @@ To extend the lifespan of the LED matrix and reduce energy consumption, ArcadeMa
 
 If you explore the `RetroPixelLED/ArcadeMatrix` repository, you will notice the ESP32 version is written in C++ and has a different architecture.
 
-- **RPi (Python):** Uses a decoupled Rendering Pipeline (Engines -> Renderers -> PIL Canvas -> Matrix). RAM is abundant (512MB+), allowing us to manipulate full RGB canvases in memory using Pillow before sending them to the hardware.
+- **RPi (Rust):** Uses a decoupled Rendering Pipeline (Engines -> Renderers -> PIL Canvas -> Matrix). RAM is abundant (512MB+), allowing us to manipulate full RGB canvases in memory using image-rs before sending them to the hardware.
 - **ESP32 (C++):** Uses a Monolithic Engine structure. RAM is extremely limited (320KB). Instead of drawing to an off-screen canvas, the ESP32 code often writes pixels directly to the DMA buffer or uses minimal 1D arrays. It does not use a separated "Renderer" pipeline to avoid dynamic memory allocation and pointer overhead. 
 
 *This architectural divergence is intentional and optimizes for the specific constraints of each hardware platform.*
+
+## Dependency Injection & Providers
+The project uses a Dependency Injection (DI) architecture for its API-driven engines (Crypto, Stock, Weather). Engines are decoupled from HTTP logic via interfaces (`IProvider` in C++, `traits` in Rust). This allows fallback mechanisms across multiple providers and enables comprehensive unit testing via Mocks.

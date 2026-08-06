@@ -1,9 +1,9 @@
-name: Build and Release ArcadeMatrix Image
+name: Build and Release ArcadeMatrix
 
 on:
   push:
     tags:
-      - 'v*.*.*'  # Trigger on version tags (e.g., v1.0.0)
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       image_size:
@@ -13,78 +13,125 @@ on:
 
 jobs:
   test:
-    # Gate the release build on the test suite - tags/workflow_dispatch don't run tests.yml
-    # (it only triggers on branch pushes/PRs), so without this a broken commit could still be
-    # tagged and published as a release image.
+    name: Run Test Suite
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Configure Git for Cargo
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p ~/.cargo
+          echo "[net]" >> ~/.cargo/config.toml
+          echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+      - name: Run Cargo Tests
+        run: cargo test
+
+  publish-ota-binaries:
+    name: Build OTA Binary (${{ matrix.target }})
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        target:
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: 'pip'
-
-      - name: Install runtime dependencies
+      - uses: actions/checkout@v4
+      - name: Update Cargo.toml version from tag
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          VERSION=${GITHUB_REF_NAME#v}
+          sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
 
-      - name: Install test dependencies
-        run: pip install pytest
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
-      - name: Run pytest
-        run: python -m pytest tests/ -v
+      - name: Configure Git for Cargo
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p ~/.cargo
+          echo "[net]" >> ~/.cargo/config.toml
+          echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
+
+      - name: Install Cross
+        run: cargo install cross
+
+      - name: Cross Build Release Binary
+        run: cross build --target ${{ matrix.target }} --release
+
+      - name: Package Binary for OTA
+        run: |
+          ARCH=$(echo "${{ matrix.target }}" | cut -d- -f1)
+          BINARY_NAME="arcadematrix_${GITHUB_REF_NAME}_${ARCH}"
+          cp "target/${{ matrix.target }}/release/arcadematrix" "$BINARY_NAME"
+          strip "$BINARY_NAME" || true
+
+      - name: Upload OTA Assets to GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: arcadematrix_*
+          generate_release_notes: true
 
   build-image:
+    name: Build Precompiled SD Image (${{ matrix.arch }})
     needs: test
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    strategy:
+      matrix:
+        arch: [aarch64, armhf]
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Free Disk Space (Ubuntu)
+      - name: Update Cargo.toml version from tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+
+      - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: true
           android: true
           dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
 
       - name: Install Prerequisites
         run: |
           sudo apt-get update
-          sudo apt-get install -y qemu-user-static kpartx dosfstools exfatprogs exfat-fuse xz-utils parted
+          sudo apt-get install -y qemu-user-static kpartx dosfstools exfatprogs xz-utils parted
+          
+      - name: Configure Git for Cargo
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          mkdir -p ~/.cargo
+          echo "[net]" >> ~/.cargo/config.toml
+          echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
 
       - name: Run Build Image Script
         run: |
-          chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/chroot_setup.sh
-          # If triggered manually, use the provided size, otherwise default to 14G
+          chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/build.sh scripts/chroot_setup.sh
           TARGET_SIZE="${{ github.event.inputs.image_size || '14G' }}"
-          sudo ./scripts/build_image.sh $TARGET_SIZE
+          sudo ./scripts/build_image.sh $TARGET_SIZE ${{ matrix.arch }}
 
       - name: Compress Image
         run: |
-          echo "Compressing ArcadeMatrix_Release.img into xz format to save space..."
-          sudo chown $USER:$USER ArcadeMatrix_Release.img
-          xz -T0 -9 ArcadeMatrix_Release.img
+          sudo chown $USER:$USER ArcadeMatrix_Release_${{ matrix.arch }}.img
+          xz -T0 -9 ArcadeMatrix_Release_${{ matrix.arch }}.img
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: ArcadeMatrix_Release.img.xz
+          files: ArcadeMatrix_Release_${{ matrix.arch }}.img.xz
           generate_release_notes: true
-          draft: false
-          prerelease: false

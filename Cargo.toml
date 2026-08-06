@@ -1,0 +1,77 @@
+[package]
+name = "arcadematrix"
+version = "2.0.0"
+edition = "2021"
+description = "ArcadeMatrix RPi - Native Rust LED matrix controller for HUB75 panels"
+license = "PolyForm-Noncommercial-1.0.0"
+build = "build.rs"
+
+[features]
+default = []
+hardware = []
+
+[dependencies]
+# Config
+configparser = "3"
+
+# Image processing
+image = "0.25"
+imageproc = "0.25"
+rusttype = "0.9"
+
+# Web API
+actix-web = "4"
+actix-files = "0.6"
+actix-multipart = "0.7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# MQTT
+rumqttc = "0.24"
+
+# SSH
+ssh2 = { version = "0.9", features = ["vendored-openssl"] }
+
+# HTTP client
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+futures-util = "0.3"
+
+# System info
+sysinfo = "0.32"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+tracing-appender = "0.2"
+
+# Threading
+parking_lot = "0.12"
+
+# GIF decoding
+gif = "0.13"
+
+# Compression
+flate2 = "1"
+
+# Misc
+chrono = "0.4"
+chrono-tz = "0.9.0"
+rand = "0.8"
+byteorder = "1"
+
+# OTA tokio
+tokio = { version = "1", features = ["fs", "process", "rt", "macros"] }
+rust-embed = "8.12.0"
+mime_guess = "2.0.5"
+bdf-parser = "0.1.0"
+
+[dev-dependencies]
+tempfile = "3"
+
+[build-dependencies]
+chrono = "0.4"
+
+[target.'cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))'.dependencies]
+rpi-led-matrix = { package = "pi-led-matrix", git = "https://github.com/AidanWallace/rust-rpi-rgb-led-matrix", default-features = false }
+libc = "0.2"
+

@@ -1,90 +1,68 @@
 🇬🇧 [English](GETTING_STARTED.md) | 🇫🇷 Français | 🇪🇸 [Español](GETTING_STARTED_ES.md)
 
-# Premiers pas (app Raspberry Pi, configuration du workspace développeur)
+# Premiers pas (app Raspberry Pi en Rust, configuration du workspace développeur)
 
-Ce guide s'adresse aux développeurs qui mettent en place un **environnement de développement local** sur leur propre machine
-(Mac/Linux/Windows) pour travailler sur la codebase ArcadeMatrix_RPi — par opposition à `QUICKSTART_FR.md`,
-qui vise les utilisateurs finaux flashant une image préconstruite sur un Raspberry Pi. Pour l'architecture et
-les conventions de contribution (Engines vs. Renderers), voir `DEVELOPER_FR.md` et `../CONTRIBUTING_FR.md`.
+Ce guide s'adresse aux développeurs qui mettent en place un **environnement de développement local** sur leur propre machine (Mac/Linux/Windows) pour travailler sur la codebase ArcadeMatrix_RPi en **Rust natif**.
 
-## 1. Créer un environnement virtuel
+---
+
+## 1. Prérequis système
+
+- **Rust Toolchain (1.75+)** : installable via `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- **Cargo** : le gestionnaire de paquets et de build Rust (fourni avec Rustup).
+
+---
+
+## 2. Compiler et exécuter en local (Dev / Mock Matrix)
+
+Sur n'importe quel Mac, Linux ou Windows sans Raspberry Pi :
 
 ```bash
 git clone <this-repo-url>
 cd ArcadeMatrix_RPi
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
+git checkout rust_migration
+
+# Vérification rapide de compilation
+cargo check
+
+# Compiler et lancer en mode de développement avec le Mock Canvas
+cargo run
 ```
 
-## 2. Installer les dépendances
+Par défaut sur Mac/Windows, le projet utilise `MockMatrix`, qui simule la matrice LED en mémoire tout en lançant le serveur Web Actix à l'adresse `http://127.0.0.1:8080`.
+
+---
+
+## 3. Exécuter la suite de tests
+
+La suite de tests Rust valide la configuration, l'API REST Actix et la validation des binaires de mise à jour OTA (`POST /api/update`) :
 
 ```bash
-pip install -r requirements.txt
-pip install pytest                # not in requirements.txt (runtime deps only) - needed for tests
+cargo test
 ```
 
-**Point matériel important :** `requirements.txt` **n'inclut pas** `rgbmatrix` — il s'agit du binding Python de [hzeller's `rpi-rgb-led-matrix`](https://github.com/hzeller/rpi-rgb-led-matrix), une extension C++ compilée qui ne se construit/ne s'exécute que sur un vrai Raspberry Pi (elle parle directement aux broches GPIO). Cela signifie :
-- `python3 main.py` **ne peut pas fonctionner de bout en bout sur une machine de dev classique** — `core/matrix.py` importe `rgbmatrix` sans condition au chargement du module, donc cela échouera immédiatement hors Pi.
-- Vous pouvez quand même développer et tester tout ce qui n'a pas besoin de dessiner sur un panneau physique : l'API Flask (`api/server.py`), le parsing de configuration (`core/config.py`), la logique de rotation (`core/rotation.py`) et la majeure partie de la logique métier des Engines — voir la section tests ci-dessous, qui mocke déjà entièrement la couche matrice.
-- Si vous voulez un aperçu visuel en direct sur votre machine de dev sans Pi, regardez [`RGBMatrixEmulator`](https://github.com/ty-porter/RGBMatrixEmulator) (un package drop-in, compatible API, qui rend dans une fenêtre Pygame ou dans le navigateur au lieu du vrai GPIO). Il n'est **pas actuellement câblé dans ce projet** — `core/matrix.py` devrait échanger conditionnellement son `from rgbmatrix import ...` — mais c'est un shim compatible bien connu si vous voulez expérimenter localement.
-
-## 3. Lancer réellement l'application
-
-L'exécution complète de l'application nécessite un Raspberry Pi avec la matrice câblée conformément à
-`ARCHITECTURE_FR.md` / aux instructions du fabricant du HAT, et `rgbmatrix` compilé/installé
-(`../install.sh` à la racine du dépôt automatise cela, y compris la configuration du service systemd). Sur le Pi :
+Vérification du formatage et des règles de linter :
 
 ```bash
-sudo python3 main.py
+cargo fmt --check
+cargo clippy -- -D warnings
 ```
 
-(root/`sudo` est requis — `rgbmatrix` a besoin d'un accès direct au GPIO/DMA.)
+---
 
-Pour une installation totalement clé en main, `../install.sh` configure une unité systemd `arcadematrix.service` afin que l'application
-démarre au boot et redémarre après un crash — vérifiez son statut/logs avec :
+## 4. Cross-compilation et Déploiement Raspberry Pi
+
+Pour compiler le binaire natif pour Raspberry Pi depuis votre machine Mac/Linux :
 
 ```bash
-sudo systemctl status arcadematrix.service
-sudo journalctl -u arcadematrix.service -f      # live-tail systemd's own logs
+# Installer cross
+cargo install cross
+
+# Cross-compilation 64-bit ARM (Raspberry Pi 3, 4, Zero 2 W)
+cross build --target aarch64-unknown-linux-gnu --release
+
+# Cross-compilation 32-bit ARM (Raspberry Pi 2, Zero)
+cross build --target armv7-unknown-linux-gnueabihf --release
 ```
 
-## 4. Où sont les logs
-
-Indépendamment de systemd, l'application écrit aussi son propre fichier de logs rotatif à côté de `main.py` :
-
-```bash
-tail -f arcadematrix.log            # rotates at 5MB, keeps 3 backups (see main.py)
-```
-
-Un `crash.log` séparé est écrit (et écrasé) si le processus meurt à cause d'une exception non interceptée
-(voir le handler `sys.excepthook` au début de `main.py`) — regardez ce fichier en priorité après n'importe quel crash.
-
-## 5. Exécuter la suite de tests
-
-C'est la manière principale de valider les changements sans matériel réel — la suite existante mocke déjà la matrice
-(`MockMatrix`/`MockMatrixWrapper` dans `tests/conftest.py`) afin qu'elle s'exécute de façon identique sur votre machine de dev ou en CI :
-
-```bash
-python3 -m pytest tests/ -v
-```
-
-Voir la section « Testing Your Code » de `DEVELOPER_FR.md` pour les attentes du projet en matière de couverture
-(100 % sur les routes API) et `../CONTRIBUTING_FR.md` pour savoir ce qui compte comme Engine vs. Renderer lors de l'ajout de nouveaux tests.
-
-## 6. Construire une image de release (optionnel, pour les maintainers)
-
-Si vous devez produire une image Raspberry Pi OS complète et flashable (comme celle liée depuis
-`QUICKSTART_FR.md`), voir `../scripts/build_image.sh` (macOS/Linux, nécessite Docker) — il télécharge
-Raspberry Pi OS Lite, injecte ce dépôt, compile le Python en bytecode pour masquer les sources et
-crée la partition FAT32/exFAT `DATA` sur laquelle les utilisateurs finaux déposent leurs GIFs/fonts/sprites. C'est un
-processus de 10 à 15 minutes et ce n'est pas nécessaire pour le développement quotidien de fonctionnalités — uniquement pour couper un nouvel artefact de release.
-
-## Dépannage
-
-- **`ModuleNotFoundError: No module named 'rgbmatrix'`** lors de l'exécution de `python3 main.py` hors Pi :
-  c'est attendu, voir §2 ci-dessus — utilisez `pytest` pour le développement local à la place.
-- **`ImportError` pour `paho.mqtt`** : la prise en charge MQTT est optionnelle (flag `MQTT_AVAILABLE` dans `main.py`) ;
-  installez `paho-mqtt` (déjà dans `requirements.txt`) si vous devez tester localement l'intégration Batocera/Recalbox.
-- **Les tests échouent avec des erreurs d'import `rgbmatrix`** : assurez-vous de tester via `api/server.py`
-  et les fixtures fournies (`tests/conftest.py`) plutôt qu'en important directement `core.matrix` dans
-  un nouveau test — les tests existants sont structurés précisément pour éviter de toucher à ce module.
+Le binaire produit se trouve dans `target/aarch64-unknown-linux-gnu/release/arcadematrix`. Il peut être déployé directement sur le Pi ou mis à jour sans interruption via l'interface Web (section **Firmware Update (OTA)**).

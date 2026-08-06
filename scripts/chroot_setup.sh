@@ -6,34 +6,23 @@ echo "🔧 [chroot] Starting ArcadeMatrix OS Setup via autoInstall.sh..."
 PROJ_DIR="/home/pi/ArcadeMatrix_RPi"
 cd $PROJ_DIR
 
-# 1. Run the base auto-installer
+# 1. Run the base auto-installer (systemd setup)
 chmod +x autoInstall.sh
+# Create a dummy Cargo.toml to satisfy autoInstall.sh's root check
+touch Cargo.toml
+export SKIP_BUILD=1
 ./autoInstall.sh
-
-# 2. Add extra Release-only steps (Obfuscation)
-echo "🔒 [chroot] Cythonizing source code for protection..."
-# Install Cython in venv
-./venv/bin/pip install Cython
-
-# Find all python files except main.py and compile them
-find api core engines -name "*.py" -type f | while read -r file; do
-    echo "Compiling $file..."
-    ./venv/bin/cythonize -i -3 "$file"
-    # Remove the original source and intermediate C files
-    rm "$file"
-    rm "${file%.py}.c" || true
-done
 
 # 3. Add extra Release-only steps (DATA Partition)
 echo "🔗 [chroot] Configuring DATA partition..."
-DATA_UUID=$(cat /tmp/data_uuid.txt)
 
 # Initialize the DATA partition
 mkdir -p $PROJ_DIR/data/gifs
 mkdir -p $PROJ_DIR/data/fonts
 mkdir -p $PROJ_DIR/data/fighters_32
 mkdir -p $PROJ_DIR/data/fighters_64
-
+mkdir -p $PROJ_DIR/data/crypto_icons
+mkdir -p $PROJ_DIR/data/stock_icons
 # Move existing fonts, gifs, and fighters to data partition
 if [ -d "$PROJ_DIR/fonts" ]; then
     cp -r $PROJ_DIR/fonts/* $PROJ_DIR/data/fonts/ || true
@@ -52,27 +41,41 @@ if [ -d "$PROJ_DIR/fighters_64" ]; then
     rm -rf $PROJ_DIR/fighters_64
 fi
 
+
 chown -R pi:pi $PROJ_DIR/data || true
 
 # Add DATA partition to fstab so it mounts on boot
-echo "UUID=$DATA_UUID  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
+echo "LABEL=DATA  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
 
 # Create symlinks to the DATA partition
 ln -s $PROJ_DIR/data/gifs $PROJ_DIR/gifs
 ln -s $PROJ_DIR/data/fonts $PROJ_DIR/fonts
 ln -s $PROJ_DIR/data/fighters_32 $PROJ_DIR/fighters_32
 ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
+ln -s $PROJ_DIR/data/crypto_icons $PROJ_DIR/crypto_icons
+ln -s $PROJ_DIR/data/stock_icons $PROJ_DIR/stock_icons
+ln -s $PROJ_DIR/data/scripts $PROJ_DIR/scripts
 
 echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
 cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini
-chown pi:pi $PROJ_DIR/data/conf.ini || true
+cp $PROJ_DIR/conf.ini.backup $PROJ_DIR/data/conf.ini.backup || true
+chown pi:pi $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
 
 # Create symlink for conf.ini
 rm -f $PROJ_DIR/conf.ini || true
 ln -s $PROJ_DIR/data/conf.ini $PROJ_DIR/conf.ini
 
-echo "🧹 [chroot] Cleaning up..."
-rm -rf /tmp/chroot_setup.sh /tmp/data_uuid.txt
+echo "🧹 [chroot] Cleanup..."
+rm -f /tmp/chroot_setup.sh
+
+echo "✨ [chroot] Setup complete!"
+
+# 5. Add useful Bash aliases for the pi user
+echo "alias am='sudo systemctl restart arcadematrix'" >> /home/pi/.bash_aliases
+echo "alias am-log='sudo journalctl -u arcadematrix -f'" >> /home/pi/.bash_aliases
+echo "alias am-stop='sudo systemctl stop arcadematrix'" >> /home/pi/.bash_aliases
+echo "alias am-start='sudo systemctl start arcadematrix'" >> /home/pi/.bash_aliases
+chown pi:pi /home/pi/.bash_aliases
 apt-get clean
 rm -rf /var/lib/apt/lists/*
 history -c

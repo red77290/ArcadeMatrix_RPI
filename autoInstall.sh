@@ -31,44 +31,28 @@ if command -v apt-get &> /dev/null; then
     sudo systemctl restart mosquitto || true
 fi
 
-# 3. Check if we are in the project root
-if [ -z "$SKIP_BUILD" ]; then
-    if [ ! -f "Cargo.toml" ]; then
-        echo "Cargo.toml not found. It looks like you ran this script standalone."
-        ACTUAL_USER=${SUDO_USER:-$USER}
-        ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
-        cd "$ACTUAL_HOME" || true
-        
-        if [ -d "ArcadeMatrix_RPi" ]; then
-            echo "Directory ArcadeMatrix_RPi already exists, updating via git pull..."
-            cd ArcadeMatrix_RPi
-            git pull || true
-        elif [ -d "ArcadeMatrix_RPI" ]; then
-            echo "Directory ArcadeMatrix_RPI already exists, updating via git pull..."
-            cd ArcadeMatrix_RPI
-            git pull || true
-        else
-            echo "Cloning the ArcadeMatrix_RPi repository..."
-            git clone https://github.com/red77290/ArcadeMatrix_RPI.git ArcadeMatrix_RPi
-            cd ArcadeMatrix_RPi || { echo "Failed to enter directory"; exit 1; }
-        fi
-    else
-        echo "Found Cargo.toml, proceeding with local files..."
-    fi
-else
-    echo "SKIP_BUILD is set, skipping git clone."
+# 3. Check if we are in the project root and clone if necessary
+if [ ! -f "Cargo.toml" ]; then
+    echo "Cargo.toml not found. It looks like you ran this script standalone."
     ACTUAL_USER=${SUDO_USER:-$USER}
     ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
+    cd "$ACTUAL_HOME" || true
     
-    if [ -d "$ACTUAL_HOME/ArcadeMatrix_RPi" ]; then
-        echo "Navigating to existing repository at $ACTUAL_HOME/ArcadeMatrix_RPi"
-        cd "$ACTUAL_HOME/ArcadeMatrix_RPi" || true
-    elif [ -d "$ACTUAL_HOME/ArcadeMatrix_RPI" ]; then
-        echo "Navigating to existing repository at $ACTUAL_HOME/ArcadeMatrix_RPI"
-        cd "$ACTUAL_HOME/ArcadeMatrix_RPI" || true
+    if [ -d "ArcadeMatrix_RPi" ]; then
+        echo "Directory ArcadeMatrix_RPi already exists, updating via git pull..."
+        cd ArcadeMatrix_RPi
+        git pull || true
+    elif [ -d "ArcadeMatrix_RPI" ]; then
+        echo "Directory ArcadeMatrix_RPI already exists, updating via git pull..."
+        cd ArcadeMatrix_RPI
+        git pull || true
     else
-        echo "WARNING: Could not find ArcadeMatrix_RPi in $ACTUAL_HOME"
+        echo "Cloning the ArcadeMatrix_RPi repository..."
+        git clone https://github.com/red77290/ArcadeMatrix_RPI.git ArcadeMatrix_RPi
+        cd ArcadeMatrix_RPi || { echo "Failed to enter directory"; exit 1; }
     fi
+else
+    echo "Found Cargo.toml, proceeding with local files..."
 fi
 
 CURRENT_DIR=$(pwd)

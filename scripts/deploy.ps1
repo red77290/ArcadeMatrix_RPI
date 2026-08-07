@@ -74,8 +74,8 @@ $SCP_DEST = '{0}:/home/{1}/arcadematrix_temp' -f $REMOTE_USER_IP, $PI_USER
 scp -o StrictHostKeyChecking=no $BIN_PATH $SCP_DEST
 
 Write-Host "[Step 4] Moving binary and starting service..."
-Invoke-RemoteBash ('echo ''{0}'' | sudo -S mv /home/{1}/arcadematrix_temp /usr/local/bin/arcadematrix' -f $PI_PASS, $PI_USER)
-Invoke-RemoteBash ('echo ''{0}'' | sudo -S chmod +x /usr/local/bin/arcadematrix' -f $PI_PASS)
+Invoke-RemoteBash ('echo ''{0}'' | sudo -S mv /home/{1}/arcadematrix_temp /home/{1}/ArcadeMatrix_RPi/arcadematrix' -f $PI_PASS, $PI_USER)
+Invoke-RemoteBash ('echo ''{0}'' | sudo -S chmod +x /home/{1}/ArcadeMatrix_RPi/arcadematrix' -f $PI_PASS, $PI_USER)
 
 $CHECK_SERVICE_CMD = 'if systemctl list-unit-files | grep -q arcadematrix.service; then echo ''installed''; else echo ''missing''; fi'
 $BYTES = [System.Text.Encoding]::UTF8.GetBytes($CHECK_SERVICE_CMD)

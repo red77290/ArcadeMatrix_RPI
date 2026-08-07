@@ -22,7 +22,7 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 *(Both are `.img.xz` files - decompress with 7-Zip/Keka/`xz -d` before flashing. See the [full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)*
 
 1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
-2. Once flashed, insert the SD card into your PC/Mac. You will see a large 8GB **DATA** USB drive appear!
+2. Once flashed, insert the SD card into your PC/Mac. You will see a large **DATA** USB drive appear!
 3. Open the `conf.ini` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`SSID` and `PASS`).
 4. Plug the SD card into your Raspberry Pi and power it on.
 5. The Matrix will immediately turn on and **display the IP address** for 5 seconds. Use this IP to access the Web UI!
@@ -122,7 +122,7 @@ While an unstable Wi-Fi might be acceptable if you only use the Web UI occasiona
 
 ## 🎨 Media Management
 
-The pre-compiled image features a dedicated **8GB DATA partition** formatted as exFAT. This means you can plug your SD card directly into your Windows or Mac computer to drag-and-drop your files without needing SSH or FTP!
+The pre-compiled image features a dedicated **DATA partition** formatted as exFAT. This means you can plug your SD card directly into your Windows or Mac computer to drag-and-drop your files without needing SSH or FTP!
 
 ### Sprites & GIFs
 * **`/fighters_32/`** or **`/fighters_64/`**: Put your `.fgt` sprites here (See MUGEN Sprites section below).

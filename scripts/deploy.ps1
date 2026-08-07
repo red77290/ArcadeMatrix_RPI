@@ -51,7 +51,18 @@ Write-Host "📤 3. Uploading correct binary..."
 scp -o StrictHostKeyChecking=no $BIN_PATH "${PI_USER}@${PI_IP}:/home/${PI_USER}/arcadematrix_temp"
 
 Write-Host "⚙️  4. Moving binary and starting service..."
-ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix && echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix && if systemctl list-unit-files | grep -q arcadematrix.service; then echo '✅ Service already installed, restarting only...'; echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service; else echo '⚠️ Service not found, running full autoInstall.sh setup...'; echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/ArcadeMatrix_RPi/autoInstall.sh; fi"
+ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix"
+ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix"
+
+$CHECK_SERVICE = ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi"
+
+if ($CHECK_SERVICE -match "installed") {
+    Write-Host "✅ Service already installed, restarting only..."
+    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
+} else {
+    Write-Host "⚠️ Service not found, running full autoInstall.sh setup..."
+    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/ArcadeMatrix_RPi/autoInstall.sh"
+}
 
 Write-Host "✅ Deployment successful!"
 Write-Host "=========================================================="

@@ -123,6 +123,8 @@ impl HardwareMatrix {
         cols: u32,
         chain: u32,
         parallel: u32,
+        multiplexing: u32,
+        row_addr_type: u32,
         hardware_mapping: &str,
         rgb_sequence: &str,
         slowdown: u32,
@@ -138,6 +140,8 @@ impl HardwareMatrix {
         options.set_cols(cols);
         options.set_chain_length(chain);
         options.set_parallel(parallel);
+        options.set_multiplexing(multiplexing);
+        options.set_row_addr_type(row_addr_type);
         options
             .set_brightness(brightness.min(100).max(1))
             .unwrap_or(());
@@ -151,7 +155,10 @@ impl HardwareMatrix {
         options.set_pwm_lsb_nanoseconds(pwm_lsb);
         options.set_hardware_pulsing(!disable_hardware_pulsing);
         if !driver_chip.is_empty() {
-            options.set_panel_type(driver_chip);
+            let chip_lower = driver_chip.to_lowercase();
+            if chip_lower == "fm6126a" || chip_lower == "fm6127" {
+                options.set_panel_type(driver_chip);
+            }
         }
 
         // Pass limit_refresh directly from conf.ini, no override.

@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       image_size:
-        description: 'Target Image Size (e.g. 14G, 8G)'
+        description: 'Target Image Size (e.g. 3.5G, 8G)'
         required: true
-        default: '14G'
+        default: '3.5G'
 
 jobs:
   test:
@@ -121,7 +121,7 @@ jobs:
       - name: Run Build Image Script
         run: |
           chmod +x scripts/build_image.sh scripts/docker_builder.sh scripts/build.sh scripts/chroot_setup.sh
-          TARGET_SIZE="${{ github.event.inputs.image_size || '14G' }}"
+          TARGET_SIZE="${{ github.event.inputs.image_size || '3.5G' }}"
           sudo ./scripts/build_image.sh $TARGET_SIZE ${{ matrix.arch }}
 
       - name: Compress Image

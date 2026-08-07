@@ -9,8 +9,8 @@ if ! command -v docker &> /dev/null; then
     exit 1
 fi
 
-# Target total image size. Default to 14G to safely fit on a 16GB SD card.
-IMAGE_SIZE=${1:-14G}
+# Target total image size. Default to 3.5G to safely fit on a 4GB SD card.
+IMAGE_SIZE=${1:-3.5G}
 ARCH=${2:-aarch64}
 
 echo "=========================================================="

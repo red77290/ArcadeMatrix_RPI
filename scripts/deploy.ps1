@@ -22,7 +22,8 @@ Write-Host "[Info] Connecting to ${PI_USER}@${PI_IP} to detect OS architecture..
 # Detect remote architecture
 # Use plink or standard ssh. We will use standard ssh since Windows 10/11 has it.
 # We have to bypass strict host checking
-$REMOTE_ARCH = ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "uname -m"
+$REMOTE_USER_IP = '{0}@{1}' -f $PI_USER, $PI_IP
+$REMOTE_ARCH = ssh -o StrictHostKeyChecking=no $REMOTE_USER_IP 'uname -m'
 
 if ($REMOTE_ARCH -match "aarch64") {
     Write-Host "[OK] Detected 64-bit OS (aarch64) on Raspberry Pi."
@@ -48,30 +49,31 @@ function Invoke-RemoteBash {
     param([string]$Command)
     $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Command)
     $B64 = [Convert]::ToBase64String($Bytes)
-    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo $B64 | base64 -d | bash"
+    ssh -o StrictHostKeyChecking=no $REMOTE_USER_IP ('echo {0} | base64 -d | bash' -f $B64)
 }
 
 Write-Host "[Step 2] Stopping arcadematrix service on Raspberry Pi..."
-Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
+Invoke-RemoteBash ('echo ''{0}'' | sudo -S systemctl stop arcadematrix.service || true' -f $PI_PASS)
 
 Write-Host "[Step 3] Uploading correct binary..."
-scp -o StrictHostKeyChecking=no $BIN_PATH "${PI_USER}@${PI_IP}:/home/${PI_USER}/arcadematrix_temp"
+$SCP_DEST = '{0}:/home/{1}/arcadematrix_temp' -f $REMOTE_USER_IP, $PI_USER
+scp -o StrictHostKeyChecking=no $BIN_PATH $SCP_DEST
 
 Write-Host "[Step 4] Moving binary and starting service..."
-Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix"
-Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix"
+Invoke-RemoteBash ('echo ''{0}'' | sudo -S mv /home/{1}/arcadematrix_temp /usr/local/bin/arcadematrix' -f $PI_PASS, $PI_USER)
+Invoke-RemoteBash ('echo ''{0}'' | sudo -S chmod +x /usr/local/bin/arcadematrix' -f $PI_PASS)
 
-$CHECK_SERVICE_CMD = "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi"
+$CHECK_SERVICE_CMD = 'if systemctl list-unit-files | grep -q arcadematrix.service; then echo ''installed''; else echo ''missing''; fi'
 $BYTES = [System.Text.Encoding]::UTF8.GetBytes($CHECK_SERVICE_CMD)
 $B64 = [Convert]::ToBase64String($BYTES)
-$CHECK_SERVICE = ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo $B64 | base64 -d | bash"
+$CHECK_SERVICE = ssh -o StrictHostKeyChecking=no $REMOTE_USER_IP ('echo {0} | base64 -d | bash' -f $B64)
 
 if ($CHECK_SERVICE -match "installed") {
     Write-Host "[OK] Service already installed, restarting only..."
-    Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
+    Invoke-RemoteBash ('echo ''{0}'' | sudo -S systemctl restart arcadematrix.service' -f $PI_PASS)
 } else {
     Write-Host "[Warning] Service not found, running full autoInstall.sh setup..."
-    Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/ArcadeMatrix_RPi/autoInstall.sh"
+    Invoke-RemoteBash ('echo ''{0}'' | sudo -S env SKIP_BUILD=1 bash /home/{1}/ArcadeMatrix_RPi/autoInstall.sh' -f $PI_PASS, $PI_USER)
 }
 
 Write-Host "[Success] Deployment successful!"

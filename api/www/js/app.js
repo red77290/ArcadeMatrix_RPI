@@ -452,7 +452,7 @@ async function initSettings() {
     document.getElementById('cfg-dur-date').value = s.date_duration_sec;
     document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
     document.getElementById('cfg-dur-gifs').value = s.gifs_count || 5;
-    document.getElementById('cfg-sprite-enable').value = s.fighter_enabled ? 'true' : 'false';
+    document.getElementById('cfg-sprite-enable').value = s.fighter_enabled === 'true' ? 'true' : 'false';
     document.getElementById('cfg-fighter-int').value = s.fighter_interval_sec || 5;
 
     // Night Mode
@@ -514,7 +514,7 @@ async function initSettings() {
           weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
           gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 5,
           fighter_enabled: document.getElementById('cfg-sprite-enable').value === 'true',
-          idle_fighter_interval: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
+          fighter_interval_sec: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
 
           night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
           turn_off_at: document.getElementById('cfg-night-off').value,

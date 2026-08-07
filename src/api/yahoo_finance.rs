@@ -33,8 +33,8 @@ impl StockProvider for YahooFinanceProvider {
                                 symbol, price, change
                             );
                             let img_url = format!(
-                                "https://eodhd.com/img/logos/US/{}.png",
-                                symbol.to_lowercase()
+                                "https://financialmodelingprep.com/image-stock/{}.png",
+                                symbol.to_uppercase()
                             );
                             return Some((price, change, Some(img_url)));
                         }

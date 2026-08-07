@@ -4,7 +4,9 @@
 param (
     [string]$PI_IP = "192.168.1.149",
     [string]$PI_USER = "pi",
-    [string]$PI_PASS = "raspberry"
+    [string]$PI_PASS = "raspberry",
+    [switch]$SkipBuild,
+    [string]$BinaryPath = ""
 )
 
 # Test if SSH is available
@@ -36,12 +38,24 @@ if ($REMOTE_ARCH -match "aarch64") {
     exit 1
 }
 
-Write-Host "[Step 1] Building binary for $REMOTE_ARCH using Docker..."
-# Convert path for WSL/Docker if needed, or just rely on bash
-bash scripts/build.sh "$REMOTE_ARCH"
+if ($BinaryPath -ne "") {
+    $BIN_PATH = $BinaryPath
+    Write-Host "[Info] Using custom binary path: $BIN_PATH"
+} elseif ($SkipBuild) {
+    Write-Host "[Info] SkipBuild is set. Skipping Docker build..."
+} else {
+    Write-Host "[Step 1] Building binary for $REMOTE_ARCH using Docker..."
+    if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Host "[Warning] Docker is not installed. Attempting to deploy existing binary if available..."
+        Write-Host "If this fails, you can specify a pre-compiled binary with: .\deploy.ps1 -BinaryPath 'path/to/arcadematrix'"
+    } else {
+        bash scripts/build.sh "$REMOTE_ARCH"
+    }
+}
 
 if (-not (Test-Path -Path $BIN_PATH)) {
     Write-Host "[Error] Compiled binary not found at $BIN_PATH"
+    Write-Host "Please compile the project, or download the pre-compiled binary from GitHub Actions and provide it via -BinaryPath"
     exit 1
 }
 

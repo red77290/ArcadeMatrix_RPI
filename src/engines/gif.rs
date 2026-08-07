@@ -92,7 +92,13 @@ impl GifEngine {
 
         if !selected_playlists.is_empty() {
             for p_str in selected_playlists {
-                let p = Path::new(p_str);
+                // Sanitize the path string to handle any stray quotes or missing prefixes
+                let mut cleaned = p_str.replace("\"", "").trim().to_string();
+                if !cleaned.starts_with("gifs/") && !cleaned.starts_with("data/") {
+                    cleaned = format!("gifs/{}", cleaned);
+                }
+
+                let p = Path::new(&cleaned);
                 if p.is_dir() {
                     if let Ok(entries) = std::fs::read_dir(p) {
                         for entry in entries.flatten() {

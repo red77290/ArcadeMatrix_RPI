@@ -87,7 +87,7 @@ if ($CHECK_SERVICE -match "installed") {
     Invoke-RemoteBash ('echo ''{0}'' | sudo -S systemctl restart arcadematrix.service' -f $PI_PASS)
 } else {
     Write-Host "[Warning] Service not found, running full autoInstall.sh setup..."
-    Invoke-RemoteBash ('echo ''{0}'' | sudo -S env SKIP_BUILD=1 bash /home/{1}/ArcadeMatrix_RPi/autoInstall.sh' -f $PI_PASS, $PI_USER)
+    Invoke-RemoteBash ('echo ''{0}'' | sudo -S env SKIP_BUILD=1 bash -c "$(curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh)"' -f $PI_PASS)
 }
 
 Write-Host "[Success] Deployment successful!"

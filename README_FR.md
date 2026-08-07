@@ -22,7 +22,7 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 *(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la [liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
 
 1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
-2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de 8 Go !
+2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de !
 3. Ouvrez le fichier `conf.ini` situé sur ce lecteur DATA pour configurer la taille de votre matrice et vos identifiants **Wi-Fi** (`SSID` et `PASS`).
 4. Insérez la carte SD dans votre Raspberry Pi et allumez-le.
 5. La matrice s'allumera immédiatement et **affichera l'adresse IP** pendant 5 secondes. Utilisez cette IP pour accéder à l'interface Web !

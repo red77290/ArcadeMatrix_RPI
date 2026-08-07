@@ -44,24 +44,34 @@ if (-not (Test-Path -Path $BIN_PATH)) {
     exit 1
 }
 
+function Invoke-RemoteBash {
+    param([string]$Command)
+    $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Command)
+    $B64 = [Convert]::ToBase64String($Bytes)
+    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo $B64 | base64 -d | bash"
+}
+
 Write-Host "🛑 2. Stopping arcadematrix service on Raspberry Pi..."
-ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
+Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
 
 Write-Host "📤 3. Uploading correct binary..."
 scp -o StrictHostKeyChecking=no $BIN_PATH "${PI_USER}@${PI_IP}:/home/${PI_USER}/arcadematrix_temp"
 
 Write-Host "⚙️  4. Moving binary and starting service..."
-ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix"
-ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix"
+Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S mv /home/${PI_USER}/arcadematrix_temp /usr/local/bin/arcadematrix"
+Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S chmod +x /usr/local/bin/arcadematrix"
 
-$CHECK_SERVICE = ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi"
+$CHECK_SERVICE_CMD = "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi"
+$BYTES = [System.Text.Encoding]::UTF8.GetBytes($CHECK_SERVICE_CMD)
+$B64 = [Convert]::ToBase64String($BYTES)
+$CHECK_SERVICE = ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo $B64 | base64 -d | bash"
 
 if ($CHECK_SERVICE -match "installed") {
     Write-Host "✅ Service already installed, restarting only..."
-    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
+    Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
 } else {
     Write-Host "⚠️ Service not found, running full autoInstall.sh setup..."
-    ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/ArcadeMatrix_RPi/autoInstall.sh"
+    Invoke-RemoteBash "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash /home/${PI_USER}/ArcadeMatrix_RPi/autoInstall.sh"
 }
 
 Write-Host "✅ Deployment successful!"

@@ -75,13 +75,13 @@ Si deseas compilar la aplicación en tu propio ordenador (mucho más rápido) y 
 
 **En macOS / Linux:**
 ```bash
-bash scripts/deploy.sh <PI_IP> <PI_USER> <PI_PASS>
-# Ejemplo: bash scripts/deploy.sh 192.168.1.149 pi raspberry
+bash scripts/deploy.sh --ip <PI_IP> --user <PI_USER> --pass <PI_PASS>
+# Ejemplo: bash scripts/deploy.sh --ip 192.168.1.177 --user pi --pass raspberry
 ```
 
 **En Windows (PowerShell):**
 ```powershell
-.\scripts\deploy.ps1 -PI_IP "192.168.1.149" -PI_USER "pi" -PI_PASS "raspberry"
+.\scripts\deploy.ps1 -PI_IP "192.168.1.177" -PI_USER "pi" -PI_PASS "raspberry"
 ```
 *El script detectará automáticamente la arquitectura de tu Pi, compilará el binario usando Docker, detendrá el servicio remoto, subirá el archivo y reiniciará la aplicación.*
 

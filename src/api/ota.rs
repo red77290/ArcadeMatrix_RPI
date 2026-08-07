@@ -6,8 +6,6 @@ use tokio::fs;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-const BINARY_PATH: &str = "/usr/local/bin/arcadematrix";
-const BACKUP_PATH: &str = "/usr/local/bin/arcadematrix.bak";
 const TEMP_PATH: &str = "/tmp/arcadematrix_new";
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
@@ -79,14 +77,18 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }));
     }
 
-    if Path::new(BINARY_PATH).exists() {
-        if let Err(e) = fs::copy(BINARY_PATH, BACKUP_PATH).await {
+    let binary_path = std::env::current_exe()
+        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
+    let backup_path = binary_path.with_extension("bak");
+
+    if binary_path.exists() {
+        if let Err(e) = fs::copy(&binary_path, &backup_path).await {
             warn!("Could not backup current binary: {}", e);
         }
     }
 
-    if let Err(_e) = fs::rename(TEMP_PATH, BINARY_PATH).await {
-        if let Err(e2) = fs::copy(TEMP_PATH, BINARY_PATH).await {
+    if let Err(_e) = fs::rename(TEMP_PATH, &binary_path).await {
+        if let Err(e2) = fs::copy(TEMP_PATH, &binary_path).await {
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "status": "error",
                 "message": format!("Failed to install firmware binary: {}", e2)
@@ -96,7 +98,8 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
     }
 
     let _ = Command::new("chmod")
-        .args(["+x", BINARY_PATH])
+        .args(["+x"])
+        .arg(&binary_path)
         .status()
         .await;
 

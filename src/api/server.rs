@@ -402,33 +402,42 @@ async fn post_message(
 
 #[get("/api/playlists")]
 async fn get_playlists() -> impl Responder {
-    let mut playlists = serde_json::Map::new();
-    let gifs_dir = std::path::Path::new("gifs");
-    if let Ok(entries) = std::fs::read_dir(gifs_dir) {
-        for entry in entries.flatten() {
-            if entry.path().is_dir() {
-                let path_str = entry.file_name().to_string_lossy().to_string();
-                let mut count = 0;
-                if let Ok(files) = std::fs::read_dir(entry.path()) {
-                    count = files
-                        .flatten()
-                        .filter(|f| {
-                            let name = f.file_name().to_string_lossy().to_string().to_lowercase();
-                            name.ends_with(".gif") && !name.starts_with("._")
-                        })
-                        .count();
+    let result = actix_web::web::block(|| {
+        let mut playlists = serde_json::Map::new();
+        let gifs_dir = std::path::Path::new("gifs");
+        if let Ok(entries) = std::fs::read_dir(gifs_dir) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    let path_str = entry.file_name().to_string_lossy().to_string();
+                    let mut count = 0;
+                    if let Ok(files) = std::fs::read_dir(entry.path()) {
+                        count = files
+                            .flatten()
+                            .filter(|f| {
+                                let name =
+                                    f.file_name().to_string_lossy().to_string().to_lowercase();
+                                name.ends_with(".gif") && !name.starts_with("._")
+                            })
+                            .count();
+                    }
+                    playlists.insert(
+                        path_str.clone(),
+                        json!({
+                            "path": format!("gifs/{}", path_str),
+                            "count": count
+                        }),
+                    );
                 }
-                playlists.insert(
-                    path_str.clone(),
-                    json!({
-                        "path": path_str,
-                        "count": count
-                    }),
-                );
             }
         }
+        playlists
+    })
+    .await;
+
+    match result {
+        Ok(playlists) => HttpResponse::Ok().json(playlists),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
-    HttpResponse::Ok().json(playlists)
 }
 
 #[get("/api/playlists/selected")]

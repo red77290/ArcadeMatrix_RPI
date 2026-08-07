@@ -394,14 +394,27 @@ impl FighterEngine {
         let now = now_ms();
 
         if let Some(rx) = &self.rx {
-            if let Ok((p1, p2)) = rx.try_recv() {
-                self.p1 = Some(p1);
-                self.p2 = Some(p2);
-                self.active = true;
-                self.loading = false;
-                self.rx = None;
-                self.last_move = now;
-                self.fight_end = 0;
+            match rx.try_recv() {
+                Ok((p1, p2)) => {
+                    self.p1 = Some(p1);
+                    self.p2 = Some(p2);
+                    self.active = true;
+                    self.loading = false;
+                    self.rx = None;
+                    self.last_move = now;
+                    self.fight_end = 0;
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    tracing::error!(
+                        "FighterEngine: background thread died or failed to load fighters"
+                    );
+                    self.loading = false;
+                    self.active = false;
+                    self.rx = None;
+                    // Wait at least 10s before trying again to avoid spamming thread spawn
+                    self.next_fight_time = now + (self.interval_sec as u128 * 1000).max(10000);
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {} // Still loading
             }
         }
 

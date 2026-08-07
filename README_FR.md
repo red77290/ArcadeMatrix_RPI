@@ -10,6 +10,25 @@ Ce projet reproduit les excellentes fonctionnalités de la version ESP32 tout en
 
 ---
 
+## 💾 Guide Rapide : Image précompilée (Recommandé)
+
+Nous fournissons des fichiers `.img` précompilés et entièrement automatisés, publiés automatiquement à chaque nouvelle version.
+
+| Architecture | Recommandé pour | Compatible avec | Télécharger |
+|--------------|-----------------|-----------------|-------------|
+| **64-bits (aarch64)** | Raspberry Pi 3, 4, 5, Zero 2 W | Pi 3, 4, 5, Zero 2 W | [⬇️ Télécharger Image 64-bits](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz) |
+| **32-bits (armhf)** | Raspberry Pi 1, 2, Zero (Original) | Tous les modèles Raspberry Pi | [⬇️ Télécharger Image 32-bits](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz) |
+
+*(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la [liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
+
+1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
+2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de 8 Go !
+3. Ouvrez le fichier `conf.ini` situé sur ce lecteur DATA pour configurer la taille de votre matrice et vos identifiants **Wi-Fi** (`SSID` et `PASS`).
+4. Insérez la carte SD dans votre Raspberry Pi et allumez-le.
+5. La matrice s'allumera immédiatement et **affichera l'adresse IP** pendant 5 secondes. Utilisez cette IP pour accéder à l'interface Web !
+
+---
+
 ## 🌟 Fonctionnalités (exclusivités RPi vs ESP32)
 
 * 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD !
@@ -38,30 +57,7 @@ Grâce à l'implémentation Rust natif ultra-léger (~5 Mo de binaire, ~10 Mo de
 
 ---
 
-## 💾 Installation & configuration
-
-### Option 1 : image précompilée (recommandée pour les utilisateurs)
-Nous fournissons des fichiers `.img` précompilés et entièrement automatisés, construits et publiés automatiquement par la CI
-à chaque release taggée (voir `.github/workflows/release.yml`).
-
-Nous fournissons deux images distinctes pour couvrir l'intégralité de l'écosystème Raspberry Pi :
-
-1. **[⬇️ Télécharger l'image 64-bits (aarch64)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz)**
-   * **Compatibilité :** Raspberry Pi 3, 4, 5, et Zero 2 W.
-   * **Note :** C'est la version recommandée pour des performances maximales.
-2. **[⬇️ Télécharger l'image 32-bits (armhf)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz)**
-   * **Compatibilité :** Tous les Raspberry Pi, y compris les anciens Raspberry Pi 1, 2, et le Zero original.
-
-*(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la
-[liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
-
-1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
-2. Une fois le flash terminé, insérez la carte SD dans votre PC/Mac. Vous verrez apparaître un grand lecteur USB **DATA** de 8 Go !
-3. Ouvrez le fichier `conf.ini` situé sur ce lecteur DATA pour configurer la taille de votre matrice et vos identifiants **Wi-Fi** (`SSID` et `PASS`).
-4. Insérez la carte SD dans votre Raspberry Pi et allumez-le.
-5. La matrice s'allumera immédiatement et **affichera l'adresse IP** pendant 5 secondes. Utilisez cette IP pour accéder à l'interface Web !
-
-### Option 2 : installation manuelle
+## 🛠️ Installation Avancée\n\n### Option 2 : installation manuelle
 Si vous préférez l'installer manuellement sur un **Raspberry Pi OS Lite (64-bit)** fraîchement installé :
 Une fois connecté à votre Raspberry Pi en SSH :
 

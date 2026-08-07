@@ -561,6 +561,16 @@
             </div>
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
+                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Selectionne le driver materiel des panneaux LED (SHIFTREG standard, FM6124/FM6126A pour dalles P2 high-density, ICN2038S, SM16208)">?</span></label>
+                <select id="hw-driver-chip" class="input">
+                  <option value="SHIFTREG">Standard (SHIFTREG)</option>
+                  <option value="FM6126A">FM6124 / FM6126A</option>
+                  <option value="ICN2038S">ICN2038S</option>
+                  <option value="MBI5124">MBI5124</option>
+                  <option value="SM16208">SM16208</option>
+                </select>
+              </div>
+              <div class="form-group">
                 <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
                 <select id="hw-mapping" class="input">
                   <option value="regular">Regular</option>
@@ -582,15 +592,25 @@
                 </select>
               </div>
               <div class="form-group">
+                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Default 0. Set to 1 for AB, 2 for direct, 3 for ABC, 4 for ShiftReg. Used for complex P2 panels.">?</span></label>
+                <input type="number" id="hw-row-addr-type" class="input" value="0" min="0" max="4">
+              </div>
+              <div class="form-group">
+                <label>Multiplexing <span class="tooltip-icon" data-tooltip="Default 0. 1=Stripe, 2=Checkered. Useful for indoor panels.">?</span></label>
+                <input type="number" id="hw-multiplexing" class="input" value="0" min="0" max="17">
+              </div>
+            </div>
+            <div class="form-grid col-4" style="margin-top: 1rem;">
+              <div class="form-group">
                 <label>Slowdown <span class="tooltip-icon" data-i18n-tooltip="tt_hw_slowdown">?</span></label>
                 <input type="number" id="hw-slowdown" class="input" value="2">
               </div>
+            </div>
+            <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
                 <label>PWM Bits <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_bits">?</span></label>
                 <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
               </div>
-            </div>
-            <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
                 <label>PWM LSB (ns) <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_lsb">?</span></label>
                 <input type="number" id="hw-pwm-lsb" class="input" value="130">

@@ -383,6 +383,9 @@ async function initSettings() {
     document.getElementById('hw-cols').value = s.matrix_cols;
     document.getElementById('hw-chain').value = s.matrix_chain;
     document.getElementById('hw-parallel').value = s.matrix_parallel;
+    if (document.getElementById('hw-driver-chip')) document.getElementById('hw-driver-chip').value = s.matrix_driver_chip || 'SHIFTREG';
+    if (document.getElementById('hw-row-addr-type')) document.getElementById('hw-row-addr-type').value = s.matrix_row_addr_type || 0;
+    if (document.getElementById('hw-multiplexing')) document.getElementById('hw-multiplexing').value = s.matrix_multiplexing || 0;
     document.getElementById('hw-mapping').value = s.matrix_mapping || 'regular';
     document.getElementById('hw-rgb').value = s.matrix_rgb_sequence || 'RGB';
     document.getElementById('hw-slowdown').value = s.matrix_slowdown;
@@ -536,6 +539,9 @@ async function initSettings() {
       const cols = parseInt(document.getElementById('hw-cols').value) || 64;
       const chain = parseInt(document.getElementById('hw-chain').value) || 1;
       const parallel = parseInt(document.getElementById('hw-parallel').value) || 1;
+      const driverChip = document.getElementById('hw-driver-chip')?.value || 'SHIFTREG';
+      const rowAddrType = parseInt(document.getElementById('hw-row-addr-type')?.value) || 0;
+      const multiplexing = parseInt(document.getElementById('hw-multiplexing')?.value) || 0;
       const mapping = document.getElementById('hw-mapping').value || 'regular';
       const rgb = document.getElementById('hw-rgb').value || 'RGB';
       const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 2;
@@ -550,6 +556,9 @@ async function initSettings() {
           matrix_cols: cols,
           matrix_chain: chain,
           matrix_parallel: parallel,
+          matrix_driver_chip: driverChip,
+          matrix_row_addr_type: rowAddrType,
+          matrix_multiplexing: multiplexing,
           matrix_mapping: mapping,
           matrix_rgb_sequence: rgb,
           matrix_slowdown: slowdown,

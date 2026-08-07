@@ -85,6 +85,9 @@ async fn get_settings(data: web::Data<AppState>) -> impl Responder {
         "matrix_cols": s.matrix_cols,
         "matrix_chain": s.matrix_chain,
         "matrix_parallel": s.matrix_parallel,
+        "matrix_driver_chip": s.matrix_driver_chip,
+        "matrix_multiplexing": s.matrix_multiplexing,
+        "matrix_row_addr_type": s.matrix_row_addr_type,
         "matrix_mapping": s.matrix_mapping,
         "matrix_rgb_sequence": s.matrix_rgb_sequence,
         "matrix_pwm_bits": s.matrix_pwm_bits,
@@ -140,6 +143,15 @@ async fn post_settings(
     }
     if let Some(v) = body.get("matrix_parallel").and_then(|v| v.as_u64()) {
         s.matrix_parallel = v as u32;
+    }
+    if let Some(v) = body.get("matrix_driver_chip").and_then(|v| v.as_str()) {
+        s.matrix_driver_chip = v.to_string();
+    }
+    if let Some(v) = body.get("matrix_multiplexing").and_then(|v| v.as_u64()) {
+        s.matrix_multiplexing = v as u32;
+    }
+    if let Some(v) = body.get("matrix_row_addr_type").and_then(|v| v.as_u64()) {
+        s.matrix_row_addr_type = v as u32;
     }
     if let Some(v) = body.get("matrix_mapping").and_then(|v| v.as_str()) {
         s.matrix_mapping = v.to_string();

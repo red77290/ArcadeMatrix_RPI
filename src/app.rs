@@ -272,6 +272,8 @@ impl ArcadeMatrixApp {
                     brightness,
                     limit_refresh,
                     driver_chip,
+                    multiplexing,
+                    row_addr_type,
                 ) = {
                     let cfg = config.settings.read();
                     (
@@ -288,6 +290,8 @@ impl ArcadeMatrixApp {
                         cfg.matrix_brightness as u8,
                         cfg.matrix_limit_refresh_rate_hz,
                         cfg.matrix_driver_chip.clone(),
+                        cfg.matrix_multiplexing,
+                        cfg.matrix_row_addr_type,
                     )
                 };
 
@@ -304,6 +308,8 @@ impl ArcadeMatrixApp {
                         cols,
                         chain,
                         parallel,
+                        multiplexing,
+                        row_addr_type,
                         &mapping,
                         &rgb_sequence,
                         slowdown,

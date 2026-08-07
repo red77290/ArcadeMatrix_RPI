@@ -11,6 +11,8 @@ pub struct ConfigSettings {
     pub matrix_cols: u32,
     pub matrix_chain: u32,
     pub matrix_parallel: u32,
+    pub matrix_multiplexing: u32,
+    pub matrix_row_addr_type: u32,
     pub matrix_mapping: String,
     pub matrix_slowdown: u32,
     pub matrix_brightness: u32,
@@ -98,6 +100,8 @@ impl Default for ConfigSettings {
             matrix_cols: 64,
             matrix_chain: 1,
             matrix_parallel: 1,
+            matrix_multiplexing: 0,
+            matrix_row_addr_type: 0,
             matrix_mapping: "regular".to_string(),
             matrix_slowdown: 2,
             matrix_brightness: 40,
@@ -241,6 +245,12 @@ impl Config {
         }
         if let Ok(Some(val)) = ini.getuint("MATRIX", "PARALLEL") {
             settings.matrix_parallel = val as u32;
+        }
+        if let Ok(Some(val)) = ini.getuint("MATRIX", "MULTIPLEXING") {
+            settings.matrix_multiplexing = val as u32;
+        }
+        if let Ok(Some(val)) = ini.getuint("MATRIX", "ROW_ADDR_TYPE") {
+            settings.matrix_row_addr_type = val as u32;
         }
         if let Some(v) = ini.get("MATRIX", "HARDWARE_MAPPING") {
             settings.matrix_mapping = v;
@@ -490,6 +500,16 @@ impl Config {
         ini.set("MATRIX", "COLS", Some(s.matrix_cols.to_string()));
         ini.set("MATRIX", "CHAIN", Some(s.matrix_chain.to_string()));
         ini.set("MATRIX", "PARALLEL", Some(s.matrix_parallel.to_string()));
+        ini.set(
+            "MATRIX",
+            "MULTIPLEXING",
+            Some(s.matrix_multiplexing.to_string()),
+        );
+        ini.set(
+            "MATRIX",
+            "ROW_ADDR_TYPE",
+            Some(s.matrix_row_addr_type.to_string()),
+        );
         ini.set("MATRIX", "HARDWARE_MAPPING", Some(s.matrix_mapping));
         ini.set("MATRIX", "SLOWDOWN", Some(s.matrix_slowdown.to_string()));
         ini.set(

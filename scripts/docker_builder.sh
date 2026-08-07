@@ -36,13 +36,13 @@ fi
 echo "🗜️ Extracting OS image natively in /tmp..."
 xz -d -c /tmp/raspios.img.xz > $IMG_FILE
 
-IMAGE_SIZE=${IMAGE_SIZE:-14G}
+IMAGE_SIZE=${IMAGE_SIZE:-3.5G}
 
 echo "📏 Expanding image to total size of $IMAGE_SIZE for DATA partition..."
 truncate -s $IMAGE_SIZE $IMG_FILE
 
-echo "📏 Expanding ROOT partition (p2) to 8GB to make room for build tools..."
-parted -s $IMG_FILE resizepart 2 8192MiB
+echo "📏 Expanding ROOT partition (p2) to 2.5GB..."
+parted -s $IMG_FILE resizepart 2 2560MiB
 
 echo "💽 Creating 3rd partition (DATA)..."
 # Get the starting sector for the new partition

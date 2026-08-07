@@ -129,6 +129,13 @@ jobs:
           sudo chown $USER:$USER ArcadeMatrix_Release_${{ matrix.arch }}.img
           xz -T0 -9 ArcadeMatrix_Release_${{ matrix.arch }}.img
 
+      - name: Upload Image Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ArcadeMatrix_Release_${{ matrix.arch }}.img.xz
+          path: ArcadeMatrix_Release_${{ matrix.arch }}.img.xz
+          retention-days: 5
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')

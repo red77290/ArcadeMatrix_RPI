@@ -2,7 +2,11 @@
 
 # ArcadeMatrix RPi 🍓👾
 
-Un port basado en Rust del proyecto **ArcadeMatrix**, diseñado específicamente para ejecutarse en una **Raspberry Pi** conectada a una matriz LED RGB (HUB75) mediante el HAT de Adafruit o hardware Joy-IT.
+> [!NOTE]
+> ¿Buscas la versión de microcontrolador ESP32 con instalador web en un clic?
+> 👉 Consulta **[ArcadeMatrix ESP32 y Web Installer](https://red77290.github.io/ArcadeMatrix/webinstaller/)**.
+
+Una adaptación nativa en **Rust** del proyecto **ArcadeMatrix**, diseñada específicamente para ejecutarse en una **Raspberry Pi** conectada a una matriz LED RGB (HUB75) a través del HAT de Adafruit o hardware Joy-IT.
 
 Este proyecto replica las increíbles funciones de la versión ESP32 eliminando por completo sus limitaciones de hardware.
 

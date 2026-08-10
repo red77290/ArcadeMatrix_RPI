@@ -384,13 +384,23 @@ impl Config {
         if let Ok(Some(val)) = ini.getuint("IDLE", "WEATHER_DURATION_SEC") {
             settings.idle_weather_duration_sec = val as u32;
         }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "GIF_DURATION_SEC") {
+        if let Some(val) = ini
+            .getuint("IDLE", "GIFS_COUNT")
+            .or_else(|_| ini.getuint("IDLE", "GIF_DURATION_SEC"))
+            .ok()
+            .flatten()
+        {
             settings.idle_gifs_count = val as u32;
         }
         if let Ok(Some(val)) = ini.getbool("IDLE", "FIGHTER_ENABLED") {
             settings.idle_fighter_enabled = val;
         }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "FIGHTER_INTERVAL_SEC") {
+        if let Some(val) = ini
+            .getuint("IDLE", "FIGHTER_INTERVAL_SEC")
+            .or_else(|_| ini.getuint("IDLE", "FIGHTER_INTERVAL"))
+            .ok()
+            .flatten()
+        {
             settings.idle_fighter_interval = val as u32;
         }
         if let Some(v) = ini.get("IDLE", "SELECTED_GIFS") {
@@ -588,7 +598,7 @@ impl Config {
         );
         ini.set(
             "IDLE",
-            "GIF_DURATION_SEC",
+            "GIFS_COUNT",
             Some(s.idle_gifs_count.to_string()),
         );
         ini.set(
@@ -602,7 +612,7 @@ impl Config {
         );
         ini.set(
             "IDLE",
-            "FIGHTER_INTERVAL",
+            "FIGHTER_INTERVAL_SEC",
             Some(s.idle_fighter_interval.to_string()),
         );
         ini.set("IDLE", "SELECTED_GIFS", Some(s.selected_gifs.join(",")));

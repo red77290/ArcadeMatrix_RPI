@@ -2,7 +2,7 @@
 
 # Vue d'ensemble de l'architecture (Rust Engine & OTA)
 
-Ce document fournit une vue d'ensemble complète de l'architecture d'ArcadeMatrix sur Raspberry Pi réécrit en **Rust natif**. Il explique les décisions de conception principales, le pipeline de rendu multi-threadé, le système de mises à jour OTA et la philosophie générale du projet.
+Ce document fournit une vue d'ensemble complète de l'architecture d'ArcadeMatrix sur Raspberry Pi développé en **Rust natif**. Il explique les décisions de conception principales, le pipeline de rendu multi-threadé, le système de mises à jour OTA et la philosophie générale du projet.
 
 ---
 
@@ -171,9 +171,9 @@ Pour prolonger la durée de vie de la matrice LED et réduire la consommation d'
 
 ---
 
-## 8. Différences d'architecture RPi vs ESP32
+## 8. Différences d'architecture RPi (Rust) vs ESP32 (C++)
 
-Si vous explorez le dépôt `RetroPixelLED/ArcadeMatrix`, vous remarquerez que la version ESP32 est écrite en C++ et possède une architecture différente.
+Le projet ArcadeMatrix comporte deux implémentations originales développées en parallèle pour s'adapter aux contraintes spécifiques de chaque matériel :
 
 - **RPi (Rust) :** utilise un Rendering Pipeline découplé (Engines -> Renderers -> PIL Canvas -> Matrix). La RAM est abondante (512MB+), ce qui nous permet de manipuler en mémoire des canvas RGB complets avec image-rs avant de les envoyer au matériel.
 - **ESP32 (C++) :** utilise une structure Monolithic Engine. La RAM est extrêmement limitée (320KB). Au lieu de dessiner sur un canvas hors écran, le code ESP32 écrit souvent les pixels directement dans le buffer DMA ou utilise de petits tableaux 1D. Il n'utilise pas de pipeline de `Renderer` séparé afin d'éviter l'allocation dynamique de mémoire et le surcoût des pointeurs. 

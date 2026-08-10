@@ -2,9 +2,9 @@
 
 # ArcadeMatrix RPi 🍓👾
 
-Un portage **Rust** natif du projet **ArcadeMatrix**, spécialement conçu pour fonctionner sur un **Raspberry Pi** connecté à une matrice LED RGB (HUB75) via le HAT Adafruit ou le matériel Joy-IT.
+L'implémentation **Rust** originale du projet **ArcadeMatrix**, spécialement conçue pour fonctionner sur un **Raspberry Pi** connecté à une matrice LED RGB (HUB75) via le HAT Adafruit ou le matériel Joy-IT.
 
-Ce projet reproduit les excellentes fonctionnalités de la version ESP32 tout en supprimant complètement ses limitations matérielles.
+Développée en parallèle de la version ESP32 C++, cette version tire parti de la puissance du Raspberry Pi pour offrir un pipeline graphique multi-threadé haute performance.
 
 📚 **Documentation développeur :** [Premiers pas (workspace dev)](docs/GETTING_STARTED_FR.md) · [Guide développeur](docs/DEVELOPER_FR.md) · [Architecture](docs/ARCHITECTURE_FR.md) · [Guide rapide (utilisateurs finaux)](docs/QUICKSTART_FR.md)
 

@@ -149,9 +149,9 @@ Para prolongar la vida útil de la matriz LED y reducir el consumo energético, 
 
 ---
 
-## 6. Diferencias de arquitectura entre RPi y ESP32
+## 6. Diferencias de arquitectura entre RPi (Rust) y ESP32 (C++)
 
-Si exploras el repositorio `RetroPixelLED/ArcadeMatrix`, verás que la versión ESP32 está escrita en C++ y tiene una arquitectura distinta.
+El proyecto ArcadeMatrix consta de dos implementaciones originales desarrolladas en paralelo para adaptarse a las limitaciones específicas de cada plataforma de hardware:
 
 - **RPi (Rust):** utiliza un Rendering Pipeline desacoplado (Engines -> Renderers -> PIL Canvas -> Matrix). La RAM es abundante (512MB+), lo que permite manipular canvas RGB completos en memoria con image-rs antes de enviarlos al hardware.
 - **ESP32 (C++):** utiliza una estructura Monolithic Engine. La RAM es extremadamente limitada (320KB). En lugar de dibujar en un canvas fuera de pantalla, el código de ESP32 a menudo escribe los píxeles directamente en el buffer DMA o usa arreglos 1D mínimos. No utiliza un pipeline de `Renderer` separado para evitar la asignación dinámica de memoria y la sobrecarga de punteros. 

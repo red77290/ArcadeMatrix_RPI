@@ -40,3 +40,20 @@ fn test_config_ini_save_and_reload() {
     assert_eq!(s.weather_city, "Paris");
     assert_eq!(s.standby_enabled, true);
 }
+
+#[test]
+fn test_config_malformed_ini_fallback() {
+    let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+    let path = temp_file.path().to_path_buf();
+
+    // Write malformed INI
+    std::fs::write(&path, "[MATRIX]\nROWS = invalid_number\nBRIGHTNESS = 999999999999999999999\n[IDLE]\nROTATION = ").unwrap();
+
+    let mut settings = ConfigSettings::default();
+    Config::load_from_ini(&path, &mut settings);
+
+    // Fallbacks to default values without panic
+    assert_eq!(settings.matrix_rows, 32);
+    assert_eq!(settings.matrix_cols, 64);
+    assert_eq!(settings.idle_rotation, vec!["clock", "date", "weather", "gifs"]);
+}

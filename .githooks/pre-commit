@@ -1,17 +1,19 @@
 #!/bin/bash
 set -e
 
-echo "🎨 Running cargo fmt..."
-cargo fmt
+echo "🔍 Running ArcadeMatrix_RPi pre-commit validations..."
 
-echo "🔨 Running cargo check..."
-cargo check
+echo "--------------------------------------------------"
+echo "1/3 Validating Release Artifacts & Scripts..."
+python3 scripts/validate_rpi_release.py
 
-echo "🧪 Running cargo test..."
+echo "--------------------------------------------------"
+echo "2/3 Validating Documentation Drift & Config Keys..."
+python3 scripts/validate_docs.py
+
+echo "--------------------------------------------------"
+echo "3/3 Running Cargo Unit Tests..."
 cargo test
 
-# If we auto-formatted, we need to stage the formatting changes
-# so they are included in the commit.
-git add -u
-
-echo "✅ Pre-commit checks passed!"
+echo "--------------------------------------------------"
+echo "🎉 All ArcadeMatrix_RPi pre-commit validations PASSED!"

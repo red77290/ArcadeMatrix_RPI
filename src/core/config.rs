@@ -596,11 +596,7 @@ impl Config {
             "WEATHER_DURATION_SEC",
             Some(s.idle_weather_duration_sec.to_string()),
         );
-        ini.set(
-            "IDLE",
-            "GIFS_COUNT",
-            Some(s.idle_gifs_count.to_string()),
-        );
+        ini.set("IDLE", "GIFS_COUNT", Some(s.idle_gifs_count.to_string()));
         ini.set(
             "IDLE",
             "FIGHTER_ENABLED",

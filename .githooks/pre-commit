@@ -12,7 +12,11 @@ echo "2/3 Validating Documentation Drift & Config Keys..."
 python3 scripts/validate_docs.py
 
 echo "--------------------------------------------------"
-echo "3/3 Running Cargo Unit Tests..."
+echo "3/4 Checking Rust Code Formatting (cargo fmt)..."
+cargo fmt --check
+
+echo "--------------------------------------------------"
+echo "4/4 Running Cargo Unit Tests..."
 cargo test
 
 echo "--------------------------------------------------"

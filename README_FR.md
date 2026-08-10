@@ -2,10 +2,6 @@
 
 # ArcadeMatrix RPi 🍓👾
 
-> [!NOTE]
-> Vous recherchez la version microcontrôleur ESP32 avec installateur Web en un clic ?
-> 👉 Consultez **[ArcadeMatrix ESP32 & Web Installer](https://red77290.github.io/ArcadeMatrix/webinstaller/)**.
-
 Un portage **Rust** natif du projet **ArcadeMatrix**, spécialement conçu pour fonctionner sur un **Raspberry Pi** connecté à une matrice LED RGB (HUB75) via le HAT Adafruit ou le matériel Joy-IT.
 
 Ce projet reproduit les excellentes fonctionnalités de la version ESP32 tout en supprimant complètement ses limitations matérielles.

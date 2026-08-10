@@ -57,6 +57,7 @@ Opciones:
 | `--src` | `-i` | *(obligatorio)* | Carpeta que contiene tus subcarpetas de personajes MUGEN. |
 | `--dest` | `-o` | `./fighters_32` | Carpeta de salida para los archivos `.fgt` generados + `index.json`/`index.txt`. |
 | `--mode` | | `FULLSIZE` | `SCALED` redimensiona los personajes para ajustarse exactamente a la altura del panel (ESP32 estándar, sin PSRAM); `FULLSIZE` mantiene la escala 1:1 (RPi o ESP32-S3 con PSRAM - ver `docs/HARDWARE_ES.md`). |
+| `--scale` | `--scaling` | `None` | Factor de escala personalizado (ej: `0.5` para reducir al 50% ahorrando 75% de RAM, `0.8`, `2.0`). Anula el cálculo automático. |
 | `--compress` | | desactivado | Comprime los archivos `.fgt` de salida en gzip (`.fgt.gz`) - útil en RPi para ahorrar espacio en disco. |
 
 Para generar tanto una matriz de 32px como de 64px, simplemente ejecútalo dos veces con carpetas `--dest` diferentes:

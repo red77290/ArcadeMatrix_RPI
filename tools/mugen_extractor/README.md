@@ -52,12 +52,13 @@ python mugen_extractor.py --src /Path/To/Your/Mugen/chars --dest ./fighters_32
 ```
 
 Options:
-| Flag | Short | Default | Purpose |
+| Option | Short alias | Default | Description |
 |---|---|---|---|
-| `--src` | `-i` | *(required)* | Folder containing your MUGEN character subfolders. |
-| `--dest` | `-o` | `./fighters_32` | Output folder for the generated `.fgt` files + `index.json`/`index.txt`. |
-| `--mode` | | `FULLSIZE` | `SCALED` resizes characters to fit the panel height exactly (standard ESP32, no PSRAM); `FULLSIZE` keeps 1:1 scale (RPi or ESP32-S3 with PSRAM - see `docs/HARDWARE.md`). |
-| `--compress` | | off | Gzip the output `.fgt` files (`.fgt.gz`) - useful on RPi to save disk space. |
+| `--src` | `-i` | *(required)* | Directory containing your MUGEN character subfolders. |
+| `--dest` | `-o` | `./fighters_32` | Output directory for generated `.fgt` files + `index.json`/`index.txt`. |
+| `--mode` | | `FULLSIZE` | `SCALED` resizes characters to fit panel height (standard ESP32, no PSRAM); `FULLSIZE` keeps 1:1 scale (RPi or ESP32-S3 with PSRAM). |
+| `--scale` | `--scaling` | `None` | Custom scaling factor (e.g. `0.5` to scale sprites down by 50% saving 75% RAM, `0.8`, `2.0`). Overrides mode calculation. |
+| `--compress` | | disabled | Compresses `.fgt` files with gzip (`.fgt.gz`) - useful for RPi disk space saving. |
 
 To target both a 32px and a 64px matrix, just run it twice with different `--dest` folders:
 

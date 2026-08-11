@@ -1,9 +1,11 @@
 #!/bin/bash
 set -e
 set -x
+AM_USER=${AM_USER:-pi}
+
 echo "🔧 [chroot] Starting ArcadeMatrix OS Setup via autoInstall.sh..."
 
-PROJ_DIR="/home/pi/ArcadeMatrix_RPi"
+PROJ_DIR="/home/$AM_USER/ArcadeMatrix_RPi"
 cd $PROJ_DIR
 
 # 1. Run the base auto-installer (systemd setup)
@@ -42,7 +44,7 @@ if [ -d "$PROJ_DIR/fighters_64" ]; then
 fi
 
 
-chown -R pi:pi $PROJ_DIR/data || true
+chown -R $AM_USER:$AM_USER $PROJ_DIR/data || true
 
 # Add DATA partition to fstab so it mounts on boot
 echo "LABEL=DATA  $PROJ_DIR/data  exfat  defaults,uid=1000,gid=1000,umask=000  0  2" >> /etc/fstab
@@ -59,7 +61,7 @@ ln -s $PROJ_DIR/data/scripts $PROJ_DIR/scripts
 echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
 cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini
 cp $PROJ_DIR/conf.ini.backup $PROJ_DIR/data/conf.ini.backup || true
-chown pi:pi $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
+chown $AM_USER:$AM_USER $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
 
 # Create symlink for conf.ini
 rm -f $PROJ_DIR/conf.ini || true
@@ -70,18 +72,7 @@ rm -f /tmp/chroot_setup.sh
 
 echo "✨ [chroot] Setup complete!"
 
-# 5. Add useful Bash aliases for the pi user
-echo "alias am='sudo systemctl restart arcadematrix'" >> /home/pi/.bash_aliases
-echo "alias am-log='sudo journalctl -u arcadematrix -f'" >> /home/pi/.bash_aliases
-echo "alias am-stop='sudo systemctl stop arcadematrix'" >> /home/pi/.bash_aliases
-echo "alias am-start='sudo systemctl start arcadematrix'" >> /home/pi/.bash_aliases
-chown pi:pi /home/pi/.bash_aliases
 
-# Fix traversal permissions for the 'daemon' user
-# The C++ RGB matrix library drops privileges to 'daemon', so 'daemon' must be
-# able to traverse /home/pi to access the FUSE mount and symlinks.
-echo "🔓 [chroot] Fixing /home/pi permissions for daemon..."
-chmod a+rx /home/pi
 
 apt-get clean
 rm -rf /var/lib/apt/lists/*

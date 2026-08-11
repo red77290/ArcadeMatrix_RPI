@@ -27,13 +27,13 @@ set -u
 SAMPLE="${SAMPLE:-120}"                 # duree d'echantillonnage par manche (s)
 SERVICE="${SERVICE:-arcadematrix}"
 SETTLE="${SETTLE:-12}"                  # attente apres restart avant d'echantillonner
-OUTDIR="${OUTDIR:-/home/pi}"
+OUTDIR="${OUTDIR:-/home/$USER}"
 DIAG="$(cd "$(dirname "$0")" && pwd)/wifi_diag.sh"
 
 # --- Localiser conf.ini ------------------------------------------------------
 CONF="${CONF:-}"
 if [ -z "$CONF" ]; then
-  for p in "/home/pi/ArcadeMatrix_RPi/conf.ini" \
+  for p in "/home/$USER/ArcadeMatrix_RPi/conf.ini" \
            "$(dirname "$0")/../conf.ini" \
            "/root/ArcadeMatrix_RPi/conf.ini"; do
     [ -f "$p" ] && { CONF="$p"; break; }

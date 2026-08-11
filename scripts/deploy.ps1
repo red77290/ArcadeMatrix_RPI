@@ -1,11 +1,22 @@
 # ArcadeMatrix Smart Deploy (Windows)
 # Auto-detects the Raspberry Pi architecture, builds via Docker, and deploys.
 
+$DefaultUser = "pi"
+$DefaultPass = "raspberry"
+if (Test-Path "scripts/defaults.sh") {
+    $env_content = Get-Content "scripts/defaults.sh"
+    foreach ($line in $env_content) {
+        if ($line -match "^export AM_USER=`"(.*)`"") { $DefaultUser = $matches[1] }
+        if ($line -match "^export AM_PASS=`"(.*)`"") { $DefaultPass = $matches[1] }
+    }
+}
+
+
 param (
     [string]$PI_IP = "192.168.1.149",
-    [string]$PI_USER = "pi",
-    [string]$PI_PASS = "raspberry",
-    [switch]$SkipBuild,
+    [string]$PI_USER = $DefaultUser,
+    [string]$PI_PASS = $DefaultPass,
+    [switch]$SkipBuild = $false,
     [string]$BinaryPath = ""
 )
 

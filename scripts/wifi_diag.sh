@@ -78,7 +78,7 @@ MAINPID="$(pgrep -x "$PROC" | head -1)"
 # --- Localisation de conf.ini (chemins usuels) -------------------------------
 CONF="${CONF:-}"
 if [ -z "$CONF" ]; then
-  for p in "/home/pi/ArcadeMatrix_RPi/conf.ini" \
+  for p in "/home/$USER/ArcadeMatrix_RPi/conf.ini" \
            "$(dirname "$0")/../conf.ini" \
            "/root/ArcadeMatrix_RPi/conf.ini" \
            "$HOME/ArcadeMatrix_RPi/conf.ini"; do

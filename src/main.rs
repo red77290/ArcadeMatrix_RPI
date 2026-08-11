@@ -17,7 +17,11 @@ async fn main() -> std::io::Result<()> {
     let mut dir_set = false;
 
     // First, check the most common paths directly
+    let home_path = std::env::var("HOME").unwrap_or_default();
+    let dynamic_home_path = format!("{}/ArcadeMatrix_RPi", home_path);
+
     let common_paths = [
+        dynamic_home_path.as_str(),
         "/home/pi/ArcadeMatrix_RPI",
         "/home/pi/ArcadeMatrix_RPi",
         "/opt/arcadematrix",

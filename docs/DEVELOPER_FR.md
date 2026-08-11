@@ -130,3 +130,13 @@ bash scripts/deploy_to_pi.sh pi@<VOTRE_ADRESSE_IP_PI>
 
 ## Tests Unitaires & TDD
 Le projet suit les principes TDD pour l'intégration des API. Lors de l'ajout d'une nouvelle API, implémentez l'interface Provider correspondante (`ICryptoProvider` etc.) et écrivez les tests unitaires avec des objets Mock avant l'intégration finale. Les tests doivent garantir une couverture maximale sur l'analyse JSON et la logique de fallback (secours) sans nécessiter de matériel physique.
+
+## Personnalisation Utilisateur (Custom User)
+Si vous souhaitez changer l`utilisateur par défaut (`pi`) et son mot de passe par défaut (`raspberry`) pour la génération des images ou le déploiement manuel, vous pouvez modifier le fichier `scripts/defaults.sh` avant de lancer la compilation.
+
+```bash
+export AM_USER="votre_utilisateur"
+export AM_PASS="votre_mot_de_passe"
+```
+Lors de la génération avec `scripts/build_image.sh`, ces variables seront automatiquement lues. Le hachage du mot de passe sera dynamiquement calculé avec SHA-512 pour l`injection dans l`image `.img` (`userconf.txt`).
+Les scripts de déploiement (`autoInstall.sh` et `deploy.sh`) utiliseront également ces variables pour configurer correctement les permissions (traversée du dossier home pour le daemon) et installer les alias `.bash_aliases` au bon endroit.

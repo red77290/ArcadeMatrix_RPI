@@ -124,3 +124,13 @@ bash scripts/deploy_to_pi.sh pi@<TU_DIRECCION_IP_PI>
 
 ## Pruebas Unitarias y TDD
 El proyecto sigue los principios de TDD para la integración de API. Al agregar una nueva API, implemente la interfaz Provider correspondiente (`ICryptoProvider`, etc.) y escriba pruebas unitarias utilizando objetos Mock antes de conectarla. Las pruebas deben lograr la máxima cobertura en el análisis de JSON y la lógica de respaldo sin requerir hardware físico.
+
+## Personalización del Usuario del SO (Custom User)
+Si desea cambiar el usuario predeterminado (`pi`) y su contraseña predeterminada (`raspberry`) para la generación de imágenes o la implementación manual, puede editar el archivo `scripts/defaults.sh` antes de iniciar la compilación.
+
+```bash
+export AM_USER="tu_usuario"
+export AM_PASS="tu_contraseña"
+```
+Durante la generación de la imagen con `scripts/build_image.sh`, estas variables se leerán automáticamente. El hash de la contraseña se calculará dinámicamente usando SHA-512 para su inyección en el archivo `.img` (`userconf.txt`).
+Los scripts de implementación (`autoInstall.sh` y `deploy.sh`) también utilizarán estas variables para configurar correctamente los permisos (atravesar la carpeta principal para el demonio) e instalar los alias `.bash_aliases` en la ubicación correcta.

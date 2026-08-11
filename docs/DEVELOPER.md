@@ -76,3 +76,13 @@ We provide a comprehensive suite of scripts for building locally and deploying d
 
 ## Unit Testing & TDD
 The project follows TDD principles for API integration. When adding a new API (e.g. for Crypto or Weather), implement the corresponding Provider interface (`ICryptoProvider` etc.) and write Unit Tests using Mock objects before wiring it up in `main.cpp` or `app.rs`. Tests must achieve maximum coverage for JSON parsing and fallback logic without requiring physical hardware.
+
+## Custom OS User Customization
+If you wish to change the default user (`pi`) and its default password (`raspberry`) for image generation or manual deployment, you can edit the `scripts/defaults.sh` file before starting the build.
+
+```bash
+export AM_USER="your_user"
+export AM_PASS="your_password"
+```
+During image generation with `scripts/build_image.sh`, these variables will be automatically read. The password hash will be dynamically calculated using SHA-512 for injection into the `.img` file (`userconf.txt`).
+Deployment scripts (`autoInstall.sh` and `deploy.sh`) will also use these variables to properly configure permissions (home folder traversal for the daemon) and install `.bash_aliases` in the correct location.

@@ -265,3 +265,13 @@ C'est particulièrement utile pour configurer le Wi-Fi avant le premier démarra
 Ce projet est publié sous la **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 
 **En résumé :** vous êtes libre d'utiliser, modifier et partager ce projet pour tout usage non-commercial (usage personnel, projet hobbyiste, recherche, éducation, organismes publics/à but non lucratif) - voir le fichier [LICENSE](LICENSE) complet pour les termes exacts. **Tout usage commercial (vente d'unités assemblées, de kits, ou de produits/services dérivés) nécessite une licence séparée - contactez [Red1L](https://github.com/red77290) pour discuter des conditions commerciales.**
+
+## Personnalisation Utilisateur (Custom User)
+Si vous souhaitez changer l`utilisateur par défaut (`pi`) et son mot de passe par défaut (`raspberry`) pour la génération des images, vous pouvez modifier le fichier `scripts/defaults.sh` avant de lancer la compilation.
+
+```bash
+export AM_USER="votre_utilisateur"
+export AM_PASS="votre_mot_de_passe"
+```
+Lors de la génération avec `scripts/build_image.sh`, ces variables seront automatiquement lues. Le hachage du mot de passe sera dynamiquement calculé avec SHA-512 pour l`injection dans l`image `.img` (`userconf.txt`).
+Les scripts de déploiement (`autoInstall.sh` et `deploy.sh`) utiliseront également ces variables pour configurer correctement les permissions (traversée du dossier home pour le daemon) et installer les alias `.bash_aliases` au bon endroit.

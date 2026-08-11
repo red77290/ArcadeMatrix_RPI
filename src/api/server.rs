@@ -5,8 +5,8 @@ use serde_json::json;
 use std::sync::Arc;
 use sysinfo::System;
 
-struct AppState {
-    config: Arc<Config>,
+pub struct AppState {
+    pub config: Arc<Config>,
 }
 
 fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {

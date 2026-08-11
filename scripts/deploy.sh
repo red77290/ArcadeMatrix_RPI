@@ -4,9 +4,13 @@
 
 set -e
 
+if [ -f "scripts/defaults.sh" ]; then
+    source scripts/defaults.sh
+fi
+
 PI_IP="192.168.1.149"
-PI_USER="pi"
-PI_PASS="raspberry"
+PI_USER="${AM_USER:-pi}"
+PI_PASS="${AM_PASS:-raspberry}"
 SKIP_BUILD=0
 BIN_PATH=""
 

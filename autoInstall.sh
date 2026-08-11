@@ -36,6 +36,9 @@ if [ ! -f "Cargo.toml" ]; then
     echo "Cargo.toml not found. It looks like you ran this script standalone."
     ACTUAL_USER=${SUDO_USER:-$USER}
     ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
+    if [ "$ACTUAL_HOME" = "~$ACTUAL_USER" ]; then
+        ACTUAL_HOME="$HOME"
+    fi
     cd "$ACTUAL_HOME" || true
     
     if [ -d "ArcadeMatrix_RPi/.git" ]; then
@@ -162,6 +165,19 @@ EOF"
     sudo systemctl enable arcadematrix.service
     sudo systemctl restart arcadematrix.service || echo "Warning: Could not start service (this is normal in chroot)"
 fi
+
+echo "Adding useful Bash aliases for $ACTUAL_USER..."
+BASH_ALIASES="$ACTUAL_HOME/.bash_aliases"
+sudo bash -c "echo \"alias am='sudo systemctl restart arcadematrix'\" >> $BASH_ALIASES"
+sudo bash -c "echo \"alias am-log='sudo journalctl -u arcadematrix -f'\" >> $BASH_ALIASES"
+sudo bash -c "echo \"alias am-stop='sudo systemctl stop arcadematrix'\" >> $BASH_ALIASES"
+sudo bash -c "echo \"alias am-start='sudo systemctl start arcadematrix'\" >> $BASH_ALIASES"
+sudo chown $ACTUAL_USER:$ACTUAL_USER $BASH_ALIASES
+
+echo "Fixing traversal permissions on $ACTUAL_HOME for the 'daemon' user..."
+# The C++ RGB matrix library drops privileges to 'daemon', so 'daemon' must be
+# able to traverse the home directory to access files.
+sudo chmod a+rx "$ACTUAL_HOME"
 
 echo "======================================"
 echo "Installation Complete (Rust Mode)!"

@@ -1,8 +1,14 @@
 #!/bin/bash
 set -e
+if [ -f "/workspace/scripts/defaults.sh" ]; then
+    source /workspace/scripts/defaults.sh
+fi
+AM_USER=${AM_USER:-pi}
+AM_PASS=${AM_PASS:-raspberry}
+export AM_USER
 echo "📦 Installing build dependencies inside Docker..."
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs exfat-fuse xz-utils sudo parted python3 rsync
+DEBIAN_FRONTEND=noninteractive apt-get install -y openssl wget kpartx qemu-user-static e2fsprogs fdisk dosfstools exfatprogs exfat-fuse xz-utils sudo parted python3 rsync
 
 echo "📥 Downloading latest Raspberry Pi OS Lite ($ARCH Bookworm)..."
 if [ "$ARCH" = "aarch64" ]; then
@@ -95,13 +101,15 @@ mount $PART_ROOT /mnt/rootfs
 mount $PART_BOOT /mnt/rootfs/boot/firmware
 
 echo "📂 Mounting DATA partition..."
-mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
+mkdir -p /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data
 # Use mount.exfat-fuse if available, fallback to standard mount
-mount.exfat-fuse $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data || mount -t exfat $PART_DATA /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
+mount.exfat-fuse $PART_DATA /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data || mount -t exfat $PART_DATA /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data
 
 echo "🔑 Enabling SSH and setting up default 'pi' user..."
 touch /mnt/rootfs/boot/firmware/ssh
-echo 'pi:$6$QM6/3dOlZrhCz7hG$RmgUadMoSC0mutMdHHhzjd52prRdb3zFcgOp5yZhza8LHQBwh.RbaFpBlf1YJSws6qz/H46VLIJ6YtQq6cNR/.' > /mnt/rootfs/boot/firmware/userconf.txt
+AM_PASS_HASH=$(openssl passwd -6 "$AM_PASS")
+    echo "$AM_USER:$AM_PASS_HASH" > /mnt/rootfs/boot/firmware/userconf.txt
+    #QM6/3dOlZrhCz7hG$RmgUadMoSC0mutMdHHhzjd52prRdb3zFcgOp5yZhza8LHQBwh.RbaFpBlf1YJSws6qz/H46VLIJ6YtQq6cNR/.' > /mnt/rootfs/boot/firmware/userconf.txt
 
 echo "🛠️ Preparing CHROOT environment..."
 cp $QEMU_BIN /mnt/rootfs/usr/bin/
@@ -110,26 +118,26 @@ mount --bind /sys /mnt/rootfs/sys
 mount --bind /proc /mnt/rootfs/proc
 
 echo "📁 Copying ArcadeMatrix project into image..."
-mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi
+mkdir -p /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi
 # Only copy the configuration to root for backup, we will place scripts on DATA partition
-cp /workspace/data/conf.ini /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
-cp /workspace/autoInstall.sh /mnt/rootfs/home/pi/ArcadeMatrix_RPi/
+cp /workspace/data/conf.ini /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/
+cp /workspace/autoInstall.sh /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/
 
 echo "📁 Injecting cross-compiled Rust binary..."
-cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
-chmod +x /mnt/rootfs/home/pi/ArcadeMatrix_RPi/arcadematrix
-chown -R 1000:1000 /mnt/rootfs/home/pi/ArcadeMatrix_RPi || true
+cp /workspace/target/$BIN_TARGET/release/arcadematrix /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/arcadematrix
+chmod +x /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/arcadematrix
+chown -R 1000:1000 /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi || true
 
 echo "📁 Copying large media directly to DATA partition..."
-mkdir -p /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,scripts,docs}
-cp -r /workspace/fighters_32/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_32/ 2>/dev/null || true
-cp -r /workspace/fighters_64/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fighters_64/ 2>/dev/null || true
-cp -r /workspace/gifs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/gifs/ 2>/dev/null || true
-cp -r /workspace/fonts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/fonts/ 2>/dev/null || true
+mkdir -p /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/{fighters_32,fighters_64,gifs,fonts,scripts,docs}
+cp -r /workspace/fighters_32/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/fighters_32/ 2>/dev/null || true
+cp -r /workspace/fighters_64/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/fighters_64/ 2>/dev/null || true
+cp -r /workspace/gifs/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/gifs/ 2>/dev/null || true
+cp -r /workspace/fonts/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/fonts/ 2>/dev/null || true
 
-cp -r /workspace/scripts/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/scripts/ 2>/dev/null || true
-cp /workspace/README*.md /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/ 2>/dev/null || true
-cp -r /workspace/docs/* /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data/docs/ 2>/dev/null || true
+cp -r /workspace/scripts/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/scripts/ 2>/dev/null || true
+cp /workspace/README*.md /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/ 2>/dev/null || true
+cp -r /workspace/docs/* /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data/docs/ 2>/dev/null || true
 
 echo "🎛️ Applying Kernel configurations directly to boot partition..."
 CONFIG_TXT="/mnt/rootfs/boot/firmware/config.txt"
@@ -161,7 +169,7 @@ echo "🧹 Cleaning up mounts..."
 umount /mnt/rootfs/proc
 umount /mnt/rootfs/sys
 umount /mnt/rootfs/dev
-umount /mnt/rootfs/home/pi/ArcadeMatrix_RPi/data
+umount /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/data
 umount /mnt/rootfs/boot/firmware
 umount /mnt/rootfs
 

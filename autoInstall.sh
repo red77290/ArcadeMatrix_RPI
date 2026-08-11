@@ -38,11 +38,11 @@ if [ ! -f "Cargo.toml" ]; then
     ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
     cd "$ACTUAL_HOME" || true
     
-    if [ -d "ArcadeMatrix_RPi" ]; then
+    if [ -d "ArcadeMatrix_RPi/.git" ]; then
         echo "Directory ArcadeMatrix_RPi already exists, updating via git pull..."
         cd ArcadeMatrix_RPi
         git pull || true
-    elif [ -d "ArcadeMatrix_RPI" ]; then
+    elif [ -d "ArcadeMatrix_RPI/.git" ]; then
         echo "Directory ArcadeMatrix_RPI already exists, updating via git pull..."
         cd ArcadeMatrix_RPI
         git pull || true

@@ -46,6 +46,13 @@ if [ ! -f "Cargo.toml" ]; then
         echo "Directory ArcadeMatrix_RPI already exists, updating via git pull..."
         cd ArcadeMatrix_RPI
         git pull || true
+    elif [ -d "ArcadeMatrix_RPi" ] || [ -d "ArcadeMatrix_RPI" ]; then
+        echo "Directory exists but is not a git repository. Assuming manual ZIP download."
+        if [ -d "ArcadeMatrix_RPi" ]; then
+            cd ArcadeMatrix_RPi
+        else
+            cd ArcadeMatrix_RPI
+        fi
     else
         echo "Cloning the ArcadeMatrix_RPi repository..."
         git clone https://github.com/red77290/ArcadeMatrix_RPI.git ArcadeMatrix_RPi

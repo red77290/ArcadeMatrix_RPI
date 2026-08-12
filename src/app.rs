@@ -694,9 +694,9 @@ impl ArcadeMatrixApp {
                 }
                 last_index = current_index;
 
-                // Composite fighter overlay
+                // Composite fighter overlay (strictly disabled during GIF rotation)
                 let settings = config.settings.read();
-                let fighter_enabled = settings.idle_fighter_enabled;
+                let fighter_enabled = settings.idle_fighter_enabled && current_mode.as_str() != "gifs";
                 if fighter_enabled {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());

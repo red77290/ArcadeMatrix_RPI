@@ -229,6 +229,7 @@ impl Config {
         }
 
         let mut ini = Ini::new();
+        ini.set_comment_symbols(&[';']);
         if ini.load(path).is_err() {
             return;
         }
@@ -314,7 +315,7 @@ impl Config {
         if let Ok(Some(val)) = ini.getint("TIME", "CLOCK_OFFSET_Y") {
             settings.time_offset_y = val as i32;
         }
-        if let Some(v) = ini.get("TIME", "NTP_SERVER") {
+        if let Some(v) = ini.get("TIME", "NTP_SERVER").or_else(|| ini.get("TIME", "NTPSERVER")) {
             settings.ntp_server = v;
         }
         if let Some(v) = ini.get("TIME", "TIMEZONE") {
@@ -663,5 +664,26 @@ impl Config {
         );
 
         ini.write(&file_path).is_ok()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hex_color_comment_parsing() {
+        let ini_str = r#"
+[TIME]
+CLOCK_COLOR_1 = #ff0000 ; primary color comment
+CLOCK_COLOR_2 = #00ff00
+NTP_SERVER = pool.ntp.org
+"#;
+        let mut ini = configparser::ini::Ini::new();
+        ini.set_comment_symbols(&[';']);
+        let map = ini.read(ini_str.to_string()).unwrap();
+        assert_eq!(ini.get("TIME", "CLOCK_COLOR_1").unwrap(), "#ff0000");
+        assert_eq!(ini.get("TIME", "CLOCK_COLOR_2").unwrap(), "#00ff00");
     }
 }

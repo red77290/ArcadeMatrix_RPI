@@ -58,6 +58,8 @@ TOPIC_RECALBOX = recalbox/system/playing
 # ---------------------------------------------------------
 # Clock Settings
 # ---------------------------------------------------------
+# NTP Time Server
+NTP_SERVER = pool.ntp.org
 # Use 24-hour format (true) or 12-hour AM/PM format (false)
 FORMAT_24H = true
 # Font file used for the digital clock (must be inside /fonts/)
@@ -78,8 +80,8 @@ CLOCK_COLOR_2 = #ffffff
 # ---------------------------------------------------------
 # Playlist & Rotation Behavior
 # ---------------------------------------------------------
-# Rotation mode: 'clock' (fixed clock), 'gifs' (fixed gifs), 'sprites' (fixed sprites), or 'all' (cycles through everything)
-ROTATION = clock
+# Rotation sequence: comma-separated list (e.g. clock, date, weather, gifs)
+ROTATION = clock,date,weather,gifs
 # How many seconds the Clock stays on screen before rotating
 CLOCK_DURATION_SEC = 15
 # How many seconds the Date stays on screen
@@ -88,8 +90,6 @@ DATE_DURATION_SEC = 10
 WEATHER_DURATION_SEC = 10
 # Number of GIFs to play per rotation cycle
 GIFS_COUNT = 5
-# Number of Sprites to play per rotation cycle
-SPRITE_COUNT = 1
 # Comma-separated list of selected GIFs to play. Leave empty to play all.
 SELECTED_GIFS = 
 # Comma-separated list of selected Sprites. Leave empty to play all.
@@ -134,4 +134,3 @@ NIGHT_MODE_ENABLED = false
 TURN_OFF_AT = 23:00
 # Time to wake up and turn on the display (HH:MM format)
 WAKE_UP_AT = 07:00
-

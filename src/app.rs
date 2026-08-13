@@ -629,7 +629,14 @@ impl ArcadeMatrixApp {
                         if gif_engine.has_finished_loops(1) || gif_engine.is_empty() {
                             gifs_played += 1;
                             if gifs_played >= gifs_count {
-                                rotation_state.next_mode(&idle_list);
+                                gifs_played = 0;
+                                let next_mode_opt = rotation_state.next_mode(&idle_list);
+                                if next_mode_opt == Some("gifs") {
+                                    let selected = config.settings.read().selected_gifs.clone();
+                                    if !gif_engine.play_random_playlist_gif(&selected) {
+                                        gifs_played = gifs_count; // Force advance if failed
+                                    }
+                                }
                             } else {
                                 let selected = config.settings.read().selected_gifs.clone();
                                 if !gif_engine.play_random_playlist_gif(&selected) {

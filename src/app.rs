@@ -519,27 +519,6 @@ impl ArcadeMatrixApp {
                 }
             }
 
-            // MQTT mode: dedicated DMD for Recalbox/Batocera (only when no active game event)
-            let mqtt_enabled = config.settings.read().mqtt_enabled;
-            if mqtt_enabled {
-                let current_force = config.force_engine.lock().clone();
-                if current_force.is_none() {
-                    matrix.clear();
-                    let payload = crate::engines::message::MessagePayload::new(
-                        "Waiting for Content...".to_string(),
-                        "#ff8c00",
-                        if matrix.height() >= 64 { 2 } else { 1 },
-                        "left",
-                        60, // Arbitrary for idle
-                    );
-                    let _ = message_engine.render(matrix.as_mut(), &payload);
-                    matrix.update();
-                    last_frame = std::time::Instant::now();
-                    std::thread::sleep(std::time::Duration::from_millis(33));
-                    continue;
-                }
-            }
-
             // Rotation sequence execution
             let (idle_list, clock_dur, date_dur, weather_dur) = {
                 let s = config.settings.read();

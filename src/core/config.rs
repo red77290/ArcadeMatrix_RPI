@@ -4,6 +4,14 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 
+pub fn parse_symbols_string(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSettings {
     // MATRIX
@@ -315,7 +323,10 @@ impl Config {
         if let Ok(Some(val)) = ini.getint("TIME", "CLOCK_OFFSET_Y") {
             settings.time_offset_y = val as i32;
         }
-        if let Some(v) = ini.get("TIME", "NTP_SERVER").or_else(|| ini.get("TIME", "NTPSERVER")) {
+        if let Some(v) = ini
+            .get("TIME", "NTP_SERVER")
+            .or_else(|| ini.get("TIME", "NTPSERVER"))
+        {
             settings.ntp_server = v;
         }
         if let Some(v) = ini.get("TIME", "TIMEZONE") {
@@ -666,7 +677,6 @@ impl Config {
         ini.write(&file_path).is_ok()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

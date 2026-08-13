@@ -455,12 +455,11 @@ impl ArcadeMatrixApp {
                 continue;
             }
 
-            // Handle forced engine (Custom Message, Marquee Image)
-            let forced = config.force_engine.lock().clone();
-            if let Some(ref mode) = forced {
-                *config.force_engine.lock() = None;
-
-                if mode == "message" {
+            // Handle forced engine (Game Marquee, Custom Message, etc.)
+            let forced_opt = config.force_engine.lock().clone();
+            if let Some(forced_mode) = forced_opt {
+                if forced_mode == "message" {
+                    *config.force_engine.lock() = None; // Messages are one-shot
                     let payload_val_opt = config.message_payload.lock().clone();
                     if let Some(payload_val) = payload_val_opt {
                         if let Ok(payload) =
@@ -476,7 +475,10 @@ impl ArcadeMatrixApp {
                                 if config.reload_flag.load(Ordering::Relaxed) {
                                     break;
                                 }
-                                if config.force_engine.lock().is_some() {
+                                let current_forced = config.force_engine.lock().clone();
+                                if current_forced.is_some()
+                                    && current_forced.as_deref() != Some("message")
+                                {
                                     break;
                                 }
 
@@ -496,22 +498,14 @@ impl ArcadeMatrixApp {
                             continue;
                         }
                     }
-                } else if mode == "marquee" {
+                } else if forced_mode == "marquee" {
+                    // Active Game Marquee persists as long as force_engine is Some("marquee")
                     let img_opt = config.image_obj.lock().clone();
                     if let Some(img) = img_opt {
-                        while !config.reload_flag.load(Ordering::Relaxed)
-                            && running.load(Ordering::SeqCst)
-                        {
-                            if config.force_engine.lock().is_some() {
-                                break;
-                            }
-
-                            matrix.clear();
-                            marquee_engine.render(matrix.as_mut(), &img);
-                            matrix.update();
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-
+                        matrix.clear();
+                        marquee_engine.render(matrix.as_mut(), &img);
+                        matrix.update();
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                         last_frame = std::time::Instant::now();
                         rotation_state.mode_start_time = std::time::Instant::now();
                         continue;

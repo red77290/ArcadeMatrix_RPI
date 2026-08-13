@@ -125,6 +125,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                     });
                                 } else if status == "stopped" {
                                     *config.force_engine.lock() = None;
+                                    *config.image_obj.lock() = None;
                                 }
                             }
                         }

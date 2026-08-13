@@ -680,8 +680,6 @@ impl Config {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_hex_color_comment_parsing() {
         let ini_str = r#"

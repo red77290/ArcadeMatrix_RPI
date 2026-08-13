@@ -1,7 +1,6 @@
 use arcadematrix::core::config::{Config, ConfigSettings};
 use arcadematrix::engines::gif::GifEngine;
 use std::fs;
-use std::path::{Path, PathBuf};
 
 fn setup_test_env() -> tempfile::TempDir {
     let dir = tempfile::tempdir().unwrap();

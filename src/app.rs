@@ -457,7 +457,7 @@ impl ArcadeMatrixApp {
 
             // Handle forced engine (Game Marquee, Custom Message, etc.)
             let forced_opt = config.force_engine.lock().clone();
-            if let Some(forced_mode) = forced_opt {
+            if let Some(ref forced_mode) = forced_opt {
                 if forced_mode == "message" {
                     *config.force_engine.lock() = None; // Messages are one-shot
                     let payload_val_opt = config.message_payload.lock().clone();
@@ -511,6 +511,27 @@ impl ArcadeMatrixApp {
                         continue;
                     }
                 }
+            }
+
+            // Check if MQTT mode is enabled and no game marquee is active:
+            // Display "WAITING FOR MARQUEE" banner in white and suspend idle rotation (matching ESP32 behavior)
+            let mqtt_enabled = { config.settings.read().mqtt_enabled };
+            if mqtt_enabled && forced_opt.is_none() {
+                let msg_payload = crate::engines::message::MessagePayload::new(
+                    "WAITING FOR MARQUEE".to_string(),
+                    "#ffffff",
+                    1,
+                    "none",
+                    5,
+                );
+                matrix.clear();
+                message_engine.reset(matrix.width() as f32);
+                message_engine.render(matrix.as_mut(), &msg_payload);
+                matrix.update();
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                last_frame = std::time::Instant::now();
+                rotation_state.mode_start_time = std::time::Instant::now();
+                continue;
             }
 
             // Rotation sequence execution

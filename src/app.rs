@@ -400,6 +400,7 @@ impl ArcadeMatrixApp {
 
         // The actual SIGTERM is handled by tokio in the async context, which updates the 'running' atomic bool.
         let mut last_index = usize::MAX;
+        let mut was_mqtt_waiting = false;
 
         while running.load(Ordering::SeqCst) {
             matrix.clear();
@@ -517,21 +518,26 @@ impl ArcadeMatrixApp {
             // Display "WAITING FOR MARQUEE" banner in white and suspend idle rotation (matching ESP32 behavior)
             let mqtt_enabled = { config.settings.read().mqtt_enabled };
             if mqtt_enabled && forced_opt.is_none() {
+                if !was_mqtt_waiting {
+                    message_engine.reset(matrix.width() as f32);
+                    was_mqtt_waiting = true;
+                }
                 let msg_payload = crate::engines::message::MessagePayload::new(
                     "WAITING FOR MARQUEE".to_string(),
                     "#ffffff",
-                    1,
-                    "none",
+                    2,
+                    "rtl",
                     5,
                 );
                 matrix.clear();
-                message_engine.reset(matrix.width() as f32);
                 message_engine.render(matrix.as_mut(), &msg_payload);
                 matrix.update();
                 std::thread::sleep(std::time::Duration::from_millis(50));
                 last_frame = std::time::Instant::now();
                 rotation_state.mode_start_time = std::time::Instant::now();
                 continue;
+            } else {
+                was_mqtt_waiting = false;
             }
 
             // Rotation sequence execution

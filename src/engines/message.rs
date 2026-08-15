@@ -88,7 +88,7 @@ impl MessageEngine {
         self.base_renderer.render_text(
             matrix,
             &payload.text,
-            0,
+            -1,
             payload.size,
             self.offset_x as i32,
             0,

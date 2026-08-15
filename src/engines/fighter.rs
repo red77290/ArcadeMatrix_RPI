@@ -449,7 +449,9 @@ impl FighterEngine {
                     let p2_world_origin =
                         p2.x + (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
                     let dist = p2_world_origin - p1_world_origin;
-                    let engage_dist = (self.matrix_width as f32 * 0.4) as f32;
+
+                    let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
+                    let engage_dist = 18.0 * scale;
 
                     if dist <= engage_dist {
                         let mut rng = rand::thread_rng();

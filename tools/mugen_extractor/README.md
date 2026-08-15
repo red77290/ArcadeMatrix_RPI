@@ -43,15 +43,34 @@ Example:
     └── ChunLi/
 ```
 
-## How to use it
+## How to use it (Interactive)
 
-Run the script with command-line arguments - no need to edit any code:
+The easiest way to extract sprites is to use the interactive guided script. It will automatically create a Python virtual environment, install requirements, and prompt you for the required inputs and your target hardware (to automatically apply the correct scale and compression).
+
+```bash
+./start_extractor.sh     # macOS/Linux
+start_extractor.bat      # Windows
+```
+
+---
+
+## Alternative: Manual Command Line
+
+If you want to integrate the tool into your own scripts or use custom scaling, you can run the Python script directly via command-line arguments:
 
 ```bash
 python mugen_extractor.py --src /Path/To/Your/Mugen/chars --dest ./fighters_32
 ```
 
-Options:
+### 🎯 Recommended Commands by Hardware
+
+| Platform / Matrix Size | Recommended Command |
+| ---------------------- | ------------------- |
+| **ESP32 (128x32)** | `python mugen_extractor.py -i /Path/To/Mugen/chars -o ./fighters_32 --scale 0.5` |
+| **ESP32 (256x64)** | `python mugen_extractor.py -i /Path/To/Mugen/chars -o ./fighters_64` |
+| **Raspberry Pi** | `python mugen_extractor.py -i /Path/To/Mugen/chars -o ./fighters_rpi --compress` |
+
+### Options:
 | Option | Short alias | Default | Description |
 |---|---|---|---|
 | `--src` | `-i` | *(required)* | Directory containing your MUGEN character subfolders. |
@@ -59,24 +78,6 @@ Options:
 | `--mode` | | `FULLSIZE` | `SCALED` resizes characters to fit panel height (standard ESP32, no PSRAM); `FULLSIZE` keeps 1:1 scale (RPi or ESP32-S3 with PSRAM). |
 | `--scale` | `--scaling` | `None` | Custom scaling factor (e.g. `0.5` to scale sprites down by 50% saving 75% RAM, `0.8`, `2.0`). Overrides mode calculation. |
 | `--compress` | | disabled | Compresses `.fgt` files with gzip (`.fgt.gz`) - useful for RPi disk space saving. |
-
-To target both a 32px and a 64px matrix, just run it twice with different `--dest` folders:
-
-```bash
-python mugen_extractor.py --src /Path/To/Your/Mugen/chars --dest ./fighters_32
-python mugen_extractor.py --src /Path/To/Your/Mugen/chars --dest ./fighters_64
-```
-
-### Alternative: interactive wrapper (no command-line flags needed)
-
-If you'd rather not type flags yourself, `start_extractor.sh` (macOS/Linux) /
-`start_extractor.bat` (Windows) create a local Python virtual environment, install `Pillow`
-automatically, and prompt you for the input/output folders interactively (they call
-`mugen_extractor.py -i <input> -o <output>` for you):
-
-```bash
-./start_extractor.sh     # macOS/Linux
-start_extractor.bat      # Windows
 ```
 
 ### Extraction Process

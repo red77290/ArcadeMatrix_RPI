@@ -140,3 +140,66 @@ export AM_PASS="votre_mot_de_passe"
 ```
 Lors de la génération avec `scripts/build_image.sh`, ces variables seront automatiquement lues. Le hachage du mot de passe sera dynamiquement calculé avec SHA-512 pour l`injection dans l`image `.img` (`userconf.txt`).
 Les scripts de déploiement (`autoInstall.sh` et `deploy.sh`) utiliseront également ces variables pour configurer correctement les permissions (traversée du dossier home pour le daemon) et installer les alias `.bash_aliases` au bon endroit.
+
+---
+
+## Tutoriel : Ajouter un nouveau module de rotation (ex: Pager/News)
+
+Si vous souhaitez ajouter un nouveau module à la boucle de rotation (ex: un "Pager" pour les actualités), suivez ces étapes :
+
+### Étape 1 : L'interface Web
+Dans `api/www/index.html`, ajoutez la case à cocher pour le nouveau module :
+```html
+<label class="toggle-checkbox">
+  <input type="checkbox" value="pager">
+  <span class="toggle-label">Pager</span>
+</label>
+```
+Le JS embarqué enverra automatiquement cette valeur à `/api/settings`.
+
+### Étape 2 : La configuration (`conf.ini`)
+Dans `src/core/config.rs`, le tableau de rotation utilise un Enum `IdleRotationItem`. Ajoutez votre variante :
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum IdleRotationItem {
+    Clock,
+    Gifs,
+    Sprites,
+    Pager, // <-- Nouveau module
+}
+```
+Mettez à jour les traits `FromStr` et `Display` dans `config.rs` pour que la chaîne `"pager"` issue de l'UI et du `conf.ini` soit correctement convertie en `IdleRotationItem::Pager`.
+
+### Étape 3 : Le moteur d'affichage (Engine)
+Créez un fichier `src/engines/pager.rs` gérant la logique de dessin avec `imageproc` et `rusttype`.
+```rust
+use rpi_led_matrix::Canvas;
+
+pub struct PagerEngine {
+    news_text: String,
+}
+
+impl PagerEngine {
+    pub fn new() -> Self {
+        Self { news_text: "CHARGEMENT DES ACTUS...".to_string() }
+    }
+    
+    pub fn draw(&mut self, canvas: &mut Canvas) {
+        canvas.clear();
+        // Utiliser imageproc pour dessiner le texte
+    }
+}
+```
+
+### Étape 4 : La boucle de rotation
+Dans `src/core/rotation.rs` (ou `main.rs`), ajoutez le match pour `Pager` :
+```rust
+match current_rotation_item {
+    IdleRotationItem::Clock => { /* ... */ },
+    IdleRotationItem::Pager => {
+        let mut pager = PagerEngine::new();
+        // Boucle jusqu'à expiration de la durée
+        pager.draw(&mut canvas);
+    },
+}
+```

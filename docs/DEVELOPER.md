@@ -86,3 +86,66 @@ export AM_PASS="your_password"
 ```
 During image generation with `scripts/build_image.sh`, these variables will be automatically read. The password hash will be dynamically calculated using SHA-512 for injection into the `.img` file (`userconf.txt`).
 Deployment scripts (`autoInstall.sh` and `deploy.sh`) will also use these variables to properly configure permissions (home folder traversal for the daemon) and install `.bash_aliases` in the correct location.
+
+---
+
+## Tutorial: Adding a New Rotation Module (e.g., Pager/News)
+
+If you want to add a new display module to the idle rotation loop (e.g., a "Pager" for news), follow these steps:
+
+### Step 1: The Web UI
+The rotation toggles are defined in `api/www/index.html`. Add your new module as a checkbox:
+```html
+<label class="toggle-checkbox">
+  <input type="checkbox" value="pager">
+  <span class="toggle-label">Pager</span>
+</label>
+```
+The bundled JS sends the selected values as an array or comma-separated string to `/api/settings`.
+
+### Step 2: The Configuration (`conf.ini`)
+In `src/core/config.rs`, the rotation array is defined. If it maps to an Enum (like `IdleRotationItem`), you need to add your new variant:
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum IdleRotationItem {
+    Clock,
+    Gifs,
+    Sprites,
+    Pager, // <-- New module
+}
+```
+Update the FromStr/Display traits in `config.rs` so that `"pager"` from the UI and `conf.ini` parses correctly into `IdleRotationItem::Pager`.
+
+### Step 3: The Engine
+Create a new file `src/engines/pager.rs` that handles the drawing logic using `imageproc` and `rusttype`.
+```rust
+use rpi_led_matrix::Canvas;
+
+pub struct PagerEngine {
+    news_text: String,
+}
+
+impl PagerEngine {
+    pub fn new() -> Self {
+        Self { news_text: "FETCHING NEWS...".to_string() }
+    }
+    
+    pub fn draw(&mut self, canvas: &mut Canvas) {
+        canvas.clear();
+        // Use imageproc to draw text
+    }
+}
+```
+
+### Step 4: The Rotation Loop
+In `src/core/rotation.rs` (or `main.rs` loop dispatcher), match the `Pager` variant:
+```rust
+match current_rotation_item {
+    IdleRotationItem::Clock => { /* ... */ },
+    IdleRotationItem::Pager => {
+        let mut pager = PagerEngine::new();
+        // Loop until duration expires
+        pager.draw(&mut canvas);
+    },
+}
+```

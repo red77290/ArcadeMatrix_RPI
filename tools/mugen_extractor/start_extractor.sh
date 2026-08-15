@@ -22,11 +22,30 @@ echo "[INFO] Installing requirements..."
 pip install -r requirements.txt -q
 
 echo ""
-read -p "Input Folder (containing source GIFs): " input_folder
-read -p "Output Folder (e.g. ./output/ryu): " output_folder
+read -p "Input Folder (containing MUGEN chars): " input_folder
+read -p "Output Folder (e.g. ./fighters_32): " output_folder
 
 echo ""
-python mugen_extractor.py -i "$input_folder" -o "$output_folder"
+echo "Select your target platform:"
+echo "1) ESP32 - 128x32 Matrix (Scale 0.5, Uncompressed)"
+echo "2) ESP32 - 256x64 Matrix (No Scale, Uncompressed)"
+echo "3) Raspberry Pi (No Scale, Compressed)"
+read -p "Choice (1/2/3): " platform_choice
+
+echo ""
+if [ "$platform_choice" = "1" ]; then
+    echo "[INFO] Running for ESP32 128x32..."
+    python mugen_extractor.py -i "$input_folder" -o "$output_folder" --scale 0.5
+elif [ "$platform_choice" = "2" ]; then
+    echo "[INFO] Running for ESP32 256x64..."
+    python mugen_extractor.py -i "$input_folder" -o "$output_folder"
+elif [ "$platform_choice" = "3" ]; then
+    echo "[INFO] Running for Raspberry Pi..."
+    python mugen_extractor.py -i "$input_folder" -o "$output_folder" --compress
+else
+    echo "[ERROR] Invalid choice. Using default settings..."
+    python mugen_extractor.py -i "$input_folder" -o "$output_folder"
+fi
 
 echo ""
 echo "[DONE]"

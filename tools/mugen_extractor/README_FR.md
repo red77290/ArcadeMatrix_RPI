@@ -43,15 +43,34 @@ Exemple :
     └── ChunLi/
 ```
 
-## Comment l'utiliser
+## Comment l'utiliser (Interactif)
 
-Exécutez le script avec des arguments en ligne de commande - inutile de modifier le moindre code :
+La méthode la plus simple pour extraire vos sprites est d'utiliser le script guidé interactif. Il créera automatiquement un environnement virtuel Python, installera les dépendances et vous demandera vos chemins ainsi que votre matériel cible (afin d'appliquer automatiquement la bonne échelle et compression).
+
+```bash
+./start_extractor.sh     # macOS/Linux
+start_extractor.bat      # Windows
+```
+
+---
+
+## Alternative : Ligne de Commande Manuelle
+
+Si vous souhaitez intégrer l'outil dans vos propres scripts ou utiliser un scaling personnalisé, vous pouvez exécuter le script Python directement avec ses arguments en ligne de commande :
 
 ```bash
 python mugen_extractor.py --src /Chemin/Vers/Vos/Personnages/Mugen/chars --dest ./fighters_32
 ```
 
-Options :
+### 🎯 Commandes Recommandées par Matériel
+
+| Plateforme / Taille | Commande Recommandée |
+| ------------------- | -------------------- |
+| **ESP32 (128x32)** | `python mugen_extractor.py -i /Chemin/Mugen/chars -o ./fighters_32 --scale 0.5` |
+| **ESP32 (256x64)** | `python mugen_extractor.py -i /Chemin/Mugen/chars -o ./fighters_64` |
+| **Raspberry Pi** | `python mugen_extractor.py -i /Chemin/Mugen/chars -o ./fighters_rpi --compress` |
+
+### Options :
 | Option | Alias court | Défaut | Description |
 |---|---|---|---|
 | `--src` | `-i` | *(obligatoire)* | Dossier contenant vos sous-dossiers de personnages MUGEN. |
@@ -59,24 +78,6 @@ Options :
 | `--mode` | | `FULLSIZE` | `SCALED` redimensionne les personnages pour occuper exactement la hauteur du panneau (ESP32 standard, sans PSRAM) ; `FULLSIZE` conserve l'échelle 1:1 (RPi ou ESP32-S3 avec PSRAM - voir `docs/HARDWARE_FR.md`). |
 | `--scale` | `--scaling` | `None` | Facteur d'échelle manuel (ex: `0.5` pour diviser les sprites par 2 et économiser 75%% de RAM, `0.8`, `2.0`). Surpasse le calcul automatique. |
 | `--compress` | | désactivé | Compresse les fichiers `.fgt` en gzip (`.fgt.gz`) - utile sur RPi pour économiser de l'espace disque. |
-
-Pour cibler à la fois une matrice 32px et 64px, exécutez-le simplement deux fois avec des dossiers `--dest` différents :
-
-```bash
-python mugen_extractor.py --src /Chemin/Vers/Vos/Personnages/Mugen/chars --dest ./fighters_32
-python mugen_extractor.py --src /Chemin/Vers/Vos/Personnages/Mugen/chars --dest ./fighters_64
-```
-
-### Alternative : assistant interactif (aucune option en ligne de commande requise)
-
-Si vous préférez ne pas saisir d'options vous-même, `start_extractor.sh` (macOS/Linux) /
-`start_extractor.bat` (Windows) créent un environnement virtuel Python local, installent
-automatiquement `Pillow`, et vous demandent les dossiers d'entrée/sortie de manière interactive
-(ils appellent `mugen_extractor.py -i <entrée> -o <sortie>` pour vous) :
-
-```bash
-./start_extractor.sh     # macOS/Linux
-start_extractor.bat      # Windows
 ```
 
 ### Processus d'extraction

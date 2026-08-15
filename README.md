@@ -261,6 +261,17 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | `AUTH_ENABLED` | `false` | If `true`, requires the `X-API-Token` header to match `TOKEN` on the sensitive endpoints: `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot`, `/api/system/shutdown`. Disabled by default so the bundled Web UI keeps working out of the box; enable it if the device is reachable beyond a trusted LAN. |
 | `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `conf.ini` after first run) and send it as `X-API-Token` when calling protected endpoints. |
 
+## 🙏 Acknowledgments
+
+A huge thanks to the open-source community and the creators of the incredible libraries that power this project:
+- **[rpi-rgb-led-matrix](https://github.com/hzeller/rpi-rgb-led-matrix)** by hzeller (and the Rust bindings by AidanWallace)
+- **[Actix-web](https://github.com/actix/actix-web)** for the blazing fast web API
+- **[image-rs](https://github.com/image-rs/image)** for image processing
+- **[rumqttc](https://github.com/bytebeamio/rumqtt)** for MQTT support
+- And the entire Rust community for creating such an amazing ecosystem (Tokio, Serde, reqwest, tracing, etc.)!
+
+Special thanks to the **RPiTeam** for the awesome pack of 600 GIFs!
+
 ## 📜 License
 This project is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
 

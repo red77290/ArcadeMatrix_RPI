@@ -1,8 +1,14 @@
 use ssh2::Session;
+use std::io::Read;
 use std::net::TcpStream;
 use std::time::Duration;
 
-pub fn install_sync_script(target_ip: &str, matrix_ip: &str) -> Result<String, String> {
+pub fn install_sync_script(
+    target_ip: &str,
+    matrix_ip: &str,
+    custom_user: Option<String>,
+    custom_pass: Option<String>,
+) -> Result<String, String> {
     let tcp = TcpStream::connect_timeout(
         &format!("{}:22", target_ip).parse().unwrap(),
         Duration::from_secs(5),
@@ -14,18 +20,45 @@ pub fn install_sync_script(target_ip: &str, matrix_ip: &str) -> Result<String, S
     sess.handshake()
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
-    let passwords = vec![
-        ("Recalbox", "recalboxroot", "/recalbox/share/userscripts"),
-        ("Batocera", "linux", "/userdata/system/scripts"),
+    let mut targets = vec![
+        (
+            "Recalbox",
+            "root".to_string(),
+            "recalboxroot".to_string(),
+            "/recalbox/share/userscripts",
+        ),
+        (
+            "Batocera",
+            "root".to_string(),
+            "linux".to_string(),
+            "/userdata/system/scripts",
+        ),
     ];
+
+    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
+        targets = vec![
+            (
+                "Custom (Recalbox path)",
+                u.clone(),
+                p.clone(),
+                "/recalbox/share/userscripts",
+            ),
+            ("Custom (Batocera path)", u, p, "/userdata/system/scripts"),
+        ];
+    }
 
     let mut connected = false;
     let mut system_name = "";
     let mut target_dir = "";
 
-    for (sys_name, pwd, t_dir) in passwords {
-        tracing::info!("Trying to connect to {} as {}...", target_ip, sys_name);
-        if sess.userauth_password("root", pwd).is_ok() {
+    for (sys_name, user, pwd, t_dir) in targets.iter() {
+        tracing::info!(
+            "Trying to connect to {} as {} (OS: {})...",
+            target_ip,
+            user,
+            sys_name
+        );
+        if sess.userauth_password(user, pwd).is_ok() {
             connected = true;
             system_name = sys_name;
             target_dir = t_dir;
@@ -249,4 +282,90 @@ fi
         "Successfully installed! {} is now rebooting...",
         system_name
     ))
+}
+
+pub fn fetch_sync_logs(
+    target_ip: &str,
+    custom_user: Option<String>,
+    custom_pass: Option<String>,
+) -> Result<String, String> {
+    let tcp = TcpStream::connect_timeout(
+        &format!("{}:22", target_ip).parse().unwrap(),
+        Duration::from_secs(5),
+    )
+    .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+
+    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH handshake failed: {}", e))?;
+
+    let mut targets = vec![
+        (
+            "Recalbox",
+            "root".to_string(),
+            "recalboxroot".to_string(),
+            "/recalbox/share/userscripts/daemon.log",
+        ),
+        (
+            "Batocera",
+            "root".to_string(),
+            "linux".to_string(),
+            "/userdata/system/scripts/daemon.log",
+        ),
+    ];
+
+    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
+        targets = vec![
+            (
+                "Custom (Recalbox path)",
+                u.clone(),
+                p.clone(),
+                "/recalbox/share/userscripts/daemon.log",
+            ),
+            (
+                "Custom (Batocera path)",
+                u,
+                p,
+                "/userdata/system/scripts/daemon.log",
+            ),
+        ];
+    }
+
+    let mut connected = false;
+    let mut log_path = "";
+
+    for (_sys_name, user, pwd, path) in targets.iter() {
+        if sess.userauth_password(user, pwd).is_ok() {
+            connected = true;
+            log_path = path;
+            break;
+        }
+    }
+
+    if !connected {
+        return Err("Failed to authenticate via SSH. Check credentials.".to_string());
+    }
+
+    let mut channel = sess
+        .channel_session()
+        .map_err(|_| "Failed to open SSH channel")?;
+    channel
+        .exec(&format!(
+            "tail -n 100 {} || echo 'Log file not found or empty'",
+            log_path
+        ))
+        .map_err(|_| "Failed to execute command on target")?;
+
+    let mut logs = String::new();
+    channel
+        .read_to_string(&mut logs)
+        .map_err(|_| "Failed to read output")?;
+    channel.wait_close().ok();
+
+    if logs.trim().is_empty() {
+        Ok("Log file is empty.".to_string())
+    } else {
+        Ok(logs)
+    }
 }

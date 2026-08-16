@@ -622,6 +622,15 @@ async fn api_mqtt_install(
         return HttpResponse::BadRequest()
             .json(json!({"status": "error", "message": "No IP provided"}));
     }
+    let user = body
+        .get("user")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let pass = body
+        .get("pass")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
     let matrix_ip = std::net::UdpSocket::bind("0.0.0.0:0")
         .and_then(|s| {
             s.connect("10.255.255.255:1")?;
@@ -630,8 +639,37 @@ async fn api_mqtt_install(
         .map(|addr| addr.ip().to_string())
         .unwrap_or_else(|_| "127.0.0.1".to_string());
 
-    match crate::core::ssh_installer::install_sync_script(target_ip, &matrix_ip) {
+    match crate::core::ssh_installer::install_sync_script(target_ip, &matrix_ip, user, pass) {
         Ok(msg) => HttpResponse::Ok().json(json!({"status": "success", "message": msg})),
+        Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
+    }
+}
+
+#[post("/api/mqtt/logs")]
+async fn api_mqtt_logs(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let target_ip = body.get("ip").and_then(|v| v.as_str()).unwrap_or("");
+    if target_ip.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "No IP provided"}));
+    }
+    let user = body
+        .get("user")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let pass = body
+        .get("pass")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    match crate::core::ssh_installer::fetch_sync_logs(target_ip, user, pass) {
+        Ok(logs) => HttpResponse::Ok().json(json!({"status": "success", "logs": logs})),
         Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
     }
 }
@@ -763,6 +801,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_sprites_playlists_save)
             .service(api_wifi)
             .service(api_mqtt_install)
+            .service(api_mqtt_logs)
             .service(api_marquee)
             .service(api_power)
             .service(get_version)

@@ -79,7 +79,7 @@ def main():
                 last_sent = rom_path
                 gbase = os.path.splitext(os.path.basename(rom_path))[0]
 
-                msg = '{{"status": "' + state + '", "game": "' + gbase + '", "system": "' + str(system) + '"}}'
+                msg = '{"status": "' + state + '", "game": "' + gbase + '", "system": "' + str(system) + '"}'
                 # subprocess.run au lieu de Popen pour éviter les fuites de processus (zombies)
                 try:
                     subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)

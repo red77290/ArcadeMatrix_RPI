@@ -688,15 +688,33 @@
             
             <h4 style="margin-top: 1.5rem;">Recalbox / Batocera Sync</h4>
             <p class="text-muted" style="font-size: 0.9em;">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
+            <div class="form-group" style="margin-top: 1rem;">
+              <label class="toggle-btn" style="display:inline-flex; align-items:center; cursor:pointer;">
+                <input type="checkbox" id="hw-mqtt-custom-auth" style="margin-right:0.5rem; accent-color:var(--primary);">
+                <span>Use custom SSH credentials (Default: root / recalboxroot)</span>
+              </label>
+            </div>
+            <div id="mqtt-custom-auth-fields" class="form-grid" style="display: none; margin-top: 0.5rem; margin-bottom: 1rem;">
+              <div class="form-group">
+                <label>SSH Username</label>
+                <input type="text" id="hw-mqtt-ssh-user" class="input" placeholder="root" value="root">
+              </div>
+              <div class="form-group">
+                <label>SSH Password</label>
+                <input type="password" id="hw-mqtt-ssh-pass" class="input" placeholder="recalboxroot">
+              </div>
+            </div>
             <div class="form-grid" style="align-items: end;">
               <div class="form-group">
                 <label>Console IP Address</label>
                 <input type="text" id="hw-mqtt-ip" class="input" placeholder="192.168.1.100">
               </div>
-              <div class="form-group">
-                <button id="btn-install-mqtt" class="btn btn-warning" style="width: 100%;">Install via SSH</button>
+              <div class="form-group" style="display: flex; gap: 0.5rem;">
+                <button id="btn-install-mqtt" class="btn btn-warning" style="flex: 1;">Install via SSH</button>
+                <button id="btn-check-logs" class="btn btn-primary" style="flex: 1;">Check Logs</button>
               </div>
             </div>
+            <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
           </div>
           
           <div class="card glass shadow">

@@ -292,16 +292,32 @@ function initNetworkSettings() {
 
   const btnInstallMqtt = document.getElementById('btn-install-mqtt');
   if (btnInstallMqtt) {
+    const cbCustomAuth = document.getElementById('hw-mqtt-custom-auth');
+    const authFields = document.getElementById('mqtt-custom-auth-fields');
+    if (cbCustomAuth && authFields) {
+      cbCustomAuth.addEventListener('change', () => {
+        authFields.style.display = cbCustomAuth.checked ? 'grid' : 'none';
+      });
+    }
+
     btnInstallMqtt.addEventListener('click', async () => {
       const ip = document.getElementById('hw-mqtt-ip').value;
       if (!ip) {
         window.showToast('Please enter Console IP Address', 'error');
         return;
       }
+      
+      let user = null;
+      let pass = null;
+      if (cbCustomAuth && cbCustomAuth.checked) {
+        user = document.getElementById('hw-mqtt-ssh-user').value || 'root';
+        pass = document.getElementById('hw-mqtt-ssh-pass').value;
+      }
+
       btnInstallMqtt.disabled = true;
       btnInstallMqtt.textContent = 'Installing...';
       try {
-        await API.postAuth('/api/mqtt/install', { ip });
+        await API.postAuth('/api/mqtt/install', { ip, user, pass });
         window.showToast('MQTT Sync Script Installed!', 'success');
       } catch (e) {
         window.showToast('Failed to install script', 'error');
@@ -310,6 +326,48 @@ function initNetworkSettings() {
         btnInstallMqtt.textContent = 'Install via SSH';
       }
     });
+
+    const btnCheckLogs = document.getElementById('btn-check-logs');
+    if (btnCheckLogs) {
+      btnCheckLogs.addEventListener('click', async () => {
+        const ip = document.getElementById('hw-mqtt-ip').value;
+        if (!ip) {
+          window.showToast('Please enter Console IP Address', 'error');
+          return;
+        }
+
+        let user = null;
+        let pass = null;
+        if (cbCustomAuth && cbCustomAuth.checked) {
+          user = document.getElementById('hw-mqtt-ssh-user').value || 'root';
+          pass = document.getElementById('hw-mqtt-ssh-pass').value;
+        }
+
+        btnCheckLogs.disabled = true;
+        btnCheckLogs.textContent = 'Checking...';
+        const logOutput = document.getElementById('ssh-log-output');
+        if (logOutput) {
+          logOutput.style.display = 'block';
+          logOutput.textContent = 'Fetching logs from ' + ip + '...';
+        }
+        
+        try {
+          const res = await API.postAuth('/api/mqtt/logs', { ip, user, pass });
+          if (logOutput) {
+            logOutput.textContent = res.logs || 'No logs returned.';
+          }
+          window.showToast('Logs retrieved!', 'success');
+        } catch (e) {
+          if (logOutput) {
+            logOutput.textContent = 'Failed to fetch logs: ' + (e.message || e.status || '');
+          }
+          window.showToast('Failed to fetch logs', 'error');
+        } finally {
+          btnCheckLogs.disabled = false;
+          btnCheckLogs.textContent = 'Check Logs';
+        }
+      });
+    }
   }
 
   const btnSaveMqtt = document.getElementById('btn-save-mqtt');

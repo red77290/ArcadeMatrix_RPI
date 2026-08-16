@@ -31,14 +31,18 @@ if command -v apt-get &> /dev/null; then
     sudo systemctl restart mosquitto || true
 fi
 
+ACTUAL_USER=${SUDO_USER:-$USER}
+if [ -z "$ACTUAL_USER" ]; then
+    ACTUAL_USER="root"
+fi
+ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
+if [ "$ACTUAL_HOME" = "~$ACTUAL_USER" ] || [ -z "$ACTUAL_HOME" ]; then
+    ACTUAL_HOME="${HOME:-/root}"
+fi
+
 # 3. Check if we are in the project root and clone if necessary
 if [ ! -f "Cargo.toml" ]; then
     echo "Cargo.toml not found. It looks like you ran this script standalone."
-    ACTUAL_USER=${SUDO_USER:-$USER}
-    ACTUAL_HOME=$(eval echo ~$ACTUAL_USER)
-    if [ "$ACTUAL_HOME" = "~$ACTUAL_USER" ]; then
-        ACTUAL_HOME="$HOME"
-    fi
     cd "$ACTUAL_HOME" || true
     
     if [ -d "ArcadeMatrix_RPi/.git" ]; then

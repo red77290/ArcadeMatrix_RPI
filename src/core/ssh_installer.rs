@@ -36,15 +36,27 @@ pub fn install_sync_script(
     ];
 
     if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        targets = vec![
-            (
-                "Custom (Recalbox path)",
-                u.clone(),
-                p.clone(),
-                "/recalbox/share/userscripts",
-            ),
-            ("Custom (Batocera path)", u, p, "/userdata/system/scripts"),
-        ];
+        if !u.is_empty() && !p.is_empty() {
+            // Insert custom targets at the beginning so they are tried first
+            targets.insert(
+                0,
+                (
+                    "Custom (Batocera path)",
+                    u.clone(),
+                    p.clone(),
+                    "/userdata/system/scripts",
+                ),
+            );
+            targets.insert(
+                0,
+                (
+                    "Custom (Recalbox path)",
+                    u,
+                    p,
+                    "/recalbox/share/userscripts",
+                ),
+            );
+        }
     }
 
     let mut connected = false;
@@ -316,20 +328,26 @@ pub fn fetch_sync_logs(
     ];
 
     if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        targets = vec![
-            (
-                "Custom (Recalbox path)",
-                u.clone(),
-                p.clone(),
-                "/recalbox/share/userscripts/daemon.log",
-            ),
-            (
-                "Custom (Batocera path)",
-                u,
-                p,
-                "/userdata/system/scripts/daemon.log",
-            ),
-        ];
+        if !u.is_empty() && !p.is_empty() {
+            targets.insert(
+                0,
+                (
+                    "Custom (Batocera path)",
+                    u.clone(),
+                    p.clone(),
+                    "/userdata/system/scripts/daemon.log",
+                ),
+            );
+            targets.insert(
+                0,
+                (
+                    "Custom (Recalbox path)",
+                    u,
+                    p,
+                    "/recalbox/share/userscripts/daemon.log",
+                ),
+            );
+        }
     }
 
     let mut connected = false;

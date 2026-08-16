@@ -13,6 +13,7 @@ chmod +x autoInstall.sh
 # Create a dummy Cargo.toml to satisfy autoInstall.sh's root check
 touch Cargo.toml
 export SKIP_BUILD=1
+export SUDO_USER=$AM_USER
 ./autoInstall.sh
 
 # 3. Add extra Release-only steps (DATA Partition)

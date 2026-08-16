@@ -255,7 +255,7 @@ fi
             let mut channel = sess.channel_session().unwrap();
             channel
                 .exec(&format!(
-                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
+                    "cat > '{}' << 'EOF'\n{}\nEOF\nchmod +x '{}'",
                     launcher_path, launcher_code, launcher_path
                 ))
                 .ok();

@@ -5,7 +5,6 @@ use tokio::fs;
 use tokio::process::Command;
 use tracing::{info, warn};
 
-const TEMP_PATH: &str = "/tmp/arcadematrix_new";
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 
 const EM_AARCH64: u16 = 183;
@@ -69,31 +68,32 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }));
     }
 
-    if let Err(e) = fs::write(TEMP_PATH, &firmware_bytes).await {
+    let binary_path = std::env::current_exe()
+        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
+    let temp_path = binary_path.with_extension("new");
+    let backup_path = binary_path.with_extension("bak");
+
+    if let Err(e) = fs::write(&temp_path, &firmware_bytes).await {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "status": "error",
             "message": format!("Failed to write temporary binary: {}", e)
         }));
     }
 
-    let binary_path = std::env::current_exe()
-        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
-    let backup_path = binary_path.with_extension("bak");
-
     if binary_path.exists() {
-        if let Err(e) = fs::copy(&binary_path, &backup_path).await {
+        // Try to delete any old backup first
+        let _ = fs::remove_file(&backup_path).await;
+        // Rename current running executable to .bak (this works even if it's running)
+        if let Err(e) = fs::rename(&binary_path, &backup_path).await {
             warn!("Could not backup current binary: {}", e);
         }
     }
 
-    if let Err(_e) = fs::rename(TEMP_PATH, &binary_path).await {
-        if let Err(e2) = fs::copy(TEMP_PATH, &binary_path).await {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": format!("Failed to install firmware binary: {}", e2)
-            }));
-        }
-        let _ = fs::remove_file(TEMP_PATH).await;
+    if let Err(e2) = fs::rename(&temp_path, &binary_path).await {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to install firmware binary: {}", e2)
+        }));
     }
 
     let _ = Command::new("chmod")

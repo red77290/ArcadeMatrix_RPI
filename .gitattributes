@@ -1,0 +1,6 @@
+# Set default behavior, in case users don't have core.autocrlf set.
+* text=auto
+
+# Enforce LF for scripts that will be run on Linux/Unix environments.
+*.sh text eol=lf
+*.py text eol=lf

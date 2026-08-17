@@ -211,16 +211,31 @@ pub fn get_system_name_variants(system: &str) -> Vec<(&'static str, String)> {
     let sys_lower = system.to_lowercase();
     let sys_upper = system.to_uppercase();
     let sys_space = system.replace('_', " ");
+    let sys_title = system
+        .split(|c| c == '_' || c == ' ')
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let mut c = s.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
 
     let mut names: Vec<String> = Vec::new();
 
-    // 1. Direct name variants
+    // 1. Direct name variants (Exact, Lowercase, Uppercase, TitleCase, SpaceSeparated)
     names.push(system.to_string());
     if sys_lower != system {
         names.push(sys_lower.clone());
     }
     if sys_upper != system && sys_upper != sys_lower {
         names.push(sys_upper.clone());
+    }
+    if sys_title != system && sys_title != sys_lower && sys_title != sys_upper {
+        names.push(sys_title);
     }
     if sys_space != system && sys_space != sys_lower && sys_space != sys_upper {
         names.push(sys_space);

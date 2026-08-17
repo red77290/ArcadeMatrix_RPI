@@ -66,63 +66,119 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload) {
                                 let status = json["status"].as_str().unwrap_or("stopped");
                                 if status != "stopped" {
-                                    let game =
-                                        json["game"].as_str().unwrap_or("Unknown").to_string();
+                                    let is_system_event = json["type"].as_str() == Some("system")
+                                        || (json["game"].as_str().unwrap_or("").is_empty()
+                                            && json["system"].as_str().is_some());
+
                                     let system =
                                         json["system"].as_str().unwrap_or("Unknown").to_string();
 
-                                    let clean_name = format_game_name(&game);
-
-                                    // Check if we already have the image cached (instant display)
                                     let req_id = MQTT_REQUEST_ID
                                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
                                         + 1;
 
-                                    if let Some(path) = dmd_cache.get_cached_path(&system, &game) {
-                                        if let Ok(img) = image::open(&path) {
-                                            *config.image_obj.lock() = Some(img.to_rgb8());
-                                            *config.force_engine.lock() =
-                                                Some("marquee".to_string());
-                                            continue;
-                                        }
-                                    }
-
-                                    // 1. Instantly show fallback message (no scroll, instant feedback)
-                                    let mut text_to_show = clean_name.clone();
-                                    if text_to_show.len() > 10 {
-                                        text_to_show = format!(" {} ", text_to_show);
-                                    }
-                                    let msg_payload = crate::engines::message::MessagePayload::new(
-                                        text_to_show,
-                                        "#00ffff", // Cyan in Python: 0x07FF
-                                        1,
-                                        if clean_name.len() > 8 { "left" } else { "none" }, // Scroll only if very long, as in python
-                                        30, // 30 seconds should be enough for a fallback text if download fails
-                                    );
-                                    *config.message_payload.lock() =
-                                        Some(serde_json::to_value(msg_payload).unwrap());
-                                    *config.force_engine.lock() = Some("message".to_string());
-
-                                    let config_clone = Arc::clone(&config);
-                                    let cache_clone = Arc::clone(&dmd_cache);
-                                    std::thread::spawn(move || {
+                                    if is_system_event {
+                                        // System Marquee Browsing
                                         if let Some(path) =
-                                            cache_clone.download_marquee(&system, &game)
+                                            dmd_cache.get_cached_system_path(&system)
                                         {
                                             if let Ok(img) = image::open(&path) {
-                                                // Only apply if the user hasn't scrolled to another game since
-                                                if MQTT_REQUEST_ID
-                                                    .load(std::sync::atomic::Ordering::Relaxed)
-                                                    == req_id
-                                                {
-                                                    *config_clone.image_obj.lock() =
-                                                        Some(img.to_rgb8());
-                                                    *config_clone.force_engine.lock() =
-                                                        Some("marquee".to_string());
-                                                }
+                                                *config.image_obj.lock() = Some(img.to_rgb8());
+                                                *config.force_engine.lock() =
+                                                    Some("marquee".to_string());
+                                                continue;
                                             }
                                         }
-                                    });
+
+                                        let clean_name = format_game_name(&system);
+                                        let mut text_to_show = clean_name.clone();
+                                        if text_to_show.len() > 10 {
+                                            text_to_show = format!(" {} ", text_to_show);
+                                        }
+                                        let msg_payload =
+                                            crate::engines::message::MessagePayload::new(
+                                                text_to_show,
+                                                "#00ffff",
+                                                1,
+                                                if clean_name.len() > 8 { "left" } else { "none" },
+                                                30,
+                                            );
+                                        *config.message_payload.lock() =
+                                            Some(serde_json::to_value(msg_payload).unwrap());
+                                        *config.force_engine.lock() = Some("message".to_string());
+
+                                        let config_clone = Arc::clone(&config);
+                                        let cache_clone = Arc::clone(&dmd_cache);
+                                        std::thread::spawn(move || {
+                                            if let Some(path) =
+                                                cache_clone.download_system_marquee(&system)
+                                            {
+                                                if let Ok(img) = image::open(&path) {
+                                                    if MQTT_REQUEST_ID
+                                                        .load(std::sync::atomic::Ordering::Relaxed)
+                                                        == req_id
+                                                    {
+                                                        *config_clone.image_obj.lock() =
+                                                            Some(img.to_rgb8());
+                                                        *config_clone.force_engine.lock() =
+                                                            Some("marquee".to_string());
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    } else {
+                                        // Game Marquee
+                                        let game =
+                                            json["game"].as_str().unwrap_or("Unknown").to_string();
+                                        let clean_name = format_game_name(&game);
+
+                                        if let Some(path) =
+                                            dmd_cache.get_cached_path(&system, &game)
+                                        {
+                                            if let Ok(img) = image::open(&path) {
+                                                *config.image_obj.lock() = Some(img.to_rgb8());
+                                                *config.force_engine.lock() =
+                                                    Some("marquee".to_string());
+                                                continue;
+                                            }
+                                        }
+
+                                        let mut text_to_show = clean_name.clone();
+                                        if text_to_show.len() > 10 {
+                                            text_to_show = format!(" {} ", text_to_show);
+                                        }
+                                        let msg_payload =
+                                            crate::engines::message::MessagePayload::new(
+                                                text_to_show,
+                                                "#00ffff",
+                                                1,
+                                                if clean_name.len() > 8 { "left" } else { "none" },
+                                                30,
+                                            );
+                                        *config.message_payload.lock() =
+                                            Some(serde_json::to_value(msg_payload).unwrap());
+                                        *config.force_engine.lock() = Some("message".to_string());
+
+                                        let config_clone = Arc::clone(&config);
+                                        let cache_clone = Arc::clone(&dmd_cache);
+                                        std::thread::spawn(move || {
+                                            if let Some(path) =
+                                                cache_clone.download_marquee(&system, &game)
+                                            {
+                                                if let Ok(img) = image::open(&path) {
+                                                    if MQTT_REQUEST_ID
+                                                        .load(std::sync::atomic::Ordering::Relaxed)
+                                                        == req_id
+                                                    {
+                                                        *config_clone.image_obj.lock() =
+                                                            Some(img.to_rgb8());
+                                                        *config_clone.force_engine.lock() =
+                                                            Some("marquee".to_string());
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
                                 } else if status == "stopped" {
                                     *config.force_engine.lock() = None;
                                     *config.image_obj.lock() = None;

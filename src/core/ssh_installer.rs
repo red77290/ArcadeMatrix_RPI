@@ -85,71 +85,8 @@ pub fn install_sync_script(
         );
     }
 
-    if system_name == "Batocera" {
-        let script_content = format!(
-            r#"#!/bin/sh
-# ArcadeMatrix Auto-Sync Script for Batocera
-
-BROKER="{}"
-TOPIC="recalbox/system/playing"
-ACTION=$1
-ROM_PATH=$2
-SYSTEM_NAME=$3
-
-if [ "$ACTION" = "gameStart" ] || [ "$ACTION" = "gameSelected" ]; then
-    GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-    ROM_DIR=$(dirname "$ROM_PATH")
-    
-    MARQUEE_PATH=""
-    for ext in png jpg gif; do
-        for prefix in "images/" "downloaded_images/" "media/marquees/" "media/images/" "media/wheels/" ""; do
-            for suffix in "-marquee" "-wheel" "-image" "-thumb" ""; do
-                if [ -f "$ROM_DIR/$prefix${{GAME_BASENAME}}$suffix.$ext" ]; then
-                    MARQUEE_PATH="$ROM_DIR/$prefix${{GAME_BASENAME}}$suffix.$ext"
-                    break 3
-                fi
-            done
-        done
-    done
-    
-    if [ -n "$MARQUEE_PATH" ]; then
-        curl -s -X POST -F "image=@$MARQUEE_PATH" http://$BROKER:8080/api/marquee > /dev/null &
-    else
-        STATUS="playing"
-        if [ "$ACTION" = "gameSelected" ]; then STATUS="browsing"; fi
-        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "{{\"status\": \"$STATUS\", \"game\": \"$GAME_BASENAME\", \"system\": \"$SYSTEM_NAME\"}}" &
-    fi
-elif [ "$ACTION" = "gameStop" ]; then
-    mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "{{\"status\": \"stopped\"}}" &
-fi
-"#,
-            matrix_ip
-        );
-
-        let script_path = format!("{}/arcadematrix_mqtt.sh", target_dir);
-
-        tracing::info!("Creating directory {}...", target_dir);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
-            channel.wait_close().ok();
-        }
-
-        tracing::info!("Uploading script to {}...", script_path);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!(
-                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}",
-                    script_path, script_content, script_path
-                ))
-                .ok();
-            channel.wait_close().ok();
-        }
-    } else {
-        // Recalbox Daemon — ultra-lightweight, zero image processing
-        let daemon_code = format!(
-            r#"import subprocess
+    let daemon_code = format!(
+        r#"import subprocess
 import time
 import os
 
@@ -159,7 +96,6 @@ TOPIC = "recalbox/system/playing"
 def parse_statefile():
     game = None
     system = None
-    image = None
     state = "browsing"
     try:
         with open("/tmp/es_state.inf", "r") as f:
@@ -168,13 +104,11 @@ def parse_statefile():
                     game = line.split("=", 1)[1].strip()
                 elif line.startswith("SystemId="):
                     system = line.split("=", 1)[1].strip()
-                elif line.startswith("ImagePath="):
-                    image = line.split("=", 1)[1].strip()
                 elif line.startswith("State="):
                     state = line.split("=", 1)[1].strip()
     except Exception:
         pass
-    return game, system, image, state
+    return game, system, state
 
 def main():
     import socket
@@ -186,29 +120,47 @@ def main():
         print("Another daemon is already running, exiting...")
         sys.exit(1)
         
-    print("Daemon started (v5 - lightweight)!", flush=True)
+    print("Daemon started (lightweight)!", flush=True)
     time.sleep(5)
-    last_game = None
-    last_sent = None
+    last_state_key = None
+    last_sent_key = None
     pending_since = 0
 
     while True:
         try:
-            rom_path, system, img, state = parse_statefile()
-            if not rom_path:
+            rom_path, system, state = parse_statefile()
+            if not system and not rom_path:
                 time.sleep(0.1)
                 continue
 
-            if rom_path != last_game:
-                last_game = rom_path
+            if state == "stopped":
+                current_key = (None, None, "stopped")
+            else:
+                is_system = True
+                if rom_path and not os.path.isdir(rom_path):
+                    is_system = False
+                
+                if is_system:
+                    current_key = (None, system, "browsing")
+                else:
+                    current_key = (rom_path, system, state)
+
+            if current_key != last_state_key:
+                last_state_key = current_key
                 pending_since = time.time()
 
             elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and rom_path != last_sent:
-                last_sent = rom_path
-                gbase = os.path.splitext(os.path.basename(rom_path))[0]
+            if elapsed >= 0.15 and current_key != last_sent_key:
+                last_sent_key = current_key
 
-                msg = '{{"status": "' + state + '", "game": "' + gbase + '", "system": "' + str(system) + '"}}'
+                if current_key[2] == "stopped":
+                    msg = '{{"status": "stopped"}}'
+                elif current_key[0] is None:
+                    msg = '{{"status": "browsing", "system": "' + str(current_key[1]) + '", "type": "system"}}'
+                else:
+                    gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
+                    msg = '{{"status": "' + current_key[2] + '", "game": "' + gbase + '", "system": "' + str(current_key[1]) + '"}}'
+
                 try:
                     subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
                 except subprocess.TimeoutExpired:
@@ -221,9 +173,57 @@ def main():
 if __name__ == "__main__":
     main()
 "#,
-            matrix_ip
-        );
+        matrix_ip
+    );
 
+    if system_name == "Batocera" {
+        tracing::info!("Creating directory {}...", target_dir);
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
+            channel.wait_close().ok();
+        }
+
+        tracing::info!("Cleaning up previous scripts...");
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/scripts/arcadematrix_mqtt.sh")
+                .ok();
+            channel.wait_close().ok();
+        }
+
+        let daemon_path = "/userdata/system/arcadematrix_daemon.py";
+        tracing::info!("Uploading script to {}...", daemon_path);
+        {
+            let mut channel = sess.channel_session().unwrap();
+            channel
+                .exec(&format!(
+                    "cat > {} << 'EOF'\n{}\nEOF\n",
+                    daemon_path, daemon_code
+                ))
+                .ok();
+            channel.wait_close().ok();
+        }
+
+        tracing::info!("Configuring custom.sh on Batocera...");
+        {
+            let mut channel = sess.channel_session().unwrap();
+            let setup_cmd = r#"
+if [ ! -f /userdata/system/custom.sh ]; then
+    echo '#!/bin/sh' > /userdata/system/custom.sh
+    echo '[ "$1" = "start" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
+    chmod +x /userdata/system/custom.sh
+else
+    if ! grep -q 'arcadematrix_daemon.py' /userdata/system/custom.sh; then
+        echo '[ "$1" = "start" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
+    fi
+fi
+"#;
+            channel.exec(setup_cmd).ok();
+            channel.wait_close().ok();
+        }
+    } else {
         let launcher_code = r#"#!/bin/sh
 if [ -z "$1" ] || [ "$1" = "-action" -a "$2" = "start" ]; then
     pkill -f arcadematrix_daemon.py || true

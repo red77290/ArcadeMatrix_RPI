@@ -32,7 +32,7 @@ BROKER = "MQTT_BROKER_IP_PLACEHOLDER"
 TOPIC = "recalbox/system/playing"
 
 def parse_statefile():
-    game, system, image, state = None, None, None, "browsing"
+    game, system, state = None, None, "browsing"
     try:
         with open("/tmp/es_state.inf", "r") as f:
             for line in f:
@@ -44,7 +44,7 @@ def parse_statefile():
                     state = line.split("=", 1)[1].strip()
     except Exception:
         pass
-    return game, system, image, state
+    return game, system, state
 
 def main():
     import socket
@@ -58,29 +58,48 @@ def main():
         sys.exit(1)
         
     time.sleep(5)
-    last_game = None
-    last_sent = None
+    last_state_key = None
+    last_sent_key = None
     pending_since = 0
 
     while True:
         try:
-            rom_path, system, img, state = parse_statefile()
-            if not rom_path:
+            rom_path, system, state = parse_statefile()
+            if not system and not rom_path:
                 time.sleep(0.1)
                 continue
 
-            if rom_path != last_game:
-                last_game = rom_path
+            if state == "stopped":
+                current_key = (None, None, "stopped")
+            else:
+                is_system = True
+                if rom_path and not os.path.isdir(rom_path):
+                    is_system = False
+                
+                if is_system:
+                    current_key = (None, system, "browsing")
+                else:
+                    current_key = (rom_path, system, state)
+
+            if current_key != last_state_key:
+                last_state_key = current_key
                 pending_since = time.time()
 
             # Debounce: on attend 150ms de survol avant d'envoyer (anti-spam)
             elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and rom_path != last_sent:
-                last_sent = rom_path
-                gbase = os.path.splitext(os.path.basename(rom_path))[0]
+            if elapsed >= 0.15 and current_key != last_sent_key:
+                last_sent_key = current_key
 
-                msg = '{"status": "' + state + '", "game": "' + gbase + '", "system": "' + str(system) + '"}'
-                # subprocess.run au lieu de Popen pour éviter les fuites de processus (zombies)
+                if current_key[2] == "stopped":
+                    msg = '{"status": "stopped"}'
+                elif current_key[0] is None:
+                    # System browsing
+                    msg = '{"status": "browsing", "system": "' + str(current_key[1]) + '", "type": "system"}'
+                else:
+                    # Game event
+                    gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
+                    msg = '{"status": "' + current_key[2] + '", "game": "' + gbase + '", "system": "' + str(current_key[1]) + '"}'
+
                 try:
                     subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
                 except subprocess.TimeoutExpired:

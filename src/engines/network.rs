@@ -7,7 +7,8 @@ use tracing::{error, info};
 static MQTT_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn format_game_name(game: &str) -> String {
-    let clean_name = game.replace("-", " ").replace("_", " ");
+    let stripped = crate::core::dmd_cache::clean_system_name(game);
+    let clean_name = stripped.replace("-", " ").replace("_", " ");
     clean_name
         .split_whitespace()
         .map(|word| {

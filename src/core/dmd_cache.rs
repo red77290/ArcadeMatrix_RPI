@@ -322,9 +322,14 @@ pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)>
             base_names.push("Neo Geo".into());
             base_names.push("SNK Neo Geo".into());
         }
-        "atari2600" => {
+        "atari" | "atari2600" | "atari7800" | "atari5200" | "atari800" | "atarilynx"
+        | "atarijaguar" | "atarist" => {
+            base_names.push("atari".into());
+            base_names.push("Atari".into());
             base_names.push("Atari_2600".into());
             base_names.push("Atari 2600".into());
+            base_names.push("Atari_7800".into());
+            base_names.push("Atari 7800".into());
         }
         "mastersystem" => {
             base_names.push("Master System".into());

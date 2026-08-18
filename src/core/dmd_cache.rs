@@ -246,12 +246,21 @@ pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)>
         .collect::<Vec<_>>()
         .join(" ");
 
+    let sys_nospace = sys_lower.replace(' ', "");
+    let sys_underscore = sys_lower.replace(' ', "_");
+
     let mut base_names: Vec<String> = Vec::new();
 
     // 1. Direct name variants
     base_names.push(clean.clone());
     if sys_lower != clean {
         base_names.push(sys_lower.clone());
+    }
+    if sys_nospace != clean && sys_nospace != sys_lower {
+        base_names.push(sys_nospace.clone());
+    }
+    if sys_underscore != clean && sys_underscore != sys_lower && sys_underscore != sys_nospace {
+        base_names.push(sys_underscore.clone());
     }
     if sys_upper != clean && sys_upper != sys_lower {
         base_names.push(sys_upper.clone());
@@ -351,19 +360,33 @@ pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)>
     // 1. default-{clean} (exact name as received from EmulationStation)
     // 2. default-_{clean} (exact category/collection name)
     // 3. default-z{clean_lower} & z{clean_lower} (Pixelcade convention for arcade board systems like zcps1, zkonami, zcapcom)
-    // 4. default-{variant} & default-_{variant} for other base variants
-    // 5. {variant} direct names
+    // 4. default-arcade_{b}_classics / default-arcade{b}classics / default-manufacture_{b} (Pixelcade publisher collections)
+    // 5. default-{variant} & default-_{variant} for other base variants
+    // 6. {variant} direct names
     let mut name_variants: Vec<String> = Vec::new();
     let clean_lower = clean.to_lowercase();
+    let clean_nospace = clean_lower.replace(' ', "");
+    let clean_underscore = clean_lower.replace(' ', "_");
+
     name_variants.push(format!("default-{}", clean));
     name_variants.push(format!("default-_{}", clean));
     name_variants.push(format!("default-z{}", clean_lower));
+    name_variants.push(format!("default-z{}", clean_nospace));
     name_variants.push(format!("z{}", clean_lower));
+    name_variants.push(format!("z{}", clean_nospace));
 
     for b in &unique_base {
+        let b_lower = b.to_lowercase();
+        let b_nospace = b_lower.replace(' ', "");
+        let b_underscore = b_lower.replace(' ', "_");
         name_variants.push(format!("default-{}", b));
         name_variants.push(format!("default-_{}", b));
-        name_variants.push(format!("default-z{}", b.to_lowercase()));
+        name_variants.push(format!("default-z{}", b_lower));
+        name_variants.push(format!("default-z{}", b_nospace));
+        name_variants.push(format!("default-arcade_{}_classics", b_underscore));
+        name_variants.push(format!("default-arcade{}classics", b_nospace));
+        name_variants.push(format!("default-manufacture_{}", b_underscore));
+        name_variants.push(format!("default-manufacture_{}", b_lower));
     }
     for b in &unique_base {
         name_variants.push(b.clone());

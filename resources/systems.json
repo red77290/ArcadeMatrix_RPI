@@ -1,0 +1,1662 @@
+{
+  "arcade": [
+    "arcade",
+    "mame",
+    "-_arcade",
+    "default-_arcade",
+    "default-arcade"
+  ],
+  "arcadeall": [
+    "arcade",
+    "mame",
+    "default-_allgames"
+  ],
+  "-_arcade": [
+    "arcade",
+    "mame",
+    "default-_arcade"
+  ],
+  "- arcade": [
+    "arcade",
+    "mame",
+    "default-_arcade"
+  ],
+  "-_arcadefavs": [
+    "arcade",
+    "mame",
+    "default-_arcadefavs"
+  ],
+  "- arcadefavs": [
+    "arcade",
+    "mame",
+    "default-_arcadefavs"
+  ],
+  "favorites": [
+    "default-_favorites",
+    "default-favorites",
+    "favorites"
+  ],
+  "favs": [
+    "default-_favorites",
+    "default-favorites"
+  ],
+  "allgames": [
+    "default-_allgames",
+    "default-allgames",
+    "all"
+  ],
+  "all": [
+    "default-_allgames",
+    "default-allgames"
+  ],
+  "lastplayed": [
+    "default-_lastplayed",
+    "default-lastplayed"
+  ],
+  "custom": [
+    "default-_custom",
+    "default-custom"
+  ],
+  "cave": [
+    "cave",
+    "zcave",
+    "default-zcave",
+    "default-cave"
+  ],
+  "arcade manufacturer cave": [
+    "cave",
+    "zcave",
+    "default-zcave",
+    "default-cave"
+  ],
+  "arcade system cave": [
+    "cave",
+    "zcave",
+    "default-zcave",
+    "default-cave"
+  ],
+  "manufacturer cave": [
+    "cave",
+    "zcave",
+    "default-zcave",
+    "default-cave"
+  ],
+  "atari": [
+    "atari",
+    "zatari",
+    "default-zatari",
+    "default-atari",
+    "Atari_2600",
+    "Atari_7800"
+  ],
+  "arcade manufacturer atari": [
+    "atari",
+    "zatari",
+    "default-zatari",
+    "default-atari",
+    "Atari_2600",
+    "Atari_7800"
+  ],
+  "arcade system atari": [
+    "atari",
+    "zatari",
+    "default-zatari",
+    "default-atari",
+    "Atari_2600",
+    "Atari_7800"
+  ],
+  "manufacturer atari": [
+    "atari",
+    "zatari",
+    "default-zatari",
+    "default-atari",
+    "Atari_2600",
+    "Atari_7800"
+  ],
+  "capcom": [
+    "capcom",
+    "zcapcom",
+    "default-zcapcom",
+    "default-capcom",
+    "default-zcps1",
+    "default-zcps2",
+    "default-zcps3",
+    "Capcom68000"
+  ],
+  "arcade manufacturer capcom": [
+    "capcom",
+    "zcapcom",
+    "default-zcapcom",
+    "default-capcom",
+    "default-zcps1",
+    "default-zcps2",
+    "default-zcps3",
+    "Capcom68000"
+  ],
+  "arcade system capcom": [
+    "capcom",
+    "zcapcom",
+    "default-zcapcom",
+    "default-capcom",
+    "default-zcps1",
+    "default-zcps2",
+    "default-zcps3",
+    "Capcom68000"
+  ],
+  "manufacturer capcom": [
+    "capcom",
+    "zcapcom",
+    "default-zcapcom",
+    "default-capcom",
+    "default-zcps1",
+    "default-zcps2",
+    "default-zcps3",
+    "Capcom68000"
+  ],
+  "konami": [
+    "konami",
+    "zkonami",
+    "default-zkonami",
+    "default-konami",
+    "default-arcade_konami_classics"
+  ],
+  "arcade manufacturer konami": [
+    "konami",
+    "zkonami",
+    "default-zkonami",
+    "default-konami",
+    "default-arcade_konami_classics"
+  ],
+  "arcade system konami": [
+    "konami",
+    "zkonami",
+    "default-zkonami",
+    "default-konami",
+    "default-arcade_konami_classics"
+  ],
+  "manufacturer konami": [
+    "konami",
+    "zkonami",
+    "default-zkonami",
+    "default-konami",
+    "default-arcade_konami_classics"
+  ],
+  "taito": [
+    "taito",
+    "ztaito",
+    "default-ztaito",
+    "default-taito",
+    "default-arcade_taito_classics"
+  ],
+  "arcade manufacturer taito": [
+    "taito",
+    "ztaito",
+    "default-ztaito",
+    "default-taito",
+    "default-arcade_taito_classics"
+  ],
+  "arcade system taito": [
+    "taito",
+    "ztaito",
+    "default-ztaito",
+    "default-taito",
+    "default-arcade_taito_classics"
+  ],
+  "manufacturer taito": [
+    "taito",
+    "ztaito",
+    "default-ztaito",
+    "default-taito",
+    "default-arcade_taito_classics"
+  ],
+  "sega": [
+    "sega",
+    "zsega",
+    "default-sega",
+    "default-zsega",
+    "default-manufacture_sega"
+  ],
+  "arcade manufacturer sega": [
+    "sega",
+    "zsega",
+    "default-sega",
+    "default-zsega",
+    "default-manufacture_sega"
+  ],
+  "arcade system sega": [
+    "sega",
+    "zsega",
+    "default-sega",
+    "default-zsega",
+    "default-manufacture_sega"
+  ],
+  "manufacturer sega": [
+    "sega",
+    "zsega",
+    "default-sega",
+    "default-zsega",
+    "default-manufacture_sega"
+  ],
+  "namco": [
+    "namco",
+    "znamco",
+    "default-namco",
+    "default-znamco",
+    "default-arcade_namco_classics"
+  ],
+  "arcade manufacturer namco": [
+    "namco",
+    "znamco",
+    "default-namco",
+    "default-znamco",
+    "default-arcade_namco_classics"
+  ],
+  "arcade system namco": [
+    "namco",
+    "znamco",
+    "default-namco",
+    "default-znamco",
+    "default-arcade_namco_classics"
+  ],
+  "manufacturer namco": [
+    "namco",
+    "znamco",
+    "default-namco",
+    "default-znamco",
+    "default-arcade_namco_classics"
+  ],
+  "snk": [
+    "snk",
+    "zsnk",
+    "default-snk",
+    "default-zsnk",
+    "default-arcade_snk_classics",
+    "default-zneogeo"
+  ],
+  "arcade manufacturer snk": [
+    "snk",
+    "zsnk",
+    "default-snk",
+    "default-zsnk",
+    "default-arcade_snk_classics",
+    "default-zneogeo"
+  ],
+  "arcade system snk": [
+    "snk",
+    "zsnk",
+    "default-snk",
+    "default-zsnk",
+    "default-arcade_snk_classics",
+    "default-zneogeo"
+  ],
+  "manufacturer snk": [
+    "snk",
+    "zsnk",
+    "default-snk",
+    "default-zsnk",
+    "default-arcade_snk_classics",
+    "default-zneogeo"
+  ],
+  "neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-neogeo",
+    "default-zneogeo"
+  ],
+  "arcade manufacturer neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-neogeo",
+    "default-zneogeo"
+  ],
+  "arcade system neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-neogeo",
+    "default-zneogeo"
+  ],
+  "manufacturer neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-neogeo",
+    "default-zneogeo"
+  ],
+  "irem": [
+    "irem",
+    "zirem",
+    "default-zirem",
+    "default-irem",
+    "default-arcade_irem_classics"
+  ],
+  "arcade manufacturer irem": [
+    "irem",
+    "zirem",
+    "default-zirem",
+    "default-irem",
+    "default-arcade_irem_classics"
+  ],
+  "arcade system irem": [
+    "irem",
+    "zirem",
+    "default-zirem",
+    "default-irem",
+    "default-arcade_irem_classics"
+  ],
+  "manufacturer irem": [
+    "irem",
+    "zirem",
+    "default-zirem",
+    "default-irem",
+    "default-arcade_irem_classics"
+  ],
+  "dataeast": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "arcade manufacturer dataeast": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "arcade system dataeast": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "manufacturer dataeast": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "data east": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "arcade manufacturer data east": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "arcade system data east": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "manufacturer data east": [
+    "dataeast",
+    "data_east",
+    "zdataeast",
+    "default-zdataeast",
+    "default-dataeast",
+    "default-arcade_data_east_classics"
+  ],
+  "midway": [
+    "midway",
+    "zmidway",
+    "default-midway",
+    "default-zmidway",
+    "default-arcade_midway_classics"
+  ],
+  "arcade manufacturer midway": [
+    "midway",
+    "zmidway",
+    "default-midway",
+    "default-zmidway",
+    "default-arcade_midway_classics"
+  ],
+  "arcade system midway": [
+    "midway",
+    "zmidway",
+    "default-midway",
+    "default-zmidway",
+    "default-arcade_midway_classics"
+  ],
+  "manufacturer midway": [
+    "midway",
+    "zmidway",
+    "default-midway",
+    "default-zmidway",
+    "default-arcade_midway_classics"
+  ],
+  "sammy": [
+    "sammy",
+    "zsammy",
+    "default-zsammy",
+    "default-sammy"
+  ],
+  "arcade manufacturer sammy": [
+    "sammy",
+    "zsammy",
+    "default-zsammy",
+    "default-sammy"
+  ],
+  "arcade system sammy": [
+    "sammy",
+    "zsammy",
+    "default-zsammy",
+    "default-sammy"
+  ],
+  "manufacturer sammy": [
+    "sammy",
+    "zsammy",
+    "default-zsammy",
+    "default-sammy"
+  ],
+  "technos": [
+    "technos",
+    "default-arcade_technos_classics"
+  ],
+  "arcade manufacturer technos": [
+    "technos",
+    "default-arcade_technos_classics"
+  ],
+  "arcade system technos": [
+    "technos",
+    "default-arcade_technos_classics"
+  ],
+  "manufacturer technos": [
+    "technos",
+    "default-arcade_technos_classics"
+  ],
+  "toaplan": [
+    "toaplan",
+    "ztoaplan",
+    "default-ztoaplan",
+    "default-toaplan"
+  ],
+  "arcade manufacturer toaplan": [
+    "toaplan",
+    "ztoaplan",
+    "default-ztoaplan",
+    "default-toaplan"
+  ],
+  "arcade system toaplan": [
+    "toaplan",
+    "ztoaplan",
+    "default-ztoaplan",
+    "default-toaplan"
+  ],
+  "manufacturer toaplan": [
+    "toaplan",
+    "ztoaplan",
+    "default-ztoaplan",
+    "default-toaplan"
+  ],
+  "nintendo": [
+    "nintendo",
+    "znintendo",
+    "default-nintendo",
+    "default-znintendo",
+    "default-manufacture_nintendo"
+  ],
+  "arcade manufacturer nintendo": [
+    "nintendo",
+    "znintendo",
+    "default-nintendo",
+    "default-znintendo",
+    "default-manufacture_nintendo"
+  ],
+  "arcade system nintendo": [
+    "nintendo",
+    "znintendo",
+    "default-nintendo",
+    "default-znintendo",
+    "default-manufacture_nintendo"
+  ],
+  "manufacturer nintendo": [
+    "nintendo",
+    "znintendo",
+    "default-nintendo",
+    "default-znintendo",
+    "default-manufacture_nintendo"
+  ],
+  "cps1": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1",
+    "default-cps1"
+  ],
+  "arcade manufacturer cps1": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1",
+    "default-cps1"
+  ],
+  "arcade system cps1": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1",
+    "default-cps1"
+  ],
+  "manufacturer cps1": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1",
+    "default-cps1"
+  ],
+  "cps2": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2",
+    "default-cps2"
+  ],
+  "arcade manufacturer cps2": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2",
+    "default-cps2"
+  ],
+  "arcade system cps2": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2",
+    "default-cps2"
+  ],
+  "manufacturer cps2": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2",
+    "default-cps2"
+  ],
+  "cps3": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3",
+    "default-cps3"
+  ],
+  "arcade manufacturer cps3": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3",
+    "default-cps3"
+  ],
+  "arcade system cps3": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3",
+    "default-cps3"
+  ],
+  "manufacturer cps3": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3",
+    "default-cps3"
+  ],
+  "capcom play system": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1"
+  ],
+  "arcade manufacturer capcom play system": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1"
+  ],
+  "arcade system capcom play system": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1"
+  ],
+  "manufacturer capcom play system": [
+    "cps1",
+    "zcps1",
+    "capcom_play_system",
+    "default-zcps1"
+  ],
+  "capcom play system ii": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2"
+  ],
+  "arcade manufacturer capcom play system ii": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2"
+  ],
+  "arcade system capcom play system ii": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2"
+  ],
+  "manufacturer capcom play system ii": [
+    "cps2",
+    "zcps2",
+    "capcom_play_system_ii",
+    "default-zcps2"
+  ],
+  "capcom play system iii": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3"
+  ],
+  "arcade manufacturer capcom play system iii": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3"
+  ],
+  "arcade system capcom play system iii": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3"
+  ],
+  "manufacturer capcom play system iii": [
+    "cps3",
+    "zcps3",
+    "capcom_play_system_iii",
+    "default-zcps3"
+  ],
+  "capcom cps1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "capcom cps2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "capcom cps3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "capcom cps 1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps 1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps 1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps 1": [
+    "cps1",
+    "zcps1",
+    "default-zcps1",
+    "capcom",
+    "zcapcom"
+  ],
+  "capcom cps 2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps 2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps 2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps 2": [
+    "cps2",
+    "zcps2",
+    "default-zcps2",
+    "capcom",
+    "zcapcom"
+  ],
+  "capcom cps 3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade manufacturer capcom cps 3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "arcade system capcom cps 3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "manufacturer capcom cps 3": [
+    "cps3",
+    "zcps3",
+    "default-zcps3",
+    "capcom",
+    "zcapcom"
+  ],
+  "sega naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "sega",
+    "zsega"
+  ],
+  "arcade manufacturer sega naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "sega",
+    "zsega"
+  ],
+  "arcade system sega naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "sega",
+    "zsega"
+  ],
+  "manufacturer sega naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "sega",
+    "zsega"
+  ],
+  "sammy atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave",
+    "sammy",
+    "zsammy"
+  ],
+  "arcade manufacturer sammy atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave",
+    "sammy",
+    "zsammy"
+  ],
+  "arcade system sammy atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave",
+    "sammy",
+    "zsammy"
+  ],
+  "manufacturer sammy atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave",
+    "sammy",
+    "zsammy"
+  ],
+  "snk neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-zneogeo",
+    "snk",
+    "zsnk"
+  ],
+  "arcade manufacturer snk neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-zneogeo",
+    "snk",
+    "zsnk"
+  ],
+  "arcade system snk neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-zneogeo",
+    "snk",
+    "zsnk"
+  ],
+  "manufacturer snk neogeo": [
+    "neogeo",
+    "zneogeo",
+    "default-zneogeo",
+    "snk",
+    "zsnk"
+  ],
+  "atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave"
+  ],
+  "arcade manufacturer atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave"
+  ],
+  "arcade system atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave"
+  ],
+  "manufacturer atomiswave": [
+    "atomiswave",
+    "zatomiswave",
+    "sammy_atomiswave",
+    "default-zatomiswave"
+  ],
+  "naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "default-sega_naomi"
+  ],
+  "arcade manufacturer naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "default-sega_naomi"
+  ],
+  "arcade system naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "default-sega_naomi"
+  ],
+  "manufacturer naomi": [
+    "naomi",
+    "sega_naomi",
+    "default-naomi",
+    "default-sega_naomi"
+  ],
+  "daphne": [
+    "daphne",
+    "DAPHNE",
+    "default-zdaphne"
+  ],
+  "arcade manufacturer daphne": [
+    "daphne",
+    "DAPHNE",
+    "default-zdaphne"
+  ],
+  "arcade system daphne": [
+    "daphne",
+    "DAPHNE",
+    "default-zdaphne"
+  ],
+  "manufacturer daphne": [
+    "daphne",
+    "DAPHNE",
+    "default-zdaphne"
+  ],
+  "zinc": [
+    "zinc",
+    "default-zinc"
+  ],
+  "arcade manufacturer zinc": [
+    "zinc",
+    "default-zinc"
+  ],
+  "arcade system zinc": [
+    "zinc",
+    "default-zinc"
+  ],
+  "manufacturer zinc": [
+    "zinc",
+    "default-zinc"
+  ],
+  "model2": [
+    "model2",
+    "default-zmodel2"
+  ],
+  "arcade manufacturer model2": [
+    "model2",
+    "default-zmodel2"
+  ],
+  "arcade system model2": [
+    "model2",
+    "default-zmodel2"
+  ],
+  "manufacturer model2": [
+    "model2",
+    "default-zmodel2"
+  ],
+  "segastv": [
+    "segastv",
+    "default-zsegastv"
+  ],
+  "arcade manufacturer segastv": [
+    "segastv",
+    "default-zsegastv"
+  ],
+  "arcade system segastv": [
+    "segastv",
+    "default-zsegastv"
+  ],
+  "manufacturer segastv": [
+    "segastv",
+    "default-zsegastv"
+  ],
+  "visco": [
+    "visco",
+    "default-zvisco"
+  ],
+  "arcade manufacturer visco": [
+    "visco",
+    "default-zvisco"
+  ],
+  "arcade system visco": [
+    "visco",
+    "default-zvisco"
+  ],
+  "manufacturer visco": [
+    "visco",
+    "default-zvisco"
+  ],
+  "vsc": [
+    "vsc",
+    "default-zvsc"
+  ],
+  "arcade manufacturer vsc": [
+    "vsc",
+    "default-zvsc"
+  ],
+  "arcade system vsc": [
+    "vsc",
+    "default-zvsc"
+  ],
+  "manufacturer vsc": [
+    "vsc",
+    "default-zvsc"
+  ],
+  "c210": [
+    "c210",
+    "default-zc210"
+  ],
+  "arcade manufacturer c210": [
+    "c210",
+    "default-zc210"
+  ],
+  "arcade system c210": [
+    "c210",
+    "default-zc210"
+  ],
+  "manufacturer c210": [
+    "c210",
+    "default-zc210"
+  ],
+  "acclaim": [
+    "acclaim",
+    "default-acclaim"
+  ],
+  "arcade manufacturer acclaim": [
+    "acclaim",
+    "default-acclaim"
+  ],
+  "arcade system acclaim": [
+    "acclaim",
+    "default-acclaim"
+  ],
+  "manufacturer acclaim": [
+    "acclaim",
+    "default-acclaim"
+  ],
+  "atlus": [
+    "atlus",
+    "default-atlus"
+  ],
+  "arcade manufacturer atlus": [
+    "atlus",
+    "default-atlus"
+  ],
+  "arcade system atlus": [
+    "atlus",
+    "default-atlus"
+  ],
+  "manufacturer atlus": [
+    "atlus",
+    "default-atlus"
+  ],
+  "banpresto": [
+    "banpresto",
+    "default-banpresto"
+  ],
+  "arcade manufacturer banpresto": [
+    "banpresto",
+    "default-banpresto"
+  ],
+  "arcade system banpresto": [
+    "banpresto",
+    "default-banpresto"
+  ],
+  "manufacturer banpresto": [
+    "banpresto",
+    "default-banpresto"
+  ],
+  "jaleco": [
+    "jaleco",
+    "default-jaleco"
+  ],
+  "arcade manufacturer jaleco": [
+    "jaleco",
+    "default-jaleco"
+  ],
+  "arcade system jaleco": [
+    "jaleco",
+    "default-jaleco"
+  ],
+  "manufacturer jaleco": [
+    "jaleco",
+    "default-jaleco"
+  ],
+  "kaneko": [
+    "kaneko",
+    "default-kaneko"
+  ],
+  "arcade manufacturer kaneko": [
+    "kaneko",
+    "default-kaneko"
+  ],
+  "arcade system kaneko": [
+    "kaneko",
+    "default-kaneko"
+  ],
+  "manufacturer kaneko": [
+    "kaneko",
+    "default-kaneko"
+  ],
+  "nichibutsu": [
+    "nichibutsu",
+    "default-nichibutsu"
+  ],
+  "arcade manufacturer nichibutsu": [
+    "nichibutsu",
+    "default-nichibutsu"
+  ],
+  "arcade system nichibutsu": [
+    "nichibutsu",
+    "default-nichibutsu"
+  ],
+  "manufacturer nichibutsu": [
+    "nichibutsu",
+    "default-nichibutsu"
+  ],
+  "psikyo": [
+    "psikyo",
+    "default-psikyo"
+  ],
+  "arcade manufacturer psikyo": [
+    "psikyo",
+    "default-psikyo"
+  ],
+  "arcade system psikyo": [
+    "psikyo",
+    "default-psikyo"
+  ],
+  "manufacturer psikyo": [
+    "psikyo",
+    "default-psikyo"
+  ],
+  "raizing": [
+    "raizing",
+    "default-raizing"
+  ],
+  "arcade manufacturer raizing": [
+    "raizing",
+    "default-raizing"
+  ],
+  "arcade system raizing": [
+    "raizing",
+    "default-raizing"
+  ],
+  "manufacturer raizing": [
+    "raizing",
+    "default-raizing"
+  ],
+  "seibu": [
+    "seibu",
+    "default-seibu"
+  ],
+  "arcade manufacturer seibu": [
+    "seibu",
+    "default-seibu"
+  ],
+  "arcade system seibu": [
+    "seibu",
+    "default-seibu"
+  ],
+  "manufacturer seibu": [
+    "seibu",
+    "default-seibu"
+  ],
+  "seta": [
+    "seta",
+    "default-seta"
+  ],
+  "arcade manufacturer seta": [
+    "seta",
+    "default-seta"
+  ],
+  "arcade system seta": [
+    "seta",
+    "default-seta"
+  ],
+  "manufacturer seta": [
+    "seta",
+    "default-seta"
+  ],
+  "sunsoft": [
+    "sunsoft",
+    "default-sunsoft"
+  ],
+  "arcade manufacturer sunsoft": [
+    "sunsoft",
+    "default-sunsoft"
+  ],
+  "arcade system sunsoft": [
+    "sunsoft",
+    "default-sunsoft"
+  ],
+  "manufacturer sunsoft": [
+    "sunsoft",
+    "default-sunsoft"
+  ],
+  "video system": [
+    "video_system",
+    "default-video_system"
+  ],
+  "arcade manufacturer video system": [
+    "video_system",
+    "default-video_system"
+  ],
+  "arcade system video system": [
+    "video_system",
+    "default-video_system"
+  ],
+  "manufacturer video system": [
+    "video_system",
+    "default-video_system"
+  ],
+  "snes": [
+    "snes",
+    "Super Nintendo",
+    "Super Nintendo Entertainment System",
+    "- Super Nintendo",
+    "default-snes"
+  ],
+  "supernintendo": [
+    "snes",
+    "Super Nintendo",
+    "default-snes"
+  ],
+  "super nintendo": [
+    "snes",
+    "Super Nintendo",
+    "default-snes"
+  ],
+  "sfc": [
+    "snes",
+    "default-snes"
+  ],
+  "nes": [
+    "nes",
+    "Nintendo Entertainment System",
+    "3dnes",
+    "default-nes"
+  ],
+  "famicom": [
+    "nes",
+    "Nintendo Entertainment System",
+    "default-nes"
+  ],
+  "fc": [
+    "nes",
+    "default-nes"
+  ],
+  "megadrive": [
+    "genesis",
+    "Genesis",
+    "Mega Drive",
+    "SEGA Genesis",
+    "- Genesis",
+    "default-genesis",
+    "default-megadrive"
+  ],
+  "genesis": [
+    "genesis",
+    "Genesis",
+    "SEGA Genesis",
+    "- Genesis",
+    "default-genesis"
+  ],
+  "mastersystem": [
+    "mastersystem",
+    "Master System",
+    "SEGA Master System",
+    "default-mastersystem"
+  ],
+  "master system": [
+    "mastersystem",
+    "Master System",
+    "default-mastersystem"
+  ],
+  "gamegear": [
+    "gamegear",
+    "Game Gear",
+    "SEGA Game Gear",
+    "default-gamegear"
+  ],
+  "game gear": [
+    "gamegear",
+    "Game Gear",
+    "default-gamegear"
+  ],
+  "sg1000": [
+    "sega_sg-1000",
+    "default-sega_sg-1000"
+  ],
+  "sega32x": [
+    "sega_32x",
+    "default-sega32x"
+  ],
+  "segacd": [
+    "sega_cd",
+    "default-sega_cd"
+  ],
+  "saturn": [
+    "sega_saturn",
+    "default-sega_saturn"
+  ],
+  "dreamcast": [
+    "dreamcast",
+    "SEGA Dreamcast",
+    "default-dreamcast"
+  ],
+  "n64": [
+    "n64",
+    "Nintendo 64",
+    "default-n64"
+  ],
+  "nintendo 64": [
+    "n64",
+    "Nintendo 64",
+    "default-n64"
+  ],
+  "gc": [
+    "gamecube",
+    "nintendo_gamecube",
+    "default-nintendo_gamecube"
+  ],
+  "gamecube": [
+    "gamecube",
+    "nintendo_gamecube",
+    "default-nintendo_gamecube"
+  ],
+  "wii": [
+    "nintendo_wii",
+    "default-nintendo_wii"
+  ],
+  "wiiu": [
+    "nintendo_wii_u",
+    "default-nintendo_wii_u"
+  ],
+  "switch": [
+    "nintendo_switch",
+    "default-nintendo_switch"
+  ],
+  "gb": [
+    "gb",
+    "Game Boy",
+    "default-gb"
+  ],
+  "gameboy": [
+    "gb",
+    "Game Boy",
+    "default-gb"
+  ],
+  "game boy": [
+    "gb",
+    "Game Boy",
+    "default-gb"
+  ],
+  "gba": [
+    "gba",
+    "Game Boy Advance",
+    "default-gba"
+  ],
+  "gameboy advance": [
+    "gba",
+    "Game Boy Advance",
+    "default-gba"
+  ],
+  "game boy advance": [
+    "gba",
+    "Game Boy Advance",
+    "default-gba"
+  ],
+  "gbc": [
+    "gbc",
+    "Game Boy Color",
+    "default-gbc"
+  ],
+  "gameboy color": [
+    "gbc",
+    "Game Boy Color",
+    "default-gbc"
+  ],
+  "game boy color": [
+    "gbc",
+    "Game Boy Color",
+    "default-gbc"
+  ],
+  "nds": [
+    "nintendo_ds",
+    "default-nintendo_ds"
+  ],
+  "3ds": [
+    "nintendo_3ds",
+    "default-nintendo_3ds"
+  ],
+  "psx": [
+    "psx",
+    "PlayStation",
+    "Sony PlayStation",
+    "default-psx"
+  ],
+  "ps1": [
+    "psx",
+    "PlayStation",
+    "Sony PlayStation",
+    "default-psx"
+  ],
+  "ps2": [
+    "ps2",
+    "PlayStation 2",
+    "Sony PlayStation 2",
+    "default-ps2"
+  ],
+  "ps3": [
+    "ps3",
+    "PlayStation 3",
+    "default-ps3"
+  ],
+  "psp": [
+    "psp",
+    "PlayStation Portable",
+    "default-psp"
+  ],
+  "psvita": [
+    "psvita",
+    "PlayStation Vita",
+    "default-psvita"
+  ],
+  "pcengine": [
+    "pcengine",
+    "NEC PC Engine",
+    "PC Engine",
+    "default-pcengine",
+    " nec_supergrafx"
+  ],
+  "tg16": [
+    "pcengine",
+    "turbografx16",
+    "default-pcengine"
+  ],
+  "turbografx16": [
+    "pcengine",
+    "turbografx16",
+    "default-pcengine"
+  ],
+  "atari2600": [
+    "atari2600",
+    "Atari 2600",
+    "Atari_2600",
+    "atari",
+    "zatari",
+    "default-atari2600",
+    "default-zatari"
+  ],
+  "atari5200": [
+    "atari5200",
+    "Atari 5200",
+    "Atari_5200",
+    "atari",
+    "zatari",
+    "default-atari5200",
+    "default-zatari"
+  ],
+  "atari7800": [
+    "atari7800",
+    "Atari 7800",
+    "Atari_7800",
+    "atari",
+    "zatari",
+    "default-atari7800",
+    "default-zatari"
+  ],
+  "atarilynx": [
+    "atarilynx",
+    "lynx",
+    "Atari Lynx",
+    "default-atarilynx"
+  ],
+  "lynx": [
+    "atarilynx",
+    "lynx",
+    "default-atarilynx"
+  ],
+  "atarijaguar": [
+    "atarijaguar",
+    "jaguar",
+    "Atari Jaguar",
+    "default-atarijaguar"
+  ],
+  "jaguar": [
+    "atarijaguar",
+    "jaguar",
+    "default-atarijaguar"
+  ],
+  "atarist": [
+    "atarist",
+    "atari_st",
+    "default-atarist"
+  ],
+  "amiga": [
+    "amiga",
+    "Commodore Amiga",
+    "default-amiga"
+  ],
+  "amiga1200": [
+    "amiga",
+    "Commodore Amiga",
+    "default-amiga"
+  ],
+  "amiga500": [
+    "amiga",
+    "Commodore Amiga",
+    "default-amiga"
+  ],
+  "amigacd32": [
+    "amigacd32",
+    "CommodoreAmigaCD32",
+    "default-amigacd32"
+  ],
+  "c64": [
+    "c64",
+    "COMMODORE_64",
+    "Commodore 64",
+    "default-c64"
+  ],
+  "vic20": [
+    "vic20",
+    "COMMODORE_VIC-20",
+    "default-vic20"
+  ],
+  "colecovision": [
+    "colecovision",
+    "default-colecovision"
+  ],
+  "vectrex": [
+    "vectrex",
+    "GCE_VECTREX",
+    "default-vectrex"
+  ],
+  "wonderswan": [
+    "wonderswan",
+    "default-wonderswan"
+  ],
+  "wonderswancolor": [
+    "wonderswancolor",
+    "default-wonderswancolor"
+  ],
+  "3do": [
+    "3do",
+    "3do_interactive_multiplayer",
+    "default-3do"
+  ],
+  "msx": [
+    "msx",
+    "MICROSOFT_MSX",
+    "default-msx"
+  ],
+  "msx2": [
+    "msx2",
+    "MICROSOFT_MSX2",
+    "default-msx2"
+  ],
+  "zxspectrum": [
+    "zxspectrum",
+    "sinclair_zx_spectrum",
+    "default-zxspectrum",
+    "default-zx81"
+  ],
+  "amstradcpc": [
+    "amstradcpc",
+    "amstrad_cpc",
+    "default-amstradcpc"
+  ]
+}

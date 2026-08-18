@@ -1,0 +1,113 @@
+# ArcadeMatrix & Pixelcade System / Console Mapping
+# Format: <frontend_identifier_or_alias>,<pixelcade_target_1>,<pixelcade_target_2>,...
+
+# Collections & Automations
+arcade,arcade,mame,-_arcade,default-_arcade
+arcadeall,arcade,mame
+-_arcade,arcade,mame,default-_arcade
+- arcade,arcade,mame,default-_arcade
+- arcade official,arcade,mame
+-_arcadefavs,arcade,mame,default-_arcadefavs
+- arcadefavs,arcade,mame,default-_arcadefavs
+favorites,default-_favorites,default-favorites
+favs,default-_favorites,default-favorites
+allgames,default-_allgames,default-allgames
+all,default-_allgames,default-allgames
+lastplayed,default-_lastplayed,default-lastplayed
+custom,default-_custom,default-custom
+
+# Arcade Manufacturers & Boards (Pixelcade 'z' and 'default-z' conventions)
+atari,zatari,atari,default-zatari,Atari_2600,Atari_7800
+capcom,zcapcom,capcom,default-zcapcom,default-zcps1,default-zcps2,default-zcps3
+konami,zkonami,konami,default-zkonami,default-arcade_konami_classics
+taito,ztaito,taito,default-ztaito,default-arcade_taito_classics
+sega,zsega,sega,default-zsega,default-manufacture_sega
+namco,znamco,namco,default-znamco,default-arcade_namco_classics
+snk,zsnk,snk,default-zsnk,default-snk,default-arcade_snk_classics
+neogeo,zneogeo,neogeo,default-zneogeo,default-neogeo
+cave,zcave,cave,default-zcave
+irem,zirem,irem,default-zirem,default-arcade_irem_classics
+dataeast,zdataeast,dataeast,default-zdataeast,default-arcade_data_east_classics
+data east,zdataeast,dataeast,default-zdataeast,default-arcade_data_east_classics
+midway,zmidway,midway,default-zmidway,default-arcade_midway_classics
+sammy,zsammy,sammy,default-zsammy
+technos,default-arcade_technos_classics,technos
+nintendo,znintendo,nintendo,default-znintendo,default-manufacture_nintendo
+cps1,zcps1,cps1,capcom_play_system,default-zcps1
+cps2,zcps2,cps2,capcom_play_system_ii,default-zcps2
+cps3,zcps3,cps3,capcom_play_system_iii,default-zcps3
+capcom play system,zcps1,cps1,capcom_play_system,default-zcps1
+capcom play system ii,zcps2,cps2,capcom_play_system_ii,default-zcps2
+capcom play system iii,zcps3,cps3,capcom_play_system_iii,default-zcps3
+atomiswave,zatomiswave,sammy_atomiswave,atomiswave,default-zatomiswave
+naomi,naomi,sega_naomi,default-naomi,default-sega_naomi
+
+# Home Consoles & Handhelds
+snes,snes,Super Nintendo,Super Nintendo Entertainment System,default-snes
+supernintendo,snes,Super Nintendo,default-snes
+super nintendo,snes,Super Nintendo,default-snes
+sfc,snes,default-snes
+nes,nes,Nintendo Entertainment System,3dnes,default-nes
+famicom,nes,Nintendo Entertainment System,default-nes
+fc,nes,default-nes
+megadrive,genesis,Genesis,Mega Drive,SEGA Genesis,default-genesis,default-megadrive
+genesis,genesis,Genesis,SEGA Genesis,default-genesis
+mastersystem,mastersystem,Master System,SEGA Master System,default-mastersystem
+master system,mastersystem,Master System,default-mastersystem
+gamegear,gamegear,Game Gear,SEGA Game Gear,default-gamegear
+game gear,gamegear,Game Gear,default-gamegear
+sg1000,sega_sg-1000,default-sega_sg-1000
+sega32x,sega_32x,default-sega32x
+segacd,sega_cd,default-sega_cd
+saturn,sega_saturn,default-sega_saturn
+dreamcast,dreamcast,SEGA Dreamcast,default-dreamcast
+n64,n64,Nintendo 64,default-n64
+nintendo 64,n64,Nintendo 64,default-n64
+gc,gamecube,nintendo_gamecube,default-nintendo_gamecube
+gamecube,gamecube,nintendo_gamecube,default-nintendo_gamecube
+wii,nintendo_wii,default-nintendo_wii
+wiiu,nintendo_wii_u,default-nintendo_wii_u
+switch,nintendo_switch,default-nintendo_switch
+gb,gb,Game Boy,default-gb
+gameboy,gb,Game Boy,default-gb
+game boy,gb,Game Boy,default-gb
+gba,gba,Game Boy Advance,default-gba
+gameboy advance,gba,Game Boy Advance,default-gba
+game boy advance,gba,Game Boy Advance,default-gba
+gbc,gbc,Game Boy Color,default-gbc
+gameboy color,gbc,Game Boy Color,default-gbc
+game boy color,gbc,Game Boy Color,default-gbc
+nds,nintendo_ds,default-nintendo_ds
+3ds,nintendo_3ds,default-nintendo_3ds
+psx,psx,PlayStation,Sony PlayStation,default-psx
+ps1,psx,PlayStation,Sony PlayStation,default-psx
+ps2,ps2,PlayStation 2,Sony PlayStation 2,default-ps2
+ps3,ps3,PlayStation 3,default-ps3
+psp,psp,PlayStation Portable,default-psp
+psvita,psvita,PlayStation Vita,default-psvita
+pcengine,pcengine,NEC PC Engine,PC Engine,default-pcengine
+tg16,pcengine,turbografx16,default-pcengine
+turbografx16,pcengine,turbografx16,default-pcengine
+atari2600,atari2600,Atari 2600,Atari_2600,zatari,default-atari2600,default-zatari
+atari5200,atari5200,Atari 5200,Atari_5200,zatari,default-atari5200,default-zatari
+atari7800,atari7800,Atari 7800,Atari_7800,zatari,default-atari7800,default-zatari
+atarilynx,atarilynx,lynx,Atari Lynx,default-atarilynx
+lynx,atarilynx,lynx,default-atarilynx
+atarijaguar,atarijaguar,jaguar,Atari Jaguar,default-atarijaguar
+jaguar,atarijaguar,jaguar,default-atarijaguar
+atarist,atarist,atari_st,default-atarist
+amiga,amiga,Commodore Amiga,default-amiga
+amiga1200,amiga,Commodore Amiga,default-amiga
+amiga500,amiga,Commodore Amiga,default-amiga
+amigacd32,amigacd32,CommodoreAmigaCD32,default-amigacd32
+c64,c64,COMMODORE_64,Commodore 64,default-c64
+vic20,vic20,COMMODORE_VIC-20,default-vic20
+colecovision,colecovision,default-colecovision
+vectrex,vectrex,GCE_VECTREX,default-vectrex
+wonderswan,wonderswan,default-wonderswan
+wonderswancolor,wonderswancolor,default-wonderswancolor
+3do,3do,3do_interactive_multiplayer,default-3do
+msx,msx,MICROSOFT_MSX,default-msx
+msx2,msx2,MICROSOFT_MSX2,default-msx2
+zxspectrum,zxspectrum,sinclair_zx_spectrum,default-zxspectrum
+amstradcpc,amstradcpc,amstrad_cpc,default-amstradcpc

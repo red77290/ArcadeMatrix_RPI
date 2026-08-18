@@ -67,12 +67,29 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload) {
                                 let status = json["status"].as_str().unwrap_or("stopped");
                                 if status != "stopped" {
-                                    let is_system_event = json["type"].as_str() == Some("system")
-                                        || (json["game"].as_str().unwrap_or("").is_empty()
-                                            && json["system"].as_str().is_some());
+                                    let raw_system =
+                                        json["system"].as_str().unwrap_or("").to_string();
+                                    let raw_game = json["game"].as_str().unwrap_or("").to_string();
 
-                                    let system =
-                                        json["system"].as_str().unwrap_or("Unknown").to_string();
+                                    let clean_sys =
+                                        crate::core::dmd_cache::clean_system_name(&raw_system);
+                                    let clean_game =
+                                        crate::core::dmd_cache::clean_system_name(&raw_game);
+
+                                    let is_system_event = json["type"].as_str() == Some("system")
+                                        || clean_game.is_empty()
+                                        || clean_game.eq_ignore_ascii_case(&clean_sys);
+
+                                    let system = if !clean_sys.is_empty() {
+                                        clean_sys
+                                    } else {
+                                        raw_system
+                                    };
+                                    let game = if !clean_game.is_empty() {
+                                        clean_game
+                                    } else {
+                                        raw_game
+                                    };
 
                                     let req_id = MQTT_REQUEST_ID
                                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
@@ -165,9 +182,15 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         let config_clone = Arc::clone(&config);
                                         let cache_clone = Arc::clone(&dmd_cache);
                                         std::thread::spawn(move || {
-                                            if let Some(path) =
-                                                cache_clone.download_marquee(&system, &game)
-                                            {
+                                            let path_opt = cache_clone
+                                                .download_marquee(&system, &game)
+                                                .or_else(|| {
+                                                    cache_clone.download_system_marquee(&game)
+                                                })
+                                                .or_else(|| {
+                                                    cache_clone.download_system_marquee(&system)
+                                                });
+                                            if let Some(path) = path_opt {
                                                 if let Ok(img) = image::open(&path) {
                                                     if MQTT_REQUEST_ID
                                                         .load(std::sync::atomic::Ordering::Relaxed)

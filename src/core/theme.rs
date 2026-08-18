@@ -170,7 +170,7 @@ pub fn get_theme_info(theme_id: i32) -> ThemeInfo {
             id: 21,
             name: "True Matrix",
             group: ThemeGroup::Effect,
-            primary_color: (200, 255, 200),
+            primary_color: (0, 140, 0),
             secondary_color: (0, 0, 0),
         },
         22 => ThemeInfo {

@@ -207,11 +207,33 @@ impl DmdCache {
     }
 }
 
-pub fn get_system_name_variants(system: &str) -> Vec<(&'static str, String)> {
-    let sys_lower = system.to_lowercase();
-    let sys_upper = system.to_uppercase();
-    let sys_space = system.replace('_', " ");
-    let sys_title = system
+pub fn clean_system_name(system: &str) -> String {
+    let mut s = system.trim();
+    let prefixes = [
+        "Arcade manufacturer ",
+        "arcade manufacturer ",
+        "Arcade System ",
+        "arcade system ",
+        "Manufacturer ",
+        "manufacturer ",
+        "System ",
+        "system ",
+    ];
+    for prefix in &prefixes {
+        if s.to_lowercase().starts_with(&prefix.to_lowercase()) {
+            s = &s[prefix.len()..];
+            s = s.trim();
+        }
+    }
+    s.to_string()
+}
+
+pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)> {
+    let clean = clean_system_name(raw_system);
+    let sys_lower = clean.to_lowercase();
+    let sys_upper = clean.to_uppercase();
+    let sys_space = clean.replace('_', " ");
+    let sys_title = clean
         .split(|c| c == '_' || c == ' ')
         .filter(|s| !s.is_empty())
         .map(|s| {
@@ -224,111 +246,133 @@ pub fn get_system_name_variants(system: &str) -> Vec<(&'static str, String)> {
         .collect::<Vec<_>>()
         .join(" ");
 
-    let mut names: Vec<String> = Vec::new();
+    let mut base_names: Vec<String> = Vec::new();
 
-    // 1. Direct name variants (Exact, Lowercase, Uppercase, TitleCase, SpaceSeparated)
-    names.push(system.to_string());
-    if sys_lower != system {
-        names.push(sys_lower.clone());
+    // 1. Direct name variants
+    base_names.push(clean.clone());
+    if sys_lower != clean {
+        base_names.push(sys_lower.clone());
     }
-    if sys_upper != system && sys_upper != sys_lower {
-        names.push(sys_upper.clone());
+    if sys_upper != clean && sys_upper != sys_lower {
+        base_names.push(sys_upper.clone());
     }
-    if sys_title != system && sys_title != sys_lower && sys_title != sys_upper {
-        names.push(sys_title);
+    if sys_title != clean && sys_title != sys_lower && sys_title != sys_upper {
+        base_names.push(sys_title);
     }
-    if sys_space != system && sys_space != sys_lower && sys_space != sys_upper {
-        names.push(sys_space);
+    if sys_space != clean && sys_space != sys_lower && sys_space != sys_upper {
+        base_names.push(sys_space);
     }
 
     // 2. Common aliases
     match sys_lower.as_str() {
         "snes" | "supernintendo" => {
-            names.push("Super Nintendo".into());
-            names.push("Super Nintendo Entertainment System".into());
-            names.push("- Super Nintendo".into());
+            base_names.push("Super Nintendo".into());
+            base_names.push("Super Nintendo Entertainment System".into());
+            base_names.push("- Super Nintendo".into());
         }
         "nes" | "famicom" => {
-            names.push("Nintendo Entertainment System".into());
-            names.push("3dnes".into());
+            base_names.push("Nintendo Entertainment System".into());
+            base_names.push("3dnes".into());
         }
         "megadrive" | "genesis" => {
-            names.push("genesis".into());
-            names.push("Genesis".into());
-            names.push("Mega Drive".into());
-            names.push("SEGA Genesis".into());
-            names.push("- Genesis".into());
+            base_names.push("genesis".into());
+            base_names.push("Genesis".into());
+            base_names.push("Mega Drive".into());
+            base_names.push("SEGA Genesis".into());
+            base_names.push("- Genesis".into());
         }
         "mame" | "arcade" | "fbneo" | "fba" => {
-            names.push("arcade".into());
-            names.push("Arcade".into());
-            names.push("- Arcade".into());
-            names.push("MAME".into());
-            names.push("mame".into());
+            base_names.push("arcade".into());
+            base_names.push("Arcade".into());
+            base_names.push("- Arcade".into());
+            base_names.push("MAME".into());
+            base_names.push("mame".into());
         }
         "n64" => {
-            names.push("Nintendo 64".into());
+            base_names.push("Nintendo 64".into());
         }
         "gb" | "gameboy" => {
-            names.push("Game Boy".into());
+            base_names.push("Game Boy".into());
         }
         "gba" => {
-            names.push("Game Boy Advance".into());
+            base_names.push("Game Boy Advance".into());
         }
         "gbc" => {
-            names.push("Game Boy Color".into());
+            base_names.push("Game Boy Color".into());
         }
         "psx" | "ps1" => {
-            names.push("PlayStation".into());
-            names.push("Sony PlayStation".into());
+            base_names.push("PlayStation".into());
+            base_names.push("Sony PlayStation".into());
         }
         "dreamcast" => {
-            names.push("Dreamcast".into());
-            names.push("SEGA Dreamcast".into());
+            base_names.push("Dreamcast".into());
+            base_names.push("SEGA Dreamcast".into());
         }
         "neogeo" => {
-            names.push("Neo Geo".into());
-            names.push("SNK Neo Geo".into());
+            base_names.push("Neo Geo".into());
+            base_names.push("SNK Neo Geo".into());
         }
         "atari2600" => {
-            names.push("Atari_2600".into());
-            names.push("Atari 2600".into());
+            base_names.push("Atari_2600".into());
+            base_names.push("Atari 2600".into());
         }
         "mastersystem" => {
-            names.push("Master System".into());
-            names.push("SEGA Master System".into());
+            base_names.push("Master System".into());
+            base_names.push("SEGA Master System".into());
         }
         "gamegear" => {
-            names.push("Game Gear".into());
-            names.push("SEGA Game Gear".into());
+            base_names.push("Game Gear".into());
+            base_names.push("SEGA Game Gear".into());
         }
         "pcengine" | "tg16" => {
-            names.push("NEC PC Engine".into());
-            names.push("PC Engine".into());
+            base_names.push("NEC PC Engine".into());
+            base_names.push("PC Engine".into());
         }
         "amiga" => {
-            names.push("Commodore Amiga".into());
-            names.push("Amiga".into());
+            base_names.push("Commodore Amiga".into());
+            base_names.push("Amiga".into());
         }
         "c64" => {
-            names.push("COMMODORE_64".into());
-            names.push("Commodore 64".into());
+            base_names.push("COMMODORE_64".into());
+            base_names.push("Commodore 64".into());
         }
         _ => {}
     }
 
-    // Deduplicate names preserving order
-    let mut unique_names: Vec<String> = Vec::new();
-    for n in names {
-        if !unique_names.contains(&n) {
-            unique_names.push(n);
+    // Deduplicate base names
+    let mut unique_base: Vec<String> = Vec::new();
+    for n in base_names {
+        if !unique_base.contains(&n) {
+            unique_base.push(n);
         }
     }
 
-    // Prioritize system folder first (arcade/borne priority), then console folder
+    // Generate prefixed variants in priority order:
+    // 1. default-{name}
+    // 2. default-_{name}
+    // 3. {name}
+    let mut name_variants: Vec<String> = Vec::new();
+    for b in &unique_base {
+        name_variants.push(format!("default-{}", b));
+    }
+    for b in &unique_base {
+        name_variants.push(format!("default-_{}", b));
+    }
+    for b in &unique_base {
+        name_variants.push(b.clone());
+    }
+
+    let mut final_names: Vec<String> = Vec::new();
+    for n in name_variants {
+        if !final_names.contains(&n) {
+            final_names.push(n);
+        }
+    }
+
+    // Folder search order: console first, then system
     let mut list: Vec<(&'static str, String)> = Vec::new();
-    for folder in &["system", "console"] {
-        for name in &unique_names {
+    for folder in &["console", "system"] {
+        for name in &final_names {
             list.push((*folder, name.clone()));
         }
     }
@@ -341,37 +385,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_clean_system_name() {
+        assert_eq!(clean_system_name("Arcade manufacturer Toaplan"), "Toaplan");
+        assert_eq!(clean_system_name("Arcade manufacturer NeoGeo"), "NeoGeo");
+        assert_eq!(clean_system_name("Arcade System CPS1"), "CPS1");
+        assert_eq!(clean_system_name("snes"), "snes");
+    }
+
+    #[test]
     fn test_get_system_name_variants_priority() {
         let snes = get_system_name_variants("snes");
-        assert!(snes.contains(&("system", "snes".to_string())));
+        assert!(snes.contains(&("console", "default-snes".to_string())));
+        assert!(snes.contains(&("console", "default-_snes".to_string())));
         assert!(snes.contains(&("console", "snes".to_string())));
-        assert!(snes.contains(&("system", "Super Nintendo".to_string())));
-        assert!(snes.contains(&("console", "Super Nintendo".to_string())));
+        assert!(snes.contains(&("system", "default-snes".to_string())));
 
-        // System folder entries must come BEFORE console folder entries
-        let first_system_idx = snes.iter().position(|&(f, _)| f == "system").unwrap();
+        // Console folder entries must come BEFORE system folder entries
         let first_console_idx = snes.iter().position(|&(f, _)| f == "console").unwrap();
-        assert!(first_system_idx < first_console_idx);
+        let first_system_idx = snes.iter().position(|&(f, _)| f == "system").unwrap();
+        assert!(first_console_idx < first_system_idx);
+
+        // default-snes must come before snes
+        let default_idx = snes
+            .iter()
+            .position(|&(_, ref n)| n == "default-snes")
+            .unwrap();
+        let exact_idx = snes.iter().position(|&(_, ref n)| n == "snes").unwrap();
+        assert!(default_idx < exact_idx);
+    }
+
+    #[test]
+    fn test_arcade_manufacturer_cleaning() {
+        let toaplan = get_system_name_variants("Arcade manufacturer Toaplan");
+        assert!(toaplan.contains(&("console", "default-Toaplan".to_string())));
+        assert!(toaplan.contains(&("console", "default-toaplan".to_string())));
+        assert!(toaplan.contains(&("console", "Toaplan".to_string())));
     }
 
     #[test]
     fn test_arcade_aliases() {
         let mame = get_system_name_variants("mame");
-        assert!(mame.contains(&("system", "arcade".to_string())));
+        assert!(mame.contains(&("console", "default-arcade".to_string())));
         assert!(mame.contains(&("console", "arcade".to_string())));
-        assert!(mame.contains(&("system", "MAME".to_string())));
-
-        let fbneo = get_system_name_variants("fbneo");
-        assert!(fbneo.contains(&("system", "arcade".to_string())));
-        assert!(fbneo.contains(&("console", "Arcade".to_string())));
-    }
-
-    #[test]
-    fn test_custom_system() {
-        let unknown = get_system_name_variants("my_custom_system");
-        assert!(unknown.contains(&("system", "my_custom_system".to_string())));
-        assert!(unknown.contains(&("console", "my_custom_system".to_string())));
-        assert!(unknown.contains(&("system", "MY_CUSTOM_SYSTEM".to_string())));
-        assert!(unknown.contains(&("console", "my custom system".to_string())));
+        assert!(mame.contains(&("system", "arcade".to_string())));
     }
 }

@@ -90,7 +90,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                             }
                                         }
 
-                                        let clean_name = format_game_name(&system);
+                                        let clean_name = format_game_name(
+                                            &crate::core::dmd_cache::clean_system_name(&system),
+                                        );
                                         let mut text_to_show = clean_name.clone();
                                         if text_to_show.len() > 10 {
                                             text_to_show = format!(" {} ", text_to_show);

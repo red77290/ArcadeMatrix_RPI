@@ -68,12 +68,12 @@ impl DateEngine {
                 self.base_renderer.render_text(
                     matrix,
                     &date_str,
-                    0,
+                    21,
                     settings.date_size,
                     settings.date_offset_x,
                     settings.date_offset_y,
-                    Some((0, 255, 70)),
-                    None,
+                    Some((0, 140, 0)),
+                    Some((0, 0, 0)),
                 );
             }
             19 => {

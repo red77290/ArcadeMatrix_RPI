@@ -124,12 +124,12 @@ impl ClockEngine {
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
-                    0,
+                    21,
                     settings.time_size,
                     settings.time_offset_x,
                     settings.time_offset_y,
-                    Some((0, 255, 70)),
-                    None,
+                    Some((0, 140, 0)),
+                    Some((0, 0, 0)),
                 );
             }
             19 => self.flip.render(

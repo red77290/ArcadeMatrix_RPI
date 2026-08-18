@@ -401,6 +401,7 @@ impl ArcadeMatrixApp {
         // The actual SIGTERM is handled by tokio in the async context, which updates the 'running' atomic bool.
         let mut last_index = usize::MAX;
         let mut was_mqtt_waiting = false;
+        let mut has_received_mqtt = false;
 
         while running.load(Ordering::SeqCst) {
             matrix.clear();
@@ -460,26 +461,31 @@ impl ArcadeMatrixApp {
             let forced_opt = config.force_engine.lock().clone();
             if let Some(ref forced_mode) = forced_opt {
                 if forced_mode == "message" {
-                    *config.force_engine.lock() = None; // Messages are one-shot
+                    has_received_mqtt = true;
                     let payload_val_opt = config.message_payload.lock().clone();
                     if let Some(payload_val) = payload_val_opt {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
+                            let is_infinite = payload.timeout_seconds == 0;
                             let start_time = std::time::Instant::now();
                             let timeout =
                                 std::time::Duration::from_secs(payload.timeout_seconds as u64);
 
                             message_engine.reset(matrix.width() as f32);
 
-                            while start_time.elapsed() < timeout && running.load(Ordering::SeqCst) {
+                            while (is_infinite || start_time.elapsed() < timeout)
+                                && running.load(Ordering::SeqCst)
+                            {
                                 if config.reload_flag.load(Ordering::Relaxed) {
                                     break;
                                 }
                                 let current_forced = config.force_engine.lock().clone();
-                                if current_forced.is_some()
-                                    && current_forced.as_deref() != Some("message")
-                                {
+                                if current_forced.as_deref() != Some("message") {
+                                    break;
+                                }
+                                let current_payload_val = config.message_payload.lock().clone();
+                                if current_payload_val != Some(payload_val.clone()) {
                                     break;
                                 }
 
@@ -487,11 +493,18 @@ impl ArcadeMatrixApp {
                                 let finished = message_engine.render(matrix.as_mut(), &payload);
                                 matrix.update();
 
-                                if finished {
+                                if finished && !is_infinite {
                                     break;
                                 }
 
                                 std::thread::sleep(std::time::Duration::from_millis(33));
+                            }
+
+                            if !is_infinite {
+                                let mut f = config.force_engine.lock();
+                                if f.as_deref() == Some("message") {
+                                    *f = None;
+                                }
                             }
 
                             last_frame = std::time::Instant::now();
@@ -500,6 +513,7 @@ impl ArcadeMatrixApp {
                         }
                     }
                 } else if forced_mode == "marquee" {
+                    has_received_mqtt = true;
                     // Active Game Marquee persists as long as force_engine is Some("marquee")
                     let img_opt = config.image_obj.lock().clone();
                     if let Some(img) = img_opt {
@@ -515,9 +529,9 @@ impl ArcadeMatrixApp {
             }
 
             // Check if MQTT mode is enabled and no game marquee is active:
-            // Display "WAITING FOR MARQUEE" banner in white and suspend idle rotation (matching ESP32 behavior)
+            // Display "WAITING FOR MARQUEE" banner ONLY AT BOOT before any MQTT event has been received
             let mqtt_enabled = { config.settings.read().mqtt_enabled };
-            if mqtt_enabled && forced_opt.is_none() {
+            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
                 if !was_mqtt_waiting {
                     message_engine.reset(matrix.width() as f32);
                     was_mqtt_waiting = true;

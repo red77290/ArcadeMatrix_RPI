@@ -1,130 +1,129 @@
 use crate::core::matrix::MatrixBackend;
-use crate::engines::renderers::base_renderer::BaseRenderer;
 use rand::Rng;
-
-struct MatrixColumn {
-    x: i32,
-    y: f32,
-    speed: f32,
-    glyphs: Vec<char>,
-    trail_len: usize,
-}
+use rusttype::{point, Font, Scale};
+use std::path::Path;
 
 pub struct TrueMatrixRenderer {
-    columns: Vec<MatrixColumn>,
+    matrix_cols: Vec<i32>,
     buffer: Vec<Vec<(u8, u8, u8)>>,
     width: u32,
     height: u32,
-    renderer: BaseRenderer,
+    font: Option<Font<'static>>,
 }
 
 impl TrueMatrixRenderer {
     pub fn new(width: u32, height: u32) -> Self {
         let mut rng = rand::thread_rng();
-        let col_spacing = 8;
-        let num_cols = (width as i32 / col_spacing).max(1);
-        let num_rows = ((height as i32 + 8) / 8).max(4) as usize;
-
-        let columns = (0..num_cols)
-            .map(|i| {
-                let x = i * col_spacing + (width as i32 % col_spacing) / 2;
-                let y = rng.gen_range(-(height as f32)..-8.0);
-                let speed = rng.gen_range(0.2..0.5);
-                let glyphs = (0..num_rows + 4)
-                    .map(|_| std::char::from_u32(rng.gen_range(0x30A0..0x3100)).unwrap_or('ア'))
-                    .collect();
-                MatrixColumn {
-                    x,
-                    y,
-                    speed,
-                    glyphs,
-                    trail_len: rng.gen_range(4..8),
-                }
-            })
+        // Spaced every 10 pixels matching legacy Python: range(0, width, 10)
+        let col_count = ((width + 9) / 10).max(1) as usize;
+        let matrix_cols: Vec<i32> = (0..col_count)
+            .map(|_| rng.gen_range(-(height as i32).max(10)..-10))
             .collect();
 
         let buffer = vec![vec![(0u8, 0u8, 0u8); width as usize]; height as usize];
-        let renderer = BaseRenderer::from_font_path("DotGothic16.ttf");
+
+        // Attempt to load DotGothic16.ttf from common font paths
+        let font_candidates = [
+            "fonts/DotGothic16.ttf",
+            "../fonts/DotGothic16.ttf",
+            "/usr/local/share/arcadematrix/fonts/DotGothic16.ttf",
+        ];
+
+        let mut font = None;
+        for path_str in &font_candidates {
+            if Path::new(path_str).exists() {
+                if let Ok(data) = std::fs::read(path_str) {
+                    if let Some(f) = Font::try_from_vec(data) {
+                        font = Some(f);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if font.is_none() {
+            let embedded = include_bytes!("../../../fonts/PressStart2P.ttf");
+            font = Font::try_from_bytes(embedded as &[u8]);
+        }
 
         Self {
-            columns,
+            matrix_cols,
             buffer,
             width,
             height,
-            renderer,
+            font,
         }
     }
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend) {
         let mut rng = rand::thread_rng();
-        let h = self.height;
-        let w = self.width;
+        let h = self.height as i32;
+        let w = self.width as i32;
 
-        // 1. Soft fade of buffer so rain trails flow smoothly
+        // 1. Fade existing buffer by alpha overlay (0, 0, 0, 40) -> factor ≈ 215/255 (0.843)
         for row in self.buffer.iter_mut() {
             for px in row.iter_mut() {
-                px.0 = (px.0 as f32 * 0.85) as u8;
-                px.1 = (px.1 as f32 * 0.85) as u8;
-                px.2 = (px.2 as f32 * 0.85) as u8;
+                px.0 = ((px.0 as u16 * 215) / 255) as u8;
+                px.1 = ((px.1 as u16 * 215) / 255) as u8;
+                px.2 = ((px.2 as u16 * 215) / 255) as u8;
             }
         }
 
-        let font = self.renderer.font();
+        // 2. Render Japanese Katakana (0x30A0..=0x30FF) for active columns
+        let font_ref = self.font.as_ref();
 
-        for col in &mut self.columns {
-            col.y += col.speed * 4.0;
+        for i in 0..self.matrix_cols.len() {
+            let y = self.matrix_cols[i];
+            let col_x = (i as i32) * 10;
 
-            let head_grid_y = (col.y / 8.0) as i32;
+            if y > -20 && y < h {
+                let ch_code = rng.gen_range(0x30A0..=0x30FF);
+                let ch = std::char::from_u32(ch_code).unwrap_or('ア');
 
-            // Occasionally mutate a random glyph in the trail for classic Matrix code morphing
-            if rng.gen_bool(0.04) && !col.glyphs.is_empty() {
-                let idx = rng.gen_range(0..col.glyphs.len());
-                col.glyphs[idx] =
-                    std::char::from_u32(rng.gen_range(0x30A0..0x3100)).unwrap_or('ア');
-            }
-
-            // Draw head and trail
-            for r in 0..col.trail_len {
-                let grid_y = (head_grid_y - r as i32) * 8;
-                if grid_y < -8 || grid_y >= h as i32 {
-                    continue;
-                }
-
-                let glyph_idx =
-                    ((head_grid_y - r as i32).max(0) as usize) % col.glyphs.len().max(1);
-                let char_str = col.glyphs[glyph_idx].to_string();
-                let (pixels, _, _) = font.get_pixel_map(&char_str, 1.0);
-
-                let head_color = if r == 0 {
-                    (255, 255, 255)
-                } else if r == 1 {
-                    (160, 255, 160)
+                let color = if rng.gen_bool(0.2) {
+                    (255u8, 255u8, 255u8) // Bright white leading head
                 } else {
-                    let factor = (1.0 - (r as f32 / col.trail_len as f32)).max(0.1);
-                    (0, (200.0 * factor) as u8, (40.0 * factor) as u8)
+                    (180u8, 255u8, 180u8) // Bright matrix green
                 };
 
-                for char_pixels in pixels {
-                    for &(gx, gy) in &char_pixels {
-                        let px = col.x + gx;
-                        let py = grid_y + gy;
+                if let Some(font) = font_ref {
+                    let scale = Scale::uniform(12.0);
+                    let v_metrics = font.v_metrics(scale);
+                    let glyphs: Vec<_> = font
+                        .layout(&ch.to_string(), scale, point(0.0, v_metrics.ascent))
+                        .collect();
 
-                        if py >= 0 && py < h as i32 && px >= 0 && px < w as i32 {
-                            self.buffer[py as usize][px as usize] = head_color;
+                    for glyph in glyphs {
+                        if let Some(bb) = glyph.pixel_bounding_box() {
+                            glyph.draw(|gx, gy, v| {
+                                if v > 0.25 {
+                                    let px = col_x + bb.min.x + gx as i32;
+                                    let py = y + bb.min.y + gy as i32;
+
+                                    if px >= 0 && px < w && py >= 0 && py < h {
+                                        self.buffer[py as usize][px as usize] = color;
+                                    }
+                                }
+                            });
                         }
                     }
                 }
             }
 
-            if col.y > (h as f32 + (col.trail_len * 8) as f32) {
-                col.y = rng.gen_range(-16.0_f32..-8.0);
-                col.speed = rng.gen_range(0.2..0.5);
+            // Advance column position by 8 to 12 pixels
+            self.matrix_cols[i] += rng.gen_range(8..=12);
+
+            // Reset column when reaching bottom with 10% chance per frame
+            if self.matrix_cols[i] > h {
+                if rng.gen_bool(0.1) {
+                    self.matrix_cols[i] = rng.gen_range(-20..-10);
+                }
             }
         }
 
-        // Flush buffer to matrix
-        for y in 0..h as usize {
-            for x in 0..w as usize {
+        // 3. Flush buffer to matrix
+        for y in 0..self.height as usize {
+            for x in 0..self.width as usize {
                 let px = self.buffer[y][x];
                 if px.0 > 2 || px.1 > 2 || px.2 > 2 {
                     matrix.set_pixel(x as i32, y as i32, px.0, px.1, px.2);

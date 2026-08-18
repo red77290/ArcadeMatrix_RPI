@@ -210,19 +210,20 @@ impl DmdCache {
 pub fn clean_system_name(system: &str) -> String {
     let mut s = system.trim();
     let prefixes = [
-        "Arcade manufacturer ",
         "arcade manufacturer ",
-        "Arcade System ",
         "arcade system ",
-        "Manufacturer ",
+        "arcade genre ",
+        "arcade collection ",
         "manufacturer ",
-        "System ",
         "system ",
+        "genre ",
+        "collection ",
     ];
     for prefix in &prefixes {
-        if s.to_lowercase().starts_with(&prefix.to_lowercase()) {
+        if s.to_lowercase().starts_with(prefix) {
             s = &s[prefix.len()..];
             s = s.trim();
+            break;
         }
     }
     s.to_string()

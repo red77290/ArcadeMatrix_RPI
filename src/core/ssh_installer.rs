@@ -110,6 +110,26 @@ def parse_statefile():
         pass
     return game, system, state
 
+def clean_system_name(s):
+    if not s:
+        return ""
+    s_clean = str(s).strip()
+    s_lower = s_clean.lower()
+    prefixes = [
+        "arcade manufacturer ",
+        "arcade system ",
+        "arcade genre ",
+        "arcade collection ",
+        "manufacturer ",
+        "system ",
+        "genre ",
+        "collection ",
+    ]
+    for p in prefixes:
+        if s_lower.startswith(p):
+            return s_clean[len(p):].strip()
+    return s_clean
+
 def main():
     import socket
     import sys
@@ -132,6 +152,8 @@ def main():
             if not system and not rom_path:
                 time.sleep(0.1)
                 continue
+
+            system = clean_system_name(system)
 
             if state == "stopped":
                 current_key = (None, None, "stopped")
@@ -159,6 +181,7 @@ def main():
                     msg = '{{"status": "browsing", "system": "' + str(current_key[1]) + '", "type": "system"}}'
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
+                    gbase = clean_system_name(gbase)
                     msg = '{{"status": "' + current_key[2] + '", "game": "' + gbase + '", "system": "' + str(current_key[1]) + '"}}'
 
                 try:

@@ -103,7 +103,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 "#00ffff",
                                                 1,
                                                 if clean_name.len() > 8 { "left" } else { "none" },
-                                                30,
+                                                0,
                                             );
                                         *config.message_payload.lock() =
                                             Some(serde_json::to_value(msg_payload).unwrap());
@@ -155,7 +155,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 "#00ffff",
                                                 1,
                                                 if clean_name.len() > 8 { "left" } else { "none" },
-                                                30,
+                                                0,
                                             );
                                         *config.message_payload.lock() =
                                             Some(serde_json::to_value(msg_payload).unwrap());

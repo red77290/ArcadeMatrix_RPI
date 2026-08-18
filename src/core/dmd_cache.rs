@@ -347,15 +347,18 @@ pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)>
         }
     }
 
-    // Generate prefixed variants in priority order:
-    // 1. default-{name}
-    // 2. default-_{name}
-    // 3. {name}
+    // Generate prefixed variants in strict priority order:
+    // 1. default-{clean} (exact name as received from EmulationStation)
+    // 2. default-_{clean} (exact name as received from EmulationStation)
+    // 3. default-{variant} for other base variants
+    // 4. default-_{variant} for other base variants
+    // 5. {variant} direct names
     let mut name_variants: Vec<String> = Vec::new();
+    name_variants.push(format!("default-{}", clean));
+    name_variants.push(format!("default-_{}", clean));
+
     for b in &unique_base {
         name_variants.push(format!("default-{}", b));
-    }
-    for b in &unique_base {
         name_variants.push(format!("default-_{}", b));
     }
     for b in &unique_base {

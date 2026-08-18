@@ -2,6 +2,8 @@
 
 # ArcadeMatrix RPi 🍓👾
 
+📺 **Demostración en Video / Presentación:** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs
+
 La implementación original en **Rust** del proyecto **ArcadeMatrix**, diseñada específicamente para ejecutarse en una **Raspberry Pi** conectada a una matriz LED RGB (HUB75) a través del HAT de Adafruit o hardware Joy-IT.
 
 Desarrollada en paralelo con la versión C++ para ESP32, esta implementación aprovecha la potencia de la Raspberry Pi para ofrecer un pipeline gráfico multihilo de alto rendimiento.

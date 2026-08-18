@@ -349,17 +349,21 @@ pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)>
 
     // Generate prefixed variants in strict priority order:
     // 1. default-{clean} (exact name as received from EmulationStation)
-    // 2. default-_{clean} (exact name as received from EmulationStation)
-    // 3. default-{variant} for other base variants
-    // 4. default-_{variant} for other base variants
+    // 2. default-_{clean} (exact category/collection name)
+    // 3. default-z{clean_lower} & z{clean_lower} (Pixelcade convention for arcade board systems like zcps1, zkonami, zcapcom)
+    // 4. default-{variant} & default-_{variant} for other base variants
     // 5. {variant} direct names
     let mut name_variants: Vec<String> = Vec::new();
+    let clean_lower = clean.to_lowercase();
     name_variants.push(format!("default-{}", clean));
     name_variants.push(format!("default-_{}", clean));
+    name_variants.push(format!("default-z{}", clean_lower));
+    name_variants.push(format!("z{}", clean_lower));
 
     for b in &unique_base {
         name_variants.push(format!("default-{}", b));
         name_variants.push(format!("default-_{}", b));
+        name_variants.push(format!("default-z{}", b.to_lowercase()));
     }
     for b in &unique_base {
         name_variants.push(b.clone());

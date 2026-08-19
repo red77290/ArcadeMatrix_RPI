@@ -9,8 +9,11 @@ if [ -z "$PROJ_DIR" ]; then
     exit 0
 fi
 
-# Define possible boot mount points (Bookworm uses /boot/firmware, older uses /boot)
-BOOT_PATHS=("/boot/firmware" "/boot")
+# Define possible mount points for recovery files
+# 1. /boot/firmware (Bookworm bootfs, visible on Windows/Mac)
+# 2. /boot (Legacy bootfs, visible on Windows/Mac)
+# 3. $PROJ_DIR/data (The exFAT DATA partition, visible on Windows/Mac)
+BOOT_PATHS=("/boot/firmware" "/boot" "$PROJ_DIR/data")
 RECOVERY_FILE="arcadematrix_recovery.bin"
 
 for BOOT_DIR in "${BOOT_PATHS[@]}"; do

@@ -39,33 +39,16 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }
     }
 
-    if firmware_bytes.len() < 20 {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "Uploaded file too small to be a valid firmware binary"
-        }));
-    }
-
-    if firmware_bytes[..4] != ELF_MAGIC {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "Invalid firmware: missing ELF magic header"
-        }));
-    }
-
-    let e_machine = u16::from_le_bytes([firmware_bytes[18], firmware_bytes[19]]);
-    let current_target = env!("BUILD_TARGET");
-    let valid_arch = match e_machine {
-        EM_AARCH64 => current_target.contains("aarch64"),
-        EM_ARM => current_target.contains("arm"),
-        _ => false,
-    };
-
-    if !valid_arch && !cfg!(debug_assertions) {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": format!("Architecture mismatch: firmware is for e_machine {}, expected target {}", e_machine, current_target)
-        }));
+    if let Err(msg) = validate_firmware(&firmware_bytes, env!("BUILD_TARGET")) {
+        // If debug assertions are on, we bypass architecture mismatch for local testing
+        if msg.starts_with("Architecture mismatch") && cfg!(debug_assertions) {
+            // Ignore for debug builds
+        } else {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": msg
+            }));
+        }
     }
 
     let binary_path = std::env::current_exe()
@@ -124,4 +107,30 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         "message": "Firmware updated successfully. Service restarting in 1 second...",
         "old_version": env!("CARGO_PKG_VERSION")
     }))
+}
+
+pub fn validate_firmware(firmware_bytes: &[u8], current_target: &str) -> Result<(), String> {
+    if firmware_bytes.len() < 20 {
+        return Err("Uploaded file too small to be a valid firmware binary".to_string());
+    }
+
+    if firmware_bytes[..4] != ELF_MAGIC {
+        return Err("Invalid firmware: missing ELF magic header".to_string());
+    }
+
+    let e_machine = u16::from_le_bytes([firmware_bytes[18], firmware_bytes[19]]);
+    let valid_arch = match e_machine {
+        EM_AARCH64 => current_target.contains("aarch64"),
+        EM_ARM => current_target.contains("arm"),
+        _ => false,
+    };
+
+    if !valid_arch {
+        return Err(format!(
+            "Architecture mismatch: firmware is for e_machine {}, expected target {}",
+            e_machine, current_target
+        ));
+    }
+
+    Ok(())
 }

@@ -141,6 +141,7 @@ if command -v systemctl &> /dev/null; then
     sudo systemctl disable triggerhappy 2>/dev/null || true
     echo "Setting up systemd service for auto-start..."
     SERVICE_FILE="/etc/systemd/system/arcadematrix.service"
+    chmod +x "$CURRENT_DIR/scripts/recovery.sh"
 
     # No CPUAffinity here: we rely on isolcpus=3 in cmdline.txt (like the Python version).
     # The kernel reserves core 3 for the hzeller DMA thread, and the OS scheduler
@@ -152,6 +153,7 @@ Description=ArcadeMatrix RPi Daemon (Rust)
 After=network.target
 
 [Service]
+ExecStartPre=$CURRENT_DIR/scripts/recovery.sh $CURRENT_DIR
 ExecStart=$CURRENT_DIR/arcadematrix
 WorkingDirectory=$CURRENT_DIR
 StandardOutput=inherit

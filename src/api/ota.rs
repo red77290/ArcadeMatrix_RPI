@@ -70,8 +70,7 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
 
     let binary_path = std::env::current_exe()
         .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
-    let temp_path = binary_path.with_extension("new");
-    let backup_path = binary_path.with_extension("bak");
+    let temp_path = std::path::PathBuf::from("/tmp/arcadematrix_update");
 
     if let Err(e) = fs::write(&temp_path, &firmware_bytes).await {
         return HttpResponse::InternalServerError().json(serde_json::json!({
@@ -80,36 +79,44 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }));
     }
 
-    if binary_path.exists() {
-        // Try to delete any old backup first
-        let _ = fs::remove_file(&backup_path).await;
-        // Rename current running executable to .bak (this works even if it's running)
-        if let Err(e) = fs::rename(&binary_path, &backup_path).await {
-            warn!("Could not backup current binary: {}", e);
-        }
-    }
+    let script_content = format!(
+        "#!/bin/bash\n\
+        sleep 2\n\
+        systemctl stop arcadematrix\n\
+        rm -f \"{}\"\n\
+        mv /tmp/arcadematrix_update \"{}\"\n\
+        chmod +x \"{}\"\n\
+        systemctl start arcadematrix\n",
+        binary_path.display(),
+        binary_path.display(),
+        binary_path.display()
+    );
 
-    if let Err(e2) = fs::rename(&temp_path, &binary_path).await {
+    let script_path = std::path::PathBuf::from("/tmp/update_am.sh");
+    if let Err(e) = fs::write(&script_path, script_content).await {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "status": "error",
-            "message": format!("Failed to install firmware binary: {}", e2)
+            "message": format!("Failed to write updater script: {}", e)
         }));
     }
 
     let _ = Command::new("chmod")
         .args(["+x"])
-        .arg(&binary_path)
+        .arg(&script_path)
         .status()
         .await;
 
-    info!("Firmware update successful. Scheduling systemd service restart...");
+    info!("Firmware update staged. Executing background updater script...");
 
-    tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    tokio::spawn(async move {
+        // Use systemd-run to escape the service cgroup, otherwise systemctl stop will kill this script!
         let _ = Command::new("sudo")
-            .args(["systemctl", "restart", "arcadematrix"])
-            .status()
-            .await;
+            .args([
+                "systemd-run",
+                "--unit=arcadematrix-updater",
+                "/tmp/update_am.sh",
+            ])
+            .spawn();
     });
 
     HttpResponse::Ok().json(serde_json::json!({

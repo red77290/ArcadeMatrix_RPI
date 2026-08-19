@@ -329,14 +329,19 @@ pub fn clean_system_name(system: &str) -> String {
         "genre ",
         "collection ",
     ];
-    for prefix in &prefixes {
-        if s.to_lowercase().starts_with(prefix) {
-            s = &s[prefix.len()..];
-            s = s.trim();
+    let lower = s.to_lowercase().replace('_', " ").replace('-', " ");
+    for p in prefixes.iter() {
+        if lower.starts_with(p) {
+            if s.len() >= p.len() {
+                s = &s[p.len()..];
+                if s.starts_with('_') || s.starts_with('-') {
+                    s = &s[1..];
+                }
+            }
             break;
         }
     }
-    s.to_string()
+    s.trim().to_string()
 }
 
 pub fn get_system_name_variants(raw_system: &str) -> Vec<(&'static str, String)> {

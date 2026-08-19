@@ -3,7 +3,7 @@ use actix_web::{get, post, HttpResponse, Responder};
 use futures_util::StreamExt;
 use tokio::fs;
 use tokio::process::Command;
-use tracing::{info, warn};
+use tracing::info;
 
 const ELF_MAGIC: [u8; 4] = [0x7F, b'E', b'L', b'F'];
 

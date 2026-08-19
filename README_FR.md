@@ -33,7 +33,7 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ## 🌟 Fonctionnalités (exclusivités RPi vs ESP32)
 
-* 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD !
+* 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, placez simplement un fichier firmware valide nommé `arcadematrix_recovery.bin` à la racine de la carte SD (`/boot/firmware` ou `/boot`) et il sera automatiquement installé au prochain démarrage !)*
 * 🚀 **Performances Rust natives** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
 * **Polices chargeables dynamiquement (`.ttf`)** : fini les fichiers de police codés en dur ! Déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
 * **Tailles et décalages d'horloge/date illimités** : vous n'êtes plus limité aux tailles 1, 2 ou 3. Vous pouvez définir n'importe quelle taille et positionner librement le texte sur d'immenses panneaux matriciels (ex. 256x64).

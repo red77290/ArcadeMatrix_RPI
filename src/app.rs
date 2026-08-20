@@ -1,5 +1,6 @@
 use crate::api::run_server;
 use crate::core::config::Config;
+use crate::core::engine_contract::{Engine, EngineContext};
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 use crate::core::matrix::HardwareMatrix;
 use crate::core::matrix::{MatrixBackend, MockMatrix};
@@ -590,7 +591,10 @@ impl ArcadeMatrixApp {
                         }
                     }
                     "weather" => {
-                        weather_engine.render(matrix.as_mut(), &config);
+                        let mut ctx = EngineContext {
+                            matrix: matrix.as_mut(),
+                        };
+                        weather_engine.render(&mut ctx);
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(weather_dur as u64)
                         {

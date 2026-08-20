@@ -1,5 +1,6 @@
 use arcadematrix::core::config::Config;
 use arcadematrix::core::dmd_cache::DmdCache;
+use arcadematrix::core::engine_contract::{Engine, EngineContext};
 use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
 use arcadematrix::engines::clock::ClockEngine;
 use arcadematrix::engines::date::DateEngine;
@@ -7,6 +8,7 @@ use arcadematrix::engines::fighter::FighterEngine;
 use arcadematrix::engines::gif::GifEngine;
 use arcadematrix::engines::marquee::MarqueeEngine;
 use arcadematrix::engines::message::{MessageEngine, MessagePayload};
+use arcadematrix::engines::weather::WeatherEngine;
 use image::RgbImage;
 use tempfile::NamedTempFile;
 
@@ -46,7 +48,10 @@ fn test_weather_engine_init() {
     let mut engine = arcadematrix::engines::weather::WeatherEngine::new();
 
     // Render without API key (should draw "No API key")
-    engine.render(&mut matrix, &config);
+    let mut context = EngineContext {
+        matrix: &mut matrix,
+    };
+    engine.render(&mut context);
 }
 
 #[test]

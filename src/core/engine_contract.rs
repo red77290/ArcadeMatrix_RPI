@@ -114,7 +114,10 @@ impl EngineConfig for HashConfig {
     }
 }
 
-pub struct EngineContext {
+use crate::core::matrix::MatrixBackend;
+
+pub struct EngineContext<'a> {
+    pub matrix: &'a mut dyn MatrixBackend,
     // In Sprint 2, this will contain references to Matrix, Logger, etc.
 }
 

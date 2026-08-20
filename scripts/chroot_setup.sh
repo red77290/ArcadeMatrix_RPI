@@ -8,6 +8,9 @@ echo "🔧 [chroot] Starting ArcadeMatrix OS Setup via autoInstall.sh..."
 PROJ_DIR="/home/$AM_USER/ArcadeMatrix_RPi"
 cd $PROJ_DIR
 
+# Link scripts early so autoInstall.sh can find recovery.sh
+ln -s $PROJ_DIR/data/scripts $PROJ_DIR/scripts
+
 # 1. Run the base auto-installer (systemd setup)
 chmod +x autoInstall.sh
 # Create a dummy Cargo.toml to satisfy autoInstall.sh's root check
@@ -57,7 +60,6 @@ ln -s $PROJ_DIR/data/fighters_32 $PROJ_DIR/fighters_32
 ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
 ln -s $PROJ_DIR/data/crypto_icons $PROJ_DIR/crypto_icons
 ln -s $PROJ_DIR/data/stock_icons $PROJ_DIR/stock_icons
-ln -s $PROJ_DIR/data/scripts $PROJ_DIR/scripts
 
 echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
 cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini

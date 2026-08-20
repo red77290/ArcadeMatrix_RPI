@@ -796,6 +796,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(api_reboot)
             .service(api_shutdown)
             .service(api_restart_app)
+            .service(api_engines)
             .service(api_sprites_playlists)
             .service(api_sprites_playlists_selected)
             .service(api_sprites_playlists_save)
@@ -813,4 +814,10 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
     .bind(("0.0.0.0", port))?
     .run()
     .await
+}
+
+#[get("/api/engines")]
+async fn api_engines() -> impl Responder {
+    let descriptors = crate::core::registry::EngineRegistry::get_all_descriptors();
+    HttpResponse::Ok().json(descriptors)
 }

@@ -29,7 +29,30 @@ fn register_mock_engine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![ConfigField {
+                id: "theme",
+                field_type: ConfigType::Options,
+                label: "Clock Theme",
+                description: "Select the visual theme",
+                default_value: "0",
+                options: Some(vec![
+                    ConfigOption {
+                        label: "Arcade",
+                        value: "0",
+                    },
+                    ConfigOption {
+                        label: "Cyberpunk",
+                        value: "18",
+                    },
+                ]),
+                min_val: None,
+                max_val: None,
+                required: false,
+                step: None,
+                visible_when: None,
+            }],
+        },
         factory: || Box::new(MockEngine),
     }
 }

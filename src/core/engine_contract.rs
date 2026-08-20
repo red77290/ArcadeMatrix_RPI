@@ -1,10 +1,11 @@
+use serde::Serialize;
 use std::collections::HashMap;
 
 // =======================================================
 // 1. Enums & Errors
 // =======================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum EngineError {
     InvalidConfig(String),
     MissingResource(String),
@@ -14,24 +15,26 @@ pub enum EngineError {
     RuntimeError(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub enum ConfigType {
     Boolean,
     Integer,
     Float,
     String,
-    Enum,
-    Color,
-    Duration,
-    List,
-    FileAsset,
+    Options,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ConfigOption {
+    pub label: &'static str,
+    pub value: &'static str,
 }
 
 // =======================================================
 // 2. Metadata & Capabilities
 // =======================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct EngineMetadata {
     pub id: &'static str,
     pub name: &'static str,
@@ -39,7 +42,7 @@ pub struct EngineMetadata {
     pub version: &'static str,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Capabilities {
     pub supports_128x32: bool,
     pub supports_256x64: bool,
@@ -47,7 +50,7 @@ pub struct Capabilities {
     pub interruptible: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Requirements {
     pub needs_audio: bool,
     pub needs_network: bool,
@@ -58,7 +61,7 @@ pub struct Requirements {
 // 3. Configuration Schema
 // =======================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ConfigField {
     pub id: &'static str,
     pub field_type: ConfigType,
@@ -69,11 +72,11 @@ pub struct ConfigField {
     pub min_val: Option<&'static str>,
     pub max_val: Option<&'static str>,
     pub step: Option<&'static str>,
-    pub options: Option<&'static str>,
+    pub options: Option<Vec<ConfigOption>>,
     pub visible_when: Option<&'static str>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ConfigSchema {
     pub fields: Vec<ConfigField>,
 }
@@ -143,10 +146,12 @@ pub trait Engine: Send + Sync {
 
 pub type EngineFactory = fn() -> Box<dyn Engine>;
 
+#[derive(Serialize)]
 pub struct EngineDescriptor {
     pub metadata: EngineMetadata,
     pub capabilities: Capabilities,
     pub requirements: Requirements,
     pub schema: ConfigSchema,
+    #[serde(skip)]
     pub factory: EngineFactory,
 }

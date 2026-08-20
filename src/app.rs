@@ -556,28 +556,30 @@ impl ArcadeMatrixApp {
             }
 
             // Rotation sequence execution
-            let (idle_list, clock_dur, date_dur, weather_dur) = {
-                let s = config.settings.read();
-                (
-                    s.idle_rotation.clone(),
-                    s.idle_clock_duration_sec,
-                    s.idle_date_duration_sec,
-                    s.idle_weather_duration_sec,
-                )
-            };
+            let idle_list = config.settings.read().rotation.clone();
 
             if !idle_list.is_empty() {
                 let current_index = rotation_state.current_index;
                 let current_mode = &idle_list[current_index % idle_list.len()];
                 let mode_just_changed = current_index != last_index;
 
+                // Find engine_id for this instance
+                let engine_id = config
+                    .settings
+                    .read()
+                    .instances
+                    .iter()
+                    .find(|i| i.instance_id == current_mode.instance_id)
+                    .map(|i| i.engine_id.clone())
+                    .unwrap_or_else(|| current_mode.instance_id.clone()); // fallback to legacy strings if no instance
+
                 matrix.clear();
                 let mut should_update = true;
-                match current_mode.as_str() {
+                match engine_id.as_str() {
                     "clock" => {
                         clock_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(clock_dur as u64)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -585,7 +587,7 @@ impl ArcadeMatrixApp {
                     "date" => {
                         date_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(date_dur as u64)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -596,7 +598,7 @@ impl ArcadeMatrixApp {
                         };
                         weather_engine.render(&mut ctx);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(weather_dur as u64)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -604,7 +606,7 @@ impl ArcadeMatrixApp {
                     "crypto" => {
                         crypto_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -612,7 +614,7 @@ impl ArcadeMatrixApp {
                     "stocks" | "stock" => {
                         stock_engine.render(matrix.as_mut(), &config);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -649,10 +651,12 @@ impl ArcadeMatrixApp {
                             if gifs_played >= gifs_count {
                                 gifs_played = 0;
                                 let next_mode_opt = rotation_state.next_mode(&idle_list);
-                                if next_mode_opt == Some("gifs") {
-                                    let selected = config.settings.read().selected_gifs.clone();
-                                    if !gif_engine.play_random_playlist_gif(&selected) {
-                                        gifs_played = gifs_count; // Force advance if failed
+                                if let Some(nm) = next_mode_opt {
+                                    if nm.instance_id == "gifs" {
+                                        let selected = config.settings.read().selected_gifs.clone();
+                                        if !gif_engine.play_random_playlist_gif(&selected) {
+                                            gifs_played = gifs_count; // Force advance if failed
+                                        }
                                     }
                                 }
                             } else {
@@ -675,7 +679,7 @@ impl ArcadeMatrixApp {
 
                         let _ = message_engine.render(matrix.as_mut(), &payload);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -708,7 +712,7 @@ impl ArcadeMatrixApp {
                             marquee_engine.render(matrix.as_mut(), &img);
                         }
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(30)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
@@ -721,9 +725,9 @@ impl ArcadeMatrixApp {
 
                 // Composite fighter overlay (strictly disabled during GIF rotation)
                 let settings = config.settings.read();
-                let fighter_enabled =
-                    settings.idle_fighter_enabled && current_mode.as_str() != "gifs";
-                if fighter_enabled {
+                let anim_on =
+                    settings.idle_fighter_enabled && current_mode.instance_id.as_str() != "gifs";
+                if anim_on {
                     fighter_engine.set_interval(settings.idle_fighter_interval);
                     fighter_engine.composite(matrix.as_mut());
                 } else if fighter_engine.is_active() {
@@ -754,7 +758,7 @@ impl ArcadeMatrixApp {
             // This gives the CPU and Wi-Fi IRQs plenty of breathing room.
             let current_mode_str = idle_list
                 .get(rotation_state.current_index % idle_list.len().max(1))
-                .map(|s| s.as_str())
+                .map(|s| s.instance_id.as_str())
                 .unwrap_or("");
             let is_animated = matches!(current_mode_str, "gifs" | "network" | "message");
 

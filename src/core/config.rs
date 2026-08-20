@@ -13,6 +13,19 @@ pub fn parse_symbols_string(input: &str) -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EngineInstance {
+    pub instance_id: String,
+    pub engine_id: String,
+    pub config: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationEntry {
+    pub instance_id: String,
+    pub duration_sec: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigSettings {
     // MATRIX
     pub matrix_rows: u32,
@@ -99,6 +112,12 @@ pub struct ConfigSettings {
     pub wifi_pass: String,
     pub wifi_configured: bool,
     pub wifi_disable_internal: bool,
+
+    // NEW INSTANCES
+    #[serde(default)]
+    pub instances: Vec<EngineInstance>,
+    #[serde(default)]
+    pub rotation: Vec<RotationEntry>,
 }
 
 impl Default for ConfigSettings {
@@ -194,12 +213,16 @@ impl Default for ConfigSettings {
             wifi_pass: "".to_string(),
             wifi_configured: false,
             wifi_disable_internal: false,
+
+            instances: vec![],
+            rotation: vec![],
         }
     }
 }
 
 pub struct Config {
     pub config_file: Mutex<PathBuf>,
+    pub json_file: PathBuf,
     pub reload_flag: AtomicBool,
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
@@ -213,13 +236,28 @@ pub struct Config {
 impl Config {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let path_buf = path.as_ref().to_path_buf();
+        let json_file = path_buf.with_file_name("config.json");
+
         let mut settings = ConfigSettings::default();
-        Self::load_from_ini(&path_buf, &mut settings);
+        let mut needs_save = false;
+
+        if json_file.exists() {
+            if let Ok(json_str) = std::fs::read_to_string(&json_file) {
+                if let Ok(s) = serde_json::from_str::<ConfigSettings>(&json_str) {
+                    settings = s;
+                }
+            }
+        } else {
+            Self::load_from_ini(&path_buf, &mut settings);
+            Self::migrate_to_instances(&mut settings);
+            needs_save = true;
+        }
 
         let initial_brightness = settings.matrix_brightness;
 
-        Self {
+        let cfg = Self {
             config_file: Mutex::new(path_buf),
+            json_file,
             reload_flag: AtomicBool::new(false),
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
@@ -228,6 +266,45 @@ impl Config {
             message_payload: Mutex::new(None),
             image_obj: Mutex::new(None),
             settings: RwLock::new(settings),
+        };
+
+        if needs_save {
+            cfg.save();
+        }
+
+        cfg
+    }
+
+    pub fn migrate_to_instances(settings: &mut ConfigSettings) {
+        if settings.instances.is_empty() {
+            let mut clock_cfg = std::collections::HashMap::new();
+            clock_cfg.insert("theme".to_string(), settings.time_theme.to_string());
+            clock_cfg.insert("format".to_string(), settings.time_format.clone());
+            settings.instances.push(EngineInstance {
+                instance_id: "default_clock".to_string(),
+                engine_id: "clock".to_string(),
+                config: clock_cfg,
+            });
+
+            let mut weather_cfg = std::collections::HashMap::new();
+            weather_cfg.insert("city".to_string(), settings.weather_city.clone());
+            weather_cfg.insert("api_key".to_string(), settings.weather_api_key.clone());
+            settings.instances.push(EngineInstance {
+                instance_id: "default_weather".to_string(),
+                engine_id: "weather".to_string(),
+                config: weather_cfg,
+            });
+
+            settings.rotation = vec![
+                RotationEntry {
+                    instance_id: "default_clock".to_string(),
+                    duration_sec: settings.idle_clock_duration_sec,
+                },
+                RotationEntry {
+                    instance_id: "default_weather".to_string(),
+                    duration_sec: settings.idle_weather_duration_sec,
+                },
+            ];
         }
     }
 
@@ -515,6 +592,10 @@ impl Config {
     pub fn save(&self) -> bool {
         let file_path = self.config_file.lock().clone();
         let s = self.settings.read().clone();
+
+        if let Ok(json_str) = serde_json::to_string_pretty(&s) {
+            let _ = std::fs::write(&self.json_file, json_str);
+        }
 
         let mut ini = Ini::new();
 

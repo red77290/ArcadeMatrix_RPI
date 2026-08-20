@@ -12,6 +12,8 @@ use crate::engines::fighter::FighterEngine;
 use crate::engines::gif::GifEngine;
 use crate::engines::marquee::MarqueeEngine;
 use crate::engines::message::{MessageEngine, MessagePayload};
+
+use crate::core::arbiter::{DisplayArbiter, DisplayPriority, DisplayRequest, RequestLifecycle};
 use crate::engines::weather::WeatherEngine;
 
 use std::net::UdpSocket;
@@ -379,6 +381,7 @@ impl ArcadeMatrixApp {
         let mut message_engine = MessageEngine::new();
 
         let mut rotation_state = RotationState::new();
+        let mut arbiter = DisplayArbiter::new();
         let mut last_frame = std::time::Instant::now();
         let mut gifs_played = 0;
 
@@ -458,8 +461,10 @@ impl ArcadeMatrixApp {
                 continue;
             }
 
-            // Handle forced engine (Game Marquee, Custom Message, etc.)
+            // --- ARBITER INTEGRATION ---
             let forced_opt = config.force_engine.lock().clone();
+
+            // 1. Submit MQTT/Message Request if active
             if let Some(ref forced_mode) = forced_opt {
                 if forced_mode == "message" {
                     has_received_mqtt = true;
@@ -468,54 +473,96 @@ impl ArcadeMatrixApp {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
-                            let is_infinite = payload.timeout_seconds == 0;
-                            let start_time = std::time::Instant::now();
-                            let timeout =
-                                std::time::Duration::from_secs(payload.timeout_seconds as u64);
-
-                            message_engine.reset(matrix.width() as f32);
-
-                            while (is_infinite || start_time.elapsed() < timeout)
-                                && running.load(Ordering::SeqCst)
-                            {
-                                if config.reload_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                let current_forced = config.force_engine.lock().clone();
-                                if current_forced.as_deref() != Some("message") {
-                                    break;
-                                }
-                                let current_payload_val = config.message_payload.lock().clone();
-                                if current_payload_val != Some(payload_val.clone()) {
-                                    break;
-                                }
-
-                                matrix.clear();
-                                let finished = message_engine.render(matrix.as_mut(), &payload);
-                                matrix.update();
-
-                                if finished && !is_infinite {
-                                    break;
-                                }
-
-                                std::thread::sleep(std::time::Duration::from_millis(33));
+                            let mut req = DisplayRequest::new(
+                                "MESSAGE",
+                                DisplayPriority::Mqtt,
+                                RequestLifecycle::OneShot,
+                            );
+                            req.preemptive = true;
+                            if payload.timeout_seconds > 0 {
+                                req.lifecycle = RequestLifecycle::Timed;
+                                req.timeout = Some(std::time::Duration::from_secs(
+                                    payload.timeout_seconds as u64,
+                                ));
                             }
-
-                            if !is_infinite {
-                                let mut f = config.force_engine.lock();
-                                if f.as_deref() == Some("message") {
-                                    *f = None;
-                                }
-                            }
-
-                            last_frame = std::time::Instant::now();
-                            rotation_state.mode_start_time = std::time::Instant::now();
-                            continue;
+                            req.instance_id = "mqtt_message".to_string();
+                            arbiter.submit_request(req);
                         }
                     }
                 } else if forced_mode == "marquee" {
                     has_received_mqtt = true;
-                    // Active Game Marquee persists as long as force_engine is Some("marquee")
+                    let mut req = DisplayRequest::new(
+                        "MARQUEE",
+                        DisplayPriority::Marquee,
+                        RequestLifecycle::UntilCancelled,
+                    );
+                    req.preemptive = true;
+                    req.instance_id = "marquee".to_string();
+                    arbiter.submit_request(req);
+                }
+            } else {
+                arbiter.cancel_request("MESSAGE");
+                arbiter.cancel_request("MARQUEE");
+            }
+
+            let mqtt_enabled = { config.settings.read().mqtt_enabled };
+            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
+                let req = DisplayRequest::new(
+                    "WAITING_MARQUEE",
+                    DisplayPriority::Marquee,
+                    RequestLifecycle::UntilCancelled,
+                );
+                arbiter.submit_request(req);
+            } else {
+                arbiter.cancel_request("WAITING_MARQUEE");
+            }
+
+            // 2. Submit Rotation Request
+            let idle_list = config.settings.read().rotation.clone();
+            if !idle_list.is_empty() {
+                let current_index = rotation_state.current_index;
+                let current_mode = &idle_list[current_index % idle_list.len()];
+                let mut req = DisplayRequest::new(
+                    "ROTATION",
+                    DisplayPriority::Rotation,
+                    RequestLifecycle::Persistent,
+                );
+                req.preemptive = false;
+                req.instance_id = current_mode.instance_id.clone();
+                arbiter.submit_request(req);
+            } else {
+                arbiter.cancel_request("ROTATION");
+            }
+
+            // 3. Evaluate Arbiter
+            let active_req = arbiter.evaluate();
+
+            if let Some(req) = active_req {
+                if req.source == "MESSAGE" {
+                    let payload_val_opt = config.message_payload.lock().clone();
+                    if let Some(payload_val) = payload_val_opt {
+                        if let Ok(payload) = serde_json::from_value::<MessagePayload>(payload_val) {
+                            matrix.clear();
+                            let finished = message_engine.render(matrix.as_mut(), &payload);
+                            matrix.update();
+
+                            if finished
+                                && req.lifecycle != RequestLifecycle::UntilCancelled
+                                && req.lifecycle != RequestLifecycle::Persistent
+                            {
+                                let mut f = config.force_engine.lock();
+                                if f.as_deref() == Some("message") {
+                                    *f = None;
+                                }
+                                arbiter.cancel_request("MESSAGE");
+                            }
+
+                            last_frame = std::time::Instant::now();
+                            std::thread::sleep(std::time::Duration::from_millis(33));
+                            continue;
+                        }
+                    }
+                } else if req.source == "MARQUEE" {
                     let img_opt = config.image_obj.lock().clone();
                     if let Some(img) = img_opt {
                         matrix.clear();
@@ -523,36 +570,27 @@ impl ArcadeMatrixApp {
                         matrix.update();
                         std::thread::sleep(std::time::Duration::from_millis(50));
                         last_frame = std::time::Instant::now();
-                        rotation_state.mode_start_time = std::time::Instant::now();
                         continue;
                     }
+                } else if req.source == "WAITING_MARQUEE" {
+                    if !was_mqtt_waiting {
+                        message_engine.reset(matrix.width() as f32);
+                        was_mqtt_waiting = true;
+                    }
+                    let msg_payload = crate::engines::message::MessagePayload::new(
+                        "WAITING FOR MARQUEE".to_string(),
+                        "#ffffff",
+                        2,
+                        "rtl",
+                        5,
+                    );
+                    matrix.clear();
+                    message_engine.render(matrix.as_mut(), &msg_payload);
+                    matrix.update();
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    last_frame = std::time::Instant::now();
+                    continue;
                 }
-            }
-
-            // Check if MQTT mode is enabled and no game marquee is active:
-            // Display "WAITING FOR MARQUEE" banner ONLY AT BOOT before any MQTT event has been received
-            let mqtt_enabled = { config.settings.read().mqtt_enabled };
-            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
-                if !was_mqtt_waiting {
-                    message_engine.reset(matrix.width() as f32);
-                    was_mqtt_waiting = true;
-                }
-                let msg_payload = crate::engines::message::MessagePayload::new(
-                    "WAITING FOR MARQUEE".to_string(),
-                    "#ffffff",
-                    2,
-                    "rtl",
-                    5,
-                );
-                matrix.clear();
-                message_engine.render(matrix.as_mut(), &msg_payload);
-                matrix.update();
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                last_frame = std::time::Instant::now();
-                rotation_state.mode_start_time = std::time::Instant::now();
-                continue;
-            } else {
-                was_mqtt_waiting = false;
             }
 
             // Rotation sequence execution

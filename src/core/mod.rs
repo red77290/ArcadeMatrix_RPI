@@ -1,3 +1,4 @@
+pub mod arbiter;
 pub mod config;
 pub mod dmd_cache;
 pub mod engine_contract;

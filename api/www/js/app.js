@@ -1,6 +1,7 @@
 import { API } from './api.js';
 import { setLanguage } from './i18n.js';
 import './components/toast.js';
+import { initDynamicEngines } from './dynamic_engines.js';
 
 let selectedOtaFile = null;
 
@@ -41,6 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNetworkSettings();
   initSettings();
   initPlaylists();
+  initDynamicEngines();
 });
 
 function initNavigation() {

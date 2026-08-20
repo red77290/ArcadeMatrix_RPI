@@ -1,6 +1,8 @@
 pub mod config;
 pub mod dmd_cache;
+pub mod engine_contract;
 pub mod matrix;
+pub mod registry;
 pub mod rotation;
 pub mod ssh_installer;
 pub mod theme;

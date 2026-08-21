@@ -45,6 +45,16 @@ impl WeatherEngine {
     pub fn add_provider(&mut self, provider: Box<dyn WeatherProvider>) {
         self.providers.push(provider);
     }
+
+    /// Parse the instance config into engine state. Shared by `initialize()`
+    /// and `on_config_changed()` so edits apply live without an app restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        self.api_key = config.get_string("api_key", "");
+        self.city = config.get_string("city", "");
+        self.lang = config.get_string("lang", "en");
+        self.offset_x = config.get_int("offset_x", 0);
+        self.offset_y = config.get_int("offset_y", 0);
+    }
 }
 
 impl Engine for WeatherEngine {
@@ -53,12 +63,17 @@ impl Engine for WeatherEngine {
         _context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        self.api_key = config.get_string("api_key", "");
-        self.city = config.get_string("city", "");
-        self.lang = config.get_string("lang", "en");
-        self.offset_x = config.get_int("offset_x", 0);
-        self.offset_y = config.get_int("offset_y", 0);
+        self.apply_config(config);
         Ok(())
+    }
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+        // City/lang/offset edits must take effect now: drop cached forecast and
+        // pre-rendered panorama so the next render refetches and rebuilds.
+        self.last_fetch = None;
+        self.forecasts.clear();
+        self.panorama = None;
     }
 
     fn activate(&mut self) {

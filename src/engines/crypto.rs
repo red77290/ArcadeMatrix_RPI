@@ -47,6 +47,24 @@ impl CryptoEngine {
         self.providers.push(provider);
     }
 
+    /// Parse the instance config into engine state. Shared by `initialize()`
+    /// and `on_config_changed()` so edits apply live without an app restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        let sym_str = config.get_string("symbols", "BTC,ETH");
+        self.symbols = sym_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
+        // Keep the cursor in range after the symbol list shrinks.
+        if self.symbols.is_empty() {
+            self.current_index = 0;
+        } else {
+            self.current_index %= self.symbols.len();
+        }
+    }
+
     fn fetch_quote(&mut self, symbol: &str, ttl_min: u64) -> (f64, f64, bool, Option<String>) {
         let now = Instant::now();
         let ttl_secs = (if ttl_min > 0 { ttl_min } else { 1 }) * 60;
@@ -190,14 +208,12 @@ impl Engine for CryptoEngine {
         _context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        let sym_str = config.get_string("symbols", "BTC,ETH");
-        self.symbols = sym_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect();
-        self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
+        self.apply_config(config);
         Ok(())
+    }
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
     }
 
     fn activate(&mut self) {}

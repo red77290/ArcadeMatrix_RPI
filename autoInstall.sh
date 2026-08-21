@@ -71,6 +71,15 @@ fi
 
 CURRENT_DIR=$(pwd)
 
+# Ensure config.json is symlinked to data/config.json for Samba/FAT32 persistence
+if [ ! -L "config.json" ]; then
+    if [ -f "config.json" ] && [ -d "data" ]; then
+        echo "Moving config.json to data/ and creating symlink..."
+        mv config.json data/config.json || true
+        ln -s data/config.json config.json
+    fi
+fi
+
 if [ -z "$SKIP_BUILD" ]; then
     # 4. Install Rust toolchain & Compile binary
     if ! command -v cargo &> /dev/null; then

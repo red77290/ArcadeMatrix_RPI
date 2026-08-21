@@ -128,3 +128,24 @@ Définit la Playlist. L'ordre du tableau est l'ordre d'affichage.
 }
 ```
 Ici, ArcadeMatrix affichera l'instance `mon_horloge_cyberpunk` pendant 30 secondes avant de passer au module suivant.
+
+---
+
+## 7. Configurations des Moteurs
+
+Chaque moteur (Engine) possède des champs spécifiques pour son bloc `config`. Ces champs sont injectés et validés par le `ConfigSanitizer` via le schéma du moteur.
+
+### Moteur : `clock`
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | Index du thème de l'horloge (`0` à `12`). |
+| `format` | `String` | `%H:%M:%S` | Format de l'heure. |
+| `custom_font` | `String` | `""` | Chemin d'accès vers un fichier de police TTF personnalisé. |
+| `color` | `String` | `#FFFFFF` | Couleur du texte en format Hex. |
+
+### Moteur : `date`
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | Index du thème de la date (`0` à `5`). |
+| `format` | `String` | `%Y-%m-%d` | Format de la date. |
+| `color` | `String` | `#FFFFFF` | Couleur du texte de la date en format Hex. |

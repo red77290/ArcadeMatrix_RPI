@@ -1,26 +1,66 @@
 import { API } from './api.js';
 
 export async function initDynamicEngines() {
-  const container = document.getElementById('dynamic-engines-container');
+  const container = document.getElementById('page-display');
   const tabsContainer = document.querySelector('.tabs');
   
   if (!container || !tabsContainer) return;
   
   try {
-    const engines = await API.get('/api/engines');
+    const descriptors = await API.get('/api/engines');
+    const instancesList = await API.get('/api/instances').catch(() => []);
     
-    // Clear container (keep legacy ones, just clear dynamic)
-    container.innerHTML = '';
+    // Convert descriptors to map for easy lookup
+    const enginesMap = {};
+    descriptors.forEach(desc => {
+      enginesMap[desc.metadata.id] = desc;
+    });
+
     
-    engines.forEach(engine => {
-      // 1. Create Tab Button
-      const tabId = `tab-dyn-${engine.metadata.id.replace(/\./g, '-')}`;
+    
+    // Add New Instance Controls
+    const addContainer = document.createElement('div');
+    addContainer.style = "display: flex; gap: 0.5rem; align-items: center; margin-left: auto;";
+    
+    const engineSelect = document.createElement('select');
+    engineSelect.className = 'input';
+    engineSelect.style = "width: auto; padding: 0.2rem 0.5rem;";
+    descriptors.forEach(desc => {
+        const opt = document.createElement('option');
+        opt.value = desc.metadata.id;
+        opt.innerText = desc.metadata.name;
+        engineSelect.appendChild(opt);
+    });
+    
+    const addBtn = document.createElement('button');
+    addBtn.className = 'btn btn-primary';
+    addBtn.innerHTML = `➕ Add Engine`;
+    addBtn.style = "padding: 0.2rem 0.5rem;";
+    addBtn.onclick = () => {
+       const eng = engineSelect.value;
+       const inst = prompt("Enter a unique name for this instance (e.g. main_" + eng + "):", eng);
+       if (!inst) return;
+       API.post('/api/instances', { instance_id: inst, engine_id: eng, config: {} }).then(() => {
+           window.showToast('Instance created, please refresh', 'success');
+           setTimeout(() => location.reload(), 1000);
+       });
+    };
+    
+    addContainer.appendChild(engineSelect);
+    addContainer.appendChild(addBtn);
+    tabsContainer.appendChild(addContainer);
+
+    instancesList.forEach(instance => {
+      const engineDesc = enginesMap[instance.engine_id];
+      if (!engineDesc) return;
       
+      const tabId = `tab-dyn-${instance.instance_id.replace(/[^a-zA-Z0-9]/g, '-')}`;
+      
+      // 1. Create Tab Button
       const tabBtn = document.createElement('button');
       tabBtn.className = 'tab-btn';
-      tabBtn.innerHTML = `🧩 ${engine.metadata.name}`;
+      tabBtn.innerHTML = `🧩 ${engineDesc.metadata.name} (${instance.instance_id})`;
       tabBtn.onclick = (e) => {
-        // Simple manual switch since switchDisplayTab might not cover dynamic IDs
         document.querySelectorAll('#page-display .tab-btn').forEach(btn => btn.classList.remove('active'));
         e.currentTarget.classList.add('active');
         
@@ -28,8 +68,7 @@ export async function initDynamicEngines() {
         document.getElementById(tabId).classList.add('active');
       };
       
-      // Append tab button to tabs row
-      tabsContainer.appendChild(tabBtn);
+      tabsContainer.insertBefore(tabBtn, addContainer);
       
       // 2. Create Tab Pane
       const tabPane = document.createElement('div');
@@ -41,20 +80,30 @@ export async function initDynamicEngines() {
       card.style.marginTop = '2rem';
       
       const title = document.createElement('h3');
-      title.innerText = `⚙️ ${engine.metadata.name} Settings`;
-      card.appendChild(title);
+      title.innerText = `⚙️ ${engineDesc.metadata.name} - ${instance.instance_id}`;
       
-      const desc = document.createElement('p');
-      desc.className = 'text-muted';
-      desc.innerText = engine.metadata.category;
-      card.appendChild(desc);
+      // Delete instance button
+      const delBtn = document.createElement('button');
+      delBtn.className = 'btn btn-danger';
+      delBtn.style = "float: right; padding: 0.2rem 0.5rem; font-size: 0.8rem;";
+      delBtn.innerText = '🗑️ Remove';
+      delBtn.onclick = () => {
+          if (confirm('Are you sure you want to remove this instance?')) {
+              API.delete(`/api/instances/${instance.instance_id}`).then(() => {
+                  window.showToast('Instance removed', 'success');
+                  setTimeout(() => location.reload(), 1000);
+              });
+          }
+      };
+      title.appendChild(delBtn);
+      card.appendChild(title);
       
       const formGrid = document.createElement('div');
       formGrid.className = 'form-grid';
       
       // Generate fields from schema
-      if (engine.schema && engine.schema.length > 0) {
-        engine.schema.forEach(field => {
+      if (engineDesc.schema && engineDesc.schema.fields && engineDesc.schema.fields.length > 0) {
+        engineDesc.schema.fields.forEach(field => {
           const formGroup = document.createElement('div');
           formGroup.className = 'form-group';
           
@@ -68,11 +117,13 @@ export async function initDynamicEngines() {
           formGroup.appendChild(label);
           
           let input = null;
-          
-          if (field.field_type === 4 || field.field_type === 7) { // ENUM or LIST
+          const configMap = instance.config || {};
+          const currentVal = configMap[field.id] !== undefined ? configMap[field.id] : field.default_value;
+
+          if (field.field_type === 4 || field.field_type === 'Options') { 
              input = document.createElement('select');
              input.className = 'input';
-             input.id = `cfg-dyn-${engine.metadata.id}-${field.id}`;
+             input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
              if (field.options && field.options.length > 0) {
                field.options.forEach(opt => {
                  const option = document.createElement('option');
@@ -81,28 +132,28 @@ export async function initDynamicEngines() {
                  input.appendChild(option);
                });
              }
-          } else if (field.field_type === 0) { // BOOLEAN
+          } else if (field.field_type === 0 || field.field_type === 'Boolean') { 
              input = document.createElement('select');
              input.className = 'input';
-             input.id = `cfg-dyn-${engine.metadata.id}-${field.id}`;
+             input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
              input.innerHTML = `<option value="true">Enabled</option><option value="false">Disabled</option>`;
-          } else if (field.field_type === 5) { // COLOR
+          } else if (field.field_type === 'Color' || (field.id && field.id.includes('color'))) { // Hack for Color if not enum
              input = document.createElement('input');
              input.type = 'color';
              input.className = 'input';
-             input.id = `cfg-dyn-${engine.metadata.id}-${field.id}`;
-          } else { // STRING, INTEGER, FLOAT
+             input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+          } else { 
              input = document.createElement('input');
-             input.type = (field.field_type === 1 || field.field_type === 2) ? 'number' : 'text';
+             input.type = (field.field_type === 1 || field.field_type === 2 || field.field_type === 'Integer' || field.field_type === 'Float') ? 'number' : 'text';
              input.className = 'input';
-             input.id = `cfg-dyn-${engine.metadata.id}-${field.id}`;
+             input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+             if (field.min_val !== null) input.min = field.min_val;
+             if (field.max_val !== null) input.max = field.max_val;
           }
           
           if (input) {
-            if (field.default_value) {
-                input.value = field.default_value;
-            }
-            formGroup.appendChild(input);
+             input.value = currentVal;
+             formGroup.appendChild(input);
           }
           
           formGrid.appendChild(formGroup);
@@ -120,28 +171,38 @@ export async function initDynamicEngines() {
       saveBtn.style = 'margin-top: 1rem; width: 100%;';
       saveBtn.innerText = 'Save Configuration';
       saveBtn.onclick = async () => {
-         // Gather values
-         const payload = {};
-         engine.schema.forEach(field => {
-            const el = document.getElementById(`cfg-dyn-${engine.metadata.id}-${field.id}`);
-            if (el) {
-               payload[field.id] = el.value;
-            }
-         });
+         const payload = {
+             instance_id: instance.instance_id,
+             engine_id: instance.engine_id,
+             config: instance.config || {}
+         };
+         
+         if (engineDesc.schema && engineDesc.schema.fields) {
+             engineDesc.schema.fields.forEach(field => {
+                const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
+                if (el) {
+                   payload.config[field.id] = el.value;
+                }
+             });
+         }
+         
+         // IMPORTANT: The backend /api/instances endpoint needs to update the instance
+         // The backend currently only HAS POST /api/instances to add, and DELETE to remove.
+         // Wait, the API I wrote (POST /api/instances) PUSHES the instance!
+         // If they save again, it will duplicate if I don't handle it.
+         // Let me handle that in the rust backend!
          try {
-             // For Sprint 6: we post to a new generic endpoint, but for now fallback to settings
-             // Because Sprint 6 is not implemented on backend, this will fail or be ignored.
-             await API.post(`/api/engines/${engine.metadata.id}/config`, payload);
-             window.showToast('Engine configuration saved!', 'info');
+             await API.post(`/api/instances`, payload);
+             window.showToast('Engine configuration saved!', 'success');
          } catch(e) {
              console.error('API Error:', e);
-             window.showToast('Failed to save engine config (Backend Sprint 6 required)', 'warning');
+             window.showToast('Failed to save engine config', 'warning');
          }
       };
       card.appendChild(saveBtn);
       
       tabPane.appendChild(card);
-      container.appendChild(tabPane);
+      document.getElementById('page-display').appendChild(tabPane);
     });
     
   } catch (e) {

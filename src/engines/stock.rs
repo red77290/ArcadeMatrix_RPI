@@ -1,8 +1,11 @@
-use linkme::distributed_slice;
 use crate::api::StockProvider;
-use crate::core::engine_contract::{Engine, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory, EngineConfig, EngineContext, EngineError};
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
+use linkme::distributed_slice;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -178,7 +181,6 @@ impl StockEngine {
         }
         text_width
     }
-
 } // End of impl StockEngine
 
 impl Engine for StockEngine {
@@ -337,9 +339,8 @@ impl Engine for StockEngine {
     }
 }
 
-
 #[distributed_slice(crate::core::registry::ENGINES)]
-fn register_StockEngine() -> EngineDescriptor {
+fn register_stock_engine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
             id: "stock",
@@ -349,7 +350,30 @@ fn register_StockEngine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "symbols",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Symbols",
+                    description: "Comma-separated stock tickers (e.g. AAPL,TSLA)",
+                    default_value: "AAPL,NVDA,TSLA",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "cache_ttl_min",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Cache TTL (min)",
+                    description: "Minutes to cache price",
+                    default_value: "1",
+                    min_val: Some("1"),
+                    max_val: Some("60"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
             Box::new(crate::engines::stock::StockEngine::new(64, 32))

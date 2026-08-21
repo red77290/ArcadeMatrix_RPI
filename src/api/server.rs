@@ -1,9 +1,9 @@
 use crate::core::config::{Config, EngineInstance, RotationEntry};
-use actix_web::{delete, get, post, put, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use actix_web::{delete, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use rust_embed::RustEmbed;
 use serde_json::json;
 use std::sync::Arc;
 use sysinfo::System;
-use crate::api::ota::{get_version, handle_update};
 
 pub struct AppState {
     pub config: Arc<Config>,
@@ -31,7 +31,9 @@ fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
 
 #[get("/api/system")]
 async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let s = data.config.settings.read();
     HttpResponse::Ok().json(json!({
         "system": s.system,
@@ -42,8 +44,14 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
 }
 
 #[post("/api/system")]
-async fn post_system(req: HttpRequest, data: web::Data<AppState>, body: web::Json<serde_json::Value>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+async fn post_system(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut s = data.config.settings.write();
     // Simplified update (normally you'd merge the fields)
     if let Some(sys) = body.get("system") {
@@ -73,24 +81,47 @@ async fn post_system(req: HttpRequest, data: web::Data<AppState>, body: web::Jso
 
 #[get("/api/instances")]
 async fn get_instances(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let s = data.config.settings.read();
     HttpResponse::Ok().json(&s.instances)
 }
 
 #[post("/api/instances")]
-async fn post_instances(req: HttpRequest, data: web::Data<AppState>, body: web::Json<EngineInstance>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+async fn post_instances(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<EngineInstance>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut s = data.config.settings.write();
-    s.instances.push(body.into_inner());
+    let new_inst = body.into_inner();
+    if let Some(existing) = s
+        .instances
+        .iter_mut()
+        .find(|i| i.instance_id == new_inst.instance_id)
+    {
+        *existing = new_inst;
+    } else {
+        s.instances.push(new_inst);
+    }
     drop(s);
     data.config.save();
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
 #[delete("/api/instances/{id}")]
-async fn delete_instance(req: HttpRequest, data: web::Data<AppState>, path: web::Path<String>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+async fn delete_instance(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut s = data.config.settings.write();
     s.instances.retain(|i| i.instance_id != *path);
     drop(s);
@@ -100,14 +131,22 @@ async fn delete_instance(req: HttpRequest, data: web::Data<AppState>, path: web:
 
 #[get("/api/rotation")]
 async fn get_rotation(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let s = data.config.settings.read();
     HttpResponse::Ok().json(&s.rotation)
 }
 
 #[post("/api/rotation")]
-async fn post_rotation(req: HttpRequest, data: web::Data<AppState>, body: web::Json<Vec<RotationEntry>>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+async fn post_rotation(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<Vec<RotationEntry>>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut s = data.config.settings.write();
     s.rotation = body.into_inner();
     drop(s);
@@ -117,21 +156,29 @@ async fn post_rotation(req: HttpRequest, data: web::Data<AppState>, body: web::J
 
 #[get("/api/engines")]
 async fn get_engines(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
-    // Fetch from EngineRegistry (dummy for now)
-    HttpResponse::Ok().json(json!([]))
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    HttpResponse::Ok().json(crate::core::registry::EngineRegistry::get_all_descriptors())
 }
 
 #[get("/api/action/reboot")]
 async fn reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
-    std::process::Command::new("sudo").arg("reboot").spawn().ok();
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    std::process::Command::new("sudo")
+        .arg("reboot")
+        .spawn()
+        .ok();
     HttpResponse::Ok().json(json!({"status": "rebooting"}))
 }
 
 #[get("/api/stats")]
 async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) { return e; }
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut sys = System::new_all();
     sys.refresh_all();
     HttpResponse::Ok().json(json!({
@@ -139,6 +186,26 @@ async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
         "memory_used": sys.used_memory(),
         "memory_total": sys.total_memory()
     }))
+}
+
+#[derive(RustEmbed)]
+#[folder = "api/www/"]
+struct WebAssets;
+
+async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder {
+    let mut p = req.path().trim_start_matches('/').to_string();
+    if p.is_empty() {
+        p = "index.html".to_string();
+    }
+    match WebAssets::get(&p) {
+        Some(content) => {
+            let mime = mime_guess::from_path(&p).first_or_octet_stream();
+            actix_web::HttpResponse::Ok()
+                .content_type(mime.as_ref())
+                .body(content.data.into_owned())
+        }
+        None => actix_web::HttpResponse::NotFound().body("404 Not Found"),
+    }
 }
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
@@ -158,6 +225,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_engines)
             .service(reboot)
             .service(get_stats)
+            .route("/", web::get().to(serve_static))
+            .route("/{_:.*}", web::get().to(serve_static))
     })
     .bind(("0.0.0.0", port))?
     .run()

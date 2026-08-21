@@ -1,4 +1,4 @@
-use crate::core::engine_contract::{EngineDescriptor, EngineMetadata};
+use crate::core::engine_contract::EngineDescriptor;
 use linkme::distributed_slice;
 
 #[distributed_slice]
@@ -26,8 +26,8 @@ impl EngineRegistry {
     }
 }
 
-use std::collections::HashMap;
 use crate::core::engine_contract::Engine;
+use std::collections::HashMap;
 
 pub struct EngineRuntime {
     instances: HashMap<String, Box<dyn Engine>>,

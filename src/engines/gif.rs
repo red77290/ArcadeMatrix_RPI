@@ -1,12 +1,15 @@
-use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
-use linkme::distributed_slice;
-use std::time::Instant;
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::core::matrix::MatrixBackend;
 use image::RgbImage;
+use linkme::distributed_slice;
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::time::Instant;
 
 pub struct GifEngine {
     current_gif_path: Option<PathBuf>,
@@ -216,10 +219,17 @@ impl GifEngine {
 }
 
 impl Engine for GifEngine {
-    fn initialize(&mut self, _context: &mut EngineContext, config: &dyn EngineConfig) -> Result<(), EngineError> {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
         let playlists_str = config.get_string("playlists", "");
         if !playlists_str.is_empty() {
-            self.playlists = playlists_str.split(',').map(|s| s.trim().to_string()).collect();
+            self.playlists = playlists_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
         } else {
             self.playlists = Vec::new();
         }
@@ -269,7 +279,10 @@ impl Engine for GifEngine {
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         let playlists_str = config.get_string("playlists", "");
         if !playlists_str.is_empty() {
-            self.playlists = playlists_str.split(',').map(|s| s.trim().to_string()).collect();
+            self.playlists = playlists_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
         } else {
             self.playlists = Vec::new();
         }
@@ -291,7 +304,17 @@ fn register_gif_engine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![crate::core::engine_contract::ConfigField {
+                id: "playlists",
+                field_type: crate::core::engine_contract::ConfigType::String,
+                label: "Playlists",
+                description: "Comma-separated active playlists",
+                default_value: "",
+                validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                ..Default::default()
+            }],
+        },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             Box::new(GifEngine::new(64, 32))
         },

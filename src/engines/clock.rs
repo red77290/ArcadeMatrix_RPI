@@ -1,9 +1,11 @@
-use linkme::distributed_slice;
-use crate::core::engine_contract::{Engine, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory, EngineConfig, EngineContext, EngineError};
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::engines::clocks::*;
 use crate::engines::renderers::*;
 use chrono::Timelike;
-use parking_lot::RwLock;
+use linkme::distributed_slice;
 
 pub struct ClockEngine {
     base_renderer: BaseRenderer,
@@ -18,7 +20,7 @@ pub struct ClockEngine {
     pacman: PacmanClock,
     versus: VersusClock,
     slot_machine: SlotMachineClock,
-    
+
     // Config states
     time_format: String,
     time_font: String,
@@ -28,7 +30,7 @@ pub struct ClockEngine {
     clock_color_2: String,
     time_offset_x: i32,
     time_offset_y: i32,
-    
+
     last_font: String,
     last_theme: i32,
     last_size: u32,
@@ -49,7 +51,7 @@ impl ClockEngine {
             pacman: PacmanClock::new(),
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
-            
+
             time_format: "%H:%M:%S".to_string(),
             time_font: "PressStart2P.ttf".to_string(),
             time_size: 2,
@@ -89,8 +91,9 @@ impl Engine for ClockEngine {
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
-        
-        let tz: chrono_tz::Tz = context.config
+
+        let tz: chrono_tz::Tz = context
+            .config
             .settings
             .read()
             .system
@@ -204,9 +207,7 @@ impl Engine for ClockEngine {
             22 => self
                 .pong
                 .update_and_render(matrix, hours, minutes, &font, self.time_size),
-            23 => self
-                .tetris
-                .render(matrix, &time_str, &font, self.time_size),
+            23 => self.tetris.render(matrix, &time_str, &font, self.time_size),
             24 => self.word.render(
                 matrix,
                 hours,
@@ -258,9 +259,8 @@ fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
     }
 }
 
-
 #[distributed_slice(crate::core::registry::ENGINES)]
-fn register_ClockEngine() -> EngineDescriptor {
+fn register_clock_engine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
             id: "clock",
@@ -270,7 +270,93 @@ fn register_ClockEngine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "theme",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Theme",
+                    description: "Clock theme index",
+                    default_value: "0",
+                    min_val: Some("0"),
+                    max_val: Some("12"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "format",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Format",
+                    description: "Time format",
+                    default_value: "%H:%M:%S",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "font",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Font",
+                    description: "Font file path",
+                    default_value: "PressStart2P.ttf",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "size",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Size",
+                    description: "Font size scale",
+                    default_value: "2",
+                    min_val: Some("1"),
+                    max_val: Some("10"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_1",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Primary Color",
+                    description: "Hex color for main clock",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_2",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Secondary Color",
+                    description: "Hex color for secondary elements",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_x",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "X Offset",
+                    description: "Horizontal shift",
+                    default_value: "0",
+                    min_val: Some("-64"),
+                    max_val: Some("64"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_y",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Y Offset",
+                    description: "Vertical shift",
+                    default_value: "0",
+                    min_val: Some("-32"),
+                    max_val: Some("32"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
             Box::new(ClockEngine::new(64, 32))

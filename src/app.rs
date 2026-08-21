@@ -1,15 +1,12 @@
+#![allow(unused_assignments)]
 use crate::api::run_server;
 use crate::core::config::Config;
-use crate::core::engine_contract::{Engine, EngineContext};
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 use crate::core::matrix::HardwareMatrix;
 use crate::core::matrix::{MatrixBackend, MockMatrix};
 use crate::core::rotation::RotationState;
 
-use crate::engines::fighter::FighterEngine;
-use crate::engines::gif::GifEngine;
-use crate::engines::marquee::MarqueeEngine;
-use crate::engines::message::{MessageEngine, MessagePayload};
+use crate::engines::message::MessagePayload;
 
 use crate::core::arbiter::{DisplayArbiter, DisplayPriority, DisplayRequest, RequestLifecycle};
 
@@ -66,7 +63,7 @@ impl ArcadeMatrixApp {
             if let Ok(content) = std::fs::read_to_string(boot_config) {
                 let disable_wifi_cmd = "dtoverlay=disable-wifi";
                 let s = self.config.settings.read().clone();
-                let should_be_disabled = s.wifi_disable_internal;
+                let should_be_disabled = s.wifi.disable_internal;
                 let is_disabled = content.contains(disable_wifi_cmd);
 
                 if should_be_disabled && !is_disabled {
@@ -365,12 +362,12 @@ impl ArcadeMatrixApp {
         let mut rotation_state = RotationState::new();
         let mut arbiter = DisplayArbiter::new();
         let mut last_frame = std::time::Instant::now();
-        let mut gifs_played = 0;
-        
+        let gifs_played = 0;
+
         let mut fighter_engine = crate::engines::fighter::FighterEngine::new(width, height);
         let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
         let mut message_engine = crate::engines::message::MessageEngine::new();
-        let mut gif_engine = crate::engines::gif::GifEngine::new(width, height);
+        let gif_engine = crate::engines::gif::GifEngine::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -602,37 +599,52 @@ impl ArcadeMatrixApp {
                 let mut should_update = true;
                 let empty_map = std::collections::HashMap::new();
                 let settings = config.settings.read();
-                let inst_config = settings.instances.iter()
+                let inst_config = settings
+                    .instances
+                    .iter()
                     .find(|i| i.instance_id == current_mode.instance_id)
                     .map(|inst| &inst.config)
                     .unwrap_or(&empty_map);
-                    
+
                 let engine_config = crate::core::engine_contract::HashConfig { data: inst_config };
-                
+
                 // We drop the lock here? No, let's keep it if HashConfig holds a reference to it.
                 // Wait, if we keep the lock, EngineContext CANNOT have `config: &Config`?
                 // Actually EngineContext has `&Config`. `Config` is the wrapper. That's fine.
 
                 // However, wait! If `GifEngine` is hardcoded, we should leave it for now until S11.4!
                 if true {
-                    let mut ctx = crate::core::engine_contract::EngineContext { matrix: matrix.as_mut(), config: &config };
-                    
+                    let mut ctx = crate::core::engine_contract::EngineContext {
+                        matrix: matrix.as_mut(),
+                        config: &config,
+                    };
+
                     // get_instance handles initialization internally exactly once!
-                    if let Some(engine) = runtime.get_instance(&current_mode.instance_id, &engine_id, &mut ctx, &engine_config) {
+                    if let Some(engine) = runtime.get_instance(
+                        &current_mode.instance_id,
+                        &engine_id,
+                        &mut ctx,
+                        &engine_config,
+                    ) {
                         if mode_just_changed {
                             engine.activate();
                         }
-                        
+
                         engine.update(&mut ctx);
                         engine.render(&mut ctx);
-                        
+
                         // Advance rotation based on duration OR engine completion
-                        if engine.is_finished() || rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
+                        if engine.is_finished()
+                            || rotation_state.mode_start_time.elapsed()
+                                >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
+                        {
                             rotation_state.next_mode(&idle_list);
                         }
                     } else {
                         // Fallback if engine fails to load
-                        if rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
+                        if rotation_state.mode_start_time.elapsed()
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
+                        {
                             rotation_state.next_mode(&idle_list);
                         }
                     }
@@ -642,8 +654,7 @@ impl ArcadeMatrixApp {
 
                 // Composite fighter overlay (strictly disabled during GIF rotation)
                 let settings = config.settings.read();
-                let anim_on =
-                    false && current_mode.instance_id.as_str() != "gifs";
+                let anim_on = false && current_mode.instance_id.as_str() != "gifs";
                 if anim_on {
                     fighter_engine.set_interval(60);
                     fighter_engine.composite(matrix.as_mut());
@@ -656,10 +667,15 @@ impl ArcadeMatrixApp {
                     matrix.update();
                 }
             } else {
-                let mut dict = std::collections::HashMap::new();
+                let dict = std::collections::HashMap::new();
                 let engine_config = crate::core::engine_contract::HashConfig { data: &dict };
-                let mut ctx = crate::core::engine_contract::EngineContext { matrix: matrix.as_mut(), config: &config };
-                if let Some(engine) = runtime.get_instance("fallback_clock", "clock", &mut ctx, &engine_config) {
+                let mut ctx = crate::core::engine_contract::EngineContext {
+                    matrix: matrix.as_mut(),
+                    config: &config,
+                };
+                if let Some(engine) =
+                    runtime.get_instance("fallback_clock", "clock", &mut ctx, &engine_config)
+                {
                     engine.update(&mut ctx);
                     engine.render(&mut ctx);
                 }

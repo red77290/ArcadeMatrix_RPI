@@ -1,10 +1,8 @@
-use linkme::distributed_slice;
 use crate::api::{DayForecast, WeatherProvider};
-use crate::core::config::Config;
 use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
-use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, RgbImage};
+use linkme::distributed_slice;
 
 use std::time::{Duration, Instant};
 
@@ -423,14 +421,75 @@ impl WeatherEngine {
     }
 }
 
-use crate::core::engine_contract::{EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, EngineDescriptor, EngineMetadata, Requirements,
+};
 #[distributed_slice(crate::core::registry::ENGINES)]
-fn register_WeatherEngine() -> EngineDescriptor {
+fn register_weather_engine() -> EngineDescriptor {
     EngineDescriptor {
-        metadata: EngineMetadata { id: "weather", name: "WeatherEngine", category: "info", version: "1.0.0" },
+        metadata: EngineMetadata {
+            id: "weather",
+            name: "WeatherEngine",
+            category: "info",
+            version: "1.0.0",
+        },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
-        factory: || -> Box<dyn crate::core::engine_contract::Engine> { Box::new(WeatherEngine::new()) },
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "api_key",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "API Key",
+                    description: "OpenWeatherMap API Key",
+                    default_value: "",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "city",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "City",
+                    description: "City name for forecast",
+                    default_value: "",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "lang",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Language",
+                    description: "Language code (e.g. en, fr)",
+                    default_value: "en",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_x",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "X Offset",
+                    description: "Horizontal shift",
+                    default_value: "0",
+                    min_val: Some("-64"),
+                    max_val: Some("64"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_y",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Y Offset",
+                    description: "Vertical shift",
+                    default_value: "0",
+                    min_val: Some("-32"),
+                    max_val: Some("32"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            Box::new(WeatherEngine::new())
+        },
     }
 }

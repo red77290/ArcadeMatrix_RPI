@@ -25,6 +25,7 @@ pub struct RotationEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MatrixConfig {
     pub width: u32,
     pub height: u32,
@@ -49,6 +50,7 @@ pub struct MatrixConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct WifiConfig {
     pub ssid: String,
     pub password: String,
@@ -58,6 +60,7 @@ pub struct WifiConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct MqttConfig {
     pub enabled: bool,
     pub broker: String,
@@ -70,6 +73,7 @@ pub struct MqttConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct SystemConfig {
     pub timezone: String,
     pub format_24h: bool,
@@ -83,6 +87,7 @@ pub struct SystemConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ConfigSettings {
     pub matrix: MatrixConfig,
     pub wifi: WifiConfig,
@@ -93,65 +98,89 @@ pub struct ConfigSettings {
     pub instances: Vec<EngineInstance>,
     #[serde(default)]
     pub rotation: Vec<RotationEntry>,
-    
+
     // API
     pub api_auth_enabled: bool,
     pub api_token: String,
 }
 
+impl Default for MatrixConfig {
+    fn default() -> Self {
+        Self {
+            width: 64,
+            height: 32,
+            panel_type: "".to_string(),
+            chain_length: 1,
+            power_limit_percent: 40,
+            force_single_buffer: false,
+            color_depth: 24,
+            rgb_sequence: "RGB".to_string(),
+            limit_refresh_rate_hz: 0,
+            driver_chip: "SHIFTREG".to_string(),
+            clk_phase: false,
+            latch_blanking: 0,
+            row_address_mode: 0,
+            matrix_power: true,
+            multiplexing: 0,
+            slowdown: 2,
+            pwm_bits: 11,
+            pwm_lsb_nanoseconds: 130,
+            disable_hardware_pulsing: false,
+            mapping: "regular".to_string(),
+        }
+    }
+}
+
+impl Default for WifiConfig {
+    fn default() -> Self {
+        Self {
+            ssid: "".to_string(),
+            password: "".to_string(),
+            hostname: "arcadematrix".to_string(),
+            configured: false,
+            disable_internal: false,
+        }
+    }
+}
+
+impl Default for MqttConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            broker: "127.0.0.1".to_string(),
+            port: 1883,
+            user: "".to_string(),
+            pass: "".to_string(),
+            device_name: "arcadematrix".to_string(),
+            topic_batocera: "batocera".to_string(),
+            topic_recalbox: "recalbox".to_string(),
+        }
+    }
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        Self {
+            timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
+            format_24h: true,
+            lang: "en".to_string(),
+            unit: "c".to_string(),
+            temp_offset: 0.0,
+            night_mode_enabled: false,
+            turn_off_at: "23:00".to_string(),
+            wake_up_at: "07:00".to_string(),
+            night_brightness: 10,
+        }
+    }
+}
+
 impl Default for ConfigSettings {
     fn default() -> Self {
         Self {
-            matrix: MatrixConfig {
-                width: 64,
-                height: 32,
-                panel_type: "".to_string(),
-                chain_length: 1,
-                power_limit_percent: 40,
-                force_single_buffer: false,
-                color_depth: 24,
-                rgb_sequence: "RGB".to_string(),
-                limit_refresh_rate_hz: 0,
-                driver_chip: "SHIFTREG".to_string(),
-                clk_phase: false,
-                latch_blanking: 0,
-                row_address_mode: 0,
-                matrix_power: true,
-                multiplexing: 0,
-                slowdown: 2,
-                pwm_bits: 11,
-                pwm_lsb_nanoseconds: 130,
-                disable_hardware_pulsing: false,
-                mapping: "regular".to_string(),
-            },
-            wifi: WifiConfig {
-                ssid: "".to_string(),
-                password: "".to_string(),
-                hostname: "arcadematrix".to_string(),
-                configured: false,
-                disable_internal: false,
-            },
-            mqtt: MqttConfig {
-                enabled: false,
-                broker: "127.0.0.1".to_string(),
-                port: 1883,
-                user: "".to_string(),
-                pass: "".to_string(),
-                device_name: "arcadematrix".to_string(),
-                topic_batocera: "batocera".to_string(),
-                topic_recalbox: "recalbox".to_string(),
-            },
-            system: SystemConfig {
-                timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
-                format_24h: true,
-                lang: "en".to_string(),
-                unit: "c".to_string(),
-                temp_offset: 0.0,
-                night_mode_enabled: false,
-                turn_off_at: "23:00".to_string(),
-                wake_up_at: "07:00".to_string(),
-                night_brightness: 10,
-            },
+            matrix: MatrixConfig::default(),
+            wifi: WifiConfig::default(),
+            mqtt: MqttConfig::default(),
+            system: SystemConfig::default(),
             api_auth_enabled: false,
             api_token: "9101d2ff5928c93107e537aa3c07a282".to_string(),
             instances: vec![],
@@ -183,9 +212,15 @@ impl Config {
 
         if json_file.exists() {
             if let Ok(json_str) = std::fs::read_to_string(&json_file) {
-                if let Ok(s) = serde_json::from_str::<ConfigSettings>(&json_str) {
-                    settings = s;
+                match serde_json::from_str::<ConfigSettings>(&json_str) {
+                    Ok(s) => settings = s,
+                    Err(e) => {
+                        tracing::error!("Failed to parse config.json, resetting to default: {}", e);
+                        needs_save = true;
+                    }
                 }
+            } else {
+                needs_save = true;
             }
         } else {
             // Default setup if no JSON exists
@@ -217,6 +252,12 @@ impl Config {
                     duration_sec: 15,
                 },
             ];
+            needs_save = true;
+        }
+
+        let sanitize_res =
+            crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
+        if sanitize_res.modified {
             needs_save = true;
         }
 

@@ -1,5 +1,6 @@
 use crate::core::engine_contract::{
-    Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError, EngineMetadata,
+    Capabilities, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext, EngineDescriptor,
+    EngineError, EngineMetadata,
 };
 use crate::core::registry::ENGINES;
 use linkme::distributed_slice;
@@ -23,7 +24,10 @@ impl Engine for SpotifyEngine {
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
         self.client_id = config.get_string("client_id", "");
-        println!("SpotifyEngine initialized with client_id: {}", self.client_id);
+        println!(
+            "SpotifyEngine initialized with client_id: {}",
+            self.client_id
+        );
         Ok(())
     }
 
@@ -64,21 +68,18 @@ fn register_spotify_engine() -> EngineDescriptor {
         capabilities: Capabilities::default(),
         requirements: crate::core::engine_contract::Requirements::default(),
         schema: ConfigSchema {
-            fields: vec![
-                ConfigField {
-                    id: "client_id",
-                    field_type: ConfigType::String,
-                    label: "Spotify Client ID",
-                    description: "Your Spotify API Client ID",
-                    default_value: "",
-                    options: None,
-                    min_val: None,
-                    max_val: None,
-                    required: true,
-                    step: None,
-                    visible_when: None,
-                },
-            ],
+            fields: vec![crate::core::engine_contract::ConfigField {
+                id: "client_id",
+                field_type: ConfigType::String,
+                label: "Spotify Client ID",
+                description: "Your Spotify API Client ID",
+                default_value: "",
+                options: None,
+                min_val: None,
+                max_val: None,
+                required: true,
+                ..Default::default()
+            }],
         },
         factory: || Box::new(SpotifyEngine::new()),
     }

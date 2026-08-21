@@ -1,7 +1,10 @@
-use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
-use linkme::distributed_slice;
-use image::RgbImage;
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::core::matrix::MatrixBackend;
+use image::RgbImage;
+use linkme::distributed_slice;
 
 pub struct MarqueeEngine {
     pub image: Option<RgbImage>,
@@ -9,9 +12,7 @@ pub struct MarqueeEngine {
 
 impl MarqueeEngine {
     pub fn new() -> Self {
-        Self {
-            image: None,
-        }
+        Self { image: None }
     }
 
     pub fn render_image(&self, matrix: &mut dyn MatrixBackend, image: &RgbImage) {
@@ -45,7 +46,11 @@ impl MarqueeEngine {
 }
 
 impl Engine for MarqueeEngine {
-    fn initialize(&mut self, _context: &mut EngineContext, config: &dyn EngineConfig) -> Result<(), EngineError> {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
         let path = config.get_string("image_path", "");
         if !path.is_empty() {
             if let Ok(img) = image::open(&path) {
@@ -54,16 +59,16 @@ impl Engine for MarqueeEngine {
         }
         Ok(())
     }
-    
+
     fn activate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
-    
+
     fn render(&mut self, context: &mut EngineContext) {
         if let Some(img) = &self.image {
             self.render_image(&mut *context.matrix, img);
         }
     }
-    
+
     fn deactivate(&mut self) {}
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
 }

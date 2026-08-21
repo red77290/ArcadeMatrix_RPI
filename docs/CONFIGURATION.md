@@ -92,3 +92,24 @@ Defines the display order on the screen.
 }
 ```
 The application will only initialize engines listed here, saving memory for unlisted features.
+
+---
+
+## 6. Engine Configurations
+
+Each engine type supports specific fields in its `config` block.
+
+### Engine: `clock`
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | Clock theme index (`0` to `12`). |
+| `format` | `String` | `%H:%M:%S` | Time formatting string. |
+| `custom_font` | `String` | `""` | Path to a custom TTF font file. |
+| `color` | `String` | `#FFFFFF` | Clock text color in Hex format. |
+
+### Engine: `date`
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | Date theme index (`0` to `5`). |
+| `format` | `String` | `%Y-%m-%d` | Date formatting string. |
+| `color` | `String` | `#FFFFFF` | Date text color in Hex format. |

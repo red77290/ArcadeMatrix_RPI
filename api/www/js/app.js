@@ -70,7 +70,7 @@ function initNavigation() {
 
 async function loadVersion() {
   try {
-    const data = await API.get('/api/version');
+    const data = await API.get('/api/stats').catch(() => ({version: '2.0.0'}));
     const versionTag = document.getElementById('version-tag');
     const otaVer = document.getElementById('ota-current-version');
     const otaArch = document.getElementById('ota-current-arch');
@@ -146,7 +146,7 @@ function initDashboard() {
   // System Info Polling
   setInterval(async () => {
     try {
-      const info = await API.get('/api/system_info');
+      const info = await API.get('/api/stats');
       document.getElementById('metric-cpu').textContent = `${info.cpu_load.toFixed(1)} %`;
       document.getElementById('metric-temp').textContent = `${info.temperature_c.toFixed(1)} °C`;
       document.getElementById('metric-ram').textContent = `${info.ram_used_mb} MB`;
@@ -381,7 +381,7 @@ function initNetworkSettings() {
       const mqtt_user = document.getElementById('hw-mqtt-user').value;
       const mqtt_pass = document.getElementById('hw-mqtt-pass').value;
       try {
-        await API.post('/api/settings', { mqtt_enable, mqtt_broker, mqtt_port, mqtt_user, mqtt_pass });
+        await API.post('/api/system', { mqtt_enable, mqtt_broker, mqtt_port, mqtt_user, mqtt_pass });
         window.showToast('MQTT Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save MQTT Settings', 'error');
@@ -395,7 +395,7 @@ function initNetworkSettings() {
       const api_auth_enabled = document.getElementById('hw-api-auth').value === 'true';
       const api_token = document.getElementById('hw-api-token').value;
       try {
-        await API.post('/api/settings', { api_auth_enabled, api_token });
+        await API.post('/api/system', { api_auth_enabled, api_token });
         window.showToast('API Auth Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save API Auth Settings', 'error');
@@ -407,10 +407,10 @@ function initNetworkSettings() {
 async function initSettings() {
   // Load fonts list
   try {
-    const fonts = await API.get('/api/fonts');
+    const fonts = await API.get('/api/fonts').catch(() => (["PressStart2P"]));
     const clockFontSel = document.getElementById('cfg-clock-font');
     const dateFontSel = document.getElementById('cfg-date-font');
-    if (clockFontSel && dateFontSel) {
+    if (clockFontSel && dateFontSel && fonts) {
       fonts.forEach(f => {
         clockFontSel.add(new Option(f, f));
         dateFontSel.add(new Option(f, f));
@@ -422,7 +422,7 @@ async function initSettings() {
 
   // Load current settings
   try {
-    const s = await API.get('/api/settings');
+    const s = await API.get('/api/system').then(s => ({ brightness_limit: s.system.night_brightness || 50, matrix_brightness: 50, ...s.system, ...s.mqtt, ...s.wifi }));
     
     // Dashboard
     const sliderBright = document.getElementById('slider-brightness');
@@ -433,8 +433,15 @@ async function initSettings() {
         document.getElementById('val-brightness').textContent = e.target.value;
       });
       sliderBright.addEventListener('change', async (e) => {
-        await API.post('/api/settings', { brightness_limit: parseInt(e.target.value) });
+        await API.post('/api/system', { brightness_limit: parseInt(e.target.value) });
         window.showToast('Brightness updated', 'info');
+      });
+    }
+
+    const sliderNightBright = document.getElementById('cfg-night-brightness');
+    if (sliderNightBright) {
+      sliderNightBright.addEventListener('input', (e) => {
+        document.getElementById('night-brightness-val').textContent = e.target.value + '%';
       });
     }
 
@@ -519,6 +526,8 @@ async function initSettings() {
     document.getElementById('cfg-night-enable').value = s.night_mode_enabled ? 'true' : 'false';
     document.getElementById('cfg-night-off').value = s.turn_off_at;
     document.getElementById('cfg-night-on').value = s.wake_up_at;
+    document.getElementById('cfg-night-brightness').value = s.night_brightness !== undefined ? s.night_brightness : 10;
+    document.getElementById('night-brightness-val').textContent = document.getElementById('cfg-night-brightness').value + '%';
 
   } catch (e) {
     console.error('Failed to load settings', e);
@@ -579,8 +588,9 @@ async function initSettings() {
           night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
           turn_off_at: document.getElementById('cfg-night-off').value,
           wake_up_at: document.getElementById('cfg-night-on').value,
+          night_brightness: parseInt(document.getElementById('cfg-night-brightness').value, 10),
         };
-        await API.post('/api/settings', payload);
+        await API.post('/api/system', payload);
         window.showToast('Display settings saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save settings', 'error');
@@ -611,7 +621,7 @@ async function initSettings() {
       const limitRefresh = parseInt(document.getElementById('hw-limit-refresh').value) || 120;
       
       try {
-        await API.post('/api/settings', { 
+        await API.post('/api/system', { 
           matrix_rows: rows,
           matrix_cols: cols,
           matrix_chain: chain,
@@ -673,7 +683,7 @@ async function initPlaylists() {
   container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-color);">Loading GIFs...<br><small style="opacity:0.7">Reading SD Card, this may take a few seconds...</small></div>`;
   
   try {
-    const res = await API.get('/api/playlists');
+    const res = await API.get('/api/playlists').catch(() => ({}));
     const allPlaylists = res; 
     
     let selectedPaths = [];

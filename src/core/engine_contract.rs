@@ -15,6 +15,14 @@ pub enum EngineError {
     RuntimeError(String),
 }
 
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub enum ValidationPolicy {
+    Clamp,
+    FallbackDefault,
+    Reject,
+    Accept,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub enum ConfigType {
     Boolean,
@@ -74,6 +82,26 @@ pub struct ConfigField {
     pub step: Option<&'static str>,
     pub options: Option<Vec<ConfigOption>>,
     pub visible_when: Option<&'static str>,
+    pub validation_policy: ValidationPolicy,
+}
+
+impl Default for ConfigField {
+    fn default() -> Self {
+        Self {
+            id: "",
+            field_type: ConfigType::String,
+            label: "",
+            description: "",
+            default_value: "",
+            required: false,
+            min_val: None,
+            max_val: None,
+            step: None,
+            options: None,
+            visible_when: None,
+            validation_policy: ValidationPolicy::Accept,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -137,12 +165,14 @@ pub trait Engine: Send + Sync {
     fn update(&mut self, context: &mut EngineContext);
     fn render(&mut self, context: &mut EngineContext);
     fn deactivate(&mut self);
-    
+
     // Dynamic Configuration
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
-    
+
     // Intrinsic sequence completion signaling
-    fn is_finished(&self) -> bool { false }
+    fn is_finished(&self) -> bool {
+        false
+    }
 }
 
 // =======================================================

@@ -1,16 +1,18 @@
-use linkme::distributed_slice;
-use crate::core::engine_contract::{Engine, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory, EngineConfig, EngineContext, EngineError};
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::engines::renderers::{
     BaseRenderer, CyberpunkRenderer, FlipRenderer, TrueMatrixRenderer,
 };
-use parking_lot::RwLock;
+use linkme::distributed_slice;
 
 pub struct DateEngine {
     base_renderer: BaseRenderer,
     cyberpunk: CyberpunkRenderer,
     flip: FlipRenderer,
     true_matrix: TrueMatrixRenderer,
-    
+
     date_format: String,
     date_font: String,
     date_size: u32,
@@ -19,7 +21,7 @@ pub struct DateEngine {
     date_color_2: String,
     date_offset_x: i32,
     date_offset_y: i32,
-    
+
     last_font: String,
 }
 
@@ -30,7 +32,7 @@ impl DateEngine {
             cyberpunk: CyberpunkRenderer::new(w, h),
             flip: FlipRenderer::new(),
             true_matrix: TrueMatrixRenderer::new(w, h),
-            
+
             date_format: "%d/%m".to_string(),
             date_font: "PressStart2P.ttf".to_string(),
             date_size: 2,
@@ -39,7 +41,7 @@ impl DateEngine {
             date_color_2: "#ffffff".to_string(),
             date_offset_x: 0,
             date_offset_y: 0,
-            
+
             last_font: String::new(),
         }
     }
@@ -68,7 +70,8 @@ impl Engine for DateEngine {
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
-        let tz: chrono_tz::Tz = context.config
+        let tz: chrono_tz::Tz = context
+            .config
             .settings
             .read()
             .system
@@ -76,7 +79,7 @@ impl Engine for DateEngine {
             .parse()
             .unwrap_or(chrono_tz::UTC);
         let now = chrono::Utc::now().with_timezone(&tz);
-        
+
         let mut format_str = self.date_format.clone();
         format_str = format_str.replace("YYYY", "%Y");
         format_str = format_str.replace("YY", "%y");
@@ -172,9 +175,8 @@ fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
     }
 }
 
-
 #[distributed_slice(crate::core::registry::ENGINES)]
-fn register_DateEngine() -> EngineDescriptor {
+fn register_date_engine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
             id: "date",
@@ -184,7 +186,93 @@ fn register_DateEngine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "theme",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Theme",
+                    description: "Date theme index",
+                    default_value: "0",
+                    min_val: Some("0"),
+                    max_val: Some("12"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "format",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Format",
+                    description: "Date format (e.g. DD/MM)",
+                    default_value: "%d/%m",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "font",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Font",
+                    description: "Font file path",
+                    default_value: "PressStart2P.ttf",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "size",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Size",
+                    description: "Font size scale",
+                    default_value: "2",
+                    min_val: Some("1"),
+                    max_val: Some("10"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_1",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Primary Color",
+                    description: "Hex color",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_2",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Secondary Color",
+                    description: "Hex color for secondary elements",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_x",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "X Offset",
+                    description: "Horizontal shift",
+                    default_value: "0",
+                    min_val: Some("-64"),
+                    max_val: Some("64"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_y",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Y Offset",
+                    description: "Vertical shift",
+                    default_value: "0",
+                    min_val: Some("-32"),
+                    max_val: Some("32"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
             Box::new(DateEngine::new(64, 32))

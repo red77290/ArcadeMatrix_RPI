@@ -491,13 +491,7 @@ async function initSettings() {
     });
   }
 
-  
-        window.showToast('Message sent!', 'success');
-      } catch (e) {
-        window.showToast('Failed to send message', 'error');
-      }
-    });
-  }
+
 }
 
 

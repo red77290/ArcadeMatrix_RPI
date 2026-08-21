@@ -1,3 +1,4 @@
+use linkme::distributed_slice;
 use crate::api::{DayForecast, WeatherProvider};
 use crate::core::config::Config;
 use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
@@ -17,7 +18,11 @@ pub struct WeatherEngine {
     panorama_w: u32,
     panorama_mw: u32,
     scroll_start: Instant,
+    api_key: String,
+    city: String,
     lang: String,
+    offset_x: i32,
+    offset_y: i32,
 }
 
 impl WeatherEngine {
@@ -31,7 +36,11 @@ impl WeatherEngine {
             panorama_w: 0,
             panorama_mw: 0,
             scroll_start: Instant::now(),
-            lang: "fr".to_string(),
+            api_key: "".to_string(),
+            city: "".to_string(),
+            lang: "en".to_string(),
+            offset_x: 0,
+            offset_y: 0,
         }
     }
 
@@ -44,9 +53,13 @@ impl Engine for WeatherEngine {
     fn initialize(
         &mut self,
         _context: &mut EngineContext,
-        _config: &dyn EngineConfig,
+        config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        // Initialization can be expanded later
+        self.api_key = config.get_string("api_key", "");
+        self.city = config.get_string("city", "");
+        self.lang = config.get_string("lang", "en");
+        self.offset_x = config.get_int("offset_x", 0);
+        self.offset_y = config.get_int("offset_y", 0);
         Ok(())
     }
 
@@ -59,28 +72,7 @@ impl Engine for WeatherEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        // Temporarily fetching from global config is wrong for the new architecture,
-        // but since we are doing progressive migration we will mock this until rotation is migrated
-        // In full architecture: offset_x = config.get_int("offset_x", 0), etc.
-        let (api_key, city, lang, offset_x, offset_y) = {
-            // Hardcoded for now during progressive migration since we can't easily
-            // read the global Arc<RwLock<Config>> here without changing the struct
-            (
-                "API_KEY".to_string(), // TODO: use engine config
-                "Paris".to_string(),
-                "fr".to_string(),
-                0,
-                0,
-            )
-        };
-
-        if self.lang != lang {
-            self.lang = lang.clone();
-            self.last_fetch = None;
-            self.panorama = None;
-        }
-
-        if api_key.is_empty() || city.is_empty() || api_key == "API_KEY" {
+        if self.api_key.is_empty() || self.city.is_empty() || self.api_key == "API_KEY" {
             self.base_renderer.render_text(
                 context.matrix,
                 "No API key",
@@ -100,7 +92,7 @@ impl Engine for WeatherEngine {
             .unwrap_or(true);
 
         if should_fetch {
-            self.fetch_forecast(&api_key, &city);
+            self.fetch_forecast(&self.api_key.clone(), &self.city.clone());
         }
 
         if self.forecasts.is_empty() {
@@ -109,8 +101,8 @@ impl Engine for WeatherEngine {
                 "--°C",
                 0,
                 2,
-                offset_x,
-                offset_y,
+                self.offset_x,
+                self.offset_y,
                 None,
                 None,
             );
@@ -122,7 +114,7 @@ impl Engine for WeatherEngine {
 
         // (Re)build panorama if needed
         if self.panorama.is_none() || self.panorama_mw != mw {
-            self.build_panorama(mw, mh, offset_x, offset_y);
+            self.build_panorama(mw, mh, self.offset_x, self.offset_y);
         }
 
         // Animated horizontal scroll with ease-in/out
@@ -428,5 +420,17 @@ impl WeatherEngine {
 
         tracing::warn!("Failed to fetch weather forecast from all providers");
         self.forecasts.clear();
+    }
+}
+
+use crate::core::engine_contract::{EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_WeatherEngine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata { id: "weather", name: "WeatherEngine", category: "info", version: "1.0.0" },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema { fields: vec![] },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> { Box::new(WeatherEngine::new()) },
     }
 }

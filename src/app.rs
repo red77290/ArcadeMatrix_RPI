@@ -6,15 +6,12 @@ use crate::core::matrix::HardwareMatrix;
 use crate::core::matrix::{MatrixBackend, MockMatrix};
 use crate::core::rotation::RotationState;
 
-use crate::engines::clock::ClockEngine;
-use crate::engines::date::DateEngine;
 use crate::engines::fighter::FighterEngine;
 use crate::engines::gif::GifEngine;
 use crate::engines::marquee::MarqueeEngine;
 use crate::engines::message::{MessageEngine, MessagePayload};
 
 use crate::core::arbiter::{DisplayArbiter, DisplayPriority, DisplayRequest, RequestLifecycle};
-use crate::engines::weather::WeatherEngine;
 
 use std::net::UdpSocket;
 
@@ -101,8 +98,8 @@ impl ArcadeMatrixApp {
         // 0. Setup Wi-Fi if needed
         {
             let s = self.config.settings.read().clone();
-            if !s.wifi_ssid.is_empty() && !s.wifi_configured {
-                info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
+            if !s.wifi.ssid.is_empty() && !s.wifi.configured {
+                info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi.ssid);
 
                 std::process::Command::new("sudo")
                     .args(["raspi-config", "nonint", "do_wifi_country", "FR"])
@@ -114,7 +111,7 @@ impl ArcadeMatrixApp {
                     .ok();
                 std::thread::sleep(std::time::Duration::from_secs(2));
 
-                let safe_ssid = s.wifi_ssid.replace(" ", "_").replace("/", "_");
+                let safe_ssid = s.wifi.ssid.replace(" ", "_").replace("/", "_");
                 let nm_content = format!(
                     "[connection]\nid={safe_ssid}\ntype=wifi\nautoconnect=true\n\n\
                     [wifi]\nmode=infrastructure\nssid={ssid}\n\n\
@@ -122,8 +119,8 @@ impl ArcadeMatrixApp {
                     [ipv4]\nmethod=auto\n\n\
                     [ipv6]\naddr-gen-mode=default\nmethod=auto\n",
                     safe_ssid = safe_ssid,
-                    ssid = s.wifi_ssid,
-                    pass = s.wifi_pass
+                    ssid = s.wifi.ssid,
+                    pass = s.wifi.password
                 );
 
                 let profile_path = format!(
@@ -150,7 +147,7 @@ impl ArcadeMatrixApp {
                         if out.status.success() {
                             info!("Connected to Wi-Fi successfully!");
                             let mut ws = self.config.settings.write();
-                            ws.wifi_configured = true;
+                            ws.wifi.configured = true;
                             drop(ws);
                             self.config.save();
                         } else {
@@ -280,21 +277,21 @@ impl ArcadeMatrixApp {
                 ) = {
                     let cfg = config.settings.read();
                     (
-                        cfg.matrix_rows,
-                        cfg.matrix_cols,
-                        cfg.matrix_chain,
-                        cfg.matrix_parallel,
-                        cfg.matrix_mapping.clone(),
-                        cfg.matrix_rgb_sequence.clone(),
-                        cfg.matrix_slowdown,
-                        cfg.matrix_pwm_bits,
-                        cfg.matrix_pwm_lsb_nanoseconds,
-                        cfg.matrix_disable_hardware_pulsing,
-                        cfg.matrix_brightness as u8,
-                        cfg.matrix_limit_refresh_rate_hz,
-                        cfg.matrix_driver_chip.clone(),
-                        cfg.matrix_multiplexing,
-                        cfg.matrix_row_addr_type,
+                        cfg.matrix.height,
+                        cfg.matrix.width,
+                        cfg.matrix.chain_length,
+                        1,
+                        cfg.matrix.mapping.clone(),
+                        cfg.matrix.rgb_sequence.clone(),
+                        cfg.matrix.slowdown,
+                        cfg.matrix.pwm_bits,
+                        cfg.matrix.pwm_lsb_nanoseconds,
+                        cfg.matrix.disable_hardware_pulsing,
+                        100 as u8,
+                        cfg.matrix.limit_refresh_rate_hz,
+                        cfg.matrix.driver_chip.clone(),
+                        cfg.matrix.multiplexing,
+                        cfg.matrix.row_address_mode,
                     )
                 };
 
@@ -352,11 +349,11 @@ impl ArcadeMatrixApp {
             Box::new(MockMatrix::new(
                 {
                     let cfg = config.settings.read();
-                    cfg.matrix_cols * cfg.matrix_chain
+                    cfg.matrix.width * cfg.matrix.chain_length
                 },
                 {
                     let cfg = config.settings.read();
-                    cfg.matrix_rows
+                    cfg.matrix.height
                 },
             ))
         };
@@ -364,26 +361,16 @@ impl ArcadeMatrixApp {
         let width = matrix.width();
         let height = matrix.height();
 
-        let mut clock_engine = ClockEngine::new(width, height);
-        let mut date_engine = DateEngine::new(width, height);
-        let mut weather_engine = WeatherEngine::new();
-        weather_engine.add_provider(Box::new(crate::api::OpenWeatherMapProvider));
-
-        let mut crypto_engine = crate::engines::crypto::CryptoEngine::new(width, height);
-        crypto_engine.add_provider(Box::new(crate::api::CoinGeckoProvider));
-        crypto_engine.add_provider(Box::new(crate::api::BinanceProvider));
-
-        let mut stock_engine = crate::engines::stock::StockEngine::new(width, height);
-        stock_engine.add_provider(Box::new(crate::api::YahooFinanceProvider));
-        let mut gif_engine = GifEngine::new(width, height);
-        let mut fighter_engine = FighterEngine::new(width, height);
-        let marquee_engine = MarqueeEngine::new();
-        let mut message_engine = MessageEngine::new();
-
+        let mut runtime = crate::core::registry::EngineRuntime::new();
         let mut rotation_state = RotationState::new();
         let mut arbiter = DisplayArbiter::new();
         let mut last_frame = std::time::Instant::now();
         let mut gifs_played = 0;
+        
+        let mut fighter_engine = crate::engines::fighter::FighterEngine::new(width, height);
+        let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
+        let mut message_engine = crate::engines::message::MessageEngine::new();
+        let mut gif_engine = crate::engines::gif::GifEngine::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -429,10 +416,10 @@ impl ArcadeMatrixApp {
             let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
                 let s = config.settings.read();
                 (
-                    s.standby_enabled,
-                    s.standby_turn_off.clone(),
-                    s.standby_wake_up.clone(),
-                    s.standby_night_brightness,
+                    s.system.night_mode_enabled,
+                    s.system.turn_off_at.clone(),
+                    s.system.wake_up_at.clone(),
+                    s.system.night_brightness,
                 )
             };
 
@@ -505,7 +492,7 @@ impl ArcadeMatrixApp {
                 arbiter.cancel_request("MARQUEE");
             }
 
-            let mqtt_enabled = { config.settings.read().mqtt_enabled };
+            let mqtt_enabled = { config.settings.read().mqtt.enabled };
             if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
                 let req = DisplayRequest::new(
                     "WAITING_MARQUEE",
@@ -613,160 +600,60 @@ impl ArcadeMatrixApp {
 
                 matrix.clear();
                 let mut should_update = true;
-                match engine_id.as_str() {
-                    "clock" => {
-                        clock_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "date" => {
-                        date_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "weather" => {
-                        let mut ctx = EngineContext {
-                            matrix: matrix.as_mut(),
-                        };
-                        weather_engine.render(&mut ctx);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "crypto" => {
-                        crypto_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "stocks" | "stock" => {
-                        stock_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "gifs" => {
-                        let gifs_count = config.settings.read().idle_gifs_count as u32;
+                let empty_map = std::collections::HashMap::new();
+                let settings = config.settings.read();
+                let inst_config = settings.instances.iter()
+                    .find(|i| i.instance_id == current_mode.instance_id)
+                    .map(|inst| &inst.config)
+                    .unwrap_or(&empty_map);
+                    
+                let engine_config = crate::core::engine_contract::HashConfig { data: inst_config };
+                
+                // We drop the lock here? No, let's keep it if HashConfig holds a reference to it.
+                // Wait, if we keep the lock, EngineContext CANNOT have `config: &Config`?
+                // Actually EngineContext has `&Config`. `Config` is the wrapper. That's fine.
 
+                // However, wait! If `GifEngine` is hardcoded, we should leave it for now until S11.4!
+                if engine_id == "network" {
+                    drop(settings);
+                    let ip = get_local_ip();
+                    let payload = crate::engines::message::MessagePayload::new(format!("IP: {}", ip), "#00ffc8", 1, "left", 10);
+                    message_engine.render(matrix.as_mut(), &payload);
+                    if rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
+                        rotation_state.next_mode(&idle_list);
+                    }
+                } else {
+                    let mut ctx = crate::core::engine_contract::EngineContext { matrix: matrix.as_mut(), config: &config };
+                    
+                    // get_instance handles initialization internally exactly once!
+                    if let Some(engine) = runtime.get_instance(&current_mode.instance_id, &engine_id, &mut ctx, &engine_config) {
                         if mode_just_changed {
-                            gifs_played = 0;
-                            let selected = config.settings.read().selected_gifs.clone();
-                            if !gif_engine.play_random_playlist_gif(&selected) {
-                                gifs_played = gifs_count; // Force advance if failed
-                            }
+                            engine.activate();
                         }
-
-                        let dt = last_frame.elapsed();
-                        let sprites_on = config.settings.read().idle_fighter_enabled;
-                        let frame_changed = gif_engine.render_next_frame(matrix.as_mut(), dt);
-                        if sprites_on {
-                            // Fighter overlay animates every iteration: the gif image
-                            // must be present on the freshly-cleared canvas.
-                            if !frame_changed {
-                                gif_engine.redraw_current(matrix.as_mut());
-                            }
-                        } else {
-                            // Skip the (memory-bus heavy) canvas swap when the gif
-                            // frame is unchanged: prevents DDR/SDIO DMA starvation
-                            // that was dropping Wi-Fi packets during playback.
-                            should_update = frame_changed;
-                        }
-
-                        if gif_engine.has_finished_loops(1) || gif_engine.is_empty() {
-                            gifs_played += 1;
-                            if gifs_played >= gifs_count {
-                                gifs_played = 0;
-                                let next_mode_opt = rotation_state.next_mode(&idle_list);
-                                if let Some(nm) = next_mode_opt {
-                                    if nm.instance_id == "gifs" {
-                                        let selected = config.settings.read().selected_gifs.clone();
-                                        if !gif_engine.play_random_playlist_gif(&selected) {
-                                            gifs_played = gifs_count; // Force advance if failed
-                                        }
-                                    }
-                                }
-                            } else {
-                                let selected = config.settings.read().selected_gifs.clone();
-                                if !gif_engine.play_random_playlist_gif(&selected) {
-                                    gifs_played = gifs_count; // Force advance if failed
-                                }
-                            }
-                        }
-                    }
-                    "network" => {
-                        let ip = get_local_ip();
-                        let payload = crate::engines::message::MessagePayload::new(
-                            format!("IP: {}", ip),
-                            "#00ffc8",
-                            1,
-                            "left",
-                            10,
-                        );
-
-                        let _ = message_engine.render(matrix.as_mut(), &payload);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
+                        
+                        engine.update(&mut ctx);
+                        engine.render(&mut ctx);
+                        
+                        // Advance rotation based on duration OR engine completion
+                        if engine.is_finished() || rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
                             rotation_state.next_mode(&idle_list);
                         }
-                    }
-                    "message" => {
-                        let payload_val_opt = config.message_payload.lock().clone();
-                        if let Some(payload_val) = payload_val_opt {
-                            if let Ok(payload) = serde_json::from_value::<
-                                crate::engines::message::MessagePayload,
-                            >(payload_val.clone())
-                            {
-                                matrix.clear();
-                                let finished = message_engine.render(matrix.as_mut(), &payload);
-                                if finished
-                                    || rotation_state.mode_start_time.elapsed()
-                                        >= std::time::Duration::from_secs(
-                                            payload.timeout_seconds as u64,
-                                        )
-                                {
-                                    rotation_state.next_mode(&idle_list);
-                                }
-                            }
-                        } else {
+                    } else {
+                        // Fallback if engine fails to load
+                        if rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
                             rotation_state.next_mode(&idle_list);
                         }
-                    }
-                    "marquee" => {
-                        let img_opt = config.image_obj.lock().clone();
-                        if let Some(img) = img_opt {
-                            marquee_engine.render(matrix.as_mut(), &img);
-                        }
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    _ => {
-                        clock_engine.render(matrix.as_mut(), &config);
                     }
                 }
+
                 last_index = current_index;
 
                 // Composite fighter overlay (strictly disabled during GIF rotation)
                 let settings = config.settings.read();
                 let anim_on =
-                    settings.idle_fighter_enabled && current_mode.instance_id.as_str() != "gifs";
+                    false && current_mode.instance_id.as_str() != "gifs";
                 if anim_on {
-                    fighter_engine.set_interval(settings.idle_fighter_interval);
+                    fighter_engine.set_interval(60);
                     fighter_engine.composite(matrix.as_mut());
                 } else if fighter_engine.is_active() {
                     fighter_engine.stop();
@@ -777,11 +664,17 @@ impl ArcadeMatrixApp {
                     matrix.update();
                 }
             } else {
-                clock_engine.render(matrix.as_mut(), &config);
+                let mut dict = std::collections::HashMap::new();
+                let engine_config = crate::core::engine_contract::HashConfig { data: &dict };
+                let mut ctx = crate::core::engine_contract::EngineContext { matrix: matrix.as_mut(), config: &config };
+                if let Some(engine) = runtime.get_instance("fallback_clock", "clock", &mut ctx, &engine_config) {
+                    engine.update(&mut ctx);
+                    engine.render(&mut ctx);
+                }
                 let settings = config.settings.read();
-                let fighter_enabled = settings.idle_fighter_enabled;
+                let fighter_enabled = false;
                 if fighter_enabled {
-                    fighter_engine.set_interval(settings.idle_fighter_interval);
+                    fighter_engine.set_interval(60);
                     fighter_engine.composite(matrix.as_mut());
                 } else if fighter_engine.is_active() {
                     fighter_engine.stop();
@@ -800,14 +693,10 @@ impl ArcadeMatrixApp {
                 .unwrap_or("");
             let is_animated = matches!(current_mode_str, "gifs" | "network" | "message");
 
-            let theme = if current_mode_str == "date" {
-                config.settings.read().date_theme
-            } else {
-                config.settings.read().time_theme
-            };
+            let theme = 0;
 
             let fast_theme = matches!(theme, 18 | 19 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
-            let sprite_active = config.settings.read().idle_fighter_enabled;
+            let sprite_active = false;
 
             let sleep_ms = if is_animated || fast_theme || sprite_active {
                 40 // ~25fps, same as Python fast mode (time.sleep(0.04))

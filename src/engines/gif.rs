@@ -1,3 +1,6 @@
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
+use linkme::distributed_slice;
+use std::time::Instant;
 use crate::core::matrix::MatrixBackend;
 use image::RgbImage;
 use rand::seq::SliceRandom;
@@ -18,6 +21,8 @@ pub struct GifEngine {
     loop_count: u32,
     /// Index of the frame last actually drawn to the matrix (for swap-skip)
     last_drawn_index: Option<usize>,
+    last_update: Option<Instant>,
+    playlists: Vec<String>,
 }
 
 impl GifEngine {
@@ -32,6 +37,8 @@ impl GifEngine {
             target_height,
             loop_count: 0,
             last_drawn_index: None,
+            last_update: None,
+            playlists: Vec::new(),
         }
     }
 
@@ -205,5 +212,88 @@ impl GifEngine {
             matrix.draw_image(img, 0, 0);
             self.last_drawn_index = Some(self.frame_index);
         }
+    }
+}
+
+impl Engine for GifEngine {
+    fn initialize(&mut self, _context: &mut EngineContext, config: &dyn EngineConfig) -> Result<(), EngineError> {
+        let playlists_str = config.get_string("playlists", "");
+        if !playlists_str.is_empty() {
+            self.playlists = playlists_str.split(',').map(|s| s.trim().to_string()).collect();
+        } else {
+            self.playlists = Vec::new();
+        }
+        Ok(())
+    }
+
+    fn activate(&mut self) {
+        self.play_random_playlist_gif(&self.playlists.clone());
+        self.last_update = Some(Instant::now());
+    }
+
+    fn update(&mut self, _context: &mut EngineContext) {
+        let now = Instant::now();
+        if let Some(last) = self.last_update {
+            self.frame_elapsed += now.duration_since(last);
+        }
+        self.last_update = Some(now);
+
+        if self.frames.is_empty() {
+            return;
+        }
+
+        let (_, delay) = self.frames[self.frame_index];
+        while self.frame_elapsed >= delay {
+            self.frame_elapsed -= delay;
+            self.frame_index += 1;
+            if self.frame_index >= self.frames.len() {
+                self.frame_index = 0;
+                self.loop_count += 1;
+            }
+        }
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        if self.frames.is_empty() {
+            return;
+        }
+        let (ref img, _) = self.frames[self.frame_index];
+        context.matrix.draw_image(img, 0, 0);
+    }
+
+    fn deactivate(&mut self) {
+        self.frames.clear();
+        self.current_gif_path = None;
+    }
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        let playlists_str = config.get_string("playlists", "");
+        if !playlists_str.is_empty() {
+            self.playlists = playlists_str.split(',').map(|s| s.trim().to_string()).collect();
+        } else {
+            self.playlists = Vec::new();
+        }
+    }
+
+    fn is_finished(&self) -> bool {
+        self.has_finished_loops(1) || self.is_empty()
+    }
+}
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_gif_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "gifs",
+            name: "GifEngine",
+            category: "media",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema { fields: vec![] },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            Box::new(GifEngine::new(64, 32))
+        },
     }
 }

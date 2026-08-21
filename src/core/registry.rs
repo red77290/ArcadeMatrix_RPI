@@ -25,3 +25,39 @@ impl EngineRegistry {
         None
     }
 }
+
+use std::collections::HashMap;
+use crate::core::engine_contract::Engine;
+
+pub struct EngineRuntime {
+    instances: HashMap<String, Box<dyn Engine>>,
+}
+
+use crate::core::engine_contract::{EngineConfig, EngineContext};
+
+impl EngineRuntime {
+    pub fn new() -> Self {
+        Self {
+            instances: HashMap::new(),
+        }
+    }
+
+    pub fn get_instance(
+        &mut self,
+        instance_id: &str,
+        engine_id: &str,
+        context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Option<&mut Box<dyn Engine>> {
+        if !self.instances.contains_key(instance_id) {
+            if let Some(desc) = EngineRegistry::get_descriptor(engine_id) {
+                let mut engine = (desc.factory)();
+                let _ = engine.initialize(context, config);
+                self.instances.insert(instance_id.to_string(), engine);
+            } else {
+                return None;
+            }
+        }
+        self.instances.get_mut(instance_id)
+    }
+}

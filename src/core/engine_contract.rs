@@ -91,12 +91,11 @@ pub trait EngineConfig {
     fn get_bool(&self, key: &str, default_val: bool) -> bool;
 }
 
-// Basic map implementation for tests
-pub struct HashConfig {
-    pub data: HashMap<String, String>,
+pub struct HashConfig<'a> {
+    pub data: &'a HashMap<String, String>,
 }
 
-impl EngineConfig for HashConfig {
+impl<'a> EngineConfig for HashConfig<'a> {
     fn get_string(&self, key: &str, default_val: &str) -> String {
         self.data
             .get(key)
@@ -121,7 +120,7 @@ use crate::core::matrix::MatrixBackend;
 
 pub struct EngineContext<'a> {
     pub matrix: &'a mut dyn MatrixBackend,
-    // In Sprint 2, this will contain references to Matrix, Logger, etc.
+    pub config: &'a crate::core::config::Config,
 }
 
 // =======================================================
@@ -138,6 +137,12 @@ pub trait Engine: Send + Sync {
     fn update(&mut self, context: &mut EngineContext);
     fn render(&mut self, context: &mut EngineContext);
     fn deactivate(&mut self);
+    
+    // Dynamic Configuration
+    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
+    
+    // Intrinsic sequence completion signaling
+    fn is_finished(&self) -> bool { false }
 }
 
 // =======================================================

@@ -11,8 +11,6 @@ default = []
 hardware = []
 
 [dependencies]
-# Config
-configparser = "3"
 
 # Image processing
 image = "0.25"
@@ -65,6 +63,7 @@ rust-embed = "8.12.0"
 mime_guess = "2.0.5"
 bdf-parser = "0.1.0"
 linkme = "0.3.37"
+actix-cors = "0.7.1"
 
 [dev-dependencies]
 tempfile = "3"

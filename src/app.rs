@@ -379,7 +379,7 @@ impl ArcadeMatrixApp {
         let start_time = std::time::Instant::now();
         while start_time.elapsed() < std::time::Duration::from_secs(4) {
             matrix.clear();
-            message_engine.render(matrix.as_mut(), &startup_payload);
+            message_engine.render_payload(matrix.as_mut(), &startup_payload);
             matrix.update();
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
@@ -530,7 +530,7 @@ impl ArcadeMatrixApp {
                     if let Some(payload_val) = payload_val_opt {
                         if let Ok(payload) = serde_json::from_value::<MessagePayload>(payload_val) {
                             matrix.clear();
-                            let finished = message_engine.render(matrix.as_mut(), &payload);
+                            let finished = message_engine.render_payload(matrix.as_mut(), &payload);
                             matrix.update();
 
                             if finished
@@ -553,7 +553,7 @@ impl ArcadeMatrixApp {
                     let img_opt = config.image_obj.lock().clone();
                     if let Some(img) = img_opt {
                         matrix.clear();
-                        marquee_engine.render(matrix.as_mut(), &img);
+                        marquee_engine.render_image(matrix.as_mut(), &img);
                         matrix.update();
                         std::thread::sleep(std::time::Duration::from_millis(50));
                         last_frame = std::time::Instant::now();
@@ -561,7 +561,7 @@ impl ArcadeMatrixApp {
                     }
                 } else if req.source == "WAITING_MARQUEE" {
                     if !was_mqtt_waiting {
-                        message_engine.reset(matrix.width() as f32);
+                        message_engine.reset_state(matrix.width() as f32);
                         was_mqtt_waiting = true;
                     }
                     let msg_payload = crate::engines::message::MessagePayload::new(
@@ -572,7 +572,7 @@ impl ArcadeMatrixApp {
                         5,
                     );
                     matrix.clear();
-                    message_engine.render(matrix.as_mut(), &msg_payload);
+                    message_engine.render_payload(matrix.as_mut(), &msg_payload);
                     matrix.update();
                     std::thread::sleep(std::time::Duration::from_millis(50));
                     last_frame = std::time::Instant::now();
@@ -614,15 +614,7 @@ impl ArcadeMatrixApp {
                 // Actually EngineContext has `&Config`. `Config` is the wrapper. That's fine.
 
                 // However, wait! If `GifEngine` is hardcoded, we should leave it for now until S11.4!
-                if engine_id == "network" {
-                    drop(settings);
-                    let ip = get_local_ip();
-                    let payload = crate::engines::message::MessagePayload::new(format!("IP: {}", ip), "#00ffc8", 1, "left", 10);
-                    message_engine.render(matrix.as_mut(), &payload);
-                    if rotation_state.mode_start_time.elapsed() >= std::time::Duration::from_secs(current_mode.duration_sec as u64) {
-                        rotation_state.next_mode(&idle_list);
-                    }
-                } else {
+                if true {
                     let mut ctx = crate::core::engine_contract::EngineContext { matrix: matrix.as_mut(), config: &config };
                     
                     // get_instance handles initialization internally exactly once!

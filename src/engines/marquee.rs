@@ -1,14 +1,20 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError, EngineDescriptor, EngineMetadata, Capabilities, Requirements, ConfigSchema, EngineFactory};
+use linkme::distributed_slice;
 use image::RgbImage;
+use crate::core::matrix::MatrixBackend;
 
-pub struct MarqueeEngine;
+pub struct MarqueeEngine {
+    pub image: Option<RgbImage>,
+}
 
 impl MarqueeEngine {
     pub fn new() -> Self {
-        Self
+        Self {
+            image: None,
+        }
     }
 
-    pub fn render(&self, matrix: &mut dyn MatrixBackend, image: &RgbImage) {
+    pub fn render_image(&self, matrix: &mut dyn MatrixBackend, image: &RgbImage) {
         let mw = matrix.width() as u32;
         let mh = matrix.height() as u32;
         let iw = image.width();
@@ -35,5 +41,47 @@ impl MarqueeEngine {
             let offset_y = if mh > ih { (mh - ih) / 2 } else { 0 };
             matrix.draw_image(image, offset_x as i32, offset_y as i32);
         }
+    }
+}
+
+impl Engine for MarqueeEngine {
+    fn initialize(&mut self, _context: &mut EngineContext, config: &dyn EngineConfig) -> Result<(), EngineError> {
+        let path = config.get_string("image_path", "");
+        if !path.is_empty() {
+            if let Ok(img) = image::open(&path) {
+                self.image = Some(img.to_rgb8());
+            }
+        }
+        Ok(())
+    }
+    
+    fn activate(&mut self) {}
+    fn update(&mut self, _context: &mut EngineContext) {}
+    
+    fn render(&mut self, context: &mut EngineContext) {
+        if let Some(img) = &self.image {
+            self.render_image(&mut *context.matrix, img);
+        }
+    }
+    
+    fn deactivate(&mut self) {}
+    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
+}
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_marquee_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "marquee",
+            name: "MarqueeEngine",
+            category: "image",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema { fields: vec![] },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            Box::new(MarqueeEngine::new())
+        },
     }
 }

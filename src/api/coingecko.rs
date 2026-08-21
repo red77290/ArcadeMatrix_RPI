@@ -21,7 +21,8 @@ impl CryptoProvider for CoinGeckoProvider {
         );
 
         if let Ok(res) = client.get(&cg_url).send() {
-            if res.status().is_success() {
+            let status = res.status();
+            if status.is_success() {
                 if let Ok(json) = res.json::<serde_json::Value>() {
                     if let Some((price, change, img_url)) = Self::parse_primary(&json) {
                         info!(
@@ -31,7 +32,18 @@ impl CryptoProvider for CoinGeckoProvider {
                         return Some((price, change, img_url));
                     }
                 }
+            } else {
+                tracing::warn!(
+                    "[CoinGecko Primary] HTTP {} for {} (429 = rate limited)",
+                    status.as_u16(),
+                    symbol
+                );
             }
+        } else {
+            tracing::warn!(
+                "[CoinGecko Primary] Request failed for {} (network/DNS/TLS?)",
+                symbol
+            );
         }
 
         // 2. Simple API

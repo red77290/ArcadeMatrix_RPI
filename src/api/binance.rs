@@ -23,7 +23,8 @@ impl CryptoProvider for BinanceProvider {
         );
 
         if let Ok(res) = client.get(&url).send() {
-            if res.status().is_success() {
+            let status = res.status();
+            if status.is_success() {
                 if let Ok(json) = res.json::<serde_json::Value>() {
                     if let Some((price, change)) = Self::parse(&json) {
                         info!(
@@ -33,7 +34,15 @@ impl CryptoProvider for BinanceProvider {
                         return Some((price, change, None));
                     }
                 }
+            } else {
+                tracing::warn!(
+                    "[Binance] HTTP {} for {} (451 = geo-blocked region)",
+                    status.as_u16(),
+                    symbol
+                );
             }
+        } else {
+            tracing::warn!("[Binance] Request failed for {} (network/DNS/TLS?)", symbol);
         }
 
         None

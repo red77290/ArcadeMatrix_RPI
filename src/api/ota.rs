@@ -13,10 +13,11 @@ const EM_ARM: u16 = 40;
 #[get("/api/version")]
 pub async fn get_version() -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
-        "version": env!("CARGO_PKG_VERSION"),
+        "version": crate::core::build_info::VERSION,
         "platform": "rpi",
-        "arch": env!("BUILD_TARGET"),
-        "build_date": env!("BUILD_TIMESTAMP"),
+        "arch": crate::core::build_info::ARCH,
+        "build_date": crate::core::build_info::BUILD_TIMESTAMP,
+        "git_commit": crate::core::build_info::GIT_COMMIT,
     }))
 }
 
@@ -39,7 +40,7 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }
     }
 
-    if let Err(msg) = validate_firmware(&firmware_bytes, env!("BUILD_TARGET")) {
+    if let Err(msg) = validate_firmware(&firmware_bytes, crate::core::build_info::ARCH) {
         // If debug assertions are on, we bypass architecture mismatch for local testing
         if msg.starts_with("Architecture mismatch") && cfg!(debug_assertions) {
             // Ignore for debug builds
@@ -105,7 +106,7 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
         "message": "Firmware updated successfully. Service restarting in 1 second...",
-        "old_version": env!("CARGO_PKG_VERSION")
+        "old_version": crate::core::build_info::VERSION
     }))
 }
 

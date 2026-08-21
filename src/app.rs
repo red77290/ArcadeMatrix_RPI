@@ -38,7 +38,12 @@ impl ArcadeMatrixApp {
     }
 
     pub async fn run(&self) -> std::io::Result<()> {
-        info!("Starting ArcadeMatrix RPi v{}", env!("CARGO_PKG_VERSION"));
+        info!(
+            "Starting ArcadeMatrix RPi v{} (build {} @ {})",
+            crate::core::build_info::VERSION,
+            crate::core::build_info::GIT_COMMIT,
+            crate::core::build_info::BUILD_TIMESTAMP
+        );
 
         #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
         {

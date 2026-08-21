@@ -370,8 +370,8 @@ async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     .unwrap_or((0.0, 0, 0, 0.0, 0.0));
 
     HttpResponse::Ok().json(json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "arch": env!("BUILD_TARGET"),
+        "version": crate::core::build_info::VERSION,
+        "arch": crate::core::build_info::ARCH,
         "uptime": sysinfo::System::uptime(),
         "cpu_load": stats.0,
         "ram_used_mb": stats.1,

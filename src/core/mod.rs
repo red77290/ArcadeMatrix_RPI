@@ -1,4 +1,5 @@
 pub mod arbiter;
+pub mod build_info;
 pub mod config;
 pub mod config_sanitizer;
 pub mod dmd_cache;

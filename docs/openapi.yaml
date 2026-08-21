@@ -521,6 +521,10 @@ paths:
                     type: string
                   build_date:
                     type: string
+                  git_commit:
+                    type: string
+                    description: Short git commit hash of the built source tree (or "unknown").
+                    example: cb8723e
 
   /api/update:
     post:

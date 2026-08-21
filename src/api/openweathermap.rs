@@ -31,6 +31,11 @@ struct ForecastApiResponse {
 
 impl WeatherProvider for OpenWeatherMapProvider {
     fn fetch_forecast(&self, api_key: &str, city: &str, lang: &str) -> Option<Vec<DayForecast>> {
+        if city.trim().is_empty() {
+            tracing::warn!("[OpenWeatherMap] No city configured; cannot fetch forecast.");
+            return None;
+        }
+
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(5))
             .build()
@@ -41,23 +46,61 @@ impl WeatherProvider for OpenWeatherMapProvider {
             city, api_key, lang
         );
 
-        if let Ok(res) = client.get(&url).send() {
-            if res.status().is_success() {
-                if let Ok(json) = res.json::<serde_json::Value>() {
-                    let wday = Local::now().weekday().number_from_sunday() - 1; // 0=Sunday
-                    if let Some(forecasts) = Self::parse(&json, lang, true, wday) {
-                        info!(
-                            "[OpenWeatherMap] Parsed {} days for {}",
-                            forecasts.len(),
-                            city
-                        );
-                        return Some(forecasts);
-                    }
-                }
+        let res = match client.get(&url).send() {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("[OpenWeatherMap] Request failed (network/DNS?): {}", e);
+                return None;
             }
+        };
+
+        let status = res.status();
+        if !status.is_success() {
+            // Surface the API's own error message (invalid/inactive key -> 401,
+            // unknown city -> 404) instead of silently rendering "--°C".
+            let body = res.text().unwrap_or_default();
+            let hint = match status.as_u16() {
+                401 => " (invalid or not-yet-activated API key)",
+                404 => " (city not found — check spelling, e.g. \"Paris,FR\")",
+                429 => " (rate limit exceeded)",
+                _ => "",
+            };
+            tracing::warn!(
+                "[OpenWeatherMap] HTTP {}{} for city '{}': {}",
+                status.as_u16(),
+                hint,
+                city,
+                body.trim()
+            );
+            return None;
         }
 
-        None
+        let json = match res.json::<serde_json::Value>() {
+            Ok(j) => j,
+            Err(e) => {
+                tracing::warn!("[OpenWeatherMap] Failed to decode JSON response: {}", e);
+                return None;
+            }
+        };
+
+        let wday = Local::now().weekday().number_from_sunday() - 1; // 0=Sunday
+        match Self::parse(&json, lang, true, wday) {
+            Some(forecasts) => {
+                info!(
+                    "[OpenWeatherMap] Parsed {} days for {}",
+                    forecasts.len(),
+                    city
+                );
+                Some(forecasts)
+            }
+            None => {
+                tracing::warn!(
+                    "[OpenWeatherMap] Response parsed but contained no usable forecast entries for '{}'.",
+                    city
+                );
+                None
+            }
+        }
     }
 }
 

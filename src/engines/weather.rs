@@ -85,10 +85,23 @@ impl Engine for WeatherEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        if self.api_key.is_empty() || self.city.is_empty() || self.api_key == "API_KEY" {
+        if self.api_key.is_empty() || self.api_key == "API_KEY" {
             self.base_renderer.render_text(
                 context.matrix,
                 "No API key",
+                0,
+                1,
+                0,
+                0,
+                Some((180, 80, 80)),
+                None,
+            );
+            return;
+        }
+        if self.city.is_empty() {
+            self.base_renderer.render_text(
+                context.matrix,
+                "No city",
                 0,
                 1,
                 0,

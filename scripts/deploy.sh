@@ -81,6 +81,35 @@ if [ "$CHECK_SERVICE" = "missing" ]; then
     sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash -c \"\$(curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh)\""
 fi
 
+echo "[Step 1.5] Verifying & repairing ArcadeMatrix aliases on Raspberry Pi..."
+# Legacy (Python-era) installs left stale aliases in ~/.bash_aliases / ~/.bashrc
+# that point at the old conf.ini workflow. The user then restarts via that alias
+# and their config.json edits appear ignored. We purge any stale/duplicate/legacy
+# ArcadeMatrix alias (including anything still referencing conf.ini) and rewrite a
+# single canonical set targeting the current arcadematrix (config.json) service.
+sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "bash -s" <<'REMOTE' || echo "[Warning] Alias repair skipped."
+set -e
+AF="$HOME/.bash_aliases"
+for f in "$AF" "$HOME/.bashrc"; do
+    [ -f "$f" ] || continue
+    sed -i -e '/# ArcadeMatrix aliases/d' \
+           -e '/alias am=/d' \
+           -e '/alias am-log=/d' \
+           -e '/alias am-stop=/d' \
+           -e '/alias am-start=/d' \
+           -e '/alias am-config=/d' \
+           -e '/alias[^=]*conf\.ini/d' "$f"
+done
+cat >> "$AF" <<'EOF'
+# ArcadeMatrix aliases (managed by deploy.sh - do not edit)
+alias am='sudo systemctl restart arcadematrix'
+alias am-log='sudo journalctl -u arcadematrix -f'
+alias am-stop='sudo systemctl stop arcadematrix'
+alias am-start='sudo systemctl start arcadematrix'
+EOF
+echo "[OK] Aliases verified/repaired in $AF"
+REMOTE
+
 echo "[Step 2] Stopping arcadematrix service on Raspberry Pi..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
 

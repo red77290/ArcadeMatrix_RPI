@@ -113,9 +113,6 @@ function initDashboard() {
     });
   }
 
-  
-  }
-
   const btnShutdown = document.getElementById('btn-shutdown');
   if (btnShutdown) {
     btnShutdown.addEventListener('click', async () => {

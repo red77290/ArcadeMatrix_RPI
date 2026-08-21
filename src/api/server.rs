@@ -188,6 +188,52 @@ async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     }))
 }
 
+#[get("/api/fonts")]
+async fn get_fonts(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut fonts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("fonts") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_file() {
+                    if let Some(ext) = entry.path().extension() {
+                        if ext == "ttf" || ext == "bdf" {
+                            if let Some(name) = entry.file_name().to_str() {
+                                fonts.push(json!({"value": name, "label": name}));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    HttpResponse::Ok().json(fonts)
+}
+
+#[get("/api/playlists")]
+async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut playlists = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("gifs") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        playlists.push(json!({"value": name, "label": name}));
+                    }
+                }
+            }
+        }
+    }
+    HttpResponse::Ok().json(playlists)
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -225,6 +271,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_engines)
             .service(reboot)
             .service(get_stats)
+            .service(get_fonts)
+            .service(get_playlists)
             .route("/", web::get().to(serve_static))
             .route("/{_:.*}", web::get().to(serve_static))
     })

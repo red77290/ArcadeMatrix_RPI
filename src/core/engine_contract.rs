@@ -82,6 +82,8 @@ pub struct ConfigField {
     pub step: Option<&'static str>,
     pub options: Option<Vec<ConfigOption>>,
     pub visible_when: Option<&'static str>,
+    pub options_endpoint: Option<&'static str>,
+    pub multiple: bool,
     pub validation_policy: ValidationPolicy,
 }
 
@@ -99,6 +101,8 @@ impl Default for ConfigField {
             step: None,
             options: None,
             visible_when: None,
+            options_endpoint: None,
+            multiple: false,
             validation_policy: ValidationPolicy::Accept,
         }
     }

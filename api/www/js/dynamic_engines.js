@@ -103,7 +103,7 @@ export async function initDynamicEngines() {
       
       // Generate fields from schema
       if (engineDesc.schema && engineDesc.schema.fields && engineDesc.schema.fields.length > 0) {
-        engineDesc.schema.fields.forEach(field => {
+        engineDesc.schema.fields.forEach(async field => {
           const formGroup = document.createElement('div');
           formGroup.className = 'form-group';
           
@@ -120,7 +120,41 @@ export async function initDynamicEngines() {
           const configMap = instance.config || {};
           const currentVal = configMap[field.id] !== undefined ? configMap[field.id] : field.default_value;
 
-          if (field.field_type === 4 || field.field_type === 'Options') { 
+          // 1. Dynamic Options from API
+          if (field.options_endpoint) {
+             const data = await API.get(field.options_endpoint).catch(() => []);
+             if (field.multiple) {
+                 // Checkboxes grid
+                 input = document.createElement('div');
+                 input.className = 'rotation-toggles';
+                 input.style = 'display: flex; gap: 0.5rem; flex-wrap: wrap;';
+                 
+                 const selectedValues = currentVal ? currentVal.split(',') : [];
+                 
+                 data.forEach(opt => {
+                     const isChecked = selectedValues.includes(opt.value);
+                     const lbl = document.createElement('label');
+                     lbl.className = 'toggle-btn';
+                     lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instance.instance_id}-${field.id}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${opt.label}</span>`;
+                     // Handle click styling manually if needed or rely on CSS
+                     input.appendChild(lbl);
+                 });
+             } else {
+                 // Dropdown
+                 input = document.createElement('select');
+                 input.className = 'input';
+                 input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+                 data.forEach(opt => {
+                     const option = document.createElement('option');
+                     option.value = opt.value;
+                     option.innerText = opt.label;
+                     if (opt.value === currentVal) option.selected = true;
+                     input.appendChild(option);
+                 });
+             }
+          }
+          // 2. Static Options
+          else if (field.field_type === 4 || field.field_type === 'Options') { 
              input = document.createElement('select');
              input.className = 'input';
              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
@@ -129,30 +163,41 @@ export async function initDynamicEngines() {
                  const option = document.createElement('option');
                  option.value = opt.value;
                  option.innerText = opt.label;
+                 if (opt.value === currentVal) option.selected = true;
                  input.appendChild(option);
                });
              }
-          } else if (field.field_type === 0 || field.field_type === 'Boolean') { 
+          } 
+          // 3. Boolean
+          else if (field.field_type === 0 || field.field_type === 'Boolean') { 
              input = document.createElement('select');
              input.className = 'input';
              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
-             input.innerHTML = `<option value="true">Enabled</option><option value="false">Disabled</option>`;
-          } else if (field.field_type === 'Color' || (field.id && field.id.includes('color'))) { // Hack for Color if not enum
+             const o1 = document.createElement('option'); o1.value = 'true'; o1.innerText = 'Enabled';
+             const o2 = document.createElement('option'); o2.value = 'false'; o2.innerText = 'Disabled';
+             if (String(currentVal) === 'true') o1.selected = true; else o2.selected = true;
+             input.appendChild(o1); input.appendChild(o2);
+          } 
+          // 4. Color
+          else if (field.field_type === 'Color' || (field.id && field.id.includes('color'))) {
              input = document.createElement('input');
              input.type = 'color';
              input.className = 'input';
              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
-          } else { 
+             input.value = currentVal;
+          } 
+          // 5. Default Inputs (Text/Number)
+          else { 
              input = document.createElement('input');
              input.type = (field.field_type === 1 || field.field_type === 2 || field.field_type === 'Integer' || field.field_type === 'Float') ? 'number' : 'text';
              input.className = 'input';
              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
              if (field.min_val !== null) input.min = field.min_val;
              if (field.max_val !== null) input.max = field.max_val;
+             input.value = currentVal;
           }
           
           if (input) {
-             input.value = currentVal;
              formGroup.appendChild(input);
           }
           
@@ -179,9 +224,15 @@ export async function initDynamicEngines() {
          
          if (engineDesc.schema && engineDesc.schema.fields) {
              engineDesc.schema.fields.forEach(field => {
-                const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
-                if (el) {
-                   payload.config[field.id] = el.value;
+                if (field.multiple && field.options_endpoint) {
+                    const checkboxes = document.querySelectorAll(`.multi-cb-${instance.instance_id}-${field.id}:checked`);
+                    const vals = Array.from(checkboxes).map(cb => cb.value);
+                    payload.config[field.id] = vals.join(',');
+                } else {
+                    const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
+                    if (el) {
+                       payload.config[field.id] = el.value;
+                    }
                 }
              });
          }

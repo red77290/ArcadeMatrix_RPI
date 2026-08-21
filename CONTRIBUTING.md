@@ -39,11 +39,48 @@ If you are adding a completely new feature (like fetching stock prices or Spotif
 * **Language**: The core repository uses Rust for the Raspberry Pi.
 * **Typing**: Make full use of Rust's strong static typing and Traits to clarify Engine/Renderer contracts.
 * **Testing**: All API routes and Core configuration logic must be covered by `cargo test`.
-* **Hardware Independence**: Do not assume the matrix is exactly 64x32. Always use `self.config.matrix_width` and `self.config.matrix_height`.
+* **Hardware Independence**: Do not assume the matrix is exactly 64x32. Read the panel size from `MatrixConfig` (`matrix.width` / `matrix.height`) and declare the resolutions you support via the descriptor's `Capabilities` (`supports_128x32` / `supports_256x64`).
+
+## The Engine Architecture (Registry / Descriptor / Factory)
+
+The Core is **engine-agnostic**: it never names `Clock`, `Weather` or `Spotify`
+directly. Each engine is a self-described plugin discovered at runtime:
+
+```
+Engine
+ ├── Descriptor  (metadata + Capabilities + Requirements)
+ ├── ConfigSchema (fields, types, defaults, min/max, options, options_endpoint)
+ ├── Factory     (lazy construction, built once and cached)
+ └── Lifecycle   (initialize → activate → update/render → deactivate)
+```
+
+- Engines are configured as **generic instances** (`instance_id` + `engine_id` +
+  a `config` string map), not as hardcoded types.
+- The Web UI is generated from `GET /api/engines`, so a new engine appears in
+  the UI automatically once its `ConfigSchema` is declared — no frontend change.
+- Config edits reach a running engine live through `on_config_changed()`; the
+  config is self-healed (defaults injected, out-of-range values clamped or
+  reset) before being persisted.
+
+The full, authoritative walkthrough lives in
+[`docs/DEVELOPER.md`](docs/DEVELOPER.md).
+
+## Adding a New Engine
+
+1. Create `src/engines/my_engine.rs` implementing the `Engine` contract
+   (`initialize` / `activate` / `update` / `render` / `deactivate`, plus
+   `is_finished` and `on_config_changed` as needed).
+2. Provide an `EngineDescriptor`: metadata, `Capabilities` (set `realtime: true`
+   only if it must update every frame), `Requirements`, and a `ConfigSchema`.
+3. Register it in the registry via the `#[distributed_slice(ENGINES)]` factory
+   entry so auto-discovery and the Web UI pick it up.
+4. Add coverage in `tests/` (see `tests/test_registry.rs` and
+   `tests/test_sanitizer.rs`).
 
 ## Adding a New Renderer
 
-*Note: The exact process is currently being updated for the Rust architecture.*
+If you only need a new *look* for existing data (e.g. a new clock face), add a
+**Renderer** instead of an Engine:
 1. Create a new file in `src/engines/renderers/my_custom_renderer.rs`.
 2. Implement the `Renderer` trait.
 3. Register it in `src/engines/renderers/mod.rs`.

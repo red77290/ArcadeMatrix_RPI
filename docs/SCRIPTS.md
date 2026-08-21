@@ -1,76 +1,122 @@
 # ArcadeMatrix Scripts Documentation
 
-This document explains the purpose, prerequisites, and usage of all the scripts included in the `scripts/` directory. These scripts are provided to help you build, test, and deploy ArcadeMatrix across different platforms.
+This document explains the purpose, prerequisites and usage of every script in
+the `scripts/` directory. They help you **build**, **deploy**, **image**,
+**diagnose** and **validate** ArcadeMatrix_RPi across platforms.
 
 ## Prerequisites
 
-Before running the build or deploy scripts, ensure you have the following installed on your host machine:
-
 ### 1. Docker
-All cross-compilation is handled via Docker. This ensures that you don't have to manually install complex ARM64 toolchains on your local machine.
-- **macOS / Windows**: Install [Docker Desktop](https://www.docker.com/products/docker-desktop/).
-- **Linux**: Install Docker Engine via your package manager (`sudo apt install docker.io`).
+All cross-compilation and image building is handled via Docker, so you never
+have to install an ARM toolchain locally.
+- **macOS / Windows**: [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Rancher Desktop.
+- **Linux**: Docker Engine (`sudo apt install docker.io`).
 
-### 2. SSH Access to the Raspberry Pi
-To use the deploy scripts, your Raspberry Pi must be accessible via SSH.
-- Ensure the Raspberry Pi is connected to the same network as your host machine.
-- Enable the SSH service on the Raspberry Pi (using `sudo raspi-config` > Interface Options > SSH).
-- Note down the IP address of the Raspberry Pi.
+### 2. SSH access to the Raspberry Pi (deploy only)
+- The Pi must be reachable on your network with SSH enabled
+  (`sudo raspi-config` > Interface Options > SSH).
+- Note its IP address.
 
-### 3. SSHPass (Linux / macOS only)
-The bash deployment scripts (`deploy_pi.sh`) use `sshpass` to automate password entry.
-- **macOS**: `brew install hudochenkov/sshpass/sshpass` (or `brew install eugene`)
+### 3. sshpass (Linux / macOS deploy only)
+`deploy.sh` uses `sshpass` to automate password entry.
+- **macOS**: `brew install hudochenkov/sshpass/sshpass`
 - **Linux**: `sudo apt install sshpass`
-- **Windows**: Not required. The PowerShell `.ps1` scripts use native OpenSSH and will prompt you interactively for the password.
+- **Windows**: not needed — `deploy.ps1` uses native OpenSSH and prompts
+  interactively (or uses key auth).
+
+### 4. Shared defaults
+`defaults.sh` centralises the credentials/paths used by the build, deploy and
+image scripts (`AM_USER`, `AM_PASS`, ...). It is **sourced** by the other
+scripts — edit it once instead of editing each script.
 
 ---
 
-## Configuration
+## 🛠 Build
 
-If your Raspberry Pi is not using the default IP (`192.168.1.169`) or default credentials, you must edit the deploy scripts before running them.
+### `build.sh [aarch64|armv7|all]`
+Smart cross-compiler. Builds the Rust binary for 64-bit ARM (`aarch64`,
+Pi 3/4/5 and Zero 2 W), 32-bit ARM (`armv7`, Pi 2/Zero) or both, inside Docker.
+Defaults to `all`.
+**Usage**: `bash scripts/build.sh aarch64`
 
-Open `scripts/deploy_pi.sh` (or `scripts/deploy_pi.ps1` for Windows) and modify the top variables:
-```bash
-PI_IP="192.168.1.169"  # Change to your Raspberry Pi's actual IP
-PI_USER="pi"           # Default is 'pi' (or 'root' on Batocera)
-PI_PASS="raspberry"    # Default is 'raspberry' (or 'linux' on Batocera)
-```
-
----
-
-## 🛠 Compilation Scripts
-
-These scripts compile the Rust source code into a binary executable.
-
-### `build_local_64.sh` (Linux / macOS)
-Compiles the ArcadeMatrix binary for 64-bit ARM architectures (`aarch64-unknown-linux-gnu`). This is the target architecture for modern Raspberry Pi OS (64-bit) running on Pi 3, 4, or 5.
-**Usage**: `bash scripts/build_local_64.sh`
-
-### `build_local_64.ps1` (Windows)
-The Windows PowerShell equivalent of `build_local_64.sh`. It performs the exact same Docker cross-compilation.
-**Usage**: Right-click and select "Run with PowerShell", or run `.\scripts\build_local_64.ps1` in a terminal.
-
-### `build_local.sh`
-A legacy or generalized build script for multiple targets (often 32-bit `armv7`). Use this if you are running an older 32-bit Raspberry Pi OS.
+The resulting binary lands in `target/<triple>/release/arcadematrix`.
 
 ---
 
-## 🚀 Deployment Scripts
+## 🚀 Deploy
 
-These scripts compile the code AND push the resulting binary directly to your live Raspberry Pi, restarting the systemd service automatically.
+Deploy scripts auto-detect the Pi architecture, build via Docker, upload the
+binary and restart the `arcadematrix` service.
 
-### `deploy_pi.sh` (Linux / macOS)
-The primary deployment script for developers. It:
-1. Calls `build_local_64.sh`.
-2. Uses `sshpass` to stop the `arcadematrix.service` on the Pi.
-3. Uses `scp` to upload the new binary to `/home/pi/arcadematrix_temp`.
-4. Moves the binary to `/usr/local/bin/`, sets permissions, and restarts the service.
-**Usage**: `bash scripts/deploy_pi.sh`
+### `deploy.sh` (macOS / Linux)
+Flags (all optional; defaults come from `defaults.sh`):
+- `--ip <IP>` — target Pi IP
+- `--user <USER>` — SSH user (default `pi`)
+- `--pass <PASS>` — SSH password (uses `sshpass`)
+- `--skip-build` — reuse the already-compiled binary
+- `--binary-path <PATH>` — deploy a specific prebuilt binary
 
-### `deploy_pi.ps1` (Windows)
-The Windows PowerShell equivalent of the deployment script. It uses native Windows 10/11 OpenSSH (`ssh.exe` and `scp.exe`). Note that because Windows does not have `sshpass`, you will be prompted to type the Raspberry Pi password during the SSH phases (unless you have set up SSH public key authentication).
-**Usage**: Right-click and select "Run with PowerShell", or run `.\scripts\deploy_pi.ps1` in a terminal.
+**Usage**: `bash scripts/deploy.sh --ip 192.168.1.149 --user pi`
 
-### `deploy_to_pi.sh <IP_ADDRESS>`
-A slightly different variant of the deploy script that takes the IP address as a command-line argument rather than hardcoding it in the script.
-**Usage**: `bash scripts/deploy_to_pi.sh pi@192.168.1.200`
+### `deploy.ps1` (Windows)
+PowerShell equivalent using native OpenSSH. Same behaviour.
+**Usage**: `./scripts/deploy.ps1 -PI_IP 192.168.1.149 -PI_USER pi [-SkipBuild] [-BinaryPath <path>]`
+
+> 💡 For a running device you usually don't need to deploy at all — use the
+> **OTA firmware upload** in the Web UI (System tab), which validates and swaps
+> the binary over Wi-Fi. See `docs/QUICKSTART.md`.
+
+---
+
+## 💿 SD Image Building
+
+### `build_image.sh`
+Builds a ready-to-flash Raspberry Pi OS `.img` with ArcadeMatrix preinstalled,
+via Docker. Produces a ~14 GB image sized to fit a 16 GB SD card.
+**Usage**: `bash scripts/build_image.sh`
+
+Internal helpers (not run directly):
+- **`docker_builder.sh`** — runs inside the Docker container to assemble the image.
+- **`chroot_setup.sh`** — runs inside the image chroot to install the OS,
+  service and dependencies via `autoInstall.sh`.
+
+---
+
+## 🩺 Runtime / On-Pi
+
+### `recovery.sh <PROJ_DIR>`
+Runs on the Pi **before** the main service starts. Looks on the boot partition
+for a recovery firmware; if present it installs it and backs it up to avoid
+boot loops. Invoked automatically by the service, not by hand.
+
+### `wifi_diag.sh`
+On-Pi Wi-Fi / DMA-contention diagnostic logger. Because HW pulsing can drop
+Wi-Fi/SSH, it runs detached (`setsid`), samples periodically and writes to a log
+on disk you collect afterwards.
+**Usage (on the Pi, as root)**: `sudo bash scripts/wifi_diag.sh`
+
+### `run_ab_test.sh`
+Automated A/B benchmark (memory-bus load vs hardware pulsing). Runs fully
+detached (~6 min), survives SSH drops, and restores pulsing OFF at the end so
+Wi-Fi returns. Writes `diag_*.log` files. Used for the benchmarks in
+`docs/benchmarks/`.
+
+---
+
+## ✅ Tooling & Validation
+
+These back the git pre-commit hook and are also runnable manually.
+
+### `install_hooks.py`
+Installs the ArcadeMatrix git hooks into `.git/hooks` (pre-commit runs the
+validators + `cargo fmt --check` + tests).
+**Usage**: `python3 scripts/install_hooks.py`
+
+### `validate_docs.py`
+Checks documentation drift and `config.json` key validity across the EN/FR/ES
+doc set. Fails the commit if a required doc is missing or the config is invalid.
+
+### `validate_rpi_release.py`
+Validates that the release artifacts and installation scripts
+(`Cargo.toml`, `autoInstall.sh`, `config.json`, the READMEs...) are present and
+well-formed before a release.

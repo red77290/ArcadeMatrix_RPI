@@ -1,67 +1,188 @@
 openapi: 3.0.3
 info:
   title: ArcadeMatrix RPi Local API
-  description: API for controlling and configuring the ArcadeMatrix Raspberry Pi firmware locally over Wi-Fi.
-  version: 1.0.0
+  description: >
+    Local HTTP API exposed by the ArcadeMatrix Raspberry Pi firmware (Actix-web,
+    default port 8080). It drives the schema-driven Web UI: engines are
+    auto-discovered from the registry (`GET /api/engines`), configured as
+    generic instances (`/api/instances`), and sequenced by the rotation
+    (`/api/rotation`). All config writes are self-healed (defaults injected,
+    out-of-range values clamped/fallback) before being persisted atomically to
+    `config.json`, and the running engine is notified live via
+    `on_config_changed()`.
+  version: 2.0.0
 servers:
   - url: http://arcadematrix.local:8080
     description: Default local mDNS address
+  - url: http://127.0.0.1:8080
+    description: Local dev server (Mock matrix on Mac/Windows/Linux)
+
 tags:
-  - name: System
-    description: System status and power controls
-  - name: Configuration
-    description: Global settings and themes
-  - name: Media
-    description: Fonts, GIFs, and Playlists
   - name: Engines
-    description: Direct control of specific display engines
+    description: Auto-discovery of registered engines and their config schema
+  - name: Instances
+    description: Generic engine instances (engine_id + config map)
+  - name: Rotation
+    description: Ordered rotation of instances shown on the panel
+  - name: System
+    description: System settings, stats, power and Wi-Fi
+  - name: Integrations
+    description: MQTT/console sync and marquee upload
+  - name: Firmware
+    description: OTA update and version
+  - name: Media
+    description: Fonts and GIF playlists (dynamic option sources)
+
+security:
+  - ApiToken: []
 
 paths:
-  /api/system_info:
+  /api/engines:
     get:
-      tags:
-        - System
-      summary: Get system status
-      description: Returns memory usage, uptime, cpu load, and temperature.
+      tags: [Engines]
+      summary: List all registered engine descriptors
+      description: >
+        Returns every engine known to the registry, each with its metadata,
+        capabilities, requirements and full `ConfigSchema`. The Web UI uses this
+        to render forms dynamically without knowing engines ahead of time.
       responses:
         '200':
-          description: System status
+          description: Array of engine descriptors
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EngineDescriptor'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/instances:
+    get:
+      tags: [Instances]
+      summary: List configured engine instances
+      responses:
+        '200':
+          description: Array of instances
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EngineInstance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Instances]
+      summary: Create or update an instance (upsert)
+      description: >
+        Upserts by `instance_id`. Rejects unknown `engine_id` values (not in the
+        registry). The config map is self-healed, then the runtime picks up the
+        change immediately (rotation reset).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EngineInstance'
+      responses:
+        '200':
+          $ref: '#/components/responses/StatusOk'
+        '400':
+          description: Unknown engine_id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/instances/{id}:
+    delete:
+      tags: [Instances]
+      summary: Delete an instance by id
+      description: >
+        Removes the instance and any rotation entry that referenced it, so the
+        render loop never points at a dangling `instance_id`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          $ref: '#/components/responses/StatusOk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/rotation:
+    get:
+      tags: [Rotation]
+      summary: Get the current rotation
+      responses:
+        '200':
+          description: Ordered list of rotation entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RotationEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Rotation]
+      summary: Replace the whole rotation
+      description: Replaces the rotation list; the runtime resets to apply it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/RotationEntry'
+      responses:
+        '200':
+          $ref: '#/components/responses/StatusOk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/system:
+    get:
+      tags: [System]
+      summary: Get system, matrix, wifi, mqtt settings
+      responses:
+        '200':
+          description: Grouped configuration blocks
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  cpu_load:
-                    type: number
-                  ram_used_mb:
-                    type: integer
-                  ram_total_mb:
-                    type: integer
-                  ram_percent:
-                    type: number
-                  disk_free_gb:
-                    type: number
-                  disk_total_gb:
-                    type: number
-                  disk_percent:
-                    type: number
-                  temperature_c:
-                    type: number
-
-  /api/settings:
-    get:
-      tags:
-        - Configuration
-      summary: Get all settings
-      description: Returns the entire device configuration.
-      responses:
-        '200':
-          description: Configuration object
+                  system:
+                    $ref: '#/components/schemas/SystemConfig'
+                  matrix:
+                    $ref: '#/components/schemas/MatrixConfig'
+                  mqtt:
+                    $ref: '#/components/schemas/MqttConfig'
+                  wifi:
+                    $ref: '#/components/schemas/WifiConfig'
+                  api_auth_enabled:
+                    type: boolean
+                  api_token:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
     post:
-      tags:
-        - Configuration
-      summary: Update settings
-      description: Partially update settings. Any omitted keys will remain unchanged. Will automatically save to config.json.
+      tags: [System]
+      summary: Update system settings (partial merge)
+      description: >
+        Any subset of `system`, `matrix`, `mqtt`, `wifi`, plus the top-level
+        `api_auth_enabled` / `api_token` may be sent. `brightness_limit` (alias
+        `brightness`, 0-100) is applied live without a restart. Changes to matrix
+        parameters or the Wi-Fi radio state flag a render-loop reload.
       requestBody:
         required: true
         content:
@@ -69,52 +190,72 @@ paths:
             schema:
               type: object
               properties:
-                time_format:
-                  type: string
-                  description: Chrono strftime format for the clock (e.g. %H:%M:%S)
-                matrix_disable_hardware_pulsing:
+                system:
+                  $ref: '#/components/schemas/SystemConfig'
+                matrix:
+                  $ref: '#/components/schemas/MatrixConfig'
+                mqtt:
+                  $ref: '#/components/schemas/MqttConfig'
+                wifi:
+                  $ref: '#/components/schemas/WifiConfig'
+                api_auth_enabled:
                   type: boolean
-                  description: Force software GPIO toggling to avoid PWM audio conflicts
-                crypto_symbols:
+                api_token:
                   type: string
-                  description: "Comma-separated crypto token symbols (e.g. BTC,ETH,SOL,DOGE)"
-                crypto_cache_ttl_min:
+                brightness_limit:
                   type: integer
-                  description: "Crypto quote cache TTL in minutes (refresh rate, default 1)"
-                stock_symbols:
-                  type: string
-                  description: "Comma-separated stock ticker symbols (e.g. AAPL,NVDA,TSLA,MSFT)"
-                stock_cache_ttl_min:
-                  type: integer
-                  description: "Stock quote cache TTL in minutes (refresh rate, default 1)"
-                sprite_count:
-                  type: integer
-                  description: "Sprite/Fighter overlay toggle (0 = disabled/OFF, 2 = enabled/ON)"
-                fighter_interval_sec:
-                  type: integer
-                  description: "Interval in seconds between MUGEN fights"
-                matrix_limit_refresh_rate_hz:
-                  type: integer
-                  description: Limit the hardware refresh rate in Hz to reduce DMA bandwidth usage (0 for unlimited)
+                  minimum: 0
+                  maximum: 100
       responses:
         '200':
-          description: Settings successfully updated
+          $ref: '#/components/responses/StatusOk'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/stats:
+    get:
+      tags: [System]
+      summary: Live system stats
+      description: CPU load, RAM, SoC temperature, free disk, uptime and version.
+      responses:
+        '200':
+          description: Runtime stats
           content:
             application/json:
               schema:
                 type: object
                 properties:
-                  status:
+                  version:
                     type: string
-                  message:
+                  arch:
                     type: string
+                  uptime:
+                    type: integer
+                    description: Seconds since boot
+                  cpu_load:
+                    type: number
+                  ram_used_mb:
+                    type: integer
+                  ram_total_mb:
+                    type: integer
+                  memory_used:
+                    type: integer
+                    description: Alias of ram_used_mb (UI compatibility)
+                  memory_total:
+                    type: integer
+                    description: Alias of ram_total_mb (UI compatibility)
+                  temperature_c:
+                    type: number
+                  disk_free_gb:
+                    type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/system/power:
     post:
-      tags:
-        - System
-      summary: Toggle LED Matrix Power
-      description: Turn the display on or off.
+      tags: [System]
+      summary: Turn the LED panel output on/off
+      description: Toggles the live matrix power flag; the daemon keeps running.
       requestBody:
         required: true
         content:
@@ -124,50 +265,92 @@ paths:
               properties:
                 state:
                   type: boolean
+                  description: true = panel ON (default), false = panel OFF
       responses:
         '200':
-          description: Success
+          description: New power state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  power:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/system/reboot:
     post:
-      tags:
-        - System
+      tags: [System]
       summary: Reboot the Raspberry Pi
       responses:
         '200':
-          description: Device will reboot
-
-  /api/system/restart_app:
-    post:
-      tags:
-        - System
-      summary: Restart the application
-      description: Soft restarts the ArcadeMatrix application process without rebooting the OS. Useful to apply hardware changes safely.
-      responses:
-        '200':
-          description: Application restarting
+          description: Rebooting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: rebooting
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/system/shutdown:
     post:
-      tags:
-        - System
-      summary: Shutdown the Raspberry Pi
+      tags: [System]
+      summary: Power off the Raspberry Pi
       responses:
         '200':
-          description: Device will shutdown
+          description: Shutting down
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: shutting_down
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/action/reboot:
+    get:
+      tags: [System]
+      summary: Reboot the Raspberry Pi (legacy GET alias)
+      description: Kept for backward compatibility; prefer POST /api/system/reboot.
+      deprecated: true
+      responses:
+        '200':
+          description: Rebooting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: rebooting
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/wifi:
     post:
-      tags:
-        - System
-      summary: Reconfigure Wi-Fi
-      description: Updates the Wi-Fi credentials via NetworkManager.
+      tags: [System]
+      summary: Set Wi-Fi credentials
+      description: >
+        Stores SSID/password and marks the profile as not-yet-applied, then flags
+        a reload so the boot provisioning re-applies the NetworkManager profile.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [ssid]
               properties:
                 ssid:
                   type: string
@@ -175,185 +358,23 @@ paths:
                   type: string
       responses:
         '200':
-          description: Successfully connected to new network
-        '500':
-          description: Failed to connect
-
-  /api/mqtt/install:
-    post:
-      tags:
-        - System
-      summary: Install remote scripts via SSH
-      description: Used to pair the Pi with a retro-gaming console to push game states via MQTT.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ip:
-                  type: string
-      responses:
-        '200':
-          description: Successfully installed scripts
-
-  /api/fonts:
-    get:
-      tags:
-        - Media
-      summary: List available custom fonts
-      description: Returns a list of font files found in the /fonts directory.
-      responses:
-        '200':
-          description: Array of font paths
-          
-  /api/playlists:
-    get:
-      tags:
-        - Media
-      summary: Get all GIF playlists
-      responses:
-        '200':
-          description: JSON object mapping playlist categories to arrays of GIF file paths.
-
-  /api/playlists/selected:
-    get:
-      tags:
-        - Media
-      summary: Get active GIF playlists
-      responses:
-        '200':
-          description: Selected playlists
-
-  /api/playlists/save:
-    post:
-      tags:
-        - Media
-      summary: Save active GIF playlists
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                playlists:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        '200':
-          description: Success
-
-  /api/playlists/play:
-    post:
-      tags:
-        - Media
-      summary: Trigger an immediate rotation to the requested GIF playlist
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                playlist_id:
-                  type: string
-      responses:
-        '200':
-          description: Playlist played
-
-  /api/sprites/playlists:
-    get:
-      tags:
-        - Media
-      summary: Get all Sprite playlists
-      responses:
-        '200':
-          description: JSON object mapping sprite categories to arrays of sprite IDs.
-
-  /api/sprites/playlists/selected:
-    get:
-      tags:
-        - Media
-      summary: Get active Sprite playlists
-      responses:
-        '200':
-          description: Selected sprite playlists
-
-  /api/sprites/playlists/save:
-    post:
-      tags:
-        - Media
-      summary: Save active Sprite playlists
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                playlists:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        '200':
-          description: Success
-
-  /api/clock:
-    post:
-      tags:
-        - Engines
-      summary: Change Clock Theme
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                clock_theme:
-                  type: integer
-      responses:
-        '200':
-          description: Success
-
-  /api/message:
-    post:
-      tags:
-        - Engines
-      summary: Display a Marquee Text Message
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                text:
-                  type: string
-                color:
-                  type: integer
-                size:
-                  type: integer
-                direction:
-                  type: string
-                speed:
-                  type: integer
-                timeoutSeconds:
-                  type: integer
-      responses:
-        '200':
-          description: Success
+          $ref: '#/components/responses/StatusOk'
+        '400':
+          description: SSID missing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/marquee:
     post:
-      tags:
-        - Engines
-      summary: Stream Image Data
-      description: Pushes an image (multipart/form-data) directly to the matrix frame buffer.
+      tags: [Integrations]
+      summary: Upload a marquee image to display now
+      description: >
+        multipart/form-data image upload. The decoded image is shown immediately
+        by forcing the `marquee` engine.
       requestBody:
         required: true
         content:
@@ -361,22 +382,109 @@ paths:
             schema:
               type: object
               properties:
-                image:
+                file:
                   type: string
                   format: binary
       responses:
         '200':
-          description: Image received and displayed.
+          $ref: '#/components/responses/StatusOk'
+        '400':
+          description: Invalid or unreadable image
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mqtt/install:
+    post:
+      tags: [Integrations]
+      summary: Install the game-sync script on a console over SSH
+      description: >
+        SSHes into a Batocera/Recalbox console at `ip` and installs the script
+        that publishes the running game to this matrix. Returns the install log.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                ip:
+                  type: string
+                user:
+                  type: string
+                pass:
+                  type: string
+      responses:
+        '200':
+          description: Install log
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  log:
+                    type: string
+        '400':
+          description: Missing IP or SSH failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/mqtt/logs:
+    post:
+      tags: [Integrations]
+      summary: Fetch the console-side sync logs over SSH
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ip]
+              properties:
+                ip:
+                  type: string
+                user:
+                  type: string
+                pass:
+                  type: string
+      responses:
+        '200':
+          description: Log text
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  logs:
+                    type: string
+        '400':
+          description: Missing IP or SSH failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/version:
     get:
-      tags:
-        - System
-      summary: Get Firmware Version
-      description: Returns the compiled firmware version, platform, architecture, and build timestamp.
+      tags: [Firmware]
+      summary: Firmware version and build info
       responses:
         '200':
-          description: Version object
+          description: Version metadata
           content:
             application/json:
               schema:
@@ -386,6 +494,7 @@ paths:
                     type: string
                   platform:
                     type: string
+                    example: rpi
                   arch:
                     type: string
                   build_date:
@@ -393,10 +502,12 @@ paths:
 
   /api/update:
     post:
-      tags:
-        - System
-      summary: Over-The-Air (OTA) Firmware Update
-      description: Uploads a new compiled binary executable to update the firmware and restarts the systemd daemon.
+      tags: [Firmware]
+      summary: OTA firmware upload
+      description: >
+        multipart/form-data upload of a compiled ELF binary. The payload is
+        validated (ELF magic + matching CPU architecture) before replacing the
+        running binary. Architecture mismatch is bypassed in debug builds only.
       requestBody:
         required: true
         content:
@@ -404,12 +515,329 @@ paths:
             schema:
               type: object
               properties:
-                firmware:
+                file:
                   type: string
                   format: binary
       responses:
         '200':
-          description: Firmware updated successfully. Device restarting.
+          description: Update accepted; daemon restarts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
         '400':
-          description: Invalid binary format or architecture mismatch.
+          description: Invalid firmware (bad magic, too small, or arch mismatch)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
+  /api/fonts:
+    get:
+      tags: [Media]
+      summary: List available fonts (dynamic option source)
+      description: >
+        Enumerates `.ttf`/`.bdf` files in `fonts/`. Consumed by schema fields
+        that declare `options_endpoint: /api/fonts`.
+      responses:
+        '200':
+          description: value/label option list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/playlists:
+    get:
+      tags: [Media]
+      summary: List GIF playlists (dynamic option source)
+      description: Enumerates sub-folders of `gifs/` (each folder is a playlist).
+      responses:
+        '200':
+          description: value/label option list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    ApiToken:
+      type: apiKey
+      in: header
+      name: X-API-Token
+      description: >
+        Required only when `api_auth_enabled` is true. Send the configured
+        `api_token`. When auth is disabled, the header is ignored.
+
+  responses:
+    StatusOk:
+      description: Success
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              status:
+                type: string
+                example: ok
+    Unauthorized:
+      description: Missing or invalid X-API-Token header
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: error
+        message:
+          type: string
+
+    Option:
+      type: object
+      description: Generic value/label pair used by dynamic option endpoints.
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+
+    EngineInstance:
+      type: object
+      description: A configured, generic engine instance.
+      required: [instance_id, engine_id, config]
+      properties:
+        instance_id:
+          type: string
+          example: clock_main
+        engine_id:
+          type: string
+          example: clock
+        config:
+          type: object
+          additionalProperties:
+            type: string
+          description: Free-form string map validated against the engine schema.
+
+    RotationEntry:
+      type: object
+      required: [instance_id, duration_sec]
+      properties:
+        instance_id:
+          type: string
+        duration_sec:
+          type: integer
+          description: Base display duration; engines may end early via is_finished().
+
+    EngineDescriptor:
+      type: object
+      description: Full self-description of an engine returned by /api/engines.
+      properties:
+        metadata:
+          type: object
+          properties:
+            id:
+              type: string
+            name:
+              type: string
+            category:
+              type: string
+            version:
+              type: string
+        capabilities:
+          type: object
+          properties:
+            supports_128x32:
+              type: boolean
+            supports_256x64:
+              type: boolean
+            realtime:
+              type: boolean
+              description: >
+                true = updated/rendered every frame (60 FPS cadence);
+                false = low-frequency cadence.
+            interruptible:
+              type: boolean
+        requirements:
+          type: object
+          properties:
+            needs_audio:
+              type: boolean
+            needs_network:
+              type: boolean
+            needs_sd:
+              type: boolean
+        schema:
+          type: object
+          properties:
+            fields:
+              type: array
+              items:
+                $ref: '#/components/schemas/ConfigField'
+
+    ConfigField:
+      type: object
+      description: One field of an engine's config schema (drives a UI control).
+      properties:
+        id:
+          type: string
+        field_type:
+          type: string
+          enum: [Boolean, Integer, Float, String, Options]
+        label:
+          type: string
+        description:
+          type: string
+        default_value:
+          type: string
+        required:
+          type: boolean
+        min_val:
+          type: string
+          nullable: true
+        max_val:
+          type: string
+          nullable: true
+        step:
+          type: string
+          nullable: true
+        options:
+          type: array
+          nullable: true
+          items:
+            $ref: '#/components/schemas/Option'
+        visible_when:
+          type: string
+          nullable: true
+          description: Conditional visibility expression (e.g. "theme=2").
+        options_endpoint:
+          type: string
+          nullable: true
+          description: Endpoint to fetch dynamic options (e.g. /api/fonts).
+        multiple:
+          type: boolean
+          description: true = multi-select (comma-separated stored value).
+        validation_policy:
+          type: string
+          enum: [Clamp, FallbackDefault, Reject, Accept]
+
+    SystemConfig:
+      type: object
+      properties:
+        timezone:
+          type: string
+        format_24h:
+          type: boolean
+        lang:
+          type: string
+        unit:
+          type: string
+          description: metric | imperial
+        temp_offset:
+          type: number
+        night_mode_enabled:
+          type: boolean
+        turn_off_at:
+          type: string
+          example: "23:00"
+        wake_up_at:
+          type: string
+          example: "07:00"
+        night_brightness:
+          type: integer
+
+    MatrixConfig:
+      type: object
+      description: Hardware panel configuration (changes require a render reload).
+      properties:
+        width:
+          type: integer
+        height:
+          type: integer
+        panel_type:
+          type: string
+        chain_length:
+          type: integer
+        power_limit_percent:
+          type: integer
+        force_single_buffer:
+          type: boolean
+        color_depth:
+          type: integer
+        rgb_sequence:
+          type: string
+        limit_refresh_rate_hz:
+          type: integer
+        driver_chip:
+          type: string
+        clk_phase:
+          type: boolean
+        latch_blanking:
+          type: integer
+        row_address_mode:
+          type: integer
+        matrix_power:
+          type: boolean
+        multiplexing:
+          type: integer
+        slowdown:
+          type: integer
+        pwm_bits:
+          type: integer
+        pwm_lsb_nanoseconds:
+          type: integer
+        disable_hardware_pulsing:
+          type: boolean
+        mapping:
+          type: string
+
+    WifiConfig:
+      type: object
+      properties:
+        ssid:
+          type: string
+        password:
+          type: string
+        hostname:
+          type: string
+        configured:
+          type: boolean
+        disable_internal:
+          type: boolean
+          description: Disable the Pi's built-in Wi-Fi radio.
+
+    MqttConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        broker:
+          type: string
+        port:
+          type: integer
+        user:
+          type: string
+        pass:
+          type: string
+        device_name:
+          type: string
+        topic_batocera:
+          type: string
+        topic_recalbox:
+          type: string

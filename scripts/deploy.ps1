@@ -83,6 +83,35 @@ function Invoke-RemoteBash {
     ssh -o StrictHostKeyChecking=no $REMOTE_USER_IP ('echo {0} | base64 -d | bash' -f $B64)
 }
 
+Write-Host "[Step 1.5] Verifying & repairing ArcadeMatrix aliases on Raspberry Pi..."
+# Legacy (Python-era) installs left stale aliases in ~/.bash_aliases / ~/.bashrc
+# pointing at the old conf.ini workflow. The user then restarts via that alias and
+# their config.json edits appear ignored. Purge any stale/duplicate/legacy alias
+# (including anything still referencing conf.ini) and rewrite one canonical set
+# targeting the current arcadematrix (config.json) service. Idempotent.
+$RepairAliases = @'
+AF="$HOME/.bash_aliases"
+for f in "$AF" "$HOME/.bashrc"; do
+    [ -f "$f" ] || continue
+    sed -i -e '/# ArcadeMatrix aliases/d' \
+           -e '/alias am=/d' \
+           -e '/alias am-log=/d' \
+           -e '/alias am-stop=/d' \
+           -e '/alias am-start=/d' \
+           -e '/alias am-config=/d' \
+           -e '/alias[^=]*conf\.ini/d' "$f"
+done
+cat >> "$AF" <<'EOF'
+# ArcadeMatrix aliases (managed by deploy.ps1 - do not edit)
+alias am='sudo systemctl restart arcadematrix'
+alias am-log='sudo journalctl -u arcadematrix -f'
+alias am-stop='sudo systemctl stop arcadematrix'
+alias am-start='sudo systemctl start arcadematrix'
+EOF
+echo "[OK] Aliases verified/repaired in $AF"
+'@
+Invoke-RemoteBash $RepairAliases
+
 Write-Host "[Step 2] Stopping arcadematrix service on Raspberry Pi..."
 Invoke-RemoteBash ('echo ''{0}'' | sudo -S systemctl stop arcadematrix.service || true' -f $PI_PASS)
 

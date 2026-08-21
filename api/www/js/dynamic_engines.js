@@ -275,6 +275,14 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
     return `${eng ? eng.metadata.name : inst.engine_id} (${instId})`;
   };
 
+  // The rotation "value" is a duration in seconds for time-based engines, but
+  // for the GIF engine it is a number of clips to play before advancing.
+  const engineIdFor = (instId) => {
+    const inst = instancesList.find(i => i.instance_id === instId);
+    return inst ? inst.engine_id : null;
+  };
+  const isCountBased = (instId) => engineIdFor(instId) === 'gifs';
+
   const card = document.createElement('div');
   card.className = 'card glass shadow';
   card.style.margin = '1rem 0';
@@ -305,9 +313,15 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       dur.min = '1';
       dur.style = 'width:6rem;';
       dur.value = entry.duration_sec;
-      dur.title = 'Duration (seconds)';
+      const countBased = isCountBased(entry.instance_id);
+      dur.title = countBased ? 'Number of GIFs to play before rotating' : 'Duration (seconds)';
       dur.onchange = () => { entry.duration_sec = parseInt(dur.value) || 1; };
       row.appendChild(dur);
+
+      const unit = document.createElement('span');
+      unit.style = 'width:3.5rem; color:var(--text-muted); font-size:0.85rem;';
+      unit.innerText = countBased ? 'GIFs' : 'sec';
+      row.appendChild(unit);
 
       const up = document.createElement('button');
       up.className = 'btn';

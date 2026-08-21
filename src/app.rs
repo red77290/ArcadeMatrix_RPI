@@ -628,6 +628,11 @@ impl ArcadeMatrixApp {
                         &mut ctx,
                         engine_config,
                     ) {
+                        // For self-paced engines (e.g. gifs) the rotation entry's
+                        // numeric value is a playback budget (number of GIFs),
+                        // not a duration in seconds. Feed it before activation.
+                        engine.set_rotation_budget(current_mode.duration_sec);
+
                         if mode_just_changed {
                             engine.activate();
                         }
@@ -641,11 +646,13 @@ impl ArcadeMatrixApp {
                         // clocks fall back to the 1fps static cadence.
                         current_realtime = current_realtime || engine.is_realtime();
 
-                        // Advance rotation based on duration OR engine completion
-                        if engine.is_finished()
-                            || rotation_state.mode_start_time.elapsed()
-                                >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
-                        {
+                        // Advance on intrinsic completion, or on the duration
+                        // timer for time-based engines only. Self-paced engines
+                        // drive the advance solely through is_finished().
+                        let duration_elapsed = !engine.self_paced()
+                            && rotation_state.mode_start_time.elapsed()
+                                >= std::time::Duration::from_secs(current_mode.duration_sec as u64);
+                        if engine.is_finished() || duration_elapsed {
                             rotation_state.next_mode(&idle_list);
                         }
                     } else {

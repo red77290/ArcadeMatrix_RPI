@@ -185,6 +185,19 @@ pub trait Engine: Send + Sync {
     fn is_realtime(&self) -> bool {
         false
     }
+
+    /// For engines whose rotation advance is driven by an intrinsic count/loop
+    /// rather than wall-clock time (e.g. the GIF engine playing N clips before
+    /// moving on), the runtime passes the rotation entry's numeric value here as
+    /// a playback "budget". Time-based engines ignore it. Defaults to no-op.
+    fn set_rotation_budget(&mut self, _budget: u32) {}
+
+    /// Whether this engine drives its own rotation advance through
+    /// `is_finished()` (count/loop based) and must therefore NOT be
+    /// force-advanced by the rotation duration timer. Defaults to `false`.
+    fn self_paced(&self) -> bool {
+        false
+    }
 }
 
 // =======================================================

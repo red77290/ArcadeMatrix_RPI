@@ -26,6 +26,12 @@ pub struct GifEngine {
     last_drawn_index: Option<usize>,
     last_update: Option<Instant>,
     playlists: Vec<String>,
+    /// Number of GIFs to play (one full loop each) before the engine reports
+    /// `is_finished()` and the rotation advances. Fed from the rotation entry's
+    /// numeric value via `set_rotation_budget`.
+    target_count: u32,
+    /// How many GIFs have completed a full loop in the current rotation visit.
+    gifs_played: u32,
 }
 
 impl GifEngine {
@@ -42,6 +48,8 @@ impl GifEngine {
             last_drawn_index: None,
             last_update: None,
             playlists: Vec::new(),
+            target_count: 1,
+            gifs_played: 0,
         }
     }
 
@@ -165,6 +173,20 @@ impl GifEngine {
         self.frames.is_empty()
     }
 
+    /// Parses the comma-separated `playlists` field. Shared by `initialize` and
+    /// `on_config_changed` so live edits take effect without a restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        let playlists_str = config.get_string("playlists", "");
+        self.playlists = if playlists_str.is_empty() {
+            Vec::new()
+        } else {
+            playlists_str
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect()
+        };
+    }
+
     /// Renders the current GIF frame to the matrix.
     /// Call this every iteration; it internally tracks elapsed time and
     /// advances to the next frame only when the frame's own delay has elapsed.
@@ -221,22 +243,19 @@ impl GifEngine {
 impl Engine for GifEngine {
     fn initialize(
         &mut self,
-        _context: &mut EngineContext,
+        context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        let playlists_str = config.get_string("playlists", "");
-        if !playlists_str.is_empty() {
-            self.playlists = playlists_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
-        } else {
-            self.playlists = Vec::new();
-        }
+        // Resize GIFs to the real panel size instead of a hardcoded 64x32,
+        // otherwise the clip only covers part of the screen on larger matrices.
+        self.target_width = context.matrix.width();
+        self.target_height = context.matrix.height();
+        self.apply_config(config);
         Ok(())
     }
 
     fn activate(&mut self) {
+        self.gifs_played = 0;
         self.play_random_playlist_gif(&self.playlists.clone());
         self.last_update = Some(Instant::now());
     }
@@ -261,6 +280,17 @@ impl Engine for GifEngine {
                 self.loop_count += 1;
             }
         }
+
+        // A full loop of the current GIF just completed: count it and, if we
+        // still owe more clips for this rotation visit, load the next random
+        // GIF. Otherwise `is_finished()` will trip and the rotation advances.
+        if self.loop_count >= 1 {
+            self.gifs_played += 1;
+            if self.gifs_played < self.target_count {
+                self.play_random_playlist_gif(&self.playlists.clone());
+                self.last_update = Some(Instant::now());
+            }
+        }
     }
 
     fn render(&mut self, context: &mut EngineContext) {
@@ -277,19 +307,19 @@ impl Engine for GifEngine {
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
-        let playlists_str = config.get_string("playlists", "");
-        if !playlists_str.is_empty() {
-            self.playlists = playlists_str
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect();
-        } else {
-            self.playlists = Vec::new();
-        }
+        self.apply_config(config);
+    }
+
+    fn set_rotation_budget(&mut self, budget: u32) {
+        self.target_count = budget.max(1);
+    }
+
+    fn self_paced(&self) -> bool {
+        true
     }
 
     fn is_finished(&self) -> bool {
-        self.has_finished_loops(1) || self.is_empty()
+        self.gifs_played >= self.target_count || self.is_empty()
     }
 }
 

@@ -165,6 +165,16 @@ impl HardwareMatrix {
         // Python doesn't set this at all (defaults to 0 in the C++ lib).
         options.set_limit_refresh(limit_refresh);
 
+        // CRITICAL: the Rust wrapper's LedMatrixOptions::default() sets
+        // `show_refresh_rate = 1`, which makes the underlying hzeller C++ library
+        // printf() the panel refresh rate to STDOUT on *every* panel refresh
+        // (hundreds of Hz). Those writes use `\b` (backspace) control characters,
+        // so systemd-journald flags the whole stream as non-UTF8 `[N blob data]`,
+        // drowning every real log line, and the constant printf() burns CPU and can
+        // block on a full stdout pipe. We never want this in production, so force it
+        // off explicitly.
+        options.set_refresh_rate(false);
+
         // WORKAROUND for hzeller/rpi-rgb-led-matrix bug:
         // The C API wrapper `led-matrix-c.cc` uses a macro `if (rt_opts->drop_privileges)`
         // which ignores the value `0` (false), meaning `rt_options.set_drop_privileges(false)`

@@ -1,209 +1,164 @@
 🇬🇧 [English](DEVELOPER.md) | 🇫🇷 [Français](DEVELOPER_FR.md) | 🇪🇸 Español
 
-# Guía del desarrollador
+# Guía del Desarrollador (Raspberry Pi - Rust)
 
-Bienvenido a la guía de desarrollo de ArcadeMatrix. Este documento explica la arquitectura principal del proyecto y proporciona instrucciones paso a paso sobre cómo ampliarlo.
-
-## Arquitectura: Renderers vs. Clocks
-
-Desde la gran refactorización, ArcadeMatrix separa estrictamente **la estética visual (Renderers)** de **la lógica de comportamiento (Clocks)**. Entender esta diferencia es fundamental antes de empezar a programar.
-
-### 1. Renderers (el «tema»)
-Ubicados en `engines/renderers/`.
-Un **Renderer** (p. ej. `CyberpunkRenderer`, `FlipRenderer`) es puramente estético. No le importa si está mostrando la hora, la fecha o el weather. Toma una cadena de texto, una fuente y la dibuja sobre un fondo estilizado o un efecto visual.
-- **Responsabilidad:** fondos, colores, efectos de partículas, animaciones de transición.
-- **Ventaja:** altamente reutilizable entre distintos Engines (`ClockEngine`, `DateEngine`, etc.).
-
-### 2. Specialized Clocks (el «mini-juego»)
-Ubicados en `engines/clocks/`.
-Un **Specialized Clock** (p. ej. `PongClock`, `TetrisClock`, `PacManClock`) es un motor de lógica dinámica. Gestiona un estado interno (como una pelota rebotando o bloques cayendo) para construir visualmente la visualización de la hora.
-- **Responsabilidad:** estado del juego, física, dibujo de sprites y generación visual de la hora en lugar de simplemente escribir una cadena.
-- **Ventaja:** completamente autónomo y permite visualizaciones muy complejas, frame a frame.
-
-## Ampliando la base de código Rust
-
-*Nota: ArcadeMatrix se reescribió recientemente en Rust. Los tutoriales para desarrolladores sobre cómo agregar Renderers, Clocks y Engines se están actualizando para reflejar la nueva arquitectura Rust (`src/engines/`). Mientras tanto, puedes inspeccionar las implementaciones existentes en `src/engines/renderers` para ver cómo se implementa el trait `Renderer`.*
+Bienvenido a la guía de desarrollo de ArcadeMatrix para Raspberry Pi. Este documento explica cómo extender la arquitectura y crear nuevos Motores en Rust.
 
 ---
 
-## Tutorial 1: crear un nuevo Renderer
+## 1. Entendiendo la Arquitectura: Motores, Registro y Ciclo de Vida
 
-Si quieres añadir un nuevo fondo genérico o efecto visual (como un tema «Synthwave») que pueda usarse tanto para Time como para Date:
+ArcadeMatrix ya no tiene una lista codificada en `app.rs` de sus características. El sistema se basa en un **Registro** (usando el crate `linkme`) que descubre los motores en el arranque.
 
-1. **Crear el archivo:**
-   Crea un archivo `engines/renderers/synthwave_renderer.rs`.
+### 1.1 El Ciclo de Vida Estricto (Lazy-Once)
 
-2. **Implementar el trait:**
-   (Código omitido: consulta la implementación de `base_renderer.rs` para ver cómo implementar el trait `Renderer`).
+Para prevenir desgarros de pantalla y jitter causados por el asignador de memoria de Rust (Heap), ArcadeMatrix impone un estricto ciclo de vida para cada implementación del trait `Engine`.
 
-3. **Registrar el Renderer:**
-   Abre `engines/renderers/mod.rs` y añade tu nuevo Renderer al registro.
+```text
+initialize()
+    │
+    ├── asignaciones en el montón (heap) vía 'String' o 'Vec'
+    ├── carga de activos (imágenes, fuentes)
+    ├── preparación de caché
+    └── inicialización pesada
+          ↓
+activate()
+    │
+    └── preparación de estado temporal (reinicio de temporizadores, etc.)
+          ↓
+update()
+    │
+    └── lógica en tiempo real (60 FPS) - **SIN ASIGNACIONES DINÁMICAS INNECESARIAS**
+          ↓
+render()
+    │
+    └── renderizado en tiempo real (60 FPS) - **SIN ASIGNACIONES DINÁMICAS INNECESARIAS**
+          ↓
+deactivate()
+    │
+    └── liberación de recursos externos o detención de escuchas
+```
+
+- **Regla de oro:** Nunca instancie nuevos `String` o `Vec` dinámicos dentro de `update()` o `render()`. Preasigne sus búferes en `initialize()` y mutelos en el lugar (ej. `my_string.clear()` y luego `write!(&mut my_string, "...")`).
+- **`on_config_changed()`:** Permite al motor actualizar su estado interno cuando el usuario cambia la configuración a través de la interfaz de usuario web (asíncrono).
+- **`is_finished()`:** Útil para indicar al `EngineRuntime` que un motor ha terminado su tarea para forzar el paso al siguiente motor sin esperar el tiempo de espera.
 
 ---
 
-## Tutorial 2: crear un nuevo Specialized Clock
+## 2. Tutorial: Creación de un Nuevo Motor
 
-Si quieres crear un reloj complejo que juegue a un juego o construya la hora bloque por bloque:
+Para crear un nuevo motor, debe implementar el trait `Engine` y proporcionar un `EngineDescriptor` a través del Registro.
 
-1. **Crear el archivo:**
-   Crea `engines/clocks/snake_clock.rs`.
+### Paso 1: Crear la estructura (`src/engines/my_engine.rs`)
 
-2. **Implementar la lógica:**
-   (Código omitido: consulta `clock_trait.rs` para ver los requisitos de la interfaz).
-
-3. **Registrar el reloj:**
-   Abre `engines/clock_engine.rs` e integra tu reloj en el motor de relojes.
-
----
-
-## Tutorial 3: crear un nuevo elemento de screensaver (Engine)
-
-Si quieres añadir un módulo completamente nuevo a la rotación idle:
-
-1. **Crear el archivo del Engine:**
-   Crea `engines/crypto.rs`.
-
-2. **Registrar el Engine en la rotación:**
-   Abre `src/core/rotation.rs` para incluir tu motor en el ciclo de ejecución.
-
-3. **Actualizar UI y configuración:**
-   - Actualiza `src/api/server.rs` para aceptar tu nuevo engine en los parámetros.
-   - Actualiza `api/www/index.html` para que los usuarios puedan arrastrarlo y soltarlo en su rotación activa.
-
----
-
-## Integración de API y Web UI
-
-Cada vez que crees un tema nuevo o un reloj nuevo:
-1. Actualiza `src/api/server.rs` si tu nueva función requiere nuevos ajustes.
-2. Actualiza `api/www/index.html` para añadir tu nuevo Theme ID a los menús desplegables (`<select id="time_theme">`).
-
-### ⚠️ El código fuente del frontend no está en este repositorio
-
-`api/www/` solo contiene el dashboard **compilado/empaquetado** (`index.html`, `assets/index-*.js`,
-`assets/index-*.css`: una build minificada de Vite, JS/HTML/CSS plano, **no** Vue.js a pesar de que
-documentación antigua afirmaba lo contrario). Aquí no hay `package.json`, ni fuentes de componentes,
-ni configuración de Vite versionada, por lo que el bundle **no puede reconstruirse ni modificarse
-de forma significativa** solo desde este repositorio; únicamente puede editarse a mano sobre la salida
-ya minificada, lo que no escala más allá de ajustes triviales (como las entradas del desplegable de
-temas mencionadas arriba).
-
-Si necesitas realizar cambios importantes en la UI, tienes dos opciones:
-1. Localizar dónde vive el proyecto fuente original del frontend (si todavía existe) y volver a
-   integrarlo en este repositorio, por ejemplo dentro de una nueva carpeta `frontend/`, con un paso
-   de build que genere la salida en `api/www/`.
-2. Reconstruir desde cero un pequeño proyecto frontend contra la API REST existente (consulta
-   `src/api/server.rs` para la lista completa de rutas) si la fuente original realmente se ha perdido.
-
-En cualquier caso, **no sigas distribuyendo silenciosamente solo un bundle compilado sin una fuente
-de verdad documentada**: si encuentras/restauras la fuente, haz commit de ella y documenta aquí el
-comando de build.
-
-## Probando Tu Código
-
-Imponemos un 100% de cobertura de pruebas en las rutas API. Para verificar tu código:
-```bash
-cargo test
-```
-
-## Flujo de Desarrollo Local Rápido (Cross-Compilation)
-
-Para iterar rápidamente, no necesitas reconstruir todo el archivo `.img` de 14 GB ni compilar directamente en la Raspberry Pi lenta. ArcadeMatrix incluye scripts de compilación cruzada que funcionan en cualquier SO anfitrión (Windows, Linux, macOS) siempre que Docker esté instalado.
-
-### 1. Construir el Binario
-Este comando lanza un contenedor Docker ligero de Rust, instala la toolchain de compilación cruzada para ARM64 y compila tu código Rust nativamente en solo unos segundos. El binario resultante se guarda en `target/aarch64-unknown-linux-gnu/release/arcadematrix`.
-```bash
-bash scripts/build_local.sh
-```
-
-### 2. Desplegar en la Raspberry Pi
-Este comando utiliza `scp` y `ssh` para subir el nuevo binario compilado directamente a tu Raspberry Pi activa y reinicia el servicio systemd.
-```bash
-bash scripts/deploy_to_pi.sh pi@<TU_DIRECCION_IP_PI>
-```
-
-## Pruebas Unitarias y TDD
-El proyecto sigue los principios de TDD para la integración de API. Al agregar una nueva API, implemente la interfaz Provider correspondiente (`ICryptoProvider`, etc.) y escriba pruebas unitarias utilizando objetos Mock antes de conectarla. Las pruebas deben lograr la máxima cobertura en el análisis de JSON y la lógica de respaldo sin requerir hardware físico.
-
-## Personalización del Usuario del SO (Custom User)
-Si desea cambiar el usuario predeterminado (`pi`) y su contraseña predeterminada (`raspberry`) para la generación de imágenes o la implementación manual, puede editar el archivo `scripts/defaults.sh` antes de iniciar la compilación.
-
-```bash
-export AM_USER="tu_usuario"
-export AM_PASS="tu_contraseña"
-```
-Durante la generación de la imagen con `scripts/build_image.sh`, estas variables se leerán automáticamente. El hash de la contraseña se calculará dinámicamente usando SHA-512 para su inyección en el archivo `.img` (`userconf.txt`).
-Los scripts de implementación (`autoInstall.sh` y `deploy.sh`) también utilizarán estas variables para configurar correctamente los permisos (atravesar la carpeta principal para el demonio) e instalar los alias `.bash_aliases` en la ubicación correcta.
-
----
-
-## Tutorial: Añadir un Nuevo Módulo de Rotación (ej. Pager/Noticias)
-
-Si deseas añadir un nuevo módulo al bucle de rotación (por ejemplo, un "Pager" para noticias), sigue estos pasos:
-
-### Paso 1: La Interfaz Web
-En `api/www/index.html`, añade la casilla de verificación:
-```html
-<label class="toggle-checkbox">
-  <input type="checkbox" value="pager">
-  <span class="toggle-label">Pager</span>
-</label>
-```
-El JS incorporado enviará automáticamente este valor a `/api/settings`.
-
-### Paso 2: La Configuración (`config.json`)
-En `src/core/config.rs`, se utiliza un Enum `IdleRotationItem`. Añade tu variante:
 ```rust
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum IdleRotationItem {
-    Clock,
-    Gifs,
-    Sprites,
-    Pager, // <-- Nuevo módulo
-}
-```
-Actualiza los traits `FromStr` y `Display` en `config.rs` para que la cadena `"pager"` se analice correctamente.
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
+use crate::core::matrix::MatrixBackend;
 
-### Paso 3: El Motor (Engine)
-Crea un archivo `src/engines/pager.rs` para la lógica de dibujo usando `imageproc` y `rusttype`.
-```rust
-use rpi_led_matrix::Canvas;
-
-pub struct PagerEngine {
-    news_text: String,
+pub struct MyEngine {
+    my_setting: String,
+    counter: u32,
 }
 
-impl PagerEngine {
+impl MyEngine {
     pub fn new() -> Self {
-        Self { news_text: "CARGANDO NOTICIAS...".to_string() }
-    }
-    
-    pub fn draw(&mut self, canvas: &mut Canvas) {
-        canvas.clear();
-        // Usar imageproc para dibujar texto
+        Self {
+            my_setting: String::new(),
+            counter: 0,
+        }
     }
 }
 ```
 
-### Paso 4: El Bucle de Rotación
-En `src/core/rotation.rs` (o `main.rs`), añade el match para `Pager`:
+### Paso 2: Implementar el Ciclo de Vida
+
 ```rust
-match current_rotation_item {
-    IdleRotationItem::Clock => { /* ... */ },
-    IdleRotationItem::Pager => {
-        let mut pager = PagerEngine::new();
-        // Bucle hasta que expire la duración
-        pager.draw(&mut canvas);
-    },
+impl Engine for MyEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        // Lugar seguro para asignaciones
+        self.my_setting = config.get_string("my_setting", "default");
+        println!("MyEngine inicializado!");
+        Ok(())
+    }
+
+    fn activate(&mut self) {
+        self.counter = 0; // Reinicio rápido
+    }
+
+    fn update(&mut self, _context: &mut EngineContext) {
+        // Lógica de negocio rápida, SIN asignaciones
+        self.counter += 1;
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        // Renderizado por hardware vía context.matrix
+        context.matrix.clear();
+        // Precaución: dibujar texto no crea asignación si se usan búferes existentes
+    }
+
+    fn deactivate(&mut self) {}
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.my_setting = config.get_string("my_setting", "default");
+    }
+
+    fn is_finished(&self) -> bool {
+        false
+    }
 }
 ```
 
+### Paso 3: Registrar el Motor en el Arranque
 
-## Ciclo de vida moderno de los motores (Lazy-Once)
-A partir de la refactorización de Paridad de Arquitectura S13, ArcadeMatrix utiliza un ciclo de vida "Lazy-Once" estricto para los motores tanto en ESP32 como en RPi:
-- **`initialize(context, config)`**: Se llama **exactamente una vez** la primera vez que el administrador de rotación selecciona el motor. Haga las asignaciones de memoria importantes aquí.
-- **`activate()`**: Se llama cada vez que el motor gira a la vista.
-- **`update(context) / render(context)`**: Se llama a 60 FPS. **No debe asignar memoria**.
-- **`deactivate()`**: Se llama cuando se gira hacia otro motor.
-- **`on_config_changed(config)`**: Se llama cuando el usuario cambia la configuración a través de la interfaz de usuario web mientras el motor ya está inicializado.
-- **`is_finished()`**: Usado por la rotación para omitir condicionalmente motores si no tienen trabajo pendiente.
+Añada el descriptor en la parte inferior de su archivo para exponer los campos de configuración a la API Web:
+
+```rust
+use crate::core::engine_contract::{
+    Capabilities, ConfigField, ConfigSchema, ConfigType, EngineDescriptor, EngineFactory,
+    EngineMetadata, Requirements,
+};
+use linkme::distributed_slice;
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_MyEngine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "my_engine",
+            name: "My Custom Engine",
+            category: "misc",
+            version: "1.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![ConfigField {
+                id: "my_setting",
+                field_type: ConfigType::String,
+                label: "My Setting",
+                description: "Enter a word to display",
+                default_value: "default",
+                options: None,
+                min_val: None,
+                max_val: None,
+                required: false,
+                step: None,
+                visible_when: None,
+            }],
+        },
+        factory: || Box::new(MyEngine::new()),
+    }
+}
+```
+
+### Paso 4: Añadir referencia del módulo
+
+Abra `src/engines/mod.rs` y añada:
+```rust
+pub mod my_engine;
+```
+
+¡Eso es todo! **No se necesita modificar ningún código en `app.rs`**. El motor se listará automáticamente en la API Web, y su configuración `config.json` se gestionará de forma aislada.

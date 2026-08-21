@@ -2,105 +2,91 @@
 
 # Architecture Overview (Raspberry Pi - Rust)
 
-This document provides a comprehensive overview of the ArcadeMatrix architecture on the Raspberry Pi built with **Rust**. It explains the core design decisions, the rendering pipeline, threading models, dependency injection, and hardware rotation mechanics.
+This document provides a detailed overview of the ArcadeMatrix architecture on Raspberry Pi developed in **Rust**. It explains the deep design choices, memory strategy, rendering pipeline, and the "Lazy-Once" lifecycle of the engines.
 
 ---
 
-## 1. Core Philosophy
+## 1. Design Philosophy: Performance and "Jitter"
 
-ArcadeMatrix driving a HUB75 LED Matrix using the `hzeller/rpi-rgb-led-matrix` C++ library via its Rust bindings (`rpi-led-matrix-sys`). The primary goals are:
-- **Pixel-Perfect Rendering:** Support for sharp `.bdf` bitmap fonts and crisp RGB sprites.
-- **Modularity:** Easy addition of new visual themes, clocks, and data sources via traits.
-- **Responsiveness:** A single-threaded isolated Web API (`actix-web`) that can interrupt and change the display instantly without choking network IRQs or crashing the hardware matrix driver.
+Unlike the ESP32, the Raspberry Pi has abundant RAM (512 MB to 8 GB). However, its operating system is not "Real-Time" (RTOS). The matrix driver (via DMA/GPIO) is extremely sensitive to micro-stutters ("jitter").
+
+To maintain a stable 60 FPS refresh rate without screen tearing, **the hot loop (`update()` and `render()`) must not generate any unnecessary dynamic allocations**. Allocations cause heap cleaning or resizing work that can introduce unpredictable latency of a few milliseconds, which is enough to make the LED matrix flicker.
 
 ---
 
-## 2. The Rendering Pipeline
+## 2. The "Lazy-Once" Lifecycle
 
-To keep the codebase maintainable, we strictly separate the logic of *what* to display from *how* to draw it. 
-
-### High-Level Diagram
+To meet this constraint, the architecture relies on a very strict lifecycle model called **Lazy-Once**.
 
 ```mermaid
 graph TD
-    subgraph Data Layer
-        API[Actix-web Web API]
-        Config[config.json / ConfigLoader]
-        Time[System Time]
-        Network[Weather / MQTT / Crypto / Stock APIs]
-    end
-
-    subgraph Engine Layer
-        Rot[RotationState]
-        ClockE[ClockEngine]
-        DateE[DateEngine]
-        WeathE[WeatherEngine]
-        CryptoE[CryptoEngine]
-        StockE[StockEngine]
-        Rot --> ClockE & DateE & WeathE & CryptoE & StockE
-    end
-
-    subgraph Logic & Aesthetic Layer
-        ClockE -->|Theme ID 0-21| Renderers[Renderers: Cyberpunk, Flip, Matrix]
-        ClockE -->|Theme ID 22+| SpClocks[Specialized Clocks: Pong, Tetris, PacMan]
-        Renderers --> Pil[image-rs Image Canvas]
-        SpClocks --> Pil
-    end
-
-    subgraph Hardware Layer
-        Pil --> Wrapper[HardwareMatrix / MockMatrix]
-        Wrapper --> Hardware[HUB75 LED Matrix]
-    end
-
-    API -.->|Writes INI| Config
-    Config -.->|Signals| Rot
+                 Registry[Engine Registry]
+                       │
+                 Descriptor[EngineDescriptor]
+                       │
+                    Factory[Factory]
+                       │
+                 Instance[EngineInstance]
+                       │
+              ┌────────┴────────┐
+              │                 │
+        Context[EngineContext] Config[EngineConfig]
+              │                 │
+              └────────┬────────┘
+                       │
+                 Runtime[Engine Runtime]
+                       │
+          ┌────────────┼────────────┐
+          │            │            │
+       activate      update       render
+          │            │            │
+          └────────────┼────────────┘
+                       │
+                  deactivate
 ```
 
+### Phase Explanation:
+
+1. **`initialize()` (Allocation):**
+   * **When?** Called *exactly once* in the entire life of the program, the very first time the engine needs to be displayed ("Lazy" instantiation).
+   * **Why?** Avoids loading assets (images, fonts) into RAM for engines that the user has disabled in the configuration. This is where bitmaps are loaded and the playing field is prepared.
+2. **`activate()` (Temporary Preparation):**
+   * **When?** Called every time the engine becomes the "active" engine on screen.
+   * **Why?** Allows resetting state (e.g., putting the Pong ball back in the center, or restarting a stopwatch) without having to reallocate memory.
+3. **`update()` & `render()` (Hot Loop - 60 FPS):**
+   * **Constraint:** **No unnecessary dynamic allocation.** The required memory (String, Vec) must have been reserved in `initialize` or reused (e.g., `String::clear()` then `write!()` instead of allocating new strings).
+4. **`deactivate()` (Standby):**
+   * Allows stopping heavy background tasks when the engine is no longer on screen.
+5. **`is_finished()` (Conditional Jump):**
+   * Allows the engine to signal to the rotation `Runtime` that it has finished its task (e.g., the Crypto Engine has finished displaying all its tokens).
+
 ---
 
-## 3. Threading & Runtime Isolation Model
+## 3. Decoupling: Registry and Configuration
 
-ArcadeMatrix RPi uses a multi-thread architecture designed to isolate hardware rendering from async I/O network operations:
+### Why doesn't the Core contain a list of concrete types?
+In previous versions, `app.rs` manually included all clock files and created a huge `match` block with `Box::new(ClockEngine)`. This broke the open/closed principle (SOLID): adding an engine required modifying the core of the application.
+Thanks to the **Registry** (based on the `#[distributed_slice]` macro), each engine registers itself autonomously during compilation. The application Core is completely unaware of the existence of concrete engines.
 
-1. **Dedicated Render Thread (`matrix-render`):**
-   - Runs in a dedicated OS thread with an 8MB stack.
-   - Executes the main matrix render loop, updating the hardware matrix at high frame rates.
-   - Retries hardware init if GPIO/DMA is locked by a previous process restart.
+### Why does the Registry contain descriptors rather than instances?
+Immediate instantiation of all engines at startup (`Box::new(...)`) would unnecessarily consume RAM and slow down boot time. Instead, the descriptor stores a **Factory** (a pointer function creating the instance on the fly) and the required metadata.
+
+### Why separate `config.json` and `EngineConfig`?
+The root file (`config.json`) describes the entire device (WiFi, Matrix, etc.). However, engines do not need — and should not have access to — WiFi or other engines' configuration. `EngineConfig` acts as a restricted view or proxy providing only the variables declared by the engine via its `ConfigSchema`.
+
+---
+
+## 4. Runtime Isolation & Threading Model
+
+ArcadeMatrix relies on a multi-threaded architecture to isolate hardware rendering from network operations:
+
+1. **Dedicated Rendering Thread (`matrix-render`):**
+   - Runs in a dedicated OS thread with an 8 MB stack.
+   - Exclusive access to the LED matrix. If it were combined with the Web API, every HTTP request would cause a frame skip (tearing) on the matrix.
 
 2. **Isolated Web API Thread (`api-server`):**
-   - Runs `actix-web` on a single-threaded Tokio runtime (`Builder::new_current_thread()`).
-   - Prevents async network tasks from spawning threads across all CPU cores and choking Wi-Fi interrupts.
-   - Communicates with the render thread strictly via atomic flags (`reload_flag`, `reset_rotation`, `matrix_power`) and `RwLock<ConfigSettings>`.
+   - Runs on a single-threaded Tokio runtime (`Builder::new_current_thread()`).
+   - Manages configuration via the web interface (port 80). Communicates with the rendering thread only via atomic primitives (`AtomicBool`) or short-lived asynchronous locks (`RwLock`).
 
 3. **Background Services:**
-   - **MQTT Listener (`rumqttc`):** Receives game status events asynchronously from Batocera / Recalbox.
-   - **Multi-Provider Data Engines:** Async data fetchers updating internal caches for Crypto (CoinGecko, Binance), Stock (Yahoo Finance), and Weather (OpenWeatherMap).
-
----
-
-## 4. Symbol Counting & Rotation Auto-Skipping
-
-The rotation engine handles asset listings (`crypto`, `stocks`) intelligently:
-- **Symbol Parsing:** Comma-separated symbol strings (`CRYPTO SYMBOLS`, `STOCK SYMBOLS`) are parsed into trimmed, non-empty tokens (ignoring whitespace and empty comma sequences).
-- **Auto-Skipping:** If `crypto_symbols` or `stock_symbols` count evaluates to `0` (or if the module is disabled), `RotationState` automatically advances to the next configured module in the playlist without stalling or waiting.
-- **Dynamic Module Duration:** Displays each active symbol for a configurable per-token duration (e.g. `symbol_count * 5s`).
-
----
-
-## 5. RPi (Rust) vs ESP32 (C++) Architecture Differences
-
-- **RPi (Rust):** Uses a decoupled Rendering Pipeline (Engines -> Renderers -> `image-rs` Canvas -> Hardware Matrix). Abundant RAM (512MB+) enables full-color frame manipulation before transferring pixel data to `rpi-rgb-led-matrix`.
-- **ESP32 (C++):** Uses a Direct DMA Rendering structure. RAM is limited to 320KB internal memory. Primitives draw directly to DMA buffers with minimal RAM overhead.
-
-*This architectural divergence is intentional and optimizes for the specific constraints of each hardware platform.*
-
----
-
-## 6. Dependency Injection & Traits
-
-Engine data providers use Rust `trait` abstractions (`IProvider`):
-- `CryptoEngine` supports multiple `CryptoProvider` implementations (`CoinGeckoProvider`, `BinanceProvider`).
-- `StockEngine` supports `StockProvider` (`YahooFinanceProvider`).
-- `WeatherEngine` supports `WeatherProvider` (`OpenWeatherMapProvider`).
-
-This allows automatic fallback on API failures and comprehensive unit testing via mock providers.
+   - **MQTT Listener / HTTP APIs:** Isolated to never block frame computation (`update()`).

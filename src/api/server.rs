@@ -231,16 +231,51 @@ async fn get_engines(req: HttpRequest, data: web::Data<AppState>) -> impl Respon
     HttpResponse::Ok().json(crate::core::registry::EngineRegistry::get_all_descriptors())
 }
 
+/// Runs a privileged power command, trying several candidates so it works
+/// whether or not `sudo` is needed and regardless of the systemd PATH. Logs the
+/// outcome instead of silently swallowing failures (the previous `.spawn().ok()`
+/// hid the reason reboot/shutdown appeared to do nothing).
+fn run_power_command(candidates: &[&[&str]]) -> bool {
+    for cand in candidates {
+        let (bin, args) = cand.split_first().expect("non-empty command");
+        match std::process::Command::new(bin).args(args).spawn() {
+            Ok(_) => {
+                tracing::info!("Power command dispatched: {} {:?}", bin, args);
+                return true;
+            }
+            Err(e) => {
+                tracing::warn!("Power command '{}' failed: {}", bin, e);
+            }
+        }
+    }
+    tracing::error!("All power command candidates failed");
+    false
+}
+
+#[post("/api/system/restart")]
+async fn post_restart(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    // Gracefully stop the render loop; the process then exits and systemd
+    // (Restart=always) brings the app back in a couple of seconds. This applies
+    // hardware-level settings without a full OS reboot.
+    tracing::info!("Application restart requested via API.");
+    data.config.reload_flag.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "restarting"}))
+}
+
 #[get("/api/action/reboot")]
 async fn reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    std::process::Command::new("sudo")
-        .arg("reboot")
-        .spawn()
-        .ok();
-    HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
 #[post("/api/system/reboot")]
@@ -248,11 +283,12 @@ async fn post_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Respon
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    std::process::Command::new("sudo")
-        .arg("reboot")
-        .spawn()
-        .ok();
-    HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
 #[post("/api/system/shutdown")]
@@ -260,11 +296,16 @@ async fn post_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    std::process::Command::new("sudo")
-        .args(["shutdown", "-h", "now"])
-        .spawn()
-        .ok();
-    HttpResponse::Ok().json(json!({"status": "shutting_down"}))
+    let ok = run_power_command(&[
+        &["systemctl", "poweroff"],
+        &["shutdown", "-h", "now"],
+        &["sudo", "shutdown", "-h", "now"],
+    ]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "shutting_down"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
 #[post("/api/system/power")]
@@ -586,6 +627,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_engines)
             .service(reboot)
             .service(post_reboot)
+            .service(post_restart)
             .service(post_shutdown)
             .service(post_power)
             .service(get_stats)

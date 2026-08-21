@@ -127,6 +127,20 @@ function initDashboard() {
     });
   }
 
+  const btnRestartApp = document.getElementById('btn-restart-app');
+  if (btnRestartApp) {
+    btnRestartApp.addEventListener('click', async () => {
+      if (confirm('Restart the ArcadeMatrix app? The display will go blank for a few seconds.')) {
+        try {
+          await API.post('/api/system/restart');
+          window.showToast('Restarting app...', 'info');
+        } catch (e) {
+          window.showToast('Failed to restart app', 'error');
+        }
+      }
+    });
+  }
+
   // System Info Polling
   setInterval(async () => {
     try {

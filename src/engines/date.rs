@@ -45,14 +45,10 @@ impl DateEngine {
             last_font: String::new(),
         }
     }
-}
 
-impl Engine for DateEngine {
-    fn initialize(
-        &mut self,
-        _context: &mut EngineContext,
-        config: &dyn EngineConfig,
-    ) -> Result<(), EngineError> {
+    /// Reads every configurable field. Shared by `initialize` and
+    /// `on_config_changed` so live UI edits apply without a restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
         self.date_format = config.get_string("format", "%d/%m");
         self.date_font = config.get_string("font", "PressStart2P.ttf");
         self.date_size = config.get_int("size", 2) as u32;
@@ -61,12 +57,26 @@ impl Engine for DateEngine {
         self.date_color_2 = config.get_string("color_2", "#ffffff");
         self.date_offset_x = config.get_int("offset_x", 0);
         self.date_offset_y = config.get_int("offset_y", 0);
+    }
+}
+
+impl Engine for DateEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
         Ok(())
     }
 
     fn activate(&mut self) {}
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+    }
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;

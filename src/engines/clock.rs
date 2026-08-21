@@ -66,14 +66,11 @@ impl ClockEngine {
             last_size: 0,
         }
     }
-}
 
-impl Engine for ClockEngine {
-    fn initialize(
-        &mut self,
-        _context: &mut EngineContext,
-        config: &dyn EngineConfig,
-    ) -> Result<(), EngineError> {
+    /// Reads every configurable field from the instance config. Shared by
+    /// `initialize` (first load) and `on_config_changed` (live UI edits) so a
+    /// theme/font/color change is applied on the fly without restarting.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
         self.time_format = config.get_string("format", "%H:%M:%S");
         self.time_font = config.get_string("font", "PressStart2P.ttf");
         self.time_size = config.get_int("size", 2) as u32;
@@ -82,12 +79,26 @@ impl Engine for ClockEngine {
         self.clock_color_2 = config.get_string("color_2", "#ffffff");
         self.time_offset_x = config.get_int("offset_x", 0);
         self.time_offset_y = config.get_int("offset_y", 0);
+    }
+}
+
+impl Engine for ClockEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
         Ok(())
     }
 
     fn activate(&mut self) {}
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+    }
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;

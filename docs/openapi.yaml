@@ -317,6 +317,28 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/system/restart:
+    post:
+      tags: [System]
+      summary: Restart the ArcadeMatrix application (not the OS)
+      description: >
+        Gracefully stops the render loop so the process exits and systemd
+        (Restart=always) relaunches it within a few seconds. Applies
+        hardware-level settings without a full OS reboot.
+      responses:
+        '200':
+          description: Restarting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: restarting
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/action/reboot:
     get:
       tags: [System]

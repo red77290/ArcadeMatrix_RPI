@@ -359,13 +359,18 @@ function initNetworkSettings() {
   const btnSaveMqtt = document.getElementById('btn-save-mqtt');
   if (btnSaveMqtt) {
     btnSaveMqtt.addEventListener('click', async () => {
-      const mqtt_enable = document.getElementById('hw-mqtt-enable').value === '1';
-      const mqtt_broker = document.getElementById('hw-mqtt-broker').value;
-      const mqtt_port = parseInt(document.getElementById('hw-mqtt-port').value, 10);
-      const mqtt_user = document.getElementById('hw-mqtt-user').value;
-      const mqtt_pass = document.getElementById('hw-mqtt-pass').value;
+      const base = (window.__sysConfig && window.__sysConfig.mqtt) ? { ...window.__sysConfig.mqtt } : {};
+      const mqtt = {
+        ...base,
+        enabled: document.getElementById('hw-mqtt-enable').value === '1',
+        broker: document.getElementById('hw-mqtt-broker').value,
+        port: parseInt(document.getElementById('hw-mqtt-port').value, 10) || 1883,
+        user: document.getElementById('hw-mqtt-user').value,
+        pass: document.getElementById('hw-mqtt-pass').value,
+      };
       try {
-        await API.post('/api/system', { mqtt_enable, mqtt_broker, mqtt_port, mqtt_user, mqtt_pass });
+        await API.post('/api/system', { mqtt });
+        if (window.__sysConfig) window.__sysConfig.mqtt = mqtt;
         window.showToast('MQTT Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save MQTT Settings', 'error');
@@ -389,17 +394,24 @@ function initNetworkSettings() {
 }
 
 async function initSettings() {
-  // Load current settings
+  // Load current settings (canonical nested model straight from config.json).
   try {
-    const s = await API.get('/api/system').then(s => ({ brightness_limit: s.system.night_brightness || 50, matrix_brightness: 50, ...s.system, ...s.mqtt, ...s.wifi }));
-    
-    // Dashboard
+    const cfg = await API.get('/api/system');
+    window.__sysConfig = cfg; // keep the full config to merge on save
+    const sys = cfg.system || {};
+    const matrix = cfg.matrix || {};
+    const mqtt = cfg.mqtt || {};
+
+    // Dashboard brightness (0-100). We reuse night_brightness as the stored value.
     const sliderBright = document.getElementById('slider-brightness');
     if (sliderBright) {
-      sliderBright.value = s.brightness_limit;
-      document.getElementById('val-brightness').textContent = s.brightness_limit;
+      const bright = sys.night_brightness ?? 50;
+      sliderBright.value = bright;
+      const valEl = document.getElementById('val-brightness');
+      if (valEl) valEl.textContent = bright;
       sliderBright.addEventListener('input', (e) => {
-        document.getElementById('val-brightness').textContent = e.target.value;
+        const v = document.getElementById('val-brightness');
+        if (v) v.textContent = e.target.value;
       });
       sliderBright.addEventListener('change', async (e) => {
         await API.post('/api/system', { brightness_limit: parseInt(e.target.value) });
@@ -410,38 +422,39 @@ async function initSettings() {
     const sliderNightBright = document.getElementById('cfg-night-brightness');
     if (sliderNightBright) {
       sliderNightBright.addEventListener('input', (e) => {
-        document.getElementById('night-brightness-val').textContent = e.target.value + '%';
+        const v = document.getElementById('night-brightness-val');
+        if (v) v.textContent = e.target.value + '%';
       });
     }
 
-    // Hardware
-    document.getElementById('hw-rows').value = s.matrix_rows;
-    document.getElementById('hw-cols').value = s.matrix_cols;
-    document.getElementById('hw-chain').value = s.matrix_chain;
-    document.getElementById('hw-parallel').value = s.matrix_parallel;
-    if (document.getElementById('hw-driver-chip')) document.getElementById('hw-driver-chip').value = s.matrix_driver_chip || 'SHIFTREG';
-    if (document.getElementById('hw-row-addr-type')) document.getElementById('hw-row-addr-type').value = s.matrix_row_addr_type || 0;
-    if (document.getElementById('hw-multiplexing')) document.getElementById('hw-multiplexing').value = s.matrix_multiplexing || 0;
-    document.getElementById('hw-mapping').value = s.matrix_mapping || 'regular';
-    document.getElementById('hw-rgb').value = s.matrix_rgb_sequence || 'RGB';
-    document.getElementById('hw-slowdown').value = s.matrix_slowdown;
-    document.getElementById('hw-pwm-bits').value = s.matrix_pwm_bits;
-    document.getElementById('hw-pwm-lsb').value = s.matrix_pwm_lsb_nanoseconds;
-    document.getElementById('hw-disable-pulsing').checked = s.matrix_disable_hardware_pulsing;
-    document.getElementById('hw-limit-refresh').value = s.matrix_limit_refresh_rate_hz;
-    
-    // MQTT
-    document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
-    document.getElementById('hw-mqtt-broker').value = s.mqtt_broker;
-    document.getElementById('hw-mqtt-port').value = s.mqtt_port;
-    document.getElementById('hw-mqtt-user').value = s.mqtt_user || '';
-    document.getElementById('hw-mqtt-pass').value = s.mqtt_pass || '';
+    // Hardware (nested matrix.*)
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    setVal('hw-rows', matrix.height);
+    setVal('hw-cols', matrix.width);
+    setVal('hw-chain', matrix.chain_length);
+    setVal('hw-parallel', 1);
+    setVal('hw-driver-chip', matrix.driver_chip || 'SHIFTREG');
+    setVal('hw-row-addr-type', matrix.row_address_mode ?? 0);
+    setVal('hw-multiplexing', matrix.multiplexing ?? 0);
+    setVal('hw-mapping', matrix.mapping || 'regular');
+    setVal('hw-rgb', matrix.rgb_sequence || 'RGB');
+    setVal('hw-slowdown', matrix.slowdown);
+    setVal('hw-pwm-bits', matrix.pwm_bits);
+    setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds);
+    setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing);
+    setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz);
 
-    // API
-    document.getElementById('hw-api-auth').value = s.api_auth_enabled ? 'true' : 'false';
-    document.getElementById('hw-api-token').value = s.api_token || '';
+    // MQTT (nested mqtt.*)
+    setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
+    setVal('hw-mqtt-broker', mqtt.broker);
+    setVal('hw-mqtt-port', mqtt.port);
+    setVal('hw-mqtt-user', mqtt.user || '');
+    setVal('hw-mqtt-pass', mqtt.pass || '');
 
-
+    // API auth (top-level)
+    setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');
+    setVal('hw-api-token', cfg.api_token || '');
   } catch (e) {
     console.error('Failed to load settings', e);
   }
@@ -451,47 +464,35 @@ async function initSettings() {
   const btnSaveHw = document.getElementById('btn-save-hw');
   if (btnSaveHw) {
     btnSaveHw.addEventListener('click', async () => {
-      const rows = parseInt(document.getElementById('hw-rows').value) || 32;
-      const cols = parseInt(document.getElementById('hw-cols').value) || 64;
-      const chain = parseInt(document.getElementById('hw-chain').value) || 1;
-      const parallel = parseInt(document.getElementById('hw-parallel').value) || 1;
-      const driverChip = document.getElementById('hw-driver-chip')?.value || 'SHIFTREG';
-      const rowAddrType = parseInt(document.getElementById('hw-row-addr-type')?.value) || 0;
-      const multiplexing = parseInt(document.getElementById('hw-multiplexing')?.value) || 0;
-      const mapping = document.getElementById('hw-mapping').value || 'regular';
-      const rgb = document.getElementById('hw-rgb').value || 'RGB';
-      const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 2;
-      const pwmBits = parseInt(document.getElementById('hw-pwm-bits').value) || 11;
-      const pwmLsb = parseInt(document.getElementById('hw-pwm-lsb').value) || 130;
-      const disablePulsing = document.getElementById('hw-disable-pulsing').checked;
-      const limitRefresh = parseInt(document.getElementById('hw-limit-refresh').value) || 120;
-      
+      // Start from the full loaded matrix config so untouched fields (panel_type,
+      // color_depth, latch_blanking, ...) are preserved instead of reset to default.
+      const base = (window.__sysConfig && window.__sysConfig.matrix) ? { ...window.__sysConfig.matrix } : {};
+      const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
+      const matrix = {
+        ...base,
+        height: numOr('hw-rows', 32),
+        width: numOr('hw-cols', 64),
+        chain_length: numOr('hw-chain', 1),
+        driver_chip: document.getElementById('hw-driver-chip')?.value || 'SHIFTREG',
+        row_address_mode: numOr('hw-row-addr-type', 0),
+        multiplexing: numOr('hw-multiplexing', 0),
+        mapping: document.getElementById('hw-mapping')?.value || 'regular',
+        rgb_sequence: document.getElementById('hw-rgb')?.value || 'RGB',
+        slowdown: numOr('hw-slowdown', 2),
+        pwm_bits: numOr('hw-pwm-bits', 11),
+        pwm_lsb_nanoseconds: numOr('hw-pwm-lsb', 130),
+        disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
+        limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
+      };
       try {
-        await API.post('/api/system', { 
-          matrix_rows: rows,
-          matrix_cols: cols,
-          matrix_chain: chain,
-          matrix_parallel: parallel,
-          matrix_driver_chip: driverChip,
-          matrix_row_addr_type: rowAddrType,
-          matrix_multiplexing: multiplexing,
-          matrix_mapping: mapping,
-          matrix_rgb_sequence: rgb,
-          matrix_slowdown: slowdown,
-          matrix_pwm_bits: pwmBits,
-          matrix_pwm_lsb_nanoseconds: pwmLsb,
-          matrix_disable_hardware_pulsing: disablePulsing,
-          matrix_limit_refresh_rate_hz: limitRefresh
-        });
-        window.showToast('Hardware settings saved! Please Reboot for changes to take effect.', 'success');
-        
+        await API.post('/api/system', { matrix });
+        if (window.__sysConfig) window.__sysConfig.matrix = matrix;
+        window.showToast('Hardware settings saved! The panel will restart to apply changes.', 'success');
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }
     });
   }
-
-
 }
 
 

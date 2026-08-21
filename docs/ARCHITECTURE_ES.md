@@ -74,6 +74,26 @@ La instanciación inmediata de todos los motores en el arranque (`Box::new(...)`
 ### ¿Por qué separar `config.json` y `EngineConfig`?
 El archivo raíz (`config.json`) describe todo el dispositivo (WiFi, Matriz, etc.). Sin embargo, los motores no necesitan — y no deben tener acceso a — la configuración de WiFi u otros motores. `EngineConfig` actúa como una vista restringida o proxy que proporciona solo las variables declaradas por el motor a través de su `ConfigSchema`.
 
+### ¿Cómo llega un cambio de configuración a un motor en ejecución?
+Como las instancias se guardan en caché (Lazy-Once), una edición de configuración debe enviarse activamente al motor en vivo en lugar de recrearlo. La cadena de propagación está completamente conectada de extremo a extremo:
+
+```text
+POST /api/instances        (hilo api-server)
+        │  valida engine_id, se autorrepara vía ConfigSanitizer, guarda config.json
+        ▼
+reset_rotation / reload_flag  (AtomicBool)
+        │  leído por el hilo de renderizado en el siguiente frame
+        ▼
+EngineRuntime.get_instance()  detecta que cambió el snapshot de configuración
+        │
+        ▼
+engine.on_config_changed()   (misma instancia, sin reasignación)
+```
+
+* **Las ediciones de instancia** se aplican **en vivo** (`on_config_changed`) sin reinicio y sin reasignación.
+* **Los cambios de hardware/red** (matrix, `disable_internal`, ...) establecen `reload_flag`, que el bucle de renderizado respeta reiniciando el proceso limpiamente para que el controlador se reinicialice.
+* La cadencia de renderizado se elige a partir del flag `Capabilities.realtime` del descriptor del motor (≈25 FPS para motores animados, 1 Hz para estáticos), nunca desde un nombre de motor codificado.
+
 ---
 
 ## 4. Aislamiento del Runtime y Modelo de Hilos (Threading)

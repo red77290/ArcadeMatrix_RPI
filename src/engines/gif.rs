@@ -302,7 +302,10 @@ fn register_gif_engine() -> EngineDescriptor {
             category: "media",
             version: "1.0.0",
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities {
+            realtime: true,
+            ..Default::default()
+        },
         requirements: Requirements::default(),
         schema: ConfigSchema {
             fields: vec![crate::core::engine_contract::ConfigField {

@@ -9,6 +9,7 @@ pub static MOCK_ACTIVATE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static MOCK_UPDATE_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static MOCK_RENDER_COUNT: AtomicUsize = AtomicUsize::new(0);
 pub static MOCK_DEACTIVATE_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static MOCK_CONFIG_CHANGED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 struct MockEngine;
 
@@ -33,7 +34,9 @@ impl Engine for MockEngine {
     fn deactivate(&mut self) {
         MOCK_DEACTIVATE_COUNT.fetch_add(1, Ordering::SeqCst);
     }
-    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
+    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {
+        MOCK_CONFIG_CHANGED_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
 }
 
 #[distributed_slice(ENGINES)]
@@ -105,6 +108,7 @@ use arcadematrix::core::registry::EngineRuntime;
 fn test_engine_runtime_lifecycle() {
     MOCK_INIT_COUNT.store(0, Ordering::SeqCst);
     MOCK_ACTIVATE_COUNT.store(0, Ordering::SeqCst);
+    MOCK_CONFIG_CHANGED_COUNT.store(0, Ordering::SeqCst);
 
     let mut runtime = EngineRuntime::new();
     let mut matrix = MockMatrix::new(64, 64);
@@ -114,12 +118,10 @@ fn test_engine_runtime_lifecycle() {
         config: &config,
     };
 
-    let dummy_cfg = arcadematrix::core::engine_contract::HashConfig {
-        data: &std::collections::HashMap::new(),
-    };
+    let cfg_a: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
     // Get instance for the first time
-    let inst = runtime.get_instance("inst1", "test.mock", &mut context, &dummy_cfg);
+    let inst = runtime.get_instance("inst1", "test.mock", &mut context, &cfg_a);
     assert!(inst.is_some());
     assert_eq!(MOCK_INIT_COUNT.load(Ordering::SeqCst), 1);
 
@@ -130,7 +132,17 @@ fn test_engine_runtime_lifecycle() {
     engine.update(&mut context);
     assert_eq!(MOCK_UPDATE_COUNT.load(Ordering::SeqCst), 1);
 
-    // Get instance for the second time
-    let _inst2 = runtime.get_instance("inst1", "test.mock", &mut context, &dummy_cfg);
+    // Get instance a second time with the SAME config: Lazy-Once, no re-init,
+    // and no spurious on_config_changed since nothing changed.
+    let _inst2 = runtime.get_instance("inst1", "test.mock", &mut context, &cfg_a);
     assert_eq!(MOCK_INIT_COUNT.load(Ordering::SeqCst), 1); // Should STILL be 1, Lazy-Once
+    assert_eq!(MOCK_CONFIG_CHANGED_COUNT.load(Ordering::SeqCst), 0);
+
+    // Get instance again with a DIFFERENT config: the engine must be hot-reloaded
+    // in place via on_config_changed (still no re-init).
+    let mut cfg_b = std::collections::HashMap::new();
+    cfg_b.insert("theme".to_string(), "18".to_string());
+    let _inst3 = runtime.get_instance("inst1", "test.mock", &mut context, &cfg_b);
+    assert_eq!(MOCK_INIT_COUNT.load(Ordering::SeqCst), 1); // No recreation
+    assert_eq!(MOCK_CONFIG_CHANGED_COUNT.load(Ordering::SeqCst), 1);
 }

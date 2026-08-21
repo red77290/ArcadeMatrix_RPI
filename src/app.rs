@@ -326,7 +326,8 @@ impl ArcadeMatrixApp {
                                     attempt,
                                     e
                                 );
-                                break Box::new(MockMatrix::new(64, 32)) as Box<dyn MatrixBackend>;
+                                break Box::new(MockMatrix::new(cols * chain, rows))
+                                    as Box<dyn MatrixBackend>;
                             }
                             tracing::warn!(
                                 "Hardware matrix init failed (attempt {}/{}): {} \u{2014} previous process may still hold the GPIO, retrying in 1s",
@@ -364,10 +365,8 @@ impl ArcadeMatrixApp {
         let mut last_frame = std::time::Instant::now();
         let gifs_played = 0;
 
-        let mut fighter_engine = crate::engines::fighter::FighterEngine::new(width, height);
         let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
         let mut message_engine = crate::engines::message::MessageEngine::new();
-        let gif_engine = crate::engines::gif::GifEngine::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -579,6 +578,7 @@ impl ArcadeMatrixApp {
 
             // Rotation sequence execution
             let idle_list = config.settings.read().rotation.clone();
+            let mut realtime_cadence = false;
 
             if !idle_list.is_empty() {
                 let current_index = rotation_state.current_index;
@@ -596,7 +596,6 @@ impl ArcadeMatrixApp {
                     .unwrap_or_else(|| current_mode.instance_id.clone()); // fallback to legacy strings if no instance
 
                 matrix.clear();
-                let mut should_update = true;
                 let empty_map = std::collections::HashMap::new();
                 let settings = config.settings.read();
                 let inst_config = settings
@@ -606,14 +605,17 @@ impl ArcadeMatrixApp {
                     .map(|inst| &inst.config)
                     .unwrap_or(&empty_map);
 
-                let engine_config = crate::core::engine_contract::HashConfig { data: inst_config };
+                let engine_config = inst_config;
 
-                // We drop the lock here? No, let's keep it if HashConfig holds a reference to it.
-                // Wait, if we keep the lock, EngineContext CANNOT have `config: &Config`?
-                // Actually EngineContext has `&Config`. `Config` is the wrapper. That's fine.
+                // Whether the active engine needs a high frame rate. Derived from the
+                // engine descriptor's `realtime` capability (Sprint 3 metadata) instead
+                // of legacy hardcoded instance-id string matching.
+                let mut current_realtime =
+                    crate::core::registry::EngineRegistry::get_descriptor(&engine_id)
+                        .map(|d| d.capabilities.realtime)
+                        .unwrap_or(false);
 
-                // However, wait! If `GifEngine` is hardcoded, we should leave it for now until S11.4!
-                if true {
+                {
                     let mut ctx = crate::core::engine_contract::EngineContext {
                         matrix: matrix.as_mut(),
                         config: &config,
@@ -624,7 +626,7 @@ impl ArcadeMatrixApp {
                         &current_mode.instance_id,
                         &engine_id,
                         &mut ctx,
-                        &engine_config,
+                        engine_config,
                     ) {
                         if mode_just_changed {
                             engine.activate();
@@ -642,6 +644,7 @@ impl ArcadeMatrixApp {
                         }
                     } else {
                         // Fallback if engine fails to load
+                        current_realtime = false;
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
@@ -651,66 +654,28 @@ impl ArcadeMatrixApp {
                 }
 
                 last_index = current_index;
-
-                // Composite fighter overlay (strictly disabled during GIF rotation)
-                let settings = config.settings.read();
-                let anim_on = false && current_mode.instance_id.as_str() != "gifs";
-                if anim_on {
-                    fighter_engine.set_interval(60);
-                    fighter_engine.composite(matrix.as_mut());
-                } else if fighter_engine.is_active() {
-                    fighter_engine.stop();
-                    matrix.clear();
-                    should_update = true;
-                }
-                if should_update {
-                    matrix.update();
-                }
+                realtime_cadence = current_realtime;
+                matrix.update();
             } else {
                 let dict = std::collections::HashMap::new();
-                let engine_config = crate::core::engine_contract::HashConfig { data: &dict };
                 let mut ctx = crate::core::engine_contract::EngineContext {
                     matrix: matrix.as_mut(),
                     config: &config,
                 };
                 if let Some(engine) =
-                    runtime.get_instance("fallback_clock", "clock", &mut ctx, &engine_config)
+                    runtime.get_instance("fallback_clock", "clock", &mut ctx, &dict)
                 {
                     engine.update(&mut ctx);
                     engine.render(&mut ctx);
                 }
-                let settings = config.settings.read();
-                let fighter_enabled = false;
-                if fighter_enabled {
-                    fighter_engine.set_interval(60);
-                    fighter_engine.composite(matrix.as_mut());
-                } else if fighter_engine.is_active() {
-                    fighter_engine.stop();
-                    matrix.clear();
-                }
+                realtime_cadence = false;
                 matrix.update();
             }
 
-            // Adaptive sleep: match Python timing exactly
-            // - Fast/animated themes: 33ms (~30fps)
-            // - Static themes (clock, date, weather): 1000ms like Python (time.sleep(1))
-            // This gives the CPU and Wi-Fi IRQs plenty of breathing room.
-            let current_mode_str = idle_list
-                .get(rotation_state.current_index % idle_list.len().max(1))
-                .map(|s| s.instance_id.as_str())
-                .unwrap_or("");
-            let is_animated = matches!(current_mode_str, "gifs" | "network" | "message");
-
-            let theme = 0;
-
-            let fast_theme = matches!(theme, 18 | 19 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
-            let sprite_active = false;
-
-            let sleep_ms = if is_animated || fast_theme || sprite_active {
-                40 // ~25fps, same as Python fast mode (time.sleep(0.04))
-            } else {
-                1000 // 1s for static modes, exactly like Python (time.sleep(1))
-            };
+            // Adaptive sleep: realtime engines (gif, scrolling text, spotify) run at
+            // ~25fps; static engines (clock, date, weather) refresh once per second to
+            // leave the CPU and Wi-Fi IRQs plenty of breathing room.
+            let sleep_ms = if realtime_cadence { 40 } else { 1000 };
             last_frame = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }

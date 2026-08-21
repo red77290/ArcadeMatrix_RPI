@@ -40,8 +40,26 @@ deactivate()
 ```
 
 - **Regla de oro:** Nunca instancie nuevos `String` o `Vec` dinámicos dentro de `update()` o `render()`. Preasigne sus búferes en `initialize()` y mutelos en el lugar (ej. `my_string.clear()` y luego `write!(&mut my_string, "...")`).
-- **`on_config_changed()`:** Permite al motor actualizar su estado interno cuando el usuario cambia la configuración a través de la interfaz de usuario web (asíncrono).
+- **`on_config_changed()`:** Llamado **en vivo** por el `EngineRuntime` cada vez que cambia la configuración persistida de una instancia en caché (por ejemplo, cuando el usuario la edita en la interfaz Web). El motor **no** se recrea: conserva sus asignaciones y simplemente vuelve a leer los nuevos valores. Impleméntelo para aplicar ajustes sin reinicio.
 - **`is_finished()`:** Útil para indicar al `EngineRuntime` que un motor ha terminado su tarea para forzar el paso al siguiente motor sin esperar el tiempo de espera.
+
+### 1.2 Capabilities & Cadencia de Refresco
+
+El runtime deriva su pausa por frame desde las `Capabilities` del descriptor del motor, **no** desde ningún nombre de motor codificado:
+
+- `realtime: true` → el motor se consulta a ~25 FPS (40 ms) para una animación fluida (GIF, mensaje desplazable, Spotify).
+- `realtime: false` (por defecto) → el motor se refresca una vez por segundo (1000 ms), ideal para contenido estático (reloj, fecha, clima) y mucho más ligero para CPU/Wi-Fi.
+
+Establezca `realtime: true` en su descriptor solo si su motor anima cada frame.
+
+### 1.3 Configuración Autorreparable
+
+Cada valor que declare en el `ConfigSchema` es validado por el `ConfigSanitizer` al arrancar y en cada escritura. Para aprovecharlo, complete los metadatos de campo pertinentes:
+
+- `field_type` (`Integer`, `Float`, `Boolean`, `Options`, `String`) selecciona la estrategia de validación.
+- `min_val` / `max_val` delimitan los campos numéricos; `options` enumera los valores permitidos para `Options`.
+- `validation_policy` (`Clamp`, `FallbackDefault`, `Reject`, `Accept`) decide qué ocurre con un valor fuera de rango.
+- `default_value` se inyecta automáticamente cuando falta la clave (por ejemplo, un campo añadido por una OTA posterior). Las claves que ya no están presentes en el schema se eliminan.
 
 ---
 
@@ -132,7 +150,7 @@ fn register_MyEngine() -> EngineDescriptor {
             category: "misc",
             version: "1.0",
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities::default(), // usa `realtime: true` si animas cada frame
         requirements: Requirements::default(),
         schema: ConfigSchema {
             fields: vec![ConfigField {
@@ -149,6 +167,7 @@ fn register_MyEngine() -> EngineDescriptor {
                 visible_when: None,
                 options_endpoint: None,
                 multiple: false,
+                // Controla el sanitizador autorreparable para campos numéricos/de opciones.
                 validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
             }],
         },

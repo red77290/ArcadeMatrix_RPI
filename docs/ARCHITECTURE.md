@@ -74,6 +74,26 @@ Immediate instantiation of all engines at startup (`Box::new(...)`) would unnece
 ### Why separate `config.json` and `EngineConfig`?
 The root file (`config.json`) describes the entire device (WiFi, Matrix, etc.). However, engines do not need — and should not have access to — WiFi or other engines' configuration. `EngineConfig` acts as a restricted view or proxy providing only the variables declared by the engine via its `ConfigSchema`.
 
+### How does a config change reach a running engine?
+Because instances are cached (Lazy-Once), a config edit must be actively pushed to the live engine rather than recreating it. The propagation chain is fully wired end to end:
+
+```text
+POST /api/instances        (api-server thread)
+        │  validates engine_id, self-heals via ConfigSanitizer, saves config.json
+        ▼
+reset_rotation / reload_flag  (AtomicBool)
+        │  read by the render thread on the next frame
+        ▼
+EngineRuntime.get_instance()  detects the config snapshot changed
+        │
+        ▼
+engine.on_config_changed()   (same instance, no reallocation)
+```
+
+* **Instance edits** are applied **live** (`on_config_changed`) with no restart and no reallocation.
+* **Hardware/network changes** (matrix, `disable_internal`, ...) set `reload_flag`, which the render loop honours by restarting the process cleanly so the driver re-initializes.
+* The render cadence itself is chosen from the engine descriptor's `Capabilities.realtime` flag (≈25 FPS for animated engines, 1 Hz for static ones), never from a hardcoded engine name.
+
 ---
 
 ## 4. Runtime Isolation & Threading Model

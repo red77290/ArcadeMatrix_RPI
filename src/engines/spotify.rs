@@ -65,7 +65,10 @@ fn register_spotify_engine() -> EngineDescriptor {
             category: "media",
             version: "1.0",
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities {
+            realtime: true,
+            ..Default::default()
+        },
         requirements: crate::core::engine_contract::Requirements::default(),
         schema: ConfigSchema {
             fields: vec![crate::core::engine_contract::ConfigField {

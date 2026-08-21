@@ -2,173 +2,185 @@
 
 # Guide développeur (Raspberry Pi - Rust)
 
-Bienvenue dans le guide de développement d'ArcadeMatrix. Ce document explique la marche à suivre pour étendre l'architecture et créer de nouveaux moteurs (Engines).
+Bienvenue dans le guide de développement d'ArcadeMatrix pour Raspberry Pi. Ce document explique comment étendre l'architecture et créer de nouveaux Engines en Rust.
 
 ---
 
-## 1. Comprendre l'Architecture : Engines, Registry et Lifecycle
+## 1. Comprendre l'architecture : Engines, Registry et cycle de vie
 
-ArcadeMatrix (RPi) ne possède plus de liste codée en dur de ses fonctionnalités. Le système repose sur un **Registry** asynchrone qui découvre les moteurs à la compilation (grâce à la macro `linkme::distributed_slice`).
+ArcadeMatrix ne possède plus de liste de fonctionnalités codée en dur dans `app.rs`. Le système repose sur un **Registry** (via la crate `linkme`) qui découvre les moteurs au démarrage.
 
-### 1.1 Le Cycle de Vie Strict (Lazy-Once)
+### 1.1 Le cycle de vie strict (Lazy-Once)
 
-Pour maintenir des performances irréprochables (60 FPS stables, sans *jitter*), ArcadeMatrix impose un cycle de vie strict pour chaque `Engine`.
+Pour éviter le tearing et le jitter causés par l'allocateur mémoire de Rust (Heap), ArcadeMatrix impose un cycle de vie strict à chaque implémentation du trait `Engine`.
 
 ```text
 initialize()
     │
-    ├── allocation
-    ├── chargement assets (images, polices)
-    ├── préparation cache
-    └── initialisation lourde
+    ├── heap allocations via 'String' or 'Vec'
+    ├── loading assets (images, fonts)
+    ├── caching setup
+    └── heavy initialization
           ↓
 activate()
     │
-    └── préparation d'état temporaire (réinitialisation chrono, position de balle...)
+    └── temporary state preparation (resetting timers, etc.)
           ↓
 update()
     │
-    └── logique temps réel (60 FPS) - **AUCUNE ALLOCATION DYNAMIQUE INUTILE**
+    └── real-time logic (60 FPS) - **NO UNNECESSARY DYNAMIC ALLOCATIONS**
           ↓
 render()
     │
-    └── rendu temps réel (60 FPS) - **AUCUNE ALLOCATION DYNAMIQUE INUTILE**
+    └── real-time rendering (60 FPS) - **NO UNNECESSARY DYNAMIC ALLOCATIONS**
           ↓
 deactivate()
     │
-    └── libération de ressources externes ou arrêt des écouteurs
+    └── freeing external resources or stopping listeners
 ```
 
-- **Règle d'or :** Ne créez jamais de nouveaux `String`, `Vec` ou structures lourdes dans `update()` ou `render()`. Pré-allouez vos tampons dans `initialize()` et mutez-les en place.
-- **`on_config_changed()` :** Permet au moteur de mettre à jour son état interne lorsque l'utilisateur change les réglages sans repasser par `initialize()`.
-- **`is_finished()` :** Utile pour signaler au gestionnaire de rotation qu'un moteur a terminé son scénario (ex: toutes les cryptos ont défilé) pour forcer le passage immédiat au moteur suivant.
+- **Règle d'or :** N'instanciez jamais de nouveaux `String` ou `Vec` dynamiques dans `update()` ou `render()`. Pré-allouez vos tampons dans `initialize()` et modifiez-les en place (ex. `my_string.clear()` puis `write!(&mut my_string, "...")`).
+- **`on_config_changed()` :** Appelée **à chaud** par l'`EngineRuntime` chaque fois que la configuration persistée d'une instance mise en cache change (par exemple quand l'utilisateur la modifie dans la Web UI). Le moteur n'est **pas** recréé : il conserve ses allocations et relit simplement les nouvelles valeurs. Implémentez cette méthode pour appliquer les réglages sans redémarrage.
+- **`is_finished()` :** Utile pour signaler à l'`EngineRuntime` qu'un moteur a terminé sa tâche afin de passer au moteur suivant sans attendre le timeout.
+
+### 1.2 Capabilities & cadence de rafraîchissement
+
+Le runtime déduit sa pause entre frames depuis les `Capabilities` du descripteur du moteur, **pas** depuis un nom de moteur codé en dur :
+
+- `realtime: true` → le moteur est interrogé à ~25 FPS (40 ms) pour une animation fluide (GIF, message défilant, Spotify).
+- `realtime: false` (défaut) → le moteur se rafraîchit une fois par seconde (1000 ms), idéal pour les contenus statiques (horloge, date, météo) et beaucoup plus léger pour le CPU/Wi-Fi.
+
+Définissez `realtime: true` dans votre descripteur uniquement si votre moteur anime chaque frame.
+
+### 1.3 Configuration autoréparatrice
+
+Chaque valeur déclarée dans le `ConfigSchema` est validée par le `ConfigSanitizer` au démarrage et à chaque écriture. Pour en bénéficier, renseignez les métadonnées de champ pertinentes :
+
+- `field_type` (`Integer`, `Float`, `Boolean`, `Options`, `String`) sélectionne la stratégie de validation.
+- `min_val` / `max_val` bornent les champs numériques ; `options` liste les valeurs autorisées pour `Options`.
+- `validation_policy` (`Clamp`, `FallbackDefault`, `Reject`, `Accept`) décide quoi faire d'une valeur hors limites.
+- `default_value` est injecté automatiquement lorsque la clé est absente (ex. un champ ajouté par une OTA ultérieure). Les clés qui ne sont plus présentes dans le schéma sont supprimées.
 
 ---
 
-## 2. Tutoriel : Créer un Nouveau Moteur (Engine)
+## 2. Tutoriel : créer un nouvel Engine
 
-Pour créer un nouveau moteur (ex: `SpotifyEngine`), vous devez implémenter le trait `Engine` et fournir un `EngineDescriptor`.
+Pour créer un nouveau moteur, vous devez implémenter le trait `Engine` et fournir un `EngineDescriptor` via le Registry.
 
-### Étape 1 : Créer le fichier
-
-Créez `src/engines/spotify.rs` :
+### Étape 1 : créer la structure (`src/engines/my_engine.rs`)
 
 ```rust
-use crate::core::engine_contract::{
-    Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError, EngineMetadata,
-};
-use crate::core::registry::ENGINES;
-use linkme::distributed_slice;
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
+use crate::core::matrix::MatrixBackend;
 
-pub struct SpotifyEngine {
-    client_id: String,
+pub struct MyEngine {
+    my_setting: String,
+    counter: u32,
 }
 
-impl SpotifyEngine {
+impl MyEngine {
     pub fn new() -> Self {
         Self {
-            client_id: String::new(),
+            my_setting: String::new(),
+            counter: 0,
         }
     }
 }
 ```
 
-### Étape 2 : Implémenter le cycle de vie (Le Trait Engine)
-
-Implémentez le comportement de votre moteur, en respectant la contrainte d'allocation.
+### Étape 2 : implémenter le cycle de vie
 
 ```rust
-impl Engine for SpotifyEngine {
+impl Engine for MyEngine {
     fn initialize(
         &mut self,
         _context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        // Chargement lourd, allocation de buffers, lecture des configs
-        self.client_id = config.get_string("client_id", "");
-        println!("SpotifyEngine initialisé !");
+        // Safe place for allocations
+        self.my_setting = config.get_string("my_setting", "default");
+        println!("MyEngine initialized!");
         Ok(())
     }
 
     fn activate(&mut self) {
-        // Préparation au retour à l'écran
+        self.counter = 0; // Quick reset
     }
 
     fn update(&mut self, _context: &mut EngineContext) {
-        // Logique métier rapide, sans création de variables dynamiques
+        // Fast business logic, NO allocations
+        self.counter += 1;
     }
 
-    fn render(&mut self, _context: &mut EngineContext) {
-        // Rendu matériel via _context.canvas
+    fn render(&mut self, context: &mut EngineContext) {
+        // Hardware rendering via context.matrix
+        context.matrix.clear();
+        // Caution: drawing text creates no allocation if using existing buffers
     }
 
-    fn deactivate(&mut self) {
-        // Le moteur n'est plus à l'écran
-    }
+    fn deactivate(&mut self) {}
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
-        // Si l'utilisateur modifie config.json à chaud
-        self.client_id = config.get_string("client_id", "");
+        self.my_setting = config.get_string("my_setting", "default");
     }
 
     fn is_finished(&self) -> bool {
-        false // Renvoie true si la séquence de votre module est terminée
+        false
     }
 }
 ```
 
-### Étape 3 : Exposer le Descripteur (Registry)
+### Étape 3 : enregistrer l'Engine au démarrage
 
-Déclarez les champs de configuration nécessaires (qui apparaîtront automatiquement dans la Web UI) et injectez la Factory dans le registre de compilation :
+Ajoutez le descripteur en bas de votre fichier afin d'exposer les champs de configuration à l'API Web :
 
 ```rust
-#[distributed_slice(ENGINES)]
-fn register_spotify_engine() -> EngineDescriptor {
+use crate::core::engine_contract::{
+    Capabilities, ConfigField, ConfigSchema, ConfigType, EngineDescriptor, EngineFactory,
+    EngineMetadata, Requirements,
+};
+use linkme::distributed_slice;
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_MyEngine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
-            id: "spotify",
-            name: "Lecteur Spotify",
-            category: "media",
+            id: "my_engine",
+            name: "My Custom Engine",
+            category: "misc",
             version: "1.0",
         },
-        capabilities: Capabilities::default(),
-        requirements: crate::core::engine_contract::Requirements::default(),
+        capabilities: Capabilities::default(), // set `realtime: true` if you animate every frame
+        requirements: Requirements::default(),
         schema: ConfigSchema {
-            fields: vec![
-                ConfigField {
-                    id: "client_id",
-                    field_type: ConfigType::String,
-                    label: "Client ID",
-                    description: "Votre clé API Spotify",
-                    default_value: "",
-                    options: None,
-                    min_val: None,
-                    max_val: None,
-                    required: true,
-                    step: None,
-                    visible_when: None,
-                },
-            ],
+            fields: vec![ConfigField {
+                id: "my_setting",
+                field_type: ConfigType::String,
+                label: "My Setting",
+                description: "Enter a word to display",
+                default_value: "default",
+                options: None,
+                min_val: None,
+                max_val: None,
+                required: false,
+                step: None,
+                visible_when: None,
+                options_endpoint: None,
+                multiple: false,
+                // Drives the self-healing sanitizer for numeric/option fields.
+                validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+            }],
         },
-        factory: || Box::new(SpotifyEngine::new()),
+        factory: || Box::new(MyEngine::new()),
     }
 }
 ```
 
-### Étape 4 : Déclarer le module
+### Étape 4 : ajouter la référence du module
 
-Ouvrez `src/engines/mod.rs` et ajoutez votre fichier pour que le compilateur l'intègre :
-
+Ouvrez `src/engines/mod.rs` et ajoutez :
 ```rust
-pub mod spotify;
+pub mod my_engine;
 ```
 
-C'est tout ! **Aucun code du Core (app.rs, registry.rs) n'a été modifié**. Le moteur sera automatiquement listé dans l'API Web et sa configuration sera gérée de manière isolée via le `ConfigSchema`.
-
----
-
-## 3. ConfigSchema et Typage Dynamique
-
-L'API Web n'a plus besoin d'être mise à jour manuellement lorsque vous ajoutez des champs de configuration.
-Le type `ConfigType` supporte `String`, `Number`, `Boolean`, `Select`, et `Color`.
-Les `ConfigField` seront renvoyés au format JSON au tableau de bord, qui générera les champs correspondants. Le Core stocke ces paires clé/valeur dans `config.json` et vous les redonne via `config.get_string`, `config.get_number`, etc.
+C'est tout ! **Aucun code de `app.rs` n'a besoin d'être modifié**. Le moteur sera automatiquement listé dans l'API Web et sa configuration `config.json` sera gérée de manière isolée.

@@ -202,66 +202,41 @@ Veuillez consulter `tools/mugen_extractor/README_FR.md` pour les instructions co
 
 ## ⚙️ Configuration avancée (config.json)
 
-Si vous préférez éditer les réglages manuellement au lieu d'utiliser l'interface Web, vous pouvez modifier directement le fichier `config.json` situé sur la partition **DATA** de votre carte SD. 
-C'est particulièrement utile pour configurer le Wi-Fi avant le premier démarrage.
+Si vous préférez éditer les réglages manuellement au lieu d'utiliser l'interface Web, vous pouvez modifier directement le fichier `config.json` situé sur la partition **DATA** de votre carte SD. C'est particulièrement utile pour configurer le Wi-Fi avant le premier démarrage.
 
-### 🌐 [WIFI]
-| Parameter | Default | Description |
-|---|---|---|
-| `SSID` | `YourNetworkName` | The name of your Wi-Fi network. |
-| `PASS` | `YourNetworkPassword` | The password for your Wi-Fi network. |
-| `CONFIGURED` | `false` | Set to `false` to force the Raspberry Pi to attempt a Wi-Fi connection on its next boot. Automatically sets back to `true` on success. |
+> ℹ️ ArcadeMatrix utilise un unique **`config.json`** structuré (l'ancien format `conf.ini` a été supprimé). Le fichier est **autoréparateur** : toute clé manquante est recréée avec sa valeur par défaut au démarrage, donc une modification partielle à la main reste toujours sûre.
 
-### 🎛️ [MATRIX]
-| Parameter | Default | Description |
-|---|---|---|
-| `ROWS` / `COLS` | `32` / `64` | The pixel dimensions of a single LED panel. |
-| `HARDWARE_MAPPING` | `adafruit-hat` | Type of HAT/wiring used. (`adafruit-hat`, `adafruit-hat-pwm`, `regular-pi1`, `regular`). |
-| `CHAIN` / `PARALLEL` | `1` / `1` | `CHAIN` for horizontal daisy-chaining. `PARALLEL` for vertical stacking on multiple HUB75 ports. |
-| `SLOWDOWN` | `2` | Hardware slowdown (1 to 4). Increase if your Matrix has flickering or visual artifacts (especially Pi 3/4). |
-| `disable_hardware_pulsing`| `false` | **CRITIQUE :** Mettre sur `true` pour empêcher le crash du Wi-Fi interne (au prix d'un léger scintillement). |
-| `BRIGHTNESS` | `100` | Global matrix brightness (1 to 100). |
-| `RGB_SEQUENCE` | `RGB` | Color order. Change to `RBG` or `BGR` if your colors look swapped. |
+```json
+{
+  "matrix": { "width": 64, "height": 32, "chain_length": 1, "mapping": "adafruit-hat",
+              "rgb_sequence": "RGB", "slowdown": 2, "disable_hardware_pulsing": false },
+  "wifi":   { "ssid": "YourNetwork", "password": "YourPassword", "configured": false,
+              "disable_internal": false },
+  "mqtt":   { "enabled": false, "broker": "192.168.1.50", "port": 1883 },
+  "system": { "format_24h": true, "lang": "en", "night_mode_enabled": false,
+              "turn_off_at": "23:00", "wake_up_at": "07:00", "night_brightness": 20 },
+  "instances": [
+    { "instance_id": "clock_main", "engine_id": "clock",
+      "config": { "theme": "0", "font": "DotGothic16.ttf", "size": "16" } }
+  ],
+  "rotation": [ { "instance_id": "clock_main", "duration_sec": 30 } ],
+  "api_auth_enabled": false,
+  "api_token": ""
+}
+```
 
-### ⏰ [TIME] & [DATE]
-| Parameter | Default | Description |
-|---|---|---|
-| `FORMAT_24H` | `true` | `true` for 24-hour format, `false` for 12-hour AM/PM format. |
-| `CLOCK_FONT` | `DotGothic16.ttf`| Name of the `.ttf` or `.bdf` file in the `/fonts/` folder to use for the clock. |
-| `CLOCK_SIZE` | `16` | Font size (scaling factor) for the clock. |
-| `THEME` | `0` | The numeric ID of the animated clock theme (e.g. 19 for Flip, 21 for True Matrix). |
-| `CLOCK_COLOR_1` | `#ffffff` | Primary hex color. Used for gradients if theme is Custom (20). |
-| `CLOCK_COLOR_2` | `#ffffff` | Secondary hex color. Used for gradients if theme is Custom (20). |
+Points clés :
+* **`matrix`** — pilote matériel (taille du panneau, `mapping`, `rgb_sequence`, `slowdown`, `disable_hardware_pulsing`, ...). Le modifier déclenche un redémarrage automatique.
+* **`wifi`** — définissez `configured: false` pour forcer une tentative de (re)connexion au prochain démarrage (remis automatiquement à `true` en cas de succès). Utilisez `disable_internal: true` avec un dongle USB externe.
+* **`mqtt`** — synchronisation des marquees Recalbox/Batocera (voir ci-dessous).
+* **`system`** — fuseau horaire, langue, format 24h et planning Nuit/Veille (`night_brightness: 0` éteint complètement le panneau).
+* **`instances` / `rotation`** — chaque moteur est une *instance* autonome ; `rotation` décide l'ordre d'affichage et le `duration_sec` de chaque créneau. Modifier une instance depuis la Web UI s'applique **à chaud, sans redémarrage**.
+* **`api_auth_enabled` / `api_token`** — lorsqu'ils sont activés, les endpoints sensibles exigent l'en-tête `X-API-Token` (voir la note API ci-dessous).
 
-*(La section `[DATE]` contient des paramètres identiques pour configurer l'affichage de la date.)*
+👉 **Référence complète champ par champ :** [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
-### 🔄 [IDLE]
-| Parameter | Default | Description |
-|---|---|---|
-| `ROTATION` | `all` | Dictates rotation behavior (`clock`, `gifs`, `sprites`, or `all`). |
-| `CLOCK_DURATION_SEC`| `10` | How long the clock/date stays on screen during the rotation loop. |
-| `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
-| `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
-| `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
-
-### 📈 [CRYPTO] & 📊 [STOCK]
-| Parameter | Default | Description |
-|---|---|---|
-| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
-| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
-
-### 🌙 [STANDBY]
-| Parameter | Default | Description |
-|---|---|---|
-| `NIGHT_MODE_ENABLED`| `false` | If `true`, the Matrix will automatically turn off and wake up. |
-| `TURN_OFF_AT` | `23:00` | HH:MM formatted time for screen sleep. |
-| `WAKE_UP_AT` | `07:00` | HH:MM formatted time for screen wake. |
-
-### 🔒 [API]
-| Parameter | Default | Description |
-|---|---|---|
-| `AUTH_ENABLED` | `false` | If `true`, requires the `X-API-Token` header to match `TOKEN` on the sensitive endpoints: `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot`, `/api/system/shutdown`. Disabled by default so the bundled Web UI keeps working out of the box; enable it if the device is reachable beyond a trusted LAN. |
-| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `config.json` after first run) and send it as `X-API-Token` when calling protected endpoints. |
+### 🔒 Authentification API
+`api_auth_enabled` vaut `false` par défaut afin que la Web UI intégrée fonctionne immédiatement. Passez-le à `true` (et copiez l'`api_token` généré automatiquement) pour exiger l'en-tête `X-API-Token` sur les endpoints sensibles comme `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot` et `/api/system/shutdown`. Activez-le dès que l'appareil est accessible au-delà d'un LAN de confiance.
 
 ## 🙏 Remerciements
 

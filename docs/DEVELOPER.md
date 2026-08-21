@@ -40,8 +40,26 @@ deactivate()
 ```
 
 - **Golden rule:** Never instantiate new dynamic `String` or `Vec` inside `update()` or `render()`. Pre-allocate your buffers in `initialize()` and mutate them in place (e.g. `my_string.clear()` then `write!(&mut my_string, "...")`).
-- **`on_config_changed()`:** Allows the engine to update its internal state when the user changes settings via the Web UI (asynchronous).
+- **`on_config_changed()`:** Called **live** by the `EngineRuntime` whenever the persisted config of a cached instance changes (e.g. the user edits it in the Web UI). The engine is **not** recreated — it keeps its allocations and simply re-reads the new values. Implement this to apply settings without a restart.
 - **`is_finished()`:** Useful to signal the `EngineRuntime` that an engine has finished its task to force moving to the next engine without waiting for the timeout.
+
+### 1.2 Capabilities & Refresh Cadence
+
+The runtime derives its per-frame sleep from the engine descriptor's `Capabilities`, **not** from any hardcoded engine name:
+
+- `realtime: true` → the engine is polled at ~25 FPS (40 ms) for smooth animation (GIF, scrolling message, Spotify).
+- `realtime: false` (default) → the engine refreshes once per second (1000 ms), ideal for static content (clock, date, weather) and much lighter on CPU/Wi-Fi.
+
+Set `realtime: true` in your descriptor only if your engine animates every frame.
+
+### 1.3 Self-Healing Configuration
+
+Every value you declare in the `ConfigSchema` is validated by the `ConfigSanitizer` on boot and on each write. To benefit from it, fill in the relevant field metadata:
+
+- `field_type` (`Integer`, `Float`, `Boolean`, `Options`, `String`) selects the validation strategy.
+- `min_val` / `max_val` bound numeric fields; `options` lists the allowed values for `Options`.
+- `validation_policy` (`Clamp`, `FallbackDefault`, `Reject`, `Accept`) decides what happens to an out-of-range value.
+- `default_value` is injected automatically when the key is missing (e.g. a field added by a later OTA). Keys no longer present in the schema are pruned.
 
 ---
 
@@ -132,7 +150,7 @@ fn register_MyEngine() -> EngineDescriptor {
             category: "misc",
             version: "1.0",
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities::default(), // set `realtime: true` if you animate every frame
         requirements: Requirements::default(),
         schema: ConfigSchema {
             fields: vec![ConfigField {
@@ -149,6 +167,7 @@ fn register_MyEngine() -> EngineDescriptor {
                 visible_when: None,
                 options_endpoint: None,
                 multiple: false,
+                // Drives the self-healing sanitizer for numeric/option fields.
                 validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
             }],
         },

@@ -221,7 +221,10 @@ fn register_message_engine() -> EngineDescriptor {
             category: "info",
             version: "1.0.0",
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities {
+            realtime: true,
+            ..Default::default()
+        },
         requirements: Requirements::default(),
         schema: ConfigSchema { fields: vec![] },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {

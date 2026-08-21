@@ -2,7 +2,9 @@
 
 # Detailed Configuration (config.json) - Raspberry Pi
 
-The configuration system relies exclusively on a `config.json` file located at the root of the project. It handles hardware configuration, Wi-Fi, and the logic of the independent logical blocks ("instances").
+The configuration system relies exclusively on a single `config.json` file located at the root of the project (or on the **DATA** partition of the pre-built image). It handles the hardware driver, network, MQTT integration, system behaviour, API security, and the decoupled logic of each engine ("instances").
+
+> The legacy `conf.ini` format has been fully removed. `config.json` is now the **single source of truth**. On boot the file is validated and self-healed (see §8), so a partial or hand-edited file is safe: missing keys are re-created with their defaults.
 
 ---
 
@@ -12,9 +14,12 @@ The configuration system relies exclusively on a `config.json` file located at t
 {
   "matrix": { ... },
   "wifi": { ... },
+  "mqtt": { ... },
   "system": { ... },
   "instances": [ ... ],
-  "rotation": [ ... ]
+  "rotation": [ ... ],
+  "api_auth_enabled": false,
+  "api_token": ""
 }
 ```
 
@@ -22,68 +27,113 @@ The configuration system relies exclusively on a `config.json` file located at t
 
 ## 2. The `"matrix"` Block (Hardware Driver)
 
-This block configures the DMA parameters for the hzeller library.
+This block configures the DMA parameters for the hzeller `rpi-rgb-led-matrix` library. Changing any hardware value triggers an automatic restart so the new driver settings take effect.
 
 | Key | Type | Description |
 | :--- | :--- | :--- |
 | `width` | `int` | Width of a single panel (e.g., `64`). |
 | `height` | `int` | Height of a single panel (e.g., `32`). |
 | `chain_length` | `int` | Number of panels chained horizontally. |
-| `parallel` | `int` | Number of parallel chains (Raspberry Pi specific). |
-| `pwm_bits` | `int` | Color depth. Default value `11`. Can be lowered to `8` to save CPU. |
+| `mapping` | `String` | GPIO wiring/mapping (`regular`, `adafruit-hat`, `adafruit-hat-pwm`, ...). |
 | `driver_chip` | `String` | Controller chip (`SHIFTREG`, `FM6126A`). |
-| `brightness` | `int` | Maximum software brightness limiter (`0` to `100`). |
+| `rgb_sequence` | `String` | Color order (`RGB`, `RBG`, `BGR`, ...). Fix swapped colors here. |
+| `slowdown` | `int` | GPIO slowdown (`1`–`4`). Increase on Pi 3/4 if you see artifacts. |
+| `pwm_bits` | `int` | Color depth. Default `11`; lower to `8` to save CPU. |
+| `pwm_lsb_nanoseconds` | `int` | LSB pulse width tuning (advanced). |
+| `disable_hardware_pulsing` | `bool` | Set `true` to stop DMA starving the internal Wi-Fi (slight flicker). |
+| `limit_refresh_rate_hz` | `int` | Cap the refresh rate (`0` = uncapped). |
+| `row_address_mode` | `int` | Row addressing type for exotic panels (`0` default). |
+| `multiplexing` | `int` | Panel multiplexing type (`0` default). |
+| `panel_type` | `String` | Optional panel init string (e.g. `FM6126A`), usually empty. |
+
+> Live daytime brightness is **not** stored in this block; it is controlled at runtime from the Web UI (Dashboard slider → `POST /api/system { "brightness_limit": 0-100 }`). Night brightness lives in the `system` block (§4).
 
 ---
 
-## 3. The `"system"` Block (Environment and Standby)
-
-| Key | Type | Description |
-| :--- | :--- | :--- |
-| `timezone` | `String` | POSIX string (e.g., `CET-1CEST,M3.5.0,M10.5.0/3`). |
-| `format_24h` | `bool` | Time format. `true` = 23:00, `false` = 11:00 PM. |
-| `lang` | `String` | System language (e.g., `en`, `fr`). |
-| `night_mode_enabled` | `bool` | Enables automatic turn-off or brightness reduction at night. |
-| `turn_off_at` | `String` | Standby start time (e.g., `"23:00"`). |
-| `wake_up_at` | `String` | Wake-up time (e.g., `"07:00"`). |
-| `night_brightness` | `int` | Standby brightness (`0` = matrix completely off). |
-| `fighter_enabled` | `bool` | Enables MUGEN combat sprites overlay (`.fgt`) on top of other engines. |
-
----
-
-## 4. The `"wifi"` Block
+## 3. The `"wifi"` Block
 
 | Key | Type | Description |
 | :--- | :--- | :--- |
 | `ssid` | `String` | The name of your Wi-Fi network. |
 | `password` | `String` | The WPA2 key. |
-| `disable_internal_wifi` | `bool` | If using an external dongle, disable the Pi's internal Wi-Fi. |
+| `hostname` | `String` | Device hostname advertised on the network. |
+| `configured` | `bool` | Set to `false` to force a (re)connection attempt on next boot. Set back to `true` automatically on success. |
+| `disable_internal` | `bool` | If using an external USB dongle, disable the Pi's internal Wi-Fi (changing this triggers a restart). |
+
+You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "password": "..." }`, which sets `configured=false` and restarts the network provisioning.
 
 ---
 
-## 5. Engines: `"instances"` & `"rotation"`
+## 4. The `"system"` Block (Environment & Standby)
 
-The decoupled architecture allows you to create multiple independent configured copies of the same Engine.
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `timezone` | `String` | POSIX string (e.g., `CET-1CEST,M3.5.0,M10.5.0/3`). |
+| `format_24h` | `bool` | Time format. `true` = 23:00, `false` = 11:00 PM. |
+| `lang` | `String` | System language (e.g., `en`, `fr`, `es`). |
+| `unit` | `String` | Measurement unit for weather (`metric` / `imperial`). |
+| `temp_offset` | `float` | Calibration offset applied to the reported temperature. |
+| `night_mode_enabled` | `bool` | Enables automatic turn-off / brightness reduction at night. |
+| `turn_off_at` | `String` | Standby start time (e.g., `"23:00"`). |
+| `wake_up_at` | `String` | Wake-up time (e.g., `"07:00"`). |
+| `night_brightness` | `int` | Standby brightness (`0` = matrix completely off). |
+
+---
+
+## 5. The `"mqtt"` Block (Recalbox / Batocera Marquees)
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `enabled` | `bool` | Enable the MQTT listener for Pixelcade-style marquees. |
+| `broker` | `String` | Broker IP/host (usually the Pi itself). |
+| `port` | `int` | Broker port (default `1883`). |
+| `user` | `String` | Broker username (optional). |
+| `pass` | `String` | Broker password (optional). |
+| `device_name` | `String` | Identifier published by this device. |
+| `topic_batocera` | `String` | Topic subscribed for Batocera game events. |
+| `topic_recalbox` | `String` | Topic subscribed for Recalbox game events. |
+
+The sync daemon can be installed on the console over SSH from the Web UI (`POST /api/mqtt/install`) and its logs fetched with `POST /api/mqtt/logs`.
+
+---
+
+## 6. API Security (`api_auth_enabled` / `api_token`)
+
+These two top-level keys secure the write/administrative endpoints.
+
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `api_auth_enabled` | `bool` | If `true`, sensitive endpoints require the `X-API-Token` header to match `api_token`. |
+| `api_token` | `String` | Secret token (auto-generated on first boot). Sent by the Web UI as `X-API-Token`. |
+
+Disabled by default so the bundled Web UI works out of the box. Enable it if the device is reachable beyond a trusted LAN.
+
+---
+
+## 7. Engines: `"instances"` & `"rotation"`
+
+The decoupled architecture lets you create multiple independent, differently-configured copies of the same Engine.
 
 ### `"instances"`
-This is an array containing the configuration of each logical block.
+An array holding the configuration of each logical block.
 
 ```json
 {
   "instance_id": "crypto_main",
   "engine_id": "crypto",
   "config": {
-    "symbols": "BTC,ETH,SOL",
-    "duration_sec": 10
+    "symbols": "BTC,ETH,SOL"
   }
 }
 ```
 * `instance_id`: Unique name of this block.
-* `engine_id`: The internal identifier of the Rust Engine.
-* `config`: A dynamic JSON object specific to the engine (its `Capabilities`).
+* `engine_id`: The internal identifier of the Rust Engine (must be a registered engine — see §9).
+* `config`: A flat map of `String` values specific to the engine, validated against its `ConfigSchema`.
+
+Editing an instance through the Web UI (`POST /api/instances`) is applied **live, without a restart**: the runtime calls the engine's `on_config_changed()` on the next frame (Lazy-Once hot-reload). Adding or removing an instance resets the rotation cleanly.
 
 ### `"rotation"`
-Defines the display order on the screen.
+Defines the display order and per-slot duration.
 
 ```json
 {
@@ -91,25 +141,52 @@ Defines the display order on the screen.
   "duration_sec": 30
 }
 ```
-The application will only initialize engines listed here, saving memory for unlisted features.
+Only instances listed here are ever initialized, saving memory for unused features. The rotation is editable from the Web UI **Rotation** panel (`GET`/`POST /api/rotation`).
+
+> Note: `duration_sec` belongs to the **rotation** entry, not to the instance `config`.
 
 ---
 
-## 6. Engine Configurations
+## 8. Self-Healing Validation
 
-Each engine type supports specific fields in its `config` block.
+On every boot **and** on every write via `POST /api/instances`, the `ConfigSanitizer` reconciles each instance against its engine `ConfigSchema`:
+
+* **Missing key** → the schema `default_value` is injected.
+* **Integer / Float** → parsed and, if out of `min`/`max`, clamped or reset to default (per the field's `validation_policy`).
+* **Boolean** → normalized (`true/1/yes/on` → `true`, `false/0/no/off` → `false`); an unparseable value falls back to the default.
+* **Options** → the value must be one of the declared options (comma-separated list for multi-select); otherwise it falls back to the default.
+* **Obsolete keys** → keys no longer present in the schema (e.g. after an OTA that renamed a field) are pruned.
+
+The result is saved atomically, so an OTA that adds a new field self-populates it without any user intervention.
+
+---
+
+## 9. Engine Configurations
+
+Each engine advertises its own fields through its `ConfigSchema` (discoverable at `GET /api/engines`, which is what powers the dynamic Web UI). The most common engines:
 
 ### Engine: `clock`
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Clock theme index (`0` to `12`). |
-| `format` | `String` | `%H:%M:%S` | Time formatting string. |
-| `custom_font` | `String` | `""` | Path to a custom TTF font file. |
-| `color` | `String` | `#FFFFFF` | Clock text color in Hex format. |
+| `theme` | `int` | `0` | Animated clock theme index. |
+| `format` | `String` | `%H:%M:%S` | strftime time format. |
+| `font` | `String` | `PressStart2P.ttf` | Font file from `/fonts/`. |
+| `size` | `int` | `2` | Font scaling factor. |
+| `color_1` | `String` | `#FFFFFF` | Primary hex color (gradient start on Custom theme). |
+| `color_2` | `String` | `#FFFFFF` | Secondary hex color (gradient end on Custom theme). |
+| `offset_x` | `int` | `0` | Horizontal pixel offset. |
+| `offset_y` | `int` | `0` | Vertical pixel offset. |
 
 ### Engine: `date`
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Date theme index (`0` to `5`). |
-| `format` | `String` | `%Y-%m-%d` | Date formatting string. |
-| `color` | `String` | `#FFFFFF` | Date text color in Hex format. |
+| `theme` | `int` | `0` | Date theme index. |
+| `format` | `String` | `%d/%m` | strftime date format. |
+| `font` | `String` | `PressStart2P.ttf` | Font file from `/fonts/`. |
+| `size` | `int` | `2` | Font scaling factor. |
+| `color_1` | `String` | `#FFFFFF` | Primary hex color. |
+| `color_2` | `String` | `#FFFFFF` | Secondary hex color. |
+| `offset_x` | `int` | `0` | Horizontal pixel offset. |
+| `offset_y` | `int` | `0` | Vertical pixel offset. |
+
+Other registered engines (`weather`, `crypto`, `stock`, `gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.

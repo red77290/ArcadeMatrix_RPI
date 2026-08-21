@@ -16,8 +16,9 @@ export async function initDynamicEngines() {
       enginesMap[desc.metadata.id] = desc;
     });
 
-    
-    
+    // Rotation manager panel (order + duration of instances in the loop).
+    await renderRotationPanel(container, tabsContainer, instancesList, enginesMap);
+
     // Add New Instance Controls
     const addContainer = document.createElement('div');
     addContainer.style = "display: flex; gap: 0.5rem; align-items: center; margin-left: auto;";
@@ -236,12 +237,9 @@ export async function initDynamicEngines() {
                 }
              });
          }
-         
-         // IMPORTANT: The backend /api/instances endpoint needs to update the instance
-         // The backend currently only HAS POST /api/instances to add, and DELETE to remove.
-         // Wait, the API I wrote (POST /api/instances) PUSHES the instance!
-         // If they save again, it will duplicate if I don't handle it.
-         // Let me handle that in the rust backend!
+
+         // POST /api/instances upserts by instance_id on the backend, so saving
+         // an existing engine updates it in place rather than duplicating it.
          try {
              await API.post(`/api/instances`, payload);
              window.showToast('Engine configuration saved!', 'success');
@@ -259,4 +257,130 @@ export async function initDynamicEngines() {
   } catch (e) {
     console.error('Failed to load dynamic engines:', e);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Rotation manager: lets the user pick which instances are shown, in which
+// order, and for how long. Reads/writes GET/POST /api/rotation.
+// ---------------------------------------------------------------------------
+async function renderRotationPanel(container, tabsContainer, instancesList, enginesMap) {
+  const rotation = await API.get('/api/rotation').catch(() => []);
+  // Working copy: array of { instance_id, duration_sec }.
+  let entries = Array.isArray(rotation) ? rotation.slice() : [];
+
+  const nameFor = (instId) => {
+    const inst = instancesList.find(i => i.instance_id === instId);
+    if (!inst) return instId;
+    const eng = enginesMap[inst.engine_id];
+    return `${eng ? eng.metadata.name : inst.engine_id} (${instId})`;
+  };
+
+  const card = document.createElement('div');
+  card.className = 'card glass shadow';
+  card.style.margin = '1rem 0';
+
+  const title = document.createElement('h3');
+  title.innerText = '🔁 Rotation';
+  card.appendChild(title);
+
+  const list = document.createElement('div');
+  list.className = 'rotation-list';
+  card.appendChild(list);
+
+  function render() {
+    list.innerHTML = '';
+    entries.forEach((entry, idx) => {
+      const row = document.createElement('div');
+      row.className = 'rotation-row';
+      row.style = 'display:flex; gap:0.5rem; align-items:center; margin-bottom:0.4rem;';
+
+      const label = document.createElement('span');
+      label.style = 'flex:1;';
+      label.innerText = nameFor(entry.instance_id);
+      row.appendChild(label);
+
+      const dur = document.createElement('input');
+      dur.type = 'number';
+      dur.className = 'input';
+      dur.min = '1';
+      dur.style = 'width:6rem;';
+      dur.value = entry.duration_sec;
+      dur.title = 'Duration (seconds)';
+      dur.onchange = () => { entry.duration_sec = parseInt(dur.value) || 1; };
+      row.appendChild(dur);
+
+      const up = document.createElement('button');
+      up.className = 'btn';
+      up.innerText = '▲';
+      up.disabled = idx === 0;
+      up.onclick = () => { entries.splice(idx - 1, 0, entries.splice(idx, 1)[0]); render(); };
+      row.appendChild(up);
+
+      const down = document.createElement('button');
+      down.className = 'btn';
+      down.innerText = '▼';
+      down.disabled = idx === entries.length - 1;
+      down.onclick = () => { entries.splice(idx + 1, 0, entries.splice(idx, 1)[0]); render(); };
+      row.appendChild(down);
+
+      const del = document.createElement('button');
+      del.className = 'btn btn-danger';
+      del.innerText = '🗑️';
+      del.onclick = () => { entries.splice(idx, 1); render(); };
+      row.appendChild(del);
+
+      list.appendChild(row);
+    });
+    if (entries.length === 0) {
+      const empty = document.createElement('p');
+      empty.innerText = 'No instances in rotation. Add one below.';
+      list.appendChild(empty);
+    }
+  }
+
+  // Add-to-rotation controls.
+  const addRow = document.createElement('div');
+  addRow.style = 'display:flex; gap:0.5rem; align-items:center; margin-top:0.6rem;';
+  const sel = document.createElement('select');
+  sel.className = 'input';
+  sel.style = 'flex:1;';
+  instancesList.forEach(inst => {
+    const opt = document.createElement('option');
+    opt.value = inst.instance_id;
+    opt.innerText = nameFor(inst.instance_id);
+    sel.appendChild(opt);
+  });
+  const addBtn = document.createElement('button');
+  addBtn.className = 'btn btn-primary';
+  addBtn.innerText = '➕ Add to rotation';
+  addBtn.onclick = () => {
+    if (!sel.value) return;
+    entries.push({ instance_id: sel.value, duration_sec: 30 });
+    render();
+  };
+  addRow.appendChild(sel);
+  addRow.appendChild(addBtn);
+  card.appendChild(addRow);
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary';
+  saveBtn.style = 'margin-top:1rem; width:100%;';
+  saveBtn.innerText = 'Save Rotation';
+  saveBtn.onclick = async () => {
+    const payload = entries.map(e => ({
+      instance_id: e.instance_id,
+      duration_sec: parseInt(e.duration_sec) || 1,
+    }));
+    try {
+      await API.post('/api/rotation', payload);
+      window.showToast('Rotation saved!', 'success');
+    } catch (e) {
+      window.showToast('Failed to save rotation', 'warning');
+    }
+  };
+  card.appendChild(saveBtn);
+
+  render();
+  // Insert the panel above the engine tabs.
+  container.insertBefore(card, tabsContainer);
 }

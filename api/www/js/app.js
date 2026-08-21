@@ -41,7 +41,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initCustomMarquee();
   initNetworkSettings();
   initSettings();
-  initPlaylists();
   initDynamicEngines();
 });
 
@@ -405,21 +404,6 @@ function initNetworkSettings() {
 }
 
 async function initSettings() {
-  // Load fonts list
-  try {
-    const fonts = await API.get('/api/fonts').catch(() => (["PressStart2P"]));
-    const clockFontSel = document.getElementById('cfg-clock-font');
-    const dateFontSel = document.getElementById('cfg-date-font');
-    if (clockFontSel && dateFontSel && fonts) {
-      fonts.forEach(f => {
-        clockFontSel.add(new Option(f, f));
-        dateFontSel.add(new Option(f, f));
-      });
-    }
-  } catch (e) {
-    console.warn('Failed to load fonts list', e);
-  }
-
   // Load current settings
   try {
     const s = await API.get('/api/system').then(s => ({ brightness_limit: s.system.night_brightness || 50, matrix_brightness: 50, ...s.system, ...s.mqtt, ...s.wifi }));
@@ -472,134 +456,11 @@ async function initSettings() {
     document.getElementById('hw-api-auth').value = s.api_auth_enabled ? 'true' : 'false';
     document.getElementById('hw-api-token').value = s.api_token || '';
 
-    // Clock
-    document.getElementById('cfg-clock-theme').value = s.clock_theme;
-    document.getElementById('cfg-clock-font').value = s.clock_font;
-    document.getElementById('cfg-clock-format').value = s.time_format;
-    document.getElementById('cfg-clock-size').value = s.time_size || 2;
-    document.getElementById('cfg-ntp-server').value = s.ntp_server || 'pool.ntp.org';
-    document.getElementById('cfg-timezone').value = s.timezone || 'Europe/Paris';
-    document.getElementById('cfg-clock-color1').value = s.clock_color_1.toLowerCase();
-    document.getElementById('cfg-clock-color2').value = s.clock_color_2.toLowerCase();
-    document.getElementById('cfg-clock-x').value = s.clock_offset_x;
-    document.getElementById('cfg-clock-y').value = s.clock_offset_y;
-
-    // Date
-    document.getElementById('cfg-date-theme').value = s.date_theme;
-    document.getElementById('cfg-date-font').value = s.date_font;
-    document.getElementById('cfg-date-format').value = s.date_format;
-    document.getElementById('cfg-date-size').value = s.date_size || 1;
-    document.getElementById('cfg-date-color1').value = s.date_color_1.toLowerCase();
-    document.getElementById('cfg-date-color2').value = s.date_color_2.toLowerCase();
-    document.getElementById('cfg-date-x').value = s.date_offset_x;
-    document.getElementById('cfg-date-y').value = s.date_offset_y;
-
-    // Weather
-    document.getElementById('cfg-weather-api').value = s.weather_api_key;
-    document.getElementById('cfg-weather-city').value = s.weather_city;
-    document.getElementById('cfg-weather-lang').value = s.weather_lang;
-    document.getElementById('cfg-weather-x').value = s.weather_offset_x || 0;
-    document.getElementById('cfg-weather-y').value = s.weather_offset_y || 0;
-
-    // Crypto & Stock
-    if (document.getElementById('cfg-crypto-symbols')) document.getElementById('cfg-crypto-symbols').value = s.crypto_symbols || 'BTC,ETH,SOL,DOGE';
-    if (document.getElementById('cfg-dur-crypto')) document.getElementById('cfg-dur-crypto').value = s.crypto_duration_sec || 5;
-    if (document.getElementById('cfg-cache-crypto')) document.getElementById('cfg-cache-crypto').value = s.crypto_cache_ttl_min || 1;
-    if (document.getElementById('cfg-stock-symbols')) document.getElementById('cfg-stock-symbols').value = s.stock_symbols || 'AAPL,NVDA,TSLA,MSFT';
-    if (document.getElementById('cfg-dur-stock')) document.getElementById('cfg-dur-stock').value = s.stock_duration_sec || 5;
-    if (document.getElementById('cfg-cache-stock')) document.getElementById('cfg-cache-stock').value = s.stock_cache_ttl_min || 1;
-
-    // Rotation
-    document.getElementById('cfg-rotation').value = s.rotation;
-    const rotationArr = (s.rotation || '').split(',').map(x => x.trim());
-    document.querySelectorAll('.rotation-toggles input[type="checkbox"]').forEach(cb => {
-      cb.checked = rotationArr.includes(cb.value);
-    });
-    document.getElementById('cfg-dur-clock').value = s.clock_duration_sec;
-    document.getElementById('cfg-dur-date').value = s.date_duration_sec;
-    document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
-    document.getElementById('cfg-dur-gifs').value = s.gifs_count || 5;
-    document.getElementById('cfg-sprite-enable').value = s.fighter_enabled === 'true' ? 'true' : 'false';
-    document.getElementById('cfg-fighter-int').value = s.fighter_interval_sec || 5;
-
-    // Night Mode
-    document.getElementById('cfg-night-enable').value = s.night_mode_enabled ? 'true' : 'false';
-    document.getElementById('cfg-night-off').value = s.turn_off_at;
-    document.getElementById('cfg-night-on').value = s.wake_up_at;
-    document.getElementById('cfg-night-brightness').value = s.night_brightness !== undefined ? s.night_brightness : 10;
-    document.getElementById('night-brightness-val').textContent = document.getElementById('cfg-night-brightness').value + '%';
 
   } catch (e) {
     console.error('Failed to load settings', e);
   }
 
-  // Save Display Settings
-  const btnSaveDisplayList = document.querySelectorAll('.btn-save-display');
-  btnSaveDisplayList.forEach(btnSaveDisplay => {
-    btnSaveDisplay.addEventListener('click', async () => {
-      btnSaveDisplay.disabled = true;
-      btnSaveDisplay.textContent = 'Saving...';
-      try {
-          const selectedRotations = Array.from(document.querySelectorAll('.rotation-toggles input[type="checkbox"]:checked'))
-            .map(cb => cb.value).join(',');
-
-          const payload = {
-            clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
-            clock_font: document.getElementById('cfg-clock-font').value,
-            time_format: document.getElementById('cfg-clock-format').value,
-            time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
-            ntp_server: document.getElementById('cfg-ntp-server').value,
-            timezone: document.getElementById('cfg-timezone').value,
-            clock_color_1: document.getElementById('cfg-clock-color1').value,
-            clock_color_2: document.getElementById('cfg-clock-color2').value,
-            clock_offset_x: parseInt(document.getElementById('cfg-clock-x').value) || 0,
-            clock_offset_y: parseInt(document.getElementById('cfg-clock-y').value) || 0,
-
-            date_theme: parseInt(document.getElementById('cfg-date-theme').value),
-            date_font: document.getElementById('cfg-date-font').value,
-            date_format: document.getElementById('cfg-date-format').value,
-            date_size: parseInt(document.getElementById('cfg-date-size').value) || 1,
-            date_color_1: document.getElementById('cfg-date-color1').value,
-            date_color_2: document.getElementById('cfg-date-color2').value,
-            date_offset_x: parseInt(document.getElementById('cfg-date-x').value) || 0,
-            date_offset_y: parseInt(document.getElementById('cfg-date-y').value) || 0,
-
-            weather_api_key: document.getElementById('cfg-weather-api').value,
-            weather_city: document.getElementById('cfg-weather-city').value,
-            weather_lang: document.getElementById('cfg-weather-lang').value,
-            weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
-            weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
-
-            crypto_symbols: document.getElementById('cfg-crypto-symbols') ? document.getElementById('cfg-crypto-symbols').value : 'BTC,ETH,SOL,DOGE',
-            crypto_duration_sec: parseInt(document.getElementById('cfg-dur-crypto')?.value) || 5,
-            crypto_cache_ttl_min: parseInt(document.getElementById('cfg-cache-crypto')?.value) || 1,
-            stock_symbols: document.getElementById('cfg-stock-symbols') ? document.getElementById('cfg-stock-symbols').value : 'AAPL,NVDA,TSLA,MSFT',
-            stock_duration_sec: parseInt(document.getElementById('cfg-dur-stock')?.value) || 5,
-            stock_cache_ttl_min: parseInt(document.getElementById('cfg-cache-stock')?.value) || 1,
-
-            rotation: selectedRotations,
-            clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,
-          date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
-          weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
-          gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 5,
-          fighter_enabled: document.getElementById('cfg-sprite-enable').value === 'true',
-          fighter_interval_sec: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
-
-          night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
-          turn_off_at: document.getElementById('cfg-night-off').value,
-          wake_up_at: document.getElementById('cfg-night-on').value,
-          night_brightness: parseInt(document.getElementById('cfg-night-brightness').value, 10),
-        };
-        await API.post('/api/system', payload);
-        window.showToast('Display settings saved!', 'success');
-      } catch (e) {
-        window.showToast('Failed to save settings', 'error');
-      } finally {
-        btnSaveDisplay.disabled = false;
-        btnSaveDisplay.textContent = 'Save Display Settings';
-      }
-    });
-  });
 
   // Save HW settings
   const btnSaveHw = document.getElementById('btn-save-hw');
@@ -673,80 +534,6 @@ async function initSettings() {
         window.showToast('Failed to send message', 'error');
       }
     });
-  }
-}
-
-async function initPlaylists() {
-  const container = document.querySelector('.playlist-list');
-  if (!container) return;
-  
-  container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-color);">Loading GIFs...<br><small style="opacity:0.7">Reading SD Card, this may take a few seconds...</small></div>`;
-  
-  try {
-    const res = await API.get('/api/playlists').catch(() => ({}));
-    const allPlaylists = res; 
-    
-    let selectedPaths = [];
-    try {
-      const selRes = await API.get('/api/playlists/selected');
-      selectedPaths = selRes.playlists || [];
-    } catch (e) {
-      console.warn('Could not fetch selected playlists', e);
-    }
-    
-    let html = '';
-    for (const [name, info] of Object.entries(allPlaylists)) {
-      const isChecked = selectedPaths.includes(info.path) ? 'checked' : '';
-      const count = info.count || (info.files ? info.files.length : 0);
-      
-      html += `
-        <div class="playlist-item">
-          <div class="info">
-            <h4>${name}</h4>
-            <span>${count} GIFs found</span>
-          </div>
-          <div class="action">
-            <label style="display:flex; align-items:center; cursor:pointer;">
-              <input type="checkbox" class="playlist-cb" value="${info.path}" ${isChecked} style="width:20px;height:20px;margin-right:10px;accent-color:var(--primary);">
-              Include
-            </label>
-          </div>
-        </div>
-      `;
-    }
-    
-    if (Object.keys(allPlaylists).length === 0) {
-      html = `<div style="padding:1rem;text-align:center;">No GIF folders found. Check your data/gifs directory.</div>`;
-    } else {
-      html += `<button id="btn-save-playlists" class="btn btn-primary" style="margin-top:1rem; width:100%;">Save GIF Playlists</button>`;
-    }
-    
-    container.innerHTML = html;
-    
-    const btnSave = document.getElementById('btn-save-playlists');
-    if (btnSave) {
-      btnSave.addEventListener('click', async () => {
-        btnSave.disabled = true;
-        btnSave.textContent = 'Saving...';
-        
-        const checkboxes = document.querySelectorAll('.playlist-cb:checked');
-        const pathsToSave = Array.from(checkboxes).map(cb => cb.value);
-        
-        try {
-          await API.post('/api/playlists/save', { playlists: pathsToSave });
-          window.showToast('Playlists saved successfully!', 'success');
-        } catch (e) {
-          window.showToast('Failed to save playlists', 'error');
-        } finally {
-          btnSave.disabled = false;
-          btnSave.textContent = 'Save GIF Playlists';
-        }
-      });
-    }
-    
-  } catch (e) {
-    container.innerHTML = `<div style="padding:2rem;text-align:center;color:#ef4444;">Failed to load playlists.</div>`;
-    console.error(e);
   }
 }
 

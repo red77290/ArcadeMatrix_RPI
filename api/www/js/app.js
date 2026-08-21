@@ -113,19 +113,7 @@ function initDashboard() {
     });
   }
 
-  const btnRestartApp = document.getElementById('btn-restart-app');
-  if (btnRestartApp) {
-    btnRestartApp.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to soft restart the application? (Hardware config will be reapplied)')) {
-        try {
-          await API.post('/api/system/restart_app');
-          window.showToast('Restarting application...', 'info');
-          setTimeout(() => location.reload(), 2000);
-        } catch (e) {
-          window.showToast('Failed to restart application', 'error');
-        }
-      }
-    });
+  
   }
 
   const btnShutdown = document.getElementById('btn-shutdown');
@@ -498,37 +486,15 @@ async function initSettings() {
           matrix_disable_hardware_pulsing: disablePulsing,
           matrix_limit_refresh_rate_hz: limitRefresh
         });
-        window.showToast('Hardware settings saved! Restarting app...', 'success');
-        setTimeout(async () => {
-          await API.post('/api/system/restart_app');
-        }, 1500);
+        window.showToast('Hardware settings saved! Please Reboot for changes to take effect.', 'success');
+        
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }
     });
   }
 
-  // Send Custom Message
-  const btnSendMsg = document.getElementById('btn-send-message');
-  if (btnSendMsg) {
-    btnSendMsg.addEventListener('click', async () => {
-      const text = document.getElementById('msg-input').value;
-      const color = document.getElementById('msg-color')?.value || '#ffffff';
-      const size = parseInt(document.getElementById('msg-size')?.value) || 1;
-      const direction = document.getElementById('msg-direction')?.value || 'left';
-      const speed = parseInt(document.getElementById('msg-speed')?.value) || 30;
-      const timeout = parseInt(document.getElementById('msg-timeout')?.value) || 10;
-      
-      if (!text) return;
-      try {
-        await API.post('/api/message', {
-          text: text,
-          color: color,
-          size: size,
-          direction: direction,
-          speed: speed,
-          timeoutSeconds: timeout
-        });
+  
         window.showToast('Message sent!', 'success');
       } catch (e) {
         window.showToast('Failed to send message', 'error');

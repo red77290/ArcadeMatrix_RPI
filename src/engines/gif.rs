@@ -312,6 +312,8 @@ fn register_gif_engine() -> EngineDescriptor {
                 description: "Comma-separated active playlists",
                 default_value: "",
                 validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                options_endpoint: Some("/api/playlists"),
+                multiple: true,
                 ..Default::default()
             }],
         },

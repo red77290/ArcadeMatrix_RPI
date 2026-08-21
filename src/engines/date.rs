@@ -216,6 +216,7 @@ fn register_date_engine() -> EngineDescriptor {
                     description: "Font file path",
                     default_value: "PressStart2P.ttf",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    options_endpoint: Some("/api/fonts"),
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

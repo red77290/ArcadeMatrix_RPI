@@ -77,6 +77,7 @@ Vous pouvez aussi pousser des identifiants à l'exécution avec `POST /api/wifi 
 | `turn_off_at` | `String` | Heure de début de la veille (ex. `"23:00"`). |
 | `wake_up_at` | `String` | Heure de réveil (ex. `"07:00"`). |
 | `night_brightness` | `int` | Luminosité de veille (`0` = matrice complètement éteinte). |
+| `day_brightness` | `int` | Luminosité de jour en direct (`0`–`100`). Réglée via le curseur du tableau de bord et conservée après un redémarrage. |
 
 ---
 

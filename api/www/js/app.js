@@ -402,10 +402,10 @@ async function initSettings() {
     const matrix = cfg.matrix || {};
     const mqtt = cfg.mqtt || {};
 
-    // Dashboard brightness (0-100). We reuse night_brightness as the stored value.
+    // Dashboard brightness (0-100) is the live daytime brightness (day_brightness).
     const sliderBright = document.getElementById('slider-brightness');
     if (sliderBright) {
-      const bright = sys.night_brightness ?? 50;
+      const bright = sys.day_brightness ?? 100;
       sliderBright.value = bright;
       const valEl = document.getElementById('val-brightness');
       if (valEl) valEl.textContent = bright;

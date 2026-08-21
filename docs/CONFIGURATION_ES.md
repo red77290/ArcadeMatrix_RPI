@@ -77,6 +77,7 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `turn_off_at` | `String` | Hora de inicio de espera (ej. `"23:00"`). |
 | `wake_up_at` | `String` | Hora de despertar (ej. `"07:00"`). |
 | `night_brightness` | `int` | Brillo de espera (`0` = matriz completamente apagada). |
+| `day_brightness` | `int` | Brillo diurno en vivo (`0`–`100`). Se ajusta con el control del panel y se conserva tras un reinicio. |
 
 ---
 

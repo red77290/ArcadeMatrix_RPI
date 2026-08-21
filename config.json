@@ -47,7 +47,8 @@
     "night_mode_enabled": false,
     "turn_off_at": "23:00",
     "wake_up_at": "07:00",
-    "night_brightness": 10
+    "night_brightness": 10,
+    "day_brightness": 100
   },
   "instances": [
     {

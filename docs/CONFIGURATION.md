@@ -77,6 +77,7 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 | `turn_off_at` | `String` | Standby start time (e.g., `"23:00"`). |
 | `wake_up_at` | `String` | Wake-up time (e.g., `"07:00"`). |
 | `night_brightness` | `int` | Standby brightness (`0` = matrix completely off). |
+| `day_brightness` | `int` | Live daytime brightness (`0`–`100`). Set from the dashboard slider and persisted across restarts. |
 
 ---
 

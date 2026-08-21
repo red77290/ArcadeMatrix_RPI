@@ -761,6 +761,9 @@ components:
           example: "07:00"
         night_brightness:
           type: integer
+        day_brightness:
+          type: integer
+          description: Live daytime brightness (0-100), persisted across restarts.
 
     MatrixConfig:
       type: object

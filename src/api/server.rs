@@ -111,9 +111,13 @@ async fn post_system(
         .or_else(|| body.get("brightness"))
         .and_then(|v| v.as_u64())
     {
+        let clamped = v.min(100) as u32;
         data.config
             .matrix_brightness
-            .store(v.min(100) as u32, Ordering::Relaxed);
+            .store(clamped, Ordering::Relaxed);
+        // Persist it too, so the saved brightness survives a restart instead of
+        // reverting to the default when the config is reloaded from disk.
+        s.system.day_brightness = clamped;
     }
     // Hardware-affecting settings only take effect after a full restart of the
     // render loop, so flag it when matrix params or the Wi-Fi radio state change.

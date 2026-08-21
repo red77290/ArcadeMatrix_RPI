@@ -84,6 +84,7 @@ pub struct SystemConfig {
     pub turn_off_at: String,
     pub wake_up_at: String,
     pub night_brightness: u32,
+    pub day_brightness: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,6 +171,7 @@ impl Default for SystemConfig {
             turn_off_at: "23:00".to_string(),
             wake_up_at: "07:00".to_string(),
             night_brightness: 10,
+            day_brightness: 100,
         }
     }
 }
@@ -261,7 +263,9 @@ impl Config {
             needs_save = true;
         }
 
-        let initial_brightness = 100;
+        // Seed the live daytime brightness from the persisted value so a user's
+        // saved brightness survives restarts instead of resetting to full.
+        let initial_brightness = settings.system.day_brightness;
 
         let cfg = Self {
             config_file: Mutex::new(path_buf),

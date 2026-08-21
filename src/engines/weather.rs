@@ -472,11 +472,26 @@ fn register_weather_engine() -> EngineDescriptor {
                 },
                 crate::core::engine_contract::ConfigField {
                     id: "lang",
-                    field_type: crate::core::engine_contract::ConfigType::String,
+                    field_type: crate::core::engine_contract::ConfigType::Options,
                     label: "Language",
-                    description: "Language code (e.g. en, fr)",
+                    description: "Language for the day labels. Only these are localized.",
                     default_value: "en",
-                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "English",
+                            value: "en",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Français",
+                            value: "fr",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Español",
+                            value: "es",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

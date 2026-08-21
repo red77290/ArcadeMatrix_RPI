@@ -100,6 +100,10 @@ impl Engine for ClockEngine {
         self.apply_config(config);
     }
 
+    fn is_realtime(&self) -> bool {
+        crate::core::theme::is_realtime_theme(self.time_theme)
+    }
+
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
 

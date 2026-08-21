@@ -177,6 +177,14 @@ pub trait Engine: Send + Sync {
     fn is_finished(&self) -> bool {
         false
     }
+
+    /// Whether the engine currently needs a high frame rate (~25fps). Unlike the
+    /// static `Capabilities::realtime` descriptor flag, this is evaluated every
+    /// frame so an engine can switch cadence based on its live state (e.g. a
+    /// clock rendering an animated theme). Defaults to `false`.
+    fn is_realtime(&self) -> bool {
+        false
+    }
 }
 
 // =======================================================

@@ -635,6 +635,12 @@ impl ArcadeMatrixApp {
                         engine.update(&mut ctx);
                         engine.render(&mut ctx);
 
+                        // Let the engine raise the cadence based on its live
+                        // state (e.g. an animated clock theme), not just the
+                        // static descriptor capability. Without this, animated
+                        // clocks fall back to the 1fps static cadence.
+                        current_realtime = current_realtime || engine.is_realtime();
+
                         // Advance rotation based on duration OR engine completion
                         if engine.is_finished()
                             || rotation_state.mode_start_time.elapsed()

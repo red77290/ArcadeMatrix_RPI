@@ -78,6 +78,10 @@ impl Engine for DateEngine {
         self.apply_config(config);
     }
 
+    fn is_realtime(&self) -> bool {
+        crate::core::theme::is_realtime_theme(self.date_theme)
+    }
+
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
         let tz: chrono_tz::Tz = context

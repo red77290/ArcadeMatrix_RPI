@@ -239,6 +239,15 @@ pub fn all_themes() -> &'static [ThemeInfo] {
     THEMES
 }
 
+/// Whether a clock/date theme is animated and therefore needs a high frame rate
+/// (~25fps) instead of the 1fps static cadence. Kept next to the theme catalog
+/// so cadence stays in sync with the renderers. Covers the animated sprite
+/// themes (12-17), cyberpunk/flip (18-19), true-matrix (21), the game clocks
+/// (pong/tetris/pacman 22-24) and binary/versus/slot/tetris-gb (26-29).
+pub fn is_realtime_theme(theme_id: i32) -> bool {
+    matches!(theme_id, 12..=19 | 21..=24 | 26..=29)
+}
+
 pub fn get_theme_info(theme_id: i32) -> ThemeInfo {
     THEMES
         .iter()

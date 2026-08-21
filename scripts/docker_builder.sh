@@ -120,7 +120,7 @@ mount --bind /proc /mnt/rootfs/proc
 echo "📁 Copying ArcadeMatrix project into image..."
 mkdir -p /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi
 # Only copy the configuration to root for backup, we will place scripts on DATA partition
-cp /workspace/data/conf.ini /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/
+cp /workspace/data/config.json /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/
 cp /workspace/autoInstall.sh /mnt/rootfs/home/$AM_USER/ArcadeMatrix_RPi/
 
 echo "📁 Injecting cross-compiled Rust binary..."

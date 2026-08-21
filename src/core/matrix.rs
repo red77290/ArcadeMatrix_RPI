@@ -161,7 +161,7 @@ impl HardwareMatrix {
             }
         }
 
-        // Pass limit_refresh directly from conf.ini, no override.
+        // Pass limit_refresh directly from config.json, no override.
         // Python doesn't set this at all (defaults to 0 in the C++ lib).
         options.set_limit_refresh(limit_refresh);
 

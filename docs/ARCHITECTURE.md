@@ -25,7 +25,7 @@ To keep the codebase maintainable, we strictly separate the logic of *what* to d
 graph TD
     subgraph Data Layer
         API[Actix-web Web API]
-        Config[conf.ini / ConfigLoader]
+        Config[config.json / ConfigLoader]
         Time[System Time]
         Network[Weather / MQTT / Crypto / Stock APIs]
     end

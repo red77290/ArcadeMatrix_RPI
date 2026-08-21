@@ -30,12 +30,12 @@ SETTLE="${SETTLE:-12}"                  # attente apres restart avant d'echantil
 OUTDIR="${OUTDIR:-/home/$USER}"
 DIAG="$(cd "$(dirname "$0")" && pwd)/wifi_diag.sh"
 
-# --- Localiser conf.ini ------------------------------------------------------
+# --- Localiser config.json ------------------------------------------------------
 CONF="${CONF:-}"
 if [ -z "$CONF" ]; then
-  for p in "/home/$USER/ArcadeMatrix_RPi/conf.ini" \
-           "$(dirname "$0")/../conf.ini" \
-           "/root/ArcadeMatrix_RPi/conf.ini"; do
+  for p in "/home/$USER/ArcadeMatrix_RPi/config.json" \
+           "$(dirname "$0")/../config.json" \
+           "/root/ArcadeMatrix_RPi/config.json"; do
     [ -f "$p" ] && { CONF="$p"; break; }
   done
 fi
@@ -43,7 +43,7 @@ fi
 # --- Auto-daemonisation : survit a la chute du SSH ---------------------------
 if [ "${_AB_DETACHED:-0}" != "1" ]; then
   if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
-    echo "ERREUR: conf.ini introuvable. Definis CONF=/chemin/conf.ini"; exit 1
+    echo "ERREUR: config.json introuvable. Definis CONF=/chemin/config.json"; exit 1
   fi
   if [ ! -f "$DIAG" ]; then
     echo "ERREUR: wifi_diag.sh introuvable a cote ($DIAG)"; exit 1
@@ -55,7 +55,7 @@ if [ "${_AB_DETACHED:-0}" != "1" ]; then
   cat <<EOF
 ===================================================================
  Test A/B lance en tache detachee (PID $child).
-   conf.ini : $CONF
+   config.json : $CONF
    rotation d'origine : ${ORIG_ROT:-inconnue}  (sera restauree a la fin)
    Manche A (date) puis B (gifs), 120s chacune, pulsing ON.
    A la fin : pulsing OFF -> le Wi-Fi revient tout seul.

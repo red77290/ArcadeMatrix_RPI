@@ -107,7 +107,7 @@ fn test_engine_runtime_lifecycle() {
     
     let mut runtime = EngineRuntime::new();
     let mut matrix = MockMatrix::new(64, 64);
-    let config = Config::new("conf.ini");
+    let config = Config::new("config.json");
     let mut context = EngineContext {
         matrix: &mut matrix,
         config: &config,

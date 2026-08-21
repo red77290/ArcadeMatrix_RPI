@@ -10,7 +10,7 @@ We provide a ready-to-use pre-compiled image.
 
 1. Flash the `ArcadeMatrix_Release.img` file to your SD card using **Raspberry Pi Imager**.
 2. Once finished, reinsert the SD card into your PC/Mac. An 8GB USB drive named **DATA** will appear.
-3. Open the `conf.ini` file located on this **DATA** drive to insert your Wi-Fi credentials (`SSID` and `PASS`) and your matrix size.
+3. Open the `config.json` file located on this **DATA** drive to insert your Wi-Fi credentials (`SSID` and `PASS`) and your matrix size.
 4. Insert the SD card into the Raspberry Pi and turn it on. The IP address will be displayed on the matrix!
 
 ## 2. Web Configuration & OTA Updates

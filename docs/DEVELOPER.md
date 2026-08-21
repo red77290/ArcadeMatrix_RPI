@@ -103,7 +103,7 @@ The rotation toggles are defined in `api/www/index.html`. Add your new module as
 ```
 The bundled JS sends the selected values as an array or comma-separated string to `/api/settings`.
 
-### Step 2: The Configuration (`conf.ini`)
+### Step 2: The Configuration (`config.json`)
 In `src/core/config.rs`, the rotation array is defined. If it maps to an Enum (like `IdleRotationItem`), you need to add your new variant:
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -114,7 +114,7 @@ pub enum IdleRotationItem {
     Pager, // <-- New module
 }
 ```
-Update the FromStr/Display traits in `config.rs` so that `"pager"` from the UI and `conf.ini` parses correctly into `IdleRotationItem::Pager`.
+Update the FromStr/Display traits in `config.rs` so that `"pager"` from the UI and `config.json` parses correctly into `IdleRotationItem::Pager`.
 
 ### Step 3: The Engine
 Create a new file `src/engines/pager.rs` that handles the drawing logic using `imageproc` and `rusttype`.
@@ -149,3 +149,13 @@ match current_rotation_item {
     },
 }
 ```
+
+
+## Modern Engine Lifecycle (Lazy-Once)
+As of the S13 Architecture Parity refactor, ArcadeMatrix uses a strict Lazy-Once lifecycle for engines across both ESP32 and RPi platforms:
+- **`initialize(context, config)`**: Called **exactly once** the first time the engine is selected by the rotation manager. Do heavy memory allocations here.
+- **`activate()`**: Called every time the engine rotates into view.
+- **`update(context) / render(context)`**: Called at 60 FPS. **Must not allocate memory**.
+- **`deactivate()`**: Called when rotating away to another engine.
+- **`on_config_changed(config)`**: Called when the user changes settings via the Web UI while the engine is already initialized.
+- **`is_finished()`**: Used by rotation to conditionally skip engines if they have no work left.

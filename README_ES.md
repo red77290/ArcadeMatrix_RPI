@@ -25,7 +25,7 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 
 1. Graba el `.img` en tu tarjeta SD con **Raspberry Pi Imager**.
 2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!
-3. Abre el archivo `conf.ini` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
+3. Abre el archivo `config.json` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela.
 5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esa IP para acceder a la interfaz Web!
 
@@ -200,9 +200,9 @@ Consulta `tools/mugen_extractor/README_ES.md` para ver las instrucciones complet
 
 ---
 
-## ⚙️ Configuración avanzada (conf.ini)
+## ⚙️ Configuración avanzada (config.json)
 
-Si prefieres editar los ajustes manualmente en lugar de usar la interfaz Web, puedes editar directamente el archivo `conf.ini` ubicado en la partición **DATA** de tu tarjeta SD. 
+Si prefieres editar los ajustes manualmente en lugar de usar la interfaz Web, puedes editar directamente el archivo `config.json` ubicado en la partición **DATA** de tu tarjeta SD. 
 Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
 
 ### 🌐 [WIFI]
@@ -261,7 +261,7 @@ Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
 | Parameter | Default | Description |
 |---|---|---|
 | `AUTH_ENABLED` | `false` | If `true`, requires the `X-API-Token` header to match `TOKEN` on the sensitive endpoints: `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot`, `/api/system/shutdown`. Disabled by default so the bundled Web UI keeps working out of the box; enable it if the device is reachable beyond a trusted LAN. |
-| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `conf.ini` after first run) and send it as `X-API-Token` when calling protected endpoints. |
+| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `config.json` after first run) and send it as `X-API-Token` when calling protected endpoints. |
 
 ## 🙏 Agradecimientos
 

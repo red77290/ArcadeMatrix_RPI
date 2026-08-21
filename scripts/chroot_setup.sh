@@ -61,14 +61,14 @@ ln -s $PROJ_DIR/data/fighters_64 $PROJ_DIR/fighters_64
 ln -s $PROJ_DIR/data/crypto_icons $PROJ_DIR/crypto_icons
 ln -s $PROJ_DIR/data/stock_icons $PROJ_DIR/stock_icons
 
-echo "⚙️ [chroot] Copying conf.ini to DATA partition..."
-cp $PROJ_DIR/conf.ini $PROJ_DIR/data/conf.ini
-cp $PROJ_DIR/conf.ini.backup $PROJ_DIR/data/conf.ini.backup || true
-chown $AM_USER:$AM_USER $PROJ_DIR/data/conf.ini $PROJ_DIR/data/conf.ini.backup || true
+echo "⚙️ [chroot] Copying config.json to DATA partition..."
+cp $PROJ_DIR/config.json $PROJ_DIR/data/config.json
+cp $PROJ_DIR/config.json.backup $PROJ_DIR/data/config.json.backup || true
+chown $AM_USER:$AM_USER $PROJ_DIR/data/config.json $PROJ_DIR/data/config.json.backup || true
 
-# Create symlink for conf.ini
-rm -f $PROJ_DIR/conf.ini || true
-ln -s $PROJ_DIR/data/conf.ini $PROJ_DIR/conf.ini
+# Create symlink for config.json
+rm -f $PROJ_DIR/config.json || true
+ln -s $PROJ_DIR/data/config.json $PROJ_DIR/config.json
 
 echo "🧹 [chroot] Cleanup..."
 rm -f /tmp/chroot_setup.sh

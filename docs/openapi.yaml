@@ -61,7 +61,7 @@ paths:
       tags:
         - Configuration
       summary: Update settings
-      description: Partially update settings. Any omitted keys will remain unchanged. Will automatically save to conf.ini.
+      description: Partially update settings. Any omitted keys will remain unchanged. Will automatically save to config.json.
       requestBody:
         required: true
         content:

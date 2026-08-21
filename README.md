@@ -25,7 +25,7 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
 2. Once flashed, insert the SD card into your PC/Mac. You will see a large **DATA** USB drive appear!
-3. Open the `conf.ini` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`SSID` and `PASS`).
+3. Open the `config.json` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`SSID` and `PASS`).
 4. Plug the SD card into your Raspberry Pi and power it on.
 5. The Matrix will immediately turn on and **display the IP address** for 5 seconds. Use this IP to access the Web UI!
 
@@ -200,9 +200,9 @@ Please refer to `tools/mugen_extractor/README.md` for full instructions on how t
 
 ---
 
-## ⚙️ Advanced Configuration (conf.ini)
+## ⚙️ Advanced Configuration (config.json)
 
-If you prefer to edit settings manually instead of using the Web UI, you can directly edit the `conf.ini` file located on the **DATA** partition of your SD Card. 
+If you prefer to edit settings manually instead of using the Web UI, you can directly edit the `config.json` file located on the **DATA** partition of your SD Card. 
 This is especially useful for setting up Wi-Fi before the first boot.
 
 ### 🌐 [WIFI]
@@ -261,7 +261,7 @@ This is especially useful for setting up Wi-Fi before the first boot.
 | Parameter | Default | Description |
 |---|---|---|
 | `AUTH_ENABLED` | `false` | If `true`, requires the `X-API-Token` header to match `TOKEN` on the sensitive endpoints: `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot`, `/api/system/shutdown`. Disabled by default so the bundled Web UI keeps working out of the box; enable it if the device is reachable beyond a trusted LAN. |
-| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `conf.ini` after first run) and send it as `X-API-Token` when calling protected endpoints. |
+| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `config.json` after first run) and send it as `X-API-Token` when calling protected endpoints. |
 
 ## 🙏 Acknowledgments
 

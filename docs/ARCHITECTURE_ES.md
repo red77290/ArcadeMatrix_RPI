@@ -18,7 +18,7 @@ ArcadeMatrix gestiona una matriz LED HUB75 utilizando los bindings Rust de `rpi-
 graph TD
     subgraph Capa de Datos y API
         API[Actix-web REST API]
-        Config[conf.ini / ConfigLoader]
+        Config[config.json / ConfigLoader]
         Time[Sistema de Tiempo]
         Network[APIs Weather / MQTT / Crypto / Stock]
     end

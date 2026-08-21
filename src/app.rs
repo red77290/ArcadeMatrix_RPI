@@ -36,7 +36,7 @@ pub struct ArcadeMatrixApp {
 
 impl ArcadeMatrixApp {
     pub fn new() -> Self {
-        let config = Arc::new(Config::new("conf.ini"));
+        let config = Arc::new(Config::new("config.json"));
         Self { config }
     }
 
@@ -182,7 +182,7 @@ impl ArcadeMatrixApp {
             .expect("Failed to spawn API thread");
 
         // Start MQTT client background worker
-        crate::engines::network::start_mqtt_client(Arc::clone(&self.config));
+        crate::engines::frontend_sync::start_mqtt_client(Arc::clone(&self.config));
 
         // Graceful shutdown flag, shared with the render loop.
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));

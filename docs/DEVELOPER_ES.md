@@ -151,7 +151,7 @@ En `api/www/index.html`, añade la casilla de verificación:
 ```
 El JS incorporado enviará automáticamente este valor a `/api/settings`.
 
-### Paso 2: La Configuración (`conf.ini`)
+### Paso 2: La Configuración (`config.json`)
 En `src/core/config.rs`, se utiliza un Enum `IdleRotationItem`. Añade tu variante:
 ```rust
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -197,3 +197,13 @@ match current_rotation_item {
     },
 }
 ```
+
+
+## Ciclo de vida moderno de los motores (Lazy-Once)
+A partir de la refactorización de Paridad de Arquitectura S13, ArcadeMatrix utiliza un ciclo de vida "Lazy-Once" estricto para los motores tanto en ESP32 como en RPi:
+- **`initialize(context, config)`**: Se llama **exactamente una vez** la primera vez que el administrador de rotación selecciona el motor. Haga las asignaciones de memoria importantes aquí.
+- **`activate()`**: Se llama cada vez que el motor gira a la vista.
+- **`update(context) / render(context)`**: Se llama a 60 FPS. **No debe asignar memoria**.
+- **`deactivate()`**: Se llama cuando se gira hacia otro motor.
+- **`on_config_changed(config)`**: Se llama cuando el usuario cambia la configuración a través de la interfaz de usuario web mientras el motor ya está inicializado.
+- **`is_finished()`**: Usado por la rotación para omitir condicionalmente motores si no tienen trabajo pendiente.

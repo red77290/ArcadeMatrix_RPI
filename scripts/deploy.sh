@@ -81,35 +81,6 @@ if [ "$CHECK_SERVICE" = "missing" ]; then
     sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S env SKIP_BUILD=1 bash -c \"\$(curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh)\""
 fi
 
-echo "[Step 1.5] Verifying & repairing ArcadeMatrix aliases on Raspberry Pi..."
-# Legacy (Python-era) installs left stale aliases in ~/.bash_aliases / ~/.bashrc
-# that point at the old conf.ini workflow. The user then restarts via that alias
-# and their config.json edits appear ignored. We purge any stale/duplicate/legacy
-# ArcadeMatrix alias (including anything still referencing conf.ini) and rewrite a
-# single canonical set targeting the current arcadematrix (config.json) service.
-sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "bash -s" <<'REMOTE' || echo "[Warning] Alias repair skipped."
-set -e
-AF="$HOME/.bash_aliases"
-for f in "$AF" "$HOME/.bashrc"; do
-    [ -f "$f" ] || continue
-    sed -i -e '/# ArcadeMatrix aliases/d' \
-           -e '/alias am=/d' \
-           -e '/alias am-log=/d' \
-           -e '/alias am-stop=/d' \
-           -e '/alias am-start=/d' \
-           -e '/alias am-config=/d' \
-           -e '/alias[^=]*conf\.ini/d' "$f"
-done
-cat >> "$AF" <<'EOF'
-# ArcadeMatrix aliases (managed by deploy.sh - do not edit)
-alias am='sudo systemctl restart arcadematrix'
-alias am-log='sudo journalctl -u arcadematrix -f'
-alias am-stop='sudo systemctl stop arcadematrix'
-alias am-start='sudo systemctl start arcadematrix'
-EOF
-echo "[OK] Aliases verified/repaired in $AF"
-REMOTE
-
 echo "[Step 2] Stopping arcadematrix service on Raspberry Pi..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl stop arcadematrix.service || true"
 
@@ -122,6 +93,17 @@ sshpass -p "${PI_PASS}" scp -o StrictHostKeyChecking=no "$BIN_PATH" "${PI_USER}@
 echo "[Step 4] Moving binary and starting service..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S mv $TARGET_DIR/arcadematrix_temp $TARGET_DIR/arcadematrix"
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod +x $TARGET_DIR/arcadematrix"
+
+echo "[Step 4.5] Verifying config.json persistence on the DATA partition..."
+# On correctly-provisioned images config.json is a symlink into the writable,
+# persistent data/ dir (like gifs/, fonts/, ...). Boxes provisioned from an older
+# (conf.ini-era) image instead have a plain config.json sitting on the rootfs and
+# a stale conf.ini symlink. When the rootfs is read-only/overlay, the backend's
+# saves land on a volatile file and revert to defaults on every restart.
+# We VERIFY first: if config.json already resolves to data/config.json, nothing is
+# touched. Only a broken layout is repaired, and we never clobber an existing
+# persistent data/config.json (settings are preserved).
+sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S bash -c 'cd $TARGET_DIR || exit 0; mkdir -p data; T=\$(readlink -f config.json 2>/dev/null); D=\$(readlink -f data/config.json 2>/dev/null); if [ -L config.json ] && [ x\$T = x\$D ] && [ -f config.json ]; then echo config.json already persisted in data - no changes; else echo Repairing config.json persistence...; if [ -f config.json ] && [ ! -L config.json ]; then [ -f data/config.json ] || cp -f config.json data/config.json; fi; [ -f data/config.json ] || echo {} > data/config.json; rm -f config.json; ln -s data/config.json config.json; if [ -L conf.ini ]; then rm -f conf.ini; fi; chown -h ${PI_USER}:${PI_USER} config.json 2>/dev/null || true; chown ${PI_USER}:${PI_USER} data/config.json 2>/dev/null || true; echo config.json now points to data/config.json; fi'" || echo "[Warning] Config persistence check skipped."
 
 echo "[OK] Service installed, restarting..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"

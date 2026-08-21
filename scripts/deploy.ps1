@@ -83,34 +83,16 @@ function Invoke-RemoteBash {
     ssh -o StrictHostKeyChecking=no $REMOTE_USER_IP ('echo {0} | base64 -d | bash' -f $B64)
 }
 
-Write-Host "[Step 1.5] Verifying & repairing ArcadeMatrix aliases on Raspberry Pi..."
-# Legacy (Python-era) installs left stale aliases in ~/.bash_aliases / ~/.bashrc
-# pointing at the old conf.ini workflow. The user then restarts via that alias and
-# their config.json edits appear ignored. Purge any stale/duplicate/legacy alias
-# (including anything still referencing conf.ini) and rewrite one canonical set
-# targeting the current arcadematrix (config.json) service. Idempotent.
-$RepairAliases = @'
-AF="$HOME/.bash_aliases"
-for f in "$AF" "$HOME/.bashrc"; do
-    [ -f "$f" ] || continue
-    sed -i -e '/# ArcadeMatrix aliases/d' \
-           -e '/alias am=/d' \
-           -e '/alias am-log=/d' \
-           -e '/alias am-stop=/d' \
-           -e '/alias am-start=/d' \
-           -e '/alias am-config=/d' \
-           -e '/alias[^=]*conf\.ini/d' "$f"
-done
-cat >> "$AF" <<'EOF'
-# ArcadeMatrix aliases (managed by deploy.ps1 - do not edit)
-alias am='sudo systemctl restart arcadematrix'
-alias am-log='sudo journalctl -u arcadematrix -f'
-alias am-stop='sudo systemctl stop arcadematrix'
-alias am-start='sudo systemctl start arcadematrix'
-EOF
-echo "[OK] Aliases verified/repaired in $AF"
-'@
-Invoke-RemoteBash $RepairAliases
+Write-Host "[Step 1.5] Verifying config.json persistence on the DATA partition..."
+# On correctly-provisioned images config.json is a symlink into the writable,
+# persistent data/ dir (like gifs/, fonts/, ...). Boxes from an older
+# (conf.ini-era) image instead have a plain config.json on the rootfs plus a stale
+# conf.ini symlink; when the rootfs is read-only/overlay the backend's saves land
+# on a volatile file and revert to defaults on restart. We VERIFY first: if
+# config.json already resolves to data/config.json, nothing is touched. Only a
+# broken layout is repaired, and an existing data/config.json is never clobbered.
+$RepairConfig = "echo '$PI_PASS' | sudo -S bash -c 'cd /home/$PI_USER/ArcadeMatrix_RPi || exit 0; mkdir -p data; T=`$(readlink -f config.json 2>/dev/null); D=`$(readlink -f data/config.json 2>/dev/null); if [ -L config.json ] && [ x`$T = x`$D ] && [ -f config.json ]; then echo config.json already persisted in data - no changes; else echo Repairing config.json persistence...; if [ -f config.json ] && [ ! -L config.json ]; then [ -f data/config.json ] || cp -f config.json data/config.json; fi; [ -f data/config.json ] || echo {} > data/config.json; rm -f config.json; ln -s data/config.json config.json; if [ -L conf.ini ]; then rm -f conf.ini; fi; chown -h ${PI_USER}:${PI_USER} config.json 2>/dev/null || true; chown ${PI_USER}:${PI_USER} data/config.json 2>/dev/null || true; echo config.json now points to data/config.json; fi'"
+Invoke-RemoteBash $RepairConfig
 
 Write-Host "[Step 2] Stopping arcadematrix service on Raspberry Pi..."
 Invoke-RemoteBash ('echo ''{0}'' | sudo -S systemctl stop arcadematrix.service || true' -f $PI_PASS)

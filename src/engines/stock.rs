@@ -392,7 +392,10 @@ fn register_stock_engine() -> EngineDescriptor {
         },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
-            Box::new(crate::engines::stock::StockEngine::new(64, 32))
+            let mut engine = crate::engines::stock::StockEngine::new(64, 32);
+            // Wire the HTTP provider (see crypto.rs factory for why this is required).
+            engine.add_provider(Box::new(crate::api::yahoo_finance::YahooFinanceProvider));
+            Box::new(engine)
         },
     }
 }

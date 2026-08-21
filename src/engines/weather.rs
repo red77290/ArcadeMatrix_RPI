@@ -532,7 +532,10 @@ fn register_weather_engine() -> EngineDescriptor {
             ],
         },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
-            Box::new(WeatherEngine::new())
+            let mut engine = WeatherEngine::new();
+            // Wire the HTTP provider (see crypto.rs factory for why this is required).
+            engine.add_provider(Box::new(crate::api::openweathermap::OpenWeatherMapProvider));
+            Box::new(engine)
         },
     }
 }

@@ -402,7 +402,14 @@ fn register_crypto_engine() -> EngineDescriptor {
         },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
-            Box::new(crate::engines::crypto::CryptoEngine::new(64, 32))
+            let mut engine = crate::engines::crypto::CryptoEngine::new(64, 32);
+            // Wire the HTTP providers. Without these the fetch loop iterates over an
+            // empty Vec, so the engine silently renders "Loading..." forever with no
+            // logs. The legacy (main) code added these in app.rs; under the
+            // auto-discovery factory model each engine must wire its own providers.
+            engine.add_provider(Box::new(crate::api::coingecko::CoinGeckoProvider));
+            engine.add_provider(Box::new(crate::api::binance::BinanceProvider));
+            Box::new(engine)
         },
     }
 }

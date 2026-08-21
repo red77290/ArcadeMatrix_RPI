@@ -50,7 +50,7 @@ export async function initDynamicEngines() {
     addContainer.appendChild(addBtn);
     tabsContainer.appendChild(addContainer);
 
-    instancesList.forEach(instance => {
+    instancesList.forEach(async instance => {
       const engineDesc = enginesMap[instance.engine_id];
       if (!engineDesc) return;
       
@@ -103,7 +103,7 @@ export async function initDynamicEngines() {
       
       // Generate fields from schema
       if (engineDesc.schema && engineDesc.schema.fields && engineDesc.schema.fields.length > 0) {
-        engineDesc.schema.fields.forEach(async field => {
+        for (const field of engineDesc.schema.fields) {
           const formGroup = document.createElement('div');
           formGroup.className = 'form-group';
           
@@ -202,7 +202,7 @@ export async function initDynamicEngines() {
           }
           
           formGrid.appendChild(formGroup);
-        });
+        }
       } else {
          const noSettings = document.createElement('p');
          noSettings.innerText = 'No configuration available for this engine.';

@@ -274,12 +274,12 @@ fn register_clock_engine() -> EngineDescriptor {
             fields: vec![
                 crate::core::engine_contract::ConfigField {
                     id: "theme",
-                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    field_type: crate::core::engine_contract::ConfigType::Options,
                     label: "Theme",
-                    description: "Clock theme index",
+                    description: "Clock theme",
                     default_value: "0",
                     min_val: Some("0"),
-                    max_val: Some("12"),
+                    options_endpoint: Some("/api/themes"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
                     ..Default::default()
                 },

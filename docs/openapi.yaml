@@ -554,6 +554,28 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/themes:
+    get:
+      tags: [Media]
+      summary: List available clock/date themes (dynamic option source)
+      description: >
+        Enumerates every theme from the single source of truth
+        (`core::theme::all_themes()`). Each entry is `{value: "<id>", label:
+        "<name>"}`. Consumed by schema fields that declare
+        `options_endpoint: /api/themes` (clock and date `theme`). Adding a new
+        theme in the firmware automatically extends this list.
+      responses:
+        '200':
+          description: value/label option list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/playlists:
     get:
       tags: [Media]

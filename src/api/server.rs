@@ -534,6 +534,21 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     HttpResponse::Ok().json(playlists)
 }
 
+#[get("/api/themes")]
+async fn get_themes(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    // Built automatically from the single theme source of truth: adding a new
+    // ThemeInfo entry in core::theme makes it appear in the UI dropdown with no
+    // other change required here.
+    let themes: Vec<_> = crate::core::theme::all_themes()
+        .iter()
+        .map(|t| json!({"value": t.id.to_string(), "label": t.name}))
+        .collect();
+    HttpResponse::Ok().json(themes)
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -576,6 +591,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_stats)
             .service(get_fonts)
             .service(get_playlists)
+            .service(get_themes)
             .service(post_wifi)
             .service(post_marquee)
             .service(post_mqtt_install)

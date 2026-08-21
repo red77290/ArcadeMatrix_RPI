@@ -2,6 +2,15 @@ use arcadematrix::core::engine_contract::*;
 use arcadematrix::core::registry::{EngineRegistry, ENGINES};
 use linkme::distributed_slice;
 
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub static MOCK_INIT_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static MOCK_ACTIVATE_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static MOCK_UPDATE_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static MOCK_RENDER_COUNT: AtomicUsize = AtomicUsize::new(0);
+pub static MOCK_DEACTIVATE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
 struct MockEngine;
 
 impl Engine for MockEngine {
@@ -10,13 +19,24 @@ impl Engine for MockEngine {
         _context: &mut EngineContext,
         _config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
+        MOCK_INIT_COUNT.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
-    fn activate(&mut self) {}
-    fn update(&mut self, _context: &mut EngineContext) {}
-    fn render(&mut self, _context: &mut EngineContext) {}
-    fn deactivate(&mut self) {}
+    fn activate(&mut self) {
+        MOCK_ACTIVATE_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+    fn update(&mut self, _context: &mut EngineContext) {
+        MOCK_UPDATE_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+    fn render(&mut self, _context: &mut EngineContext) {
+        MOCK_RENDER_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+    fn deactivate(&mut self) {
+        MOCK_DEACTIVATE_COUNT.fetch_add(1, Ordering::SeqCst);
+    }
+    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
 }
+
 
 #[distributed_slice(ENGINES)]
 fn register_mock_engine() -> EngineDescriptor {
@@ -74,4 +94,40 @@ fn test_get_descriptor() {
 
     let not_found = EngineRegistry::get_descriptor("non.existent");
     assert!(not_found.is_none());
+}
+
+use arcadematrix::core::registry::EngineRuntime;
+use arcadematrix::core::matrix::MockMatrix;
+use arcadematrix::core::config::Config;
+
+#[test]
+fn test_engine_runtime_lifecycle() {
+    MOCK_INIT_COUNT.store(0, Ordering::SeqCst);
+    MOCK_ACTIVATE_COUNT.store(0, Ordering::SeqCst);
+    
+    let mut runtime = EngineRuntime::new();
+    let mut matrix = MockMatrix::new(64, 64);
+    let config = Config::new("conf.ini");
+    let mut context = EngineContext {
+        matrix: &mut matrix,
+        config: &config,
+    };
+    
+    let dummy_cfg = arcadematrix::core::engine_contract::HashConfig { data: &std::collections::HashMap::new() };
+
+    // Get instance for the first time
+    let inst = runtime.get_instance("inst1", "test.mock", &mut context, &dummy_cfg);
+    assert!(inst.is_some());
+    assert_eq!(MOCK_INIT_COUNT.load(Ordering::SeqCst), 1);
+    
+    let engine = inst.unwrap();
+    engine.activate();
+    assert_eq!(MOCK_ACTIVATE_COUNT.load(Ordering::SeqCst), 1);
+    
+    engine.update(&mut context);
+    assert_eq!(MOCK_UPDATE_COUNT.load(Ordering::SeqCst), 1);
+
+    // Get instance for the second time
+    let inst2 = runtime.get_instance("inst1", "test.mock", &mut context, &dummy_cfg);
+    assert_eq!(MOCK_INIT_COUNT.load(Ordering::SeqCst), 1); // Should STILL be 1, Lazy-Once
 }

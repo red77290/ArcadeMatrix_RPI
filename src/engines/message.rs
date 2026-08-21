@@ -226,7 +226,70 @@ fn register_message_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
-        schema: ConfigSchema { fields: vec![] },
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "text",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Text",
+                    description: "The message to display",
+                    default_value: "Hello",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Color",
+                    description: "Hex color, e.g. #ffffff",
+                    default_value: "#ffffff",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "size",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Font Size",
+                    description: "Text scale multiplier",
+                    default_value: "1",
+                    min_val: Some("1"),
+                    max_val: Some("4"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "direction",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Direction",
+                    description: "Scroll direction, or static",
+                    default_value: "left",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Scroll left",
+                            value: "left",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Static (no scroll)",
+                            value: "none",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "speed",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Scroll Speed",
+                    description: "Lower = faster (ms per pixel). Ignored when static.",
+                    default_value: "50",
+                    min_val: Some("1"),
+                    max_val: Some("500"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             Box::new(MessageEngine::new())
         },

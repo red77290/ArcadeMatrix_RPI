@@ -19,6 +19,36 @@
   transition: all var(--transition-fast);
 }
 
+.btn-sm {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  border-radius: var(--radius-sm);
+}
+
+.btn-icon {
+  padding: 0.35rem 0.6rem;
+  min-width: 2.2rem;
+  height: 2.2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}
+
+.btn-icon:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .btn-primary {
   background: var(--accent-primary);
   color: #fff;
@@ -36,6 +66,9 @@
 .btn-danger {
   background: var(--accent-danger);
   color: #fff;
+}
+.btn-danger:hover {
+  background: #dc2626;
 }
 
 .input {

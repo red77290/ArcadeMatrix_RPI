@@ -240,6 +240,143 @@ body {
   background: rgba(255, 255, 255, 0.15);
 }
 
+/* Rotation Panel & Responsive Rows */
+.rotation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.rotation-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.6rem 0.8rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+
+.rotation-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.rotation-info {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.rotation-order-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--accent-primary);
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.rotation-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.95rem;
+}
+
+.rotation-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.rotation-dur-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 0.2rem 0.5rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--glass-border);
+}
+
+.rotation-dur-input {
+  width: 4rem !important;
+  padding: 0.25rem 0.4rem !important;
+  text-align: center;
+  background: transparent !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.rotation-unit {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  min-width: 2.2rem;
+  user-select: none;
+}
+
+.rotation-fighter-lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0.25rem 0.4rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  user-select: none;
+}
+
+.rotation-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.rotation-add-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 640px) {
+  .rotation-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
+  }
+  .rotation-info {
+    width: 100%;
+  }
+  .rotation-controls {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .rotation-add-row {
+    flex-direction: column;
+  }
+  .rotation-add-row select,
+  .rotation-add-row button {
+    width: 100%;
+  }
+}
+
 /* Tooltips */
 [data-tooltip] {
   position: relative;

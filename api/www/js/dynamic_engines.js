@@ -300,35 +300,54 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
     entries.forEach((entry, idx) => {
       const row = document.createElement('div');
       row.className = 'rotation-row';
-      row.style = 'display:flex; gap:0.5rem; align-items:center; margin-bottom:0.4rem;';
+
+      // Left info: order badge + instance title
+      const info = document.createElement('div');
+      info.className = 'rotation-info';
+
+      const badge = document.createElement('span');
+      badge.className = 'rotation-order-badge';
+      badge.innerText = `#${idx + 1}`;
+      info.appendChild(badge);
 
       const label = document.createElement('span');
-      label.style = 'flex:1;';
+      label.className = 'rotation-name';
+      label.title = nameFor(entry.instance_id);
       label.innerText = nameFor(entry.instance_id);
-      row.appendChild(label);
+      info.appendChild(label);
+
+      row.appendChild(info);
+
+      // Right controls: duration + unit + fighter + actions
+      const controls = document.createElement('div');
+      controls.className = 'rotation-controls';
+
+      const countBased = isCountBased(entry.instance_id);
+
+      // Duration input group
+      const durGroup = document.createElement('div');
+      durGroup.className = 'rotation-dur-group';
+      durGroup.title = countBased ? 'Number of GIFs to play before rotating' : 'Duration (seconds)';
 
       const dur = document.createElement('input');
       dur.type = 'number';
-      dur.className = 'input';
+      dur.className = 'input rotation-dur-input';
       dur.min = '1';
-      dur.style = 'width:6rem;';
       dur.value = entry.duration_sec;
-      const countBased = isCountBased(entry.instance_id);
-      dur.title = countBased ? 'Number of GIFs to play before rotating' : 'Duration (seconds)';
       dur.onchange = () => { entry.duration_sec = parseInt(dur.value) || 1; };
-      row.appendChild(dur);
+      durGroup.appendChild(dur);
 
       const unit = document.createElement('span');
-      unit.style = 'width:3.5rem; color:var(--text-muted); font-size:0.85rem;';
+      unit.className = 'rotation-unit';
       unit.innerText = countBased ? 'GIFs' : 'sec';
-      row.appendChild(unit);
+      durGroup.appendChild(unit);
 
-      // Per-entry Fighter overlay toggle. Lets the user decide, screen by screen,
-      // whether the decorative fighter sprites are composited on top (including
-      // over full-repaint screens such as gifs).
+      controls.appendChild(durGroup);
+
+      // Per-entry Fighter overlay toggle
       const fightLbl = document.createElement('label');
+      fightLbl.className = 'rotation-fighter-lbl';
       fightLbl.title = 'Show the Fighter overlay on this screen';
-      fightLbl.style = 'display:flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-muted);';
       const fightCb = document.createElement('input');
       fightCb.type = 'checkbox';
       fightCb.checked = entry.fighter_overlay !== false;
@@ -337,32 +356,47 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       const fightTxt = document.createElement('span');
       fightTxt.innerText = '🥊';
       fightLbl.appendChild(fightTxt);
-      row.appendChild(fightLbl);
+      controls.appendChild(fightLbl);
+
+      // Action buttons (Up, Down, Delete)
+      const actions = document.createElement('div');
+      actions.className = 'rotation-actions';
 
       const up = document.createElement('button');
-      up.className = 'btn';
+      up.type = 'button';
+      up.className = 'btn btn-icon';
+      up.title = 'Move Up';
       up.innerText = '▲';
       up.disabled = idx === 0;
       up.onclick = () => { entries.splice(idx - 1, 0, entries.splice(idx, 1)[0]); render(); };
-      row.appendChild(up);
+      actions.appendChild(up);
 
       const down = document.createElement('button');
-      down.className = 'btn';
+      down.type = 'button';
+      down.className = 'btn btn-icon';
+      down.title = 'Move Down';
       down.innerText = '▼';
       down.disabled = idx === entries.length - 1;
       down.onclick = () => { entries.splice(idx + 1, 0, entries.splice(idx, 1)[0]); render(); };
-      row.appendChild(down);
+      actions.appendChild(down);
 
       const del = document.createElement('button');
-      del.className = 'btn btn-danger';
+      del.type = 'button';
+      del.className = 'btn btn-icon btn-danger';
+      del.title = 'Remove from rotation';
       del.innerText = '🗑️';
       del.onclick = () => { entries.splice(idx, 1); render(); };
-      row.appendChild(del);
+      actions.appendChild(del);
+
+      controls.appendChild(actions);
+      row.appendChild(controls);
 
       list.appendChild(row);
     });
     if (entries.length === 0) {
       const empty = document.createElement('p');
+      empty.className = 'text-muted';
+      empty.style.padding = '0.5rem 0';
       empty.innerText = 'No instances in rotation. Add one below.';
       list.appendChild(empty);
     }
@@ -370,10 +404,10 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
 
   // Add-to-rotation controls.
   const addRow = document.createElement('div');
-  addRow.style = 'display:flex; gap:0.5rem; align-items:center; margin-top:0.6rem;';
+  addRow.className = 'rotation-add-row';
   const sel = document.createElement('select');
   sel.className = 'input';
-  sel.style = 'flex:1;';
+  sel.style = 'flex:1 1 200px; min-width:150px;';
   instancesList.forEach(inst => {
     const opt = document.createElement('option');
     opt.value = inst.instance_id;

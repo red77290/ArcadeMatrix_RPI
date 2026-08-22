@@ -279,15 +279,15 @@ ConfigField {
 ```mermaid
 flowchart TD
     V["stored value"] --> P{valid?}
-    P -- yes --> KEEP["keep"]
-    P -- "no (out of range)" --> POL{validation_policy}
-    POL -- Clamp --> C["clamp to min/max"]
-    POL -- FallbackDefault --> F["reset to default_value"]
-    POL -- Reject --> R["leave as-is (engine must cope)"]
-    POL -- Accept --> A["leave as-is"]
-    P -- "no (unparseable number)" --> PF{FallbackDefault?}
-    PF -- yes --> F
-    PF -- no --> A
+    P -->|"yes"| KEEP["keep"]
+    P -->|"no (out of range)"| POL{validation_policy}
+    POL -->|"Clamp"| C["clamp to min/max"]
+    POL -->|"FallbackDefault"| F["reset to default_value"]
+    POL -->|"Reject"| R["leave as-is (engine must cope)"]
+    POL -->|"Accept"| A["leave as-is"]
+    P -->|"no (unparseable number)"| PF{FallbackDefault?}
+    PF -->|"yes"| F
+    PF -->|"no"| A
 ```
 
 | Policy | Out-of-range number | Unparseable number | Bad option value |

@@ -279,15 +279,15 @@ ConfigField {
 ```mermaid
 flowchart TD
     V["valor guardado"] --> P{¿válido?}
-    P -- sí --> KEEP["conservar"]
-    P -- "no (fuera de rango)" --> POL{validation_policy}
-    POL -- Clamp --> C["limitar a min/max"]
-    POL -- FallbackDefault --> F["reiniciar a default_value"]
-    POL -- Reject --> R["dejar tal cual (el motor se apaña)"]
-    POL -- Accept --> A["dejar tal cual"]
-    P -- "no (número ilegible)" --> PF{¿FallbackDefault?}
-    PF -- sí --> F
-    PF -- no --> A
+    P -->|"sí"| KEEP["conservar"]
+    P -->|"no (fuera de rango)"| POL{validation_policy}
+    POL -->|"Clamp"| C["limitar a min/max"]
+    POL -->|"FallbackDefault"| F["reiniciar a default_value"]
+    POL -->|"Reject"| R["dejar tal cual (el motor se apaña)"]
+    POL -->|"Accept"| A["dejar tal cual"]
+    P -->|"no (número ilegible)"| PF{¿FallbackDefault?}
+    PF -->|"sí"| F
+    PF -->|"no"| A
 ```
 
 | Política | Número fuera de rango | Número ilegible | Valor de opción inválido |

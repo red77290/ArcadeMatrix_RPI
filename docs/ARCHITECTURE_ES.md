@@ -58,7 +58,7 @@ flowchart TD
         ARB --> ROT["RotationState"]
         ROT --> RT["EngineRuntime (Lazy-Once cache)"]
         RT --> REG["EngineRegistry (auto-discovery)"]
-        REG --> ENG["Box&lt;dyn Engine&gt;"]
+        REG --> ENG["Box<dyn Engine>"]
         ENG --> MX["MatrixBackend"]
         RT --> OV["FighterEngine overlay pass"]
         OV --> MX
@@ -71,8 +71,8 @@ flowchart TD
         EP --> SAVE["config.json (atomic save)"]
     end
 
-    API -. "AtomicBool: reload_flag / reset_rotation" .-> REND
-    SAVE -. "RwLock&lt;ConfigSettings&gt;" .-> REND
+    API -.->|"AtomicBool: reload_flag / reset_rotation"| REND
+    SAVE -.->|"RwLock<ConfigSettings>"| REND
 ```
 
 Los dos hilos **nunca comparten estado mutable directamente**. Se comunican solo mediante:
@@ -221,7 +221,7 @@ flowchart LR
     ID["engine_id (e.g. 'clock')"] --> REG["EngineRegistry.get_descriptor(id)"]
     REG --> DESC["EngineDescriptor"]
     DESC --> FAC["factory()"]
-    FAC --> INST["Box&lt;dyn Engine&gt;"]
+    FAC --> INST["Box<dyn Engine>"]
 ```
 
 `EngineRegistry` expone dos llamadas:
@@ -246,12 +246,12 @@ pub struct EngineRuntime {
 
 ```mermaid
 sequenceDiagram
-    participant Loop as Render loop
+    participant RLoop as Render loop
     participant RT as EngineRuntime
     participant Reg as EngineRegistry
     participant Eng as Engine
 
-    Loop->>RT: get_instance(instance_id, engine_id, ctx, config_map)
+    RLoop->>RT: get_instance(instance_id, engine_id, ctx, config_map)
     alt instance not cached
         RT->>Reg: get_descriptor(engine_id)
         Reg-->>RT: EngineDescriptor
@@ -265,7 +265,7 @@ sequenceDiagram
             RT->>RT: update snapshot
         end
     end
-    RT-->>Loop: &mut Box(dyn Engine)
+    RT-->>RLoop: &mut Box(dyn Engine)
 ```
 
 El ciclo de vida como máquina de estados:
@@ -365,21 +365,21 @@ pub struct Config {
 ```mermaid
 flowchart TD
     START["for each instance"] --> SCHEMA{engine_id in Registry?}
-    SCHEMA -- no --> INVALID["count invalid_instance, skip"]
-    SCHEMA -- yes --> FIELD["for each schema field"]
+    SCHEMA -->|"no"| INVALID["count invalid_instance, skip"]
+    SCHEMA -->|"yes"| FIELD["for each schema field"]
     FIELD --> PRESENT{key present?}
-    PRESENT -- no --> INJECT["inject default_value"]
-    PRESENT -- yes --> TYPE{field_type}
-    TYPE -- Integer/Float --> RANGE{in min..max?}
-    RANGE -- no --> POLICY{validation_policy}
-    POLICY -- Clamp --> CLAMP["clamp to bound"]
-    POLICY -- FallbackDefault --> FB1["reset to default"]
-    POLICY -- Reject/Accept --> KEEP1["leave as-is"]
-    TYPE -- Boolean --> NORM["normalize true/1/yes/on -> true"]
-    TYPE -- Options --> OPT{value in allowed?}
-    OPT -- no --> FB2["reset to default"]
-    OPT -- "dynamic (options_endpoint)" --> KEEP2["leave as-is"]
-    TYPE -- String --> KEEP3["accept"]
+    PRESENT -->|"no"| INJECT["inject default_value"]
+    PRESENT -->|"yes"| TYPE{field_type}
+    TYPE -->|"Integer/Float"| RANGE{in min..max?}
+    RANGE -->|"no"| POLICY{validation_policy}
+    POLICY -->|"Clamp"| CLAMP["clamp to bound"]
+    POLICY -->|"FallbackDefault"| FB1["reset to default"]
+    POLICY -->|"Reject/Accept"| KEEP1["leave as-is"]
+    TYPE -->|"Boolean"| NORM["normalize true/1/yes/on -> true"]
+    TYPE -->|"Options"| OPT{value in allowed?}
+    OPT -->|"no"| FB2["reset to default"]
+    OPT -->|"dynamic (options_endpoint)"| KEEP2["leave as-is"]
+    TYPE -->|"String"| KEEP3["accept"]
     FIELD --> PRUNE["prune keys not in schema"]
 ```
 
@@ -410,7 +410,7 @@ sequenceDiagram
     participant API as api-server thread
     participant Disk as config.json
     participant Flag as reset_rotation (AtomicBool)
-    participant Loop as matrix-render loop
+    participant RLoop as matrix-render loop
     participant RT as EngineRuntime
     participant Eng as Engine
 
@@ -419,12 +419,12 @@ sequenceDiagram
     API->>API: ConfigSanitizer.sanitize_instances()
     API->>Disk: atomic save
     API->>Flag: store(true)
-    Note over Loop: next frame
-    Loop->>Flag: swap(false)
-    Loop->>RT: get_instance(... new config_map)
+    Note over RLoop: next frame
+    RLoop->>Flag: swap(false)
+    RLoop->>RT: get_instance(... new config_map)
     RT->>RT: snapshot changed?
     RT->>Eng: on_config_changed(config)
-    Eng-->>Loop: renders with new values (no realloc)
+    Eng-->>RLoop: renders with new values (no realloc)
 ```
 
 Dos clases de propagación:
@@ -443,15 +443,15 @@ La UI web no contiene **ningún formulario por motor**. `GET /api/engines` devue
 ```mermaid
 flowchart TD
     F["ConfigField"] --> OE{options_endpoint set?}
-    OE -- yes --> M{multiple?}
-    M -- yes --> CB["checkbox grid (CSV value)"]
-    M -- no --> DD1["dropdown from endpoint"]
-    OE -- no --> T{field_type}
-    T -- Options --> DD2["dropdown from static options"]
-    T -- Boolean --> SEL["Enabled/Disabled select"]
-    T -- "id contains 'color'" --> COL["color picker"]
-    T -- Integer/Float --> NUM["number input (min/max)"]
-    T -- String --> TXT["text input"]
+    OE -->|"yes"| M{multiple?}
+    M -->|"yes"| CB["checkbox grid (CSV value)"]
+    M -->|"no"| DD1["dropdown from endpoint"]
+    OE -->|"no"| T{field_type}
+    T -->|"Options"| DD2["dropdown from static options"]
+    T -->|"Boolean"| SEL["Enabled/Disabled select"]
+    T -->|"id contains 'color'"| COL["color picker"]
+    T -->|"Integer/Float"| NUM["number input (min/max)"]
+    T -->|"String"| TXT["text input"]
 ```
 
 ### Listas de opciones personalizadas / dinámicas (los endpoints de «descubrimiento de recursos»)
@@ -555,22 +555,22 @@ El Fighter **no** es un `Engine` y **no** es arbitrado. Es un *overlay aditivo*:
 
 ```mermaid
 sequenceDiagram
-    participant Loop as Render loop
+    participant RLoop as Render loop
     participant Eng as Active engine
     participant MX as MatrixBackend
     participant FE as FighterEngine
 
-    Loop->>Eng: update() + render(ctx)
-    Note over Loop: EngineContext scope closes (matrix borrow freed)
-    Loop->>Loop: gate = idle_fighter_enabled AND entry.fighter_overlay
+    RLoop->>Eng: update() + render(ctx)
+    Note over RLoop: EngineContext scope closes (matrix borrow freed)
+    RLoop->>RLoop: gate = idle_fighter_enabled AND entry.fighter_overlay
     alt overlay on
-        Loop->>FE: set_interval(idle_fighter_interval)
-        Loop->>FE: composite(matrix)
-        FE-->>Loop: is_active() -> keep realtime cadence
+        RLoop->>FE: set_interval(idle_fighter_interval)
+        RLoop->>FE: composite(matrix)
+        FE-->>RLoop: is_active() -> keep realtime cadence
     else overlay off
-        Loop->>FE: stop() if active
+        RLoop->>FE: stop() if active
     end
-    Loop->>MX: update()
+    RLoop->>MX: update()
 ```
 
 Decisiones de diseño:
@@ -591,8 +591,8 @@ flowchart TD
         A["api-server thread<br/>single-threaded Tokio"]
         B["background: MQTT listener + HTTP API pollers"]
     end
-    A -. atomics / RwLock .-> R
-    B -. channels / mutex .-> R
+    A -.->|"atomics / RwLock"| R
+    B -.->|"channels / mutex"| R
     R --> HW["LED matrix (DMA/GPIO)"]
 ```
 

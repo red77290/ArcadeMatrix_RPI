@@ -279,15 +279,15 @@ ConfigField {
 ```mermaid
 flowchart TD
     V["valeur stockée"] --> P{valide ?}
-    P -- oui --> KEEP["conserver"]
-    P -- "non (hors plage)" --> POL{validation_policy}
-    POL -- Clamp --> C["borner à min/max"]
-    POL -- FallbackDefault --> F["réinitialiser à default_value"]
-    POL -- Reject --> R["laisser tel quel (le moteur gère)"]
-    POL -- Accept --> A["laisser tel quel"]
-    P -- "non (nombre illisible)" --> PF{FallbackDefault ?}
-    PF -- oui --> F
-    PF -- non --> A
+    P -->|"oui"| KEEP["conserver"]
+    P -->|"non (hors plage)"| POL{validation_policy}
+    POL -->|"Clamp"| C["borner à min/max"]
+    POL -->|"FallbackDefault"| F["réinitialiser à default_value"]
+    POL -->|"Reject"| R["laisser tel quel (le moteur gère)"]
+    POL -->|"Accept"| A["laisser tel quel"]
+    P -->|"non (nombre illisible)"| PF{FallbackDefault ?}
+    PF -->|"oui"| F
+    PF -->|"non"| A
 ```
 
 | Politique | Nombre hors plage | Nombre illisible | Mauvaise valeur d'option |

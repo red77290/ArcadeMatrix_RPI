@@ -75,13 +75,13 @@ NCPU="$(nproc 2>/dev/null || echo 4)"
 GW="$(ip route 2>/dev/null | awk '/default/{print $3; exit}')"
 MAINPID="$(pgrep -x "$PROC" | head -1)"
 
-# --- Localisation de conf.ini (chemins usuels) -------------------------------
+# --- Localisation de config.json (chemins usuels) -------------------------------
 CONF="${CONF:-}"
 if [ -z "$CONF" ]; then
-  for p in "/home/$USER/ArcadeMatrix_RPi/conf.ini" \
-           "$(dirname "$0")/../conf.ini" \
-           "/root/ArcadeMatrix_RPi/conf.ini" \
-           "$HOME/ArcadeMatrix_RPi/conf.ini"; do
+  for p in "/home/$USER/ArcadeMatrix_RPi/config.json" \
+           "$(dirname "$0")/../config.json" \
+           "/root/ArcadeMatrix_RPi/config.json" \
+           "$HOME/ArcadeMatrix_RPi/config.json"; do
     [ -f "$p" ] && { CONF="$p"; break; }
   done
 fi
@@ -110,7 +110,7 @@ WIFI_IRQS="$(grep -Ei 'mmc|sdio|brcmf|dwc_otg|xhci' /proc/interrupts 2>/dev/null
   echo
   echo "Governor    : $(cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null)"
   echo
-  echo "--- conf.ini [MATRIX] ($CONF) ---"
+  echo "--- config.json [MATRIX] ($CONF) ---"
   sed -n '/\[MATRIX\]/,/^\[/p' "$CONF" 2>/dev/null | grep -Ev '^\s*#|^\s*$'
   echo
   echo "--- /proc/interrupts (lignes IRQ Wi-Fi, avec peripherique) ---"

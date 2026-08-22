@@ -1,7 +1,11 @@
 use crate::api::CryptoProvider;
-use crate::core::config::Config;
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
+use linkme::distributed_slice;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -22,6 +26,8 @@ pub struct CryptoEngine {
     providers: Vec<Box<dyn CryptoProvider>>,
     current_index: usize,
     last_switch: Instant,
+    symbols: Vec<String>,
+    cache_ttl_min: u32,
 }
 
 impl CryptoEngine {
@@ -32,11 +38,31 @@ impl CryptoEngine {
             providers: Vec::new(),
             current_index: 0,
             last_switch: Instant::now(),
+            symbols: vec![],
+            cache_ttl_min: 1,
         }
     }
 
     pub fn add_provider(&mut self, provider: Box<dyn CryptoProvider>) {
         self.providers.push(provider);
+    }
+
+    /// Parse the instance config into engine state. Shared by `initialize()`
+    /// and `on_config_changed()` so edits apply live without an app restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        let sym_str = config.get_string("symbols", "BTC,ETH");
+        self.symbols = sym_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
+        // Keep the cursor in range after the symbol list shrinks.
+        if self.symbols.is_empty() {
+            self.current_index = 0;
+        } else {
+            self.current_index %= self.symbols.len();
+        }
     }
 
     fn fetch_quote(&mut self, symbol: &str, ttl_min: u64) -> (f64, f64, bool, Option<String>) {
@@ -174,26 +200,43 @@ impl CryptoEngine {
         }
         text_width
     }
+} // End of impl CryptoEngine
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
-        let (symbols, ttl_min) = {
-            let s = config.settings.read();
-            (s.crypto_symbols.clone(), s.crypto_cache_ttl_min)
-        };
+impl Engine for CryptoEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
+        Ok(())
+    }
 
-        if symbols.is_empty() {
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+    }
+
+    fn activate(&mut self) {}
+    fn deactivate(&mut self) {}
+    fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn render(&mut self, context: &mut EngineContext) {
+        let ttl_min = self.cache_ttl_min;
+
+        if self.symbols.is_empty() {
             return;
         }
 
         // Cycle through symbols every 5 seconds
         if self.last_switch.elapsed() > Duration::from_secs(5) {
-            self.current_index = (self.current_index + 1) % symbols.len();
+            self.current_index = (self.current_index + 1) % self.symbols.len();
             self.last_switch = Instant::now();
         }
 
-        let symbol = &symbols[self.current_index % symbols.len()];
-        let (price, change, success, image_url) = self.fetch_quote(symbol, ttl_min as u64);
+        let symbol = self.symbols[self.current_index % self.symbols.len()].clone();
+        let (price, change, success, image_url) = self.fetch_quote(&symbol, ttl_min as u64);
 
+        let matrix = &mut *context.matrix;
         let height = matrix.height();
 
         let price_str = if !success || price <= 0.0 {
@@ -227,7 +270,7 @@ impl CryptoEngine {
             let icon_x = 6;
             let icon_y = 6;
 
-            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
+            if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
                 // Draw resized image with alpha blending over black
                 for y in 0..img.height() {
                     for x in 0..img.width() {
@@ -251,11 +294,11 @@ impl CryptoEngine {
                     "SOL" => &crate::engines::icons::ICON_SOL,
                     _ => &crate::engines::icons::ICON_BTC,
                 };
-                let icon_color = crate::engines::icons::get_crypto_color(symbol);
+                let icon_color = crate::engines::icons::get_crypto_color(&symbol);
                 crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, scale, icon_color);
             }
 
-            let sym_w = self.draw_plain_text(matrix, symbol, 28, 6, (255, 255, 255), 2.0);
+            let sym_w = self.draw_plain_text(matrix, &symbol, 28, 6, (255, 255, 255), 2.0);
 
             let font = self.base_renderer.font();
             let (_, price_w, _) = font.get_pixel_map(&price_str, 2.0);
@@ -283,7 +326,7 @@ impl CryptoEngine {
             let icon_x = 2;
             let icon_y = ((height as i32 - 16) / 2).max(0);
 
-            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
+            if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
                 // Draw resized image with alpha blending over black
                 for y in 0..img.height() {
                     for x in 0..img.width() {
@@ -308,16 +351,65 @@ impl CryptoEngine {
                     _ => &crate::engines::icons::ICON_BTC,
                 };
 
-                let icon_color = crate::engines::icons::get_crypto_color(symbol);
+                let icon_color = crate::engines::icons::get_crypto_color(&symbol);
                 crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
             }
 
-            let sym_w = self.draw_plain_text(matrix, symbol, 20, 4, (255, 255, 255), 1.0);
+            let sym_w = self.draw_plain_text(matrix, &symbol, 20, 4, (255, 255, 255), 1.0);
 
             let price_x = 20 + sym_w + 6;
             self.draw_plain_text(matrix, &price_str, price_x, 4, (255, 215, 0), 1.0);
 
             self.draw_plain_text(matrix, &pct_str, 20, 18, badge_color_tuple, 1.0);
         }
+    }
+}
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_crypto_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "crypto",
+            name: "CryptoEngine",
+            category: "finance",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "symbols",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Symbols",
+                    description: "Comma-separated crypto symbols (e.g. BTC,ETH)",
+                    default_value: "BTC,ETH",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "cache_ttl_min",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Cache TTL (min)",
+                    description: "Minutes to cache price",
+                    default_value: "1",
+                    min_val: Some("1"),
+                    max_val: Some("60"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
+            let mut engine = crate::engines::crypto::CryptoEngine::new(64, 32);
+            // Wire the HTTP providers. Without these the fetch loop iterates over an
+            // empty Vec, so the engine silently renders "Loading..." forever with no
+            // logs. The legacy (main) code added these in app.rs; under the
+            // auto-discovery factory model each engine must wire its own providers.
+            engine.add_provider(Box::new(crate::api::coingecko::CoinGeckoProvider));
+            engine.add_provider(Box::new(crate::api::binance::BinanceProvider));
+            Box::new(engine)
+        },
     }
 }

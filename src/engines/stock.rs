@@ -1,7 +1,11 @@
 use crate::api::StockProvider;
-use crate::core::config::Config;
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::core::matrix::MatrixBackend;
 use crate::engines::renderers::BaseRenderer;
+use linkme::distributed_slice;
 use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -22,6 +26,8 @@ pub struct StockEngine {
     providers: Vec<Box<dyn StockProvider>>,
     current_index: usize,
     last_switch: Instant,
+    symbols: Vec<String>,
+    cache_ttl_min: u32,
 }
 
 impl StockEngine {
@@ -32,11 +38,31 @@ impl StockEngine {
             providers: Vec::new(),
             current_index: 0,
             last_switch: Instant::now(),
+            symbols: vec![],
+            cache_ttl_min: 1,
         }
     }
 
     pub fn add_provider(&mut self, provider: Box<dyn StockProvider>) {
         self.providers.push(provider);
+    }
+
+    /// Parse the instance config into engine state. Shared by `initialize()`
+    /// and `on_config_changed()` so edits apply live without an app restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        let sym_str = config.get_string("symbols", "AAPL,NVDA,TSLA");
+        self.symbols = sym_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
+        // Keep the cursor in range after the symbol list shrinks.
+        if self.symbols.is_empty() {
+            self.current_index = 0;
+        } else {
+            self.current_index %= self.symbols.len();
+        }
     }
 
     fn fetch_quote(&mut self, symbol: &str, ttl_min: u64) -> (f64, f64, bool, Option<String>) {
@@ -173,26 +199,43 @@ impl StockEngine {
         }
         text_width
     }
+} // End of impl StockEngine
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
-        let (symbols, ttl_min) = {
-            let s = config.settings.read();
-            (s.stock_symbols.clone(), s.stock_cache_ttl_min)
-        };
+impl Engine for StockEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
+        Ok(())
+    }
 
-        if symbols.is_empty() {
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+    }
+
+    fn activate(&mut self) {}
+    fn deactivate(&mut self) {}
+    fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn render(&mut self, context: &mut EngineContext) {
+        let ttl_min = self.cache_ttl_min;
+
+        if self.symbols.is_empty() {
             return;
         }
 
         // Cycle through symbols every 5 seconds
         if self.last_switch.elapsed() > Duration::from_secs(5) {
-            self.current_index = (self.current_index + 1) % symbols.len();
+            self.current_index = (self.current_index + 1) % self.symbols.len();
             self.last_switch = Instant::now();
         }
 
-        let symbol = &symbols[self.current_index % symbols.len()];
-        let (price, change, success, image_url) = self.fetch_quote(symbol, ttl_min as u64);
+        let symbol = self.symbols[self.current_index % self.symbols.len()].clone();
+        let (price, change, success, image_url) = self.fetch_quote(&symbol, ttl_min as u64);
 
+        let matrix = &mut *context.matrix;
         let height = matrix.height();
 
         let price_str = if !success || price <= 0.0 {
@@ -222,7 +265,7 @@ impl StockEngine {
             let icon_x = 6;
             let icon_y = 6;
 
-            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
+            if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
                 for y in 0..img.height() {
                     for x in 0..img.width() {
                         let p = img.get_pixel(x, y);
@@ -244,11 +287,11 @@ impl StockEngine {
                     "TSLA" => &crate::engines::icons::ICON_TSLA,
                     _ => &crate::engines::icons::ICON_AAPL,
                 };
-                let icon_color = crate::engines::icons::get_stock_color(symbol);
+                let icon_color = crate::engines::icons::get_stock_color(&symbol);
                 crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, scale, icon_color);
             }
 
-            let sym_w = self.draw_plain_text(matrix, symbol, 28, 6, (255, 255, 255), 2.0);
+            let sym_w = self.draw_plain_text(matrix, &symbol, 28, 6, (255, 255, 255), 2.0);
 
             let font = self.base_renderer.font();
             let (_, price_w, _) = font.get_pixel_map(&price_str, 2.0);
@@ -276,7 +319,7 @@ impl StockEngine {
             let icon_x = 2;
             let icon_y = ((height as i32 - 16) / 2).max(0);
 
-            if let Some(img) = self.get_and_load_icon(symbol, image_url.clone(), 16) {
+            if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
                 for y in 0..img.height() {
                     for x in 0..img.width() {
                         let p = img.get_pixel(x, y);
@@ -298,16 +341,61 @@ impl StockEngine {
                     "TSLA" => &crate::engines::icons::ICON_TSLA,
                     _ => &crate::engines::icons::ICON_AAPL,
                 };
-                let icon_color = crate::engines::icons::get_stock_color(symbol);
+                let icon_color = crate::engines::icons::get_stock_color(&symbol);
                 crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
             }
 
-            let sym_w = self.draw_plain_text(matrix, symbol, 20, 4, (255, 255, 255), 1.0);
+            let sym_w = self.draw_plain_text(matrix, &symbol, 20, 4, (255, 255, 255), 1.0);
 
             let price_x = 20 + sym_w + 6;
             self.draw_plain_text(matrix, &price_str, price_x, 4, (0, 220, 255), 1.0);
 
             self.draw_plain_text(matrix, &pct_str, 20, 18, badge_color_tuple, 1.0);
         }
+    }
+}
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_stock_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "stock",
+            name: "StockEngine",
+            category: "finance",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "symbols",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Symbols",
+                    description: "Comma-separated stock tickers (e.g. AAPL,TSLA)",
+                    default_value: "AAPL,NVDA,TSLA",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "cache_ttl_min",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Cache TTL (min)",
+                    description: "Minutes to cache price",
+                    default_value: "1",
+                    min_val: Some("1"),
+                    max_val: Some("60"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
+            let mut engine = crate::engines::stock::StockEngine::new(64, 32);
+            // Wire the HTTP provider (see crypto.rs factory for why this is required).
+            engine.add_provider(Box::new(crate::api::yahoo_finance::YahooFinanceProvider));
+            Box::new(engine)
+        },
     }
 }

@@ -1,6 +1,13 @@
+function authHeaders(base = {}) {
+  const headers = { ...base };
+  const token = localStorage.getItem('api_token');
+  if (token) headers['X-API-Token'] = token;
+  return headers;
+}
+
 export const API = {
   async get(url) {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
@@ -8,23 +15,19 @@ export const API = {
   async post(url, data) {
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: data ? JSON.stringify(data) : undefined,
     });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
 
   async postAuth(url, data) {
-    const headers = { 'Content-Type': 'application/json' };
-    const token = localStorage.getItem('api_token');
-    if (token) headers['X-API-Token'] = token;
-    
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: data ? JSON.stringify(data) : undefined,
-    });
+    return this.post(url, data);
+  },
+
+  async delete(url) {
+    const res = await fetch(url, { method: 'DELETE', headers: authHeaders() });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
@@ -34,6 +37,7 @@ export const API = {
     formData.append('image', file);
     const res = await fetch('/api/marquee', {
       method: 'POST',
+      headers: authHeaders(),
       body: formData
     });
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
@@ -71,6 +75,8 @@ export const API = {
 
       xhr.onerror = () => reject({ message: 'Network connection error' });
       xhr.open('POST', '/api/update');
+      const token = localStorage.getItem('api_token');
+      if (token) xhr.setRequestHeader('X-API-Token', token);
       xhr.send(formData);
     });
   },

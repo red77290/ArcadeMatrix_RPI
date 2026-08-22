@@ -17,226 +17,249 @@ pub struct ThemeInfo {
     pub secondary_color: (u8, u8, u8),
 }
 
+/// Single source of truth for every clock theme.
+/// Add a new entry here and it is automatically picked up by the renderer
+/// lookup (`get_theme_info`) and exposed to the UI via `all_themes()` and the
+/// `/api/themes` endpoint. There is no other list to keep in sync.
+pub static THEMES: &[ThemeInfo] = &[
+    ThemeInfo {
+        id: 0,
+        name: "Nintendo",
+        group: ThemeGroup::Publisher,
+        primary_color: (228, 0, 15),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 1,
+        name: "Capcom",
+        group: ThemeGroup::Publisher,
+        primary_color: (255, 215, 0),
+        secondary_color: (0, 75, 175),
+    },
+    ThemeInfo {
+        id: 2,
+        name: "Taito",
+        group: ThemeGroup::Publisher,
+        primary_color: (0, 155, 219),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 3,
+        name: "Sega",
+        group: ThemeGroup::Publisher,
+        primary_color: (0, 85, 170),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 4,
+        name: "Cave",
+        group: ThemeGroup::Publisher,
+        primary_color: (138, 43, 226),
+        secondary_color: (255, 255, 0),
+    },
+    ThemeInfo {
+        id: 5,
+        name: "Konami",
+        group: ThemeGroup::Publisher,
+        primary_color: (255, 69, 0),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 6,
+        name: "SNK",
+        group: ThemeGroup::Publisher,
+        primary_color: (30, 144, 255),
+        secondary_color: (255, 215, 0),
+    },
+    ThemeInfo {
+        id: 7,
+        name: "Technos",
+        group: ThemeGroup::Publisher,
+        primary_color: (0, 0, 139),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 8,
+        name: "IGS",
+        group: ThemeGroup::Publisher,
+        primary_color: (50, 205, 50),
+        secondary_color: (255, 215, 0),
+    },
+    ThemeInfo {
+        id: 9,
+        name: "Hudson",
+        group: ThemeGroup::Publisher,
+        primary_color: (255, 255, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 10,
+        name: "Banpresto",
+        group: ThemeGroup::Publisher,
+        primary_color: (255, 0, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 11,
+        name: "Namco",
+        group: ThemeGroup::Publisher,
+        primary_color: (255, 0, 0),
+        secondary_color: (255, 215, 0),
+    },
+    ThemeInfo {
+        id: 12,
+        name: "Ryu (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (255, 255, 0),
+        secondary_color: (255, 0, 0),
+    },
+    ThemeInfo {
+        id: 13,
+        name: "Mario (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (255, 50, 50),
+        secondary_color: (255, 255, 255),
+    },
+    ThemeInfo {
+        id: 14,
+        name: "Marco (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (255, 140, 0),
+        secondary_color: (0, 100, 0),
+    },
+    ThemeInfo {
+        id: 15,
+        name: "Megaman (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (0, 255, 255),
+        secondary_color: (0, 0, 255),
+    },
+    ThemeInfo {
+        id: 16,
+        name: "Bub (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (0, 255, 0),
+        secondary_color: (255, 0, 255),
+    },
+    ThemeInfo {
+        id: 17,
+        name: "Space Invader (Animated)",
+        group: ThemeGroup::Character,
+        primary_color: (0, 255, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 18,
+        name: "Cyberpunk",
+        group: ThemeGroup::Effect,
+        primary_color: (0, 140, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 19,
+        name: "Flip Clock",
+        group: ThemeGroup::Effect,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 20,
+        name: "Custom Gradient",
+        group: ThemeGroup::Effect,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 21,
+        name: "True Matrix",
+        group: ThemeGroup::Effect,
+        primary_color: (0, 140, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 22,
+        name: "Pong Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 23,
+        name: "Tetris Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 24,
+        name: "Word Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 25,
+        name: "Binary Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (0, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 26,
+        name: "Pac-Man Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 0),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 27,
+        name: "Versus Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 28,
+        name: "Slot Machine Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 255, 255),
+        secondary_color: (0, 0, 0),
+    },
+    ThemeInfo {
+        id: 29,
+        name: "Tetris Gameboy Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (15, 56, 15),
+        secondary_color: (139, 172, 15),
+    },
+];
+
+/// Returns the full, ordered list of available themes (single source of truth).
+pub fn all_themes() -> &'static [ThemeInfo] {
+    THEMES
+}
+
+/// Whether a clock/date theme is animated and therefore needs a high frame rate
+/// (~25fps) instead of the 1fps static cadence. Kept next to the theme catalog
+/// so cadence stays in sync with the renderers. Covers the animated sprite
+/// themes (12-17), cyberpunk/flip (18-19), true-matrix (21), the game clocks
+/// (pong/tetris/pacman 22-24) and binary/versus/slot/tetris-gb (26-29).
+pub fn is_realtime_theme(theme_id: i32) -> bool {
+    matches!(theme_id, 12..=19 | 21..=24 | 26..=29)
+}
+
 pub fn get_theme_info(theme_id: i32) -> ThemeInfo {
-    match theme_id {
-        0 => ThemeInfo {
-            id: 0,
-            name: "Nintendo",
-            group: ThemeGroup::Publisher,
-            primary_color: (228, 0, 15),
-            secondary_color: (255, 255, 255),
-        },
-        1 => ThemeInfo {
-            id: 1,
-            name: "Capcom",
-            group: ThemeGroup::Publisher,
-            primary_color: (255, 215, 0),
-            secondary_color: (0, 75, 175),
-        },
-        2 => ThemeInfo {
-            id: 2,
-            name: "Taito",
-            group: ThemeGroup::Publisher,
-            primary_color: (0, 155, 219),
-            secondary_color: (255, 255, 255),
-        },
-        3 => ThemeInfo {
-            id: 3,
-            name: "Sega",
-            group: ThemeGroup::Publisher,
-            primary_color: (0, 85, 170),
-            secondary_color: (255, 255, 255),
-        },
-        4 => ThemeInfo {
-            id: 4,
-            name: "Cave",
-            group: ThemeGroup::Publisher,
-            primary_color: (138, 43, 226),
-            secondary_color: (255, 255, 0),
-        },
-        5 => ThemeInfo {
-            id: 5,
-            name: "Konami",
-            group: ThemeGroup::Publisher,
-            primary_color: (255, 69, 0),
-            secondary_color: (255, 255, 255),
-        },
-        6 => ThemeInfo {
-            id: 6,
-            name: "SNK",
-            group: ThemeGroup::Publisher,
-            primary_color: (30, 144, 255),
-            secondary_color: (255, 215, 0),
-        },
-        7 => ThemeInfo {
-            id: 7,
-            name: "Technos",
-            group: ThemeGroup::Publisher,
-            primary_color: (0, 0, 139),
-            secondary_color: (255, 255, 255),
-        },
-        8 => ThemeInfo {
-            id: 8,
-            name: "IGS",
-            group: ThemeGroup::Publisher,
-            primary_color: (50, 205, 50),
-            secondary_color: (255, 215, 0),
-        },
-        9 => ThemeInfo {
-            id: 9,
-            name: "Hudson",
-            group: ThemeGroup::Publisher,
-            primary_color: (255, 255, 0),
-            secondary_color: (0, 0, 0),
-        },
-        10 => ThemeInfo {
-            id: 10,
-            name: "Banpresto",
-            group: ThemeGroup::Publisher,
-            primary_color: (255, 0, 0),
-            secondary_color: (0, 0, 0),
-        },
-        11 => ThemeInfo {
-            id: 11,
-            name: "Namco",
-            group: ThemeGroup::Publisher,
-            primary_color: (255, 0, 0),
-            secondary_color: (255, 215, 0),
-        },
-        12 => ThemeInfo {
-            id: 12,
-            name: "Ryu (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (255, 255, 0),
-            secondary_color: (255, 0, 0),
-        },
-        13 => ThemeInfo {
-            id: 13,
-            name: "Mario (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (255, 50, 50),
-            secondary_color: (255, 255, 255),
-        },
-        14 => ThemeInfo {
-            id: 14,
-            name: "Marco (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (255, 140, 0),
-            secondary_color: (0, 100, 0),
-        },
-        15 => ThemeInfo {
-            id: 15,
-            name: "Megaman (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (0, 255, 255),
-            secondary_color: (0, 0, 255),
-        },
-        16 => ThemeInfo {
-            id: 16,
-            name: "Bub (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (0, 255, 0),
-            secondary_color: (255, 0, 255),
-        },
-        17 => ThemeInfo {
-            id: 17,
-            name: "Space Invader (Animated)",
-            group: ThemeGroup::Character,
-            primary_color: (0, 255, 0),
-            secondary_color: (0, 0, 0),
-        },
-        18 => ThemeInfo {
-            id: 18,
-            name: "Cyberpunk",
-            group: ThemeGroup::Effect,
-            primary_color: (200, 255, 200),
-            secondary_color: (0, 0, 0),
-        },
-        19 => ThemeInfo {
-            id: 19,
-            name: "Custom Color",
-            group: ThemeGroup::Effect,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        20 => ThemeInfo {
-            id: 20,
-            name: "Custom Gradient",
-            group: ThemeGroup::Effect,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        21 => ThemeInfo {
-            id: 21,
-            name: "True Matrix",
-            group: ThemeGroup::Effect,
-            primary_color: (0, 140, 0),
-            secondary_color: (0, 0, 0),
-        },
-        22 => ThemeInfo {
-            id: 22,
-            name: "Pong Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        23 => ThemeInfo {
-            id: 23,
-            name: "Tetris Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        24 => ThemeInfo {
-            id: 24,
-            name: "Pac-Man Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 0),
-            secondary_color: (0, 0, 0),
-        },
-        25 => ThemeInfo {
-            id: 25,
-            name: "Word Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        26 => ThemeInfo {
-            id: 26,
-            name: "Binary Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (0, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        27 => ThemeInfo {
-            id: 27,
-            name: "Versus Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        28 => ThemeInfo {
-            id: 28,
-            name: "Slot Machine Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (255, 255, 255),
-            secondary_color: (0, 0, 0),
-        },
-        29 => ThemeInfo {
-            id: 29,
-            name: "Tetris Gameboy Clock",
-            group: ThemeGroup::GameClock,
-            primary_color: (15, 56, 15),
-            secondary_color: (139, 172, 15),
-        },
-        _ => ThemeInfo {
+    THEMES
+        .iter()
+        .find(|t| t.id == theme_id)
+        .cloned()
+        .unwrap_or(ThemeInfo {
             id: -1,
             name: "Default",
             group: ThemeGroup::Publisher,
             primary_color: (255, 255, 255),
             secondary_color: (0, 0, 0),
-        },
-    }
+        })
 }
 
 pub fn parse_hex_color(hex: &str) -> (u8, u8, u8) {

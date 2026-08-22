@@ -26,11 +26,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
     let (enabled, broker, port, user, pass) = {
         let s = config.settings.read();
         (
-            s.mqtt_enabled,
-            s.mqtt_broker.clone(),
-            s.mqtt_port,
-            s.mqtt_user.clone(),
-            s.mqtt_pass.clone(),
+            s.mqtt.enabled,
+            s.mqtt.broker.clone(),
+            s.mqtt.port,
+            s.mqtt.user.clone(),
+            s.mqtt.pass.clone(),
         )
     };
 

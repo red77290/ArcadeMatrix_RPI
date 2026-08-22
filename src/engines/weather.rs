@@ -1,8 +1,8 @@
 use crate::api::{DayForecast, WeatherProvider};
-use crate::core::config::Config;
-use crate::core::matrix::MatrixBackend;
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, RgbImage};
+use linkme::distributed_slice;
 
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,11 @@ pub struct WeatherEngine {
     panorama_w: u32,
     panorama_mw: u32,
     scroll_start: Instant,
+    api_key: String,
+    city: String,
     lang: String,
+    offset_x: i32,
+    offset_y: i32,
 }
 
 impl WeatherEngine {
@@ -30,7 +34,11 @@ impl WeatherEngine {
             panorama_w: 0,
             panorama_mw: 0,
             scroll_start: Instant::now(),
-            lang: "fr".to_string(),
+            api_key: "".to_string(),
+            city: "".to_string(),
+            lang: "en".to_string(),
+            offset_x: 0,
+            offset_y: 0,
         }
     }
 
@@ -38,27 +46,62 @@ impl WeatherEngine {
         self.providers.push(provider);
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
-        let (api_key, city, lang, offset_x, offset_y) = {
-            let s = config.settings.read();
-            (
-                s.weather_api_key.clone(),
-                s.weather_city.clone(),
-                s.weather_lang.clone().to_lowercase(),
-                s.weather_offset_x,
-                s.weather_offset_y,
-            )
-        };
-        if self.lang != lang {
-            self.lang = lang.clone();
-            self.last_fetch = None;
-            self.panorama = None;
-        }
+    /// Parse the instance config into engine state. Shared by `initialize()`
+    /// and `on_config_changed()` so edits apply live without an app restart.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        self.api_key = config.get_string("api_key", "");
+        self.city = config.get_string("city", "");
+        self.lang = config.get_string("lang", "en");
+        self.offset_x = config.get_int("offset_x", 0);
+        self.offset_y = config.get_int("offset_y", 0);
+    }
+}
 
-        if api_key.is_empty() || city.is_empty() {
+impl Engine for WeatherEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
+        Ok(())
+    }
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+        // City/lang/offset edits must take effect now: drop cached forecast and
+        // pre-rendered panorama so the next render refetches and rebuilds.
+        self.last_fetch = None;
+        self.forecasts.clear();
+        self.panorama = None;
+    }
+
+    fn activate(&mut self) {
+        self.last_fetch = None; // Force refresh on activation
+    }
+
+    fn update(&mut self, _context: &mut EngineContext) {
+        // Handle logic that doesn't draw
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        if self.api_key.is_empty() || self.api_key == "API_KEY" {
             self.base_renderer.render_text(
-                matrix,
+                context.matrix,
                 "No API key",
+                0,
+                1,
+                0,
+                0,
+                Some((180, 80, 80)),
+                None,
+            );
+            return;
+        }
+        if self.city.is_empty() {
+            self.base_renderer.render_text(
+                context.matrix,
+                "No city",
                 0,
                 1,
                 0,
@@ -75,21 +118,29 @@ impl WeatherEngine {
             .unwrap_or(true);
 
         if should_fetch {
-            self.fetch_forecast(&api_key, &city);
+            self.fetch_forecast(&self.api_key.clone(), &self.city.clone());
         }
 
         if self.forecasts.is_empty() {
-            self.base_renderer
-                .render_text(matrix, "--°C", 0, 2, offset_x, offset_y, None, None);
+            self.base_renderer.render_text(
+                context.matrix,
+                "--°C",
+                0,
+                2,
+                self.offset_x,
+                self.offset_y,
+                None,
+                None,
+            );
             return;
         }
 
-        let mw = matrix.width();
-        let mh = matrix.height();
+        let mw = context.matrix.width();
+        let mh = context.matrix.height();
 
         // (Re)build panorama if needed
         if self.panorama.is_none() || self.panorama_mw != mw {
-            self.build_panorama(mw, mh, offset_x, offset_y);
+            self.build_panorama(mw, mh, self.offset_x, self.offset_y);
         }
 
         // Animated horizontal scroll with ease-in/out
@@ -115,10 +166,16 @@ impl WeatherEngine {
             let view_x = x_scroll.min(pano.width().saturating_sub(mw));
             let view = imageops::crop_imm(pano, view_x, 0, mw, mh);
             let view_img = view.to_image();
-            matrix.draw_image(&view_img, 0, 0);
+            context.matrix.draw_image(&view_img, 0, 0);
         }
     }
 
+    fn deactivate(&mut self) {
+        // Cleanup if necessary
+    }
+}
+
+impl WeatherEngine {
     fn draw_arcade_text(
         &self,
         img: &mut image::RgbaImage,
@@ -389,5 +446,96 @@ impl WeatherEngine {
 
         tracing::warn!("Failed to fetch weather forecast from all providers");
         self.forecasts.clear();
+    }
+}
+
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, EngineDescriptor, EngineMetadata, Requirements,
+};
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_weather_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "weather",
+            name: "WeatherEngine",
+            category: "info",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "api_key",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "API Key",
+                    description: "OpenWeatherMap API Key",
+                    default_value: "",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "city",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "City",
+                    description: "City name for forecast",
+                    default_value: "",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "lang",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Language",
+                    description: "Language for the day labels. Only these are localized.",
+                    default_value: "en",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "English",
+                            value: "en",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Français",
+                            value: "fr",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Español",
+                            value: "es",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_x",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "X Offset",
+                    description: "Horizontal shift",
+                    default_value: "0",
+                    min_val: Some("-64"),
+                    max_val: Some("64"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_y",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Y Offset",
+                    description: "Vertical shift",
+                    default_value: "0",
+                    min_val: Some("-32"),
+                    max_val: Some("32"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            let mut engine = WeatherEngine::new();
+            // Wire the HTTP provider (see crypto.rs factory for why this is required).
+            engine.add_provider(Box::new(crate::api::openweathermap::OpenWeatherMapProvider));
+            Box::new(engine)
+        },
     }
 }

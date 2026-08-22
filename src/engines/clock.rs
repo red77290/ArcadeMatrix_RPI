@@ -1,8 +1,11 @@
-use crate::core::config::Config;
-use crate::core::matrix::MatrixBackend;
+use crate::core::engine_contract::{
+    Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
+    EngineMetadata, Requirements,
+};
 use crate::engines::clocks::*;
 use crate::engines::renderers::*;
 use chrono::Timelike;
+use linkme::distributed_slice;
 
 pub struct ClockEngine {
     base_renderer: BaseRenderer,
@@ -17,6 +20,17 @@ pub struct ClockEngine {
     pacman: PacmanClock,
     versus: VersusClock,
     slot_machine: SlotMachineClock,
+
+    // Config states
+    time_format: String,
+    time_font: String,
+    time_size: u32,
+    time_theme: i32,
+    clock_color_1: String,
+    clock_color_2: String,
+    time_offset_x: i32,
+    time_offset_y: i32,
+
     last_font: String,
     last_theme: i32,
     last_size: u32,
@@ -37,28 +51,78 @@ impl ClockEngine {
             pacman: PacmanClock::new(),
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
+
+            time_format: "%H:%M:%S".to_string(),
+            time_font: "PressStart2P.ttf".to_string(),
+            time_size: 2,
+            time_theme: 0,
+            clock_color_1: "#ffffff".to_string(),
+            clock_color_2: "#ffffff".to_string(),
+            time_offset_x: 0,
+            time_offset_y: 0,
+
             last_font: String::new(),
-            last_theme: -1, // Invalid dummy default
+            last_theme: -1,
             last_size: 0,
         }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend, config: &Config) {
-        let settings = config.settings.read();
-        let tz: chrono_tz::Tz = config
+    /// Reads every configurable field from the instance config. Shared by
+    /// `initialize` (first load) and `on_config_changed` (live UI edits) so a
+    /// theme/font/color change is applied on the fly without restarting.
+    fn apply_config(&mut self, config: &dyn EngineConfig) {
+        self.time_format = config.get_string("format", "%H:%M:%S");
+        self.time_font = config.get_string("font", "PressStart2P.ttf");
+        self.time_size = config.get_int("size", 2) as u32;
+        self.time_theme = config.get_int("theme", 0);
+        self.clock_color_1 = config.get_string("color_1", "#ffffff");
+        self.clock_color_2 = config.get_string("color_2", "#ffffff");
+        self.time_offset_x = config.get_int("offset_x", 0);
+        self.time_offset_y = config.get_int("offset_y", 0);
+    }
+}
+
+impl Engine for ClockEngine {
+    fn initialize(
+        &mut self,
+        _context: &mut EngineContext,
+        config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        self.apply_config(config);
+        Ok(())
+    }
+
+    fn activate(&mut self) {}
+    fn deactivate(&mut self) {}
+    fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
+    }
+
+    fn is_realtime(&self) -> bool {
+        crate::core::theme::is_realtime_theme(self.time_theme)
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        let matrix = &mut *context.matrix;
+
+        let tz: chrono_tz::Tz = context
+            .config
             .settings
             .read()
+            .system
             .timezone
             .parse()
             .unwrap_or(chrono_tz::UTC);
         let now = chrono::Utc::now().with_timezone(&tz);
 
         // Full time string with seconds (for binary clock)
-        let time_str_full = now.format(&settings.time_format).to_string();
+        let time_str_full = now.format(&self.time_format).to_string();
 
         // Short time string for display clocks
-        let mut format_str = settings.time_format.clone();
-        if settings.time_theme == 19 && !format_str.contains("%S") {
+        let mut format_str = self.time_format.clone();
+        if self.time_theme == 19 && !format_str.contains("%S") {
             format_str.push_str(":%S");
         }
         let time_str = now.format(&format_str).to_string();
@@ -69,28 +133,30 @@ impl ClockEngine {
 
         // Reload font from disk if the config font changes
         let mut reset_clocks = false;
-        if settings.time_font != self.last_font {
-            self.base_renderer = BaseRenderer::from_font_path(&settings.time_font);
-            self.last_font = settings.time_font.clone();
+        if self.time_font != self.last_font {
+            self.base_renderer = BaseRenderer::from_font_path(&self.time_font);
+            self.last_font = self.time_font.clone();
             reset_clocks = true;
         }
-        if settings.time_theme != self.last_theme {
+        if self.time_theme != self.last_theme {
             tracing::info!(
                 from = self.last_theme,
-                to = settings.time_theme,
+                to = self.time_theme,
                 "clock theme change -> resetting sub-clocks"
             );
-            self.last_theme = settings.time_theme;
+            self.last_theme = self.time_theme;
             reset_clocks = true;
         }
-        if settings.time_size != self.last_size {
-            self.last_size = settings.time_size;
+        if self.time_size != self.last_size {
+            self.last_size = self.time_size;
             reset_clocks = true;
         }
 
         if reset_clocks {
             let w = matrix.width() as u32;
             let h = matrix.height() as u32;
+            self.cyberpunk = CyberpunkRenderer::new(w, h);
+            self.true_matrix = TrueMatrixRenderer::new(w, h);
             self.pong = PongClock::new(w, h);
             self.tetris = TetrisClock::new(false);
             self.tetris_gb = TetrisClock::new(true);
@@ -105,18 +171,18 @@ impl ClockEngine {
 
         let font = self.base_renderer.font();
 
-        match settings.time_theme {
+        match self.time_theme {
             18 => {
                 self.cyberpunk.render(matrix);
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
-                    0,
-                    settings.time_size,
-                    settings.time_offset_x,
-                    settings.time_offset_y,
-                    Some((0, 255, 255)),
-                    None,
+                    18,
+                    self.time_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
+                    Some((0, 140, 0)),
+                    Some((0, 0, 0)),
                 );
             }
             21 => {
@@ -125,9 +191,9 @@ impl ClockEngine {
                     matrix,
                     &time_str,
                     21,
-                    settings.time_size,
-                    settings.time_offset_x,
-                    settings.time_offset_y,
+                    self.time_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
                     Some((0, 140, 0)),
                     Some((0, 0, 0)),
                 );
@@ -136,62 +202,60 @@ impl ClockEngine {
                 matrix,
                 &time_str,
                 &font,
-                settings.time_size,
-                settings.time_offset_x,
-                settings.time_offset_y,
+                self.time_size,
+                self.time_offset_x,
+                self.time_offset_y,
             ),
             20 => {
                 // Custom Gradient
-                let color1 = parse_hex_color(&settings.clock_color_1).unwrap_or((0, 255, 255));
-                let color2 = parse_hex_color(&settings.clock_color_2).unwrap_or((255, 0, 255));
+                let color1 = parse_hex_color(&self.clock_color_1).unwrap_or((0, 255, 255));
+                let color2 = parse_hex_color(&self.clock_color_2).unwrap_or((255, 0, 255));
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
                     20,
-                    settings.time_size,
-                    settings.time_offset_x,
-                    settings.time_offset_y,
+                    self.time_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
                     Some(color1),
                     Some(color2),
                 );
             }
             22 => self
                 .pong
-                .update_and_render(matrix, hours, minutes, &font, settings.time_size),
-            23 => self
-                .tetris
-                .render(matrix, &time_str, &font, settings.time_size),
+                .update_and_render(matrix, hours, minutes, &font, self.time_size),
+            23 => self.tetris.render(matrix, &time_str, &font, self.time_size),
             24 => self.word.render(
                 matrix,
                 hours,
                 minutes,
                 &font,
-                settings.time_size,
-                &settings.weather_lang,
+                self.time_size,
+                &context.config.settings.read().system.lang,
             ),
             25 => self
                 .binary
-                .render(matrix, hours, minutes, seconds, &font, settings.time_size),
+                .render(matrix, hours, minutes, seconds, &font, self.time_size),
             26 => self
                 .pacman
-                .render(matrix, &time_str, hours, minutes, &font, settings.time_size),
+                .render(matrix, &time_str, hours, minutes, &font, self.time_size),
             27 => self
                 .versus
-                .render(matrix, hours, minutes, &font, settings.time_size),
+                .render(matrix, hours, minutes, &font, self.time_size),
             28 => self
                 .slot_machine
-                .render(matrix, &time_str, &font, settings.time_size),
+                .render(matrix, &time_str, &font, self.time_size),
             29 => self
                 .tetris_gb
-                .render(matrix, &time_str, &font, settings.time_size),
+                .render(matrix, &time_str, &font, self.time_size),
             _ => {
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
-                    settings.time_theme,
-                    settings.time_size,
-                    settings.time_offset_x,
-                    settings.time_offset_y,
+                    self.time_theme,
+                    self.time_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
                     None,
                     None,
                 );
@@ -209,5 +273,111 @@ fn parse_hex_color(hex: &str) -> Option<(u8, u8, u8)> {
         Some((r, g, b))
     } else {
         None
+    }
+}
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_clock_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "clock",
+            name: "ClockEngine",
+            category: "info",
+            version: "1.0.0",
+        },
+        capabilities: Capabilities::default(),
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![
+                crate::core::engine_contract::ConfigField {
+                    id: "theme",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Theme",
+                    description: "Clock theme",
+                    default_value: "0",
+                    min_val: Some("0"),
+                    options_endpoint: Some("/api/themes"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "format",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Format",
+                    description: "Time format",
+                    default_value: "%H:%M:%S",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "font",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Font",
+                    description: "Font file path",
+                    default_value: "PressStart2P.ttf",
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    options_endpoint: Some("/api/fonts"),
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "size",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Size",
+                    description: "Font size scale",
+                    default_value: "2",
+                    min_val: Some("1"),
+                    max_val: Some("10"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_1",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Primary Color",
+                    description: "Hex color for main clock",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "color_2",
+                    field_type: crate::core::engine_contract::ConfigType::String,
+                    label: "Secondary Color",
+                    description: "Hex color for secondary elements",
+                    default_value: "#FFFFFF",
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_x",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "X Offset",
+                    description: "Horizontal shift",
+                    default_value: "0",
+                    min_val: Some("-64"),
+                    max_val: Some("64"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "offset_y",
+                    field_type: crate::core::engine_contract::ConfigType::Integer,
+                    label: "Y Offset",
+                    description: "Vertical shift",
+                    default_value: "0",
+                    min_val: Some("-32"),
+                    max_val: Some("32"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+            ],
+        },
+        factory: || -> Box<dyn crate::core::engine_contract::Engine> {
+            // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
+            Box::new(ClockEngine::new(64, 32))
+        },
     }
 }

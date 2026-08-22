@@ -20,7 +20,6 @@ Sur n'importe quel Mac, Linux ou Windows sans Raspberry Pi :
 ```bash
 git clone <this-repo-url>
 cd ArcadeMatrix_RPi
-git checkout rust_migration
 
 # Vérification rapide de compilation
 cargo check
@@ -35,7 +34,7 @@ Par défaut sur Mac/Windows, le projet utilise `MockMatrix`, qui simule la matri
 
 ## 3. Exécuter la suite de tests
 
-La suite de tests Rust valide la configuration, l'API REST Actix et la validation des binaires de mise à jour OTA (`POST /api/update`) :
+La suite de tests Rust valide la configuration, le registre et le cycle de vie des moteurs, le sanitizer de configuration auto-réparateur (`tests/test_sanitizer.rs`), l'API REST Actix et la validation des binaires de mise à jour OTA (`POST /api/update`) :
 
 ```bash
 cargo test

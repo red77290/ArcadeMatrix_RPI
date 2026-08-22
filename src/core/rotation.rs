@@ -37,7 +37,10 @@ impl RotationState {
         }
     }
 
-    pub fn next_mode<'a>(&mut self, rotation_list: &'a [String]) -> Option<&'a str> {
+    pub fn next_mode<'a>(
+        &mut self,
+        rotation_list: &'a [crate::core::config::RotationEntry],
+    ) -> Option<&'a crate::core::config::RotationEntry> {
         if rotation_list.is_empty() {
             return None;
         }

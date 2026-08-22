@@ -1,4 +1,3 @@
-use configparser::ini::Ini;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -13,193 +12,214 @@ pub fn parse_symbols_string(input: &str) -> Vec<String> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConfigSettings {
-    // MATRIX
-    pub matrix_rows: u32,
-    pub matrix_cols: u32,
-    pub matrix_chain: u32,
-    pub matrix_parallel: u32,
-    pub matrix_multiplexing: u32,
-    pub matrix_row_addr_type: u32,
-    pub matrix_mapping: String,
-    pub matrix_slowdown: u32,
-    pub matrix_brightness: u32,
-    pub matrix_rgb_sequence: String,
-    pub matrix_pwm_bits: u32,
-    pub matrix_pwm_lsb_nanoseconds: u32,
-    pub matrix_limit_refresh_rate_hz: u32,
-    pub matrix_disable_hardware_pulsing: bool,
-    pub matrix_driver_chip: String,
+pub struct EngineInstance {
+    pub instance_id: String,
+    pub engine_id: String,
+    pub config: std::collections::HashMap<String, String>,
+}
 
-    // TIME
-    pub time_format: String,
-    pub time_font: String,
-    pub time_size: u32,
-    pub time_theme: i32,
-    pub clock_color_1: String,
-    pub clock_color_2: String,
-    pub time_offset_x: i32,
-    pub time_offset_y: i32,
-    pub ntp_server: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RotationEntry {
+    pub instance_id: String,
+    pub duration_sec: u32,
+    /// Per-entry toggle for the Fighter overlay on this rotation screen. Lets the
+    /// user enable/disable the decorative sprites independently for each screen.
+    /// Defaults to `true` so existing configs keep showing the overlay.
+    #[serde(default = "default_fighter_overlay")]
+    pub fighter_overlay: bool,
+}
+
+fn default_fighter_overlay() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MatrixConfig {
+    pub width: u32,
+    pub height: u32,
+    pub panel_type: String,
+    pub chain_length: u32,
+    pub power_limit_percent: u32,
+    pub force_single_buffer: bool,
+    pub color_depth: u32,
+    pub rgb_sequence: String,
+    pub limit_refresh_rate_hz: u32,
+    pub driver_chip: String,
+    pub clk_phase: bool,
+    pub latch_blanking: u32,
+    pub row_address_mode: u32,
+    pub matrix_power: bool,
+    pub multiplexing: u32,
+    pub slowdown: u32,
+    pub pwm_bits: u32,
+    pub pwm_lsb_nanoseconds: u32,
+    pub disable_hardware_pulsing: bool,
+    pub mapping: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct WifiConfig {
+    pub ssid: String,
+    pub password: String,
+    pub hostname: String,
+    pub configured: bool,
+    pub disable_internal: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MqttConfig {
+    pub enabled: bool,
+    pub broker: String,
+    pub port: u16,
+    pub user: String,
+    pub pass: String,
+    pub device_name: String,
+    pub topic_batocera: String,
+    pub topic_recalbox: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SystemConfig {
     pub timezone: String,
-
-    // DATE
-    pub date_format: String,
-    pub date_font: String,
-    pub date_size: u32,
-    pub date_theme: i32,
-    pub date_color_1: String,
-    pub date_color_2: String,
-    pub date_offset_x: i32,
-    pub date_offset_y: i32,
-
-    // WEATHER
-    pub weather_api_key: String,
-    pub weather_city: String,
-    pub weather_lang: String,
-    pub weather_offset_x: i32,
-    pub weather_offset_y: i32,
-
-    // IDLE ROTATION
-    pub idle_rotation: Vec<String>,
-    pub idle_clock_duration_sec: u32,
-    pub idle_date_duration_sec: u32,
-    pub idle_weather_duration_sec: u32,
-    pub idle_gifs_count: u32,
+    pub format_24h: bool,
+    pub lang: String,
+    pub unit: String,
+    pub temp_offset: f32,
+    pub night_mode_enabled: bool,
+    pub turn_off_at: String,
+    pub wake_up_at: String,
+    pub night_brightness: u32,
+    pub day_brightness: u32,
+    /// Fighter overlay (decorative sprites composited on top of idle rotation
+    /// screens). Formerly the "media/gif" idle animation. Defaults preserve the
+    /// historical behaviour from the pre-refactor `main` branch.
+    #[serde(default = "default_fighter_enabled")]
     pub idle_fighter_enabled: bool,
+    #[serde(default = "default_fighter_interval")]
     pub idle_fighter_interval: u32,
-    pub selected_gifs: Vec<String>,
-    pub selected_sprites: Vec<String>,
+}
 
-    // CRYPTO & STOCKS
-    pub crypto_symbols: Vec<String>,
-    pub crypto_cache_ttl_min: u32,
-    pub stock_symbols: Vec<String>,
-    pub stock_cache_ttl_min: u32,
+fn default_fighter_enabled() -> bool {
+    true
+}
 
-    // STANDBY / NIGHT
-    pub standby_enabled: bool,
-    pub standby_turn_off: String,
-    pub standby_wake_up: String,
-    pub standby_night_brightness: u32,
+fn default_fighter_interval() -> u32 {
+    10
+}
 
-    // MQTT
-    pub mqtt_enabled: bool,
-    pub mqtt_broker: String,
-    pub mqtt_port: u16,
-    pub mqtt_user: String,
-    pub mqtt_pass: String,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ConfigSettings {
+    pub matrix: MatrixConfig,
+    pub wifi: WifiConfig,
+    pub mqtt: MqttConfig,
+    pub system: SystemConfig,
+
+    #[serde(default)]
+    pub instances: Vec<EngineInstance>,
+    #[serde(default)]
+    pub rotation: Vec<RotationEntry>,
 
     // API
     pub api_auth_enabled: bool,
     pub api_token: String,
+}
 
-    // WIFI
-    pub wifi_ssid: String,
-    pub wifi_pass: String,
-    pub wifi_configured: bool,
-    pub wifi_disable_internal: bool,
+impl Default for MatrixConfig {
+    fn default() -> Self {
+        Self {
+            width: 64,
+            height: 32,
+            panel_type: "".to_string(),
+            chain_length: 1,
+            power_limit_percent: 40,
+            force_single_buffer: false,
+            color_depth: 24,
+            rgb_sequence: "RGB".to_string(),
+            limit_refresh_rate_hz: 0,
+            driver_chip: "SHIFTREG".to_string(),
+            clk_phase: false,
+            latch_blanking: 0,
+            row_address_mode: 0,
+            matrix_power: true,
+            multiplexing: 0,
+            slowdown: 2,
+            pwm_bits: 11,
+            pwm_lsb_nanoseconds: 130,
+            disable_hardware_pulsing: false,
+            mapping: "regular".to_string(),
+        }
+    }
+}
+
+impl Default for WifiConfig {
+    fn default() -> Self {
+        Self {
+            ssid: "".to_string(),
+            password: "".to_string(),
+            hostname: "arcadematrix".to_string(),
+            configured: false,
+            disable_internal: false,
+        }
+    }
+}
+
+impl Default for MqttConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            broker: "127.0.0.1".to_string(),
+            port: 1883,
+            user: "".to_string(),
+            pass: "".to_string(),
+            device_name: "arcadematrix".to_string(),
+            topic_batocera: "batocera".to_string(),
+            topic_recalbox: "recalbox".to_string(),
+        }
+    }
+}
+
+impl Default for SystemConfig {
+    fn default() -> Self {
+        Self {
+            timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
+            format_24h: true,
+            lang: "en".to_string(),
+            unit: "c".to_string(),
+            temp_offset: 0.0,
+            night_mode_enabled: false,
+            turn_off_at: "23:00".to_string(),
+            wake_up_at: "07:00".to_string(),
+            night_brightness: 10,
+            day_brightness: 100,
+            idle_fighter_enabled: default_fighter_enabled(),
+            idle_fighter_interval: default_fighter_interval(),
+        }
+    }
 }
 
 impl Default for ConfigSettings {
     fn default() -> Self {
         Self {
-            matrix_rows: 32,
-            matrix_cols: 64,
-            matrix_chain: 1,
-            matrix_parallel: 1,
-            matrix_multiplexing: 0,
-            matrix_row_addr_type: 0,
-            matrix_mapping: "regular".to_string(),
-            matrix_slowdown: 2,
-            matrix_brightness: 40,
-            matrix_rgb_sequence: "RGB".to_string(),
-            matrix_pwm_bits: 11,
-            matrix_pwm_lsb_nanoseconds: 130,
-            matrix_limit_refresh_rate_hz: 0,
-            matrix_disable_hardware_pulsing: false,
-            matrix_driver_chip: "SHIFTREG".to_string(),
-
-            time_format: "%H:%M:%S".to_string(),
-            time_font: "PressStart2P.ttf".to_string(),
-            time_size: 2,
-            time_theme: 0,
-            clock_color_1: "#ffffff".to_string(),
-            clock_color_2: "#ffffff".to_string(),
-            time_offset_x: 0,
-            time_offset_y: 0,
-            ntp_server: "pool.ntp.org".to_string(),
-            timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
-
-            date_format: "%d/%m".to_string(),
-            date_font: "PressStart2P.ttf".to_string(),
-            date_size: 2,
-            date_theme: 0,
-            date_color_1: "#ffffff".to_string(),
-            date_color_2: "#ffffff".to_string(),
-            date_offset_x: 0,
-            date_offset_y: 0,
-
-            weather_api_key: "".to_string(),
-            weather_city: "".to_string(),
-            weather_lang: "en".to_string(),
-            weather_offset_x: 0,
-            weather_offset_y: 0,
-
-            idle_rotation: vec![
-                "clock".to_string(),
-                "date".to_string(),
-                "weather".to_string(),
-                "gifs".to_string(),
-            ],
-            idle_clock_duration_sec: 60,
-            idle_date_duration_sec: 10,
-            idle_weather_duration_sec: 15,
-            idle_gifs_count: 3,
-            idle_fighter_enabled: true,
-            idle_fighter_interval: 10,
-            selected_gifs: vec![],
-            selected_sprites: vec![],
-
-            crypto_symbols: vec![
-                "BTC".to_string(),
-                "ETH".to_string(),
-                "SOL".to_string(),
-                "DOGE".to_string(),
-            ],
-            crypto_cache_ttl_min: 1,
-            stock_symbols: vec![
-                "AAPL".to_string(),
-                "NVDA".to_string(),
-                "TSLA".to_string(),
-                "MSFT".to_string(),
-            ],
-            stock_cache_ttl_min: 1,
-
-            standby_enabled: false,
-            standby_turn_off: "23:00".to_string(),
-            standby_wake_up: "07:00".to_string(),
-            standby_night_brightness: 10,
-
-            mqtt_enabled: false,
-            mqtt_broker: "127.0.0.1".to_string(),
-            mqtt_port: 1883,
-            mqtt_user: "".to_string(),
-            mqtt_pass: "".to_string(),
-
+            matrix: MatrixConfig::default(),
+            wifi: WifiConfig::default(),
+            mqtt: MqttConfig::default(),
+            system: SystemConfig::default(),
             api_auth_enabled: false,
             api_token: "9101d2ff5928c93107e537aa3c07a282".to_string(),
-
-            wifi_ssid: "".to_string(),
-            wifi_pass: "".to_string(),
-            wifi_configured: false,
-            wifi_disable_internal: false,
+            instances: vec![],
+            rotation: vec![],
         }
     }
 }
 
 pub struct Config {
     pub config_file: Mutex<PathBuf>,
+    pub json_file: PathBuf,
     pub reload_flag: AtomicBool,
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
@@ -213,13 +233,71 @@ pub struct Config {
 impl Config {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let path_buf = path.as_ref().to_path_buf();
+        let json_file = path_buf.with_file_name("config.json");
+
         let mut settings = ConfigSettings::default();
-        Self::load_from_ini(&path_buf, &mut settings);
+        let mut needs_save = false;
 
-        let initial_brightness = settings.matrix_brightness;
+        if json_file.exists() {
+            if let Ok(json_str) = std::fs::read_to_string(&json_file) {
+                match serde_json::from_str::<ConfigSettings>(&json_str) {
+                    Ok(s) => settings = s,
+                    Err(e) => {
+                        tracing::error!("Failed to parse config.json, resetting to default: {}", e);
+                        needs_save = true;
+                    }
+                }
+            } else {
+                needs_save = true;
+            }
+        } else {
+            // Default setup if no JSON exists
+            let mut clock_cfg = std::collections::HashMap::new();
+            clock_cfg.insert("theme".to_string(), "0".to_string());
+            clock_cfg.insert("format".to_string(), "%H:%M:%S".to_string());
+            settings.instances.push(EngineInstance {
+                instance_id: "default_clock".to_string(),
+                engine_id: "clock".to_string(),
+                config: clock_cfg,
+            });
 
-        Self {
+            let mut weather_cfg = std::collections::HashMap::new();
+            weather_cfg.insert("city".to_string(), "".to_string());
+            weather_cfg.insert("api_key".to_string(), "".to_string());
+            settings.instances.push(EngineInstance {
+                instance_id: "default_weather".to_string(),
+                engine_id: "weather".to_string(),
+                config: weather_cfg,
+            });
+
+            settings.rotation = vec![
+                RotationEntry {
+                    instance_id: "default_clock".to_string(),
+                    duration_sec: 60,
+                    fighter_overlay: true,
+                },
+                RotationEntry {
+                    instance_id: "default_weather".to_string(),
+                    duration_sec: 15,
+                    fighter_overlay: true,
+                },
+            ];
+            needs_save = true;
+        }
+
+        let sanitize_res =
+            crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
+        if sanitize_res.modified {
+            needs_save = true;
+        }
+
+        // Seed the live daytime brightness from the persisted value so a user's
+        // saved brightness survives restarts instead of resetting to full.
+        let initial_brightness = settings.system.day_brightness;
+
+        let cfg = Self {
             config_file: Mutex::new(path_buf),
+            json_file,
             reload_flag: AtomicBool::new(false),
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
@@ -228,470 +306,21 @@ impl Config {
             message_payload: Mutex::new(None),
             image_obj: Mutex::new(None),
             settings: RwLock::new(settings),
-        }
-    }
+        };
 
-    pub fn load_from_ini(path: &Path, settings: &mut ConfigSettings) {
-        if !path.exists() {
-            return;
+        if needs_save {
+            cfg.save();
         }
 
-        let mut ini = Ini::new();
-        ini.set_comment_symbols(&[';']);
-        if ini.load(path).is_err() {
-            return;
-        }
-
-        // MATRIX
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "ROWS") {
-            settings.matrix_rows = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "COLS") {
-            settings.matrix_cols = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "CHAIN") {
-            settings.matrix_chain = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "PARALLEL") {
-            settings.matrix_parallel = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "MULTIPLEXING") {
-            settings.matrix_multiplexing = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "ROW_ADDR_TYPE") {
-            settings.matrix_row_addr_type = val as u32;
-        }
-        if let Some(v) = ini.get("MATRIX", "HARDWARE_MAPPING") {
-            settings.matrix_mapping = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "SLOWDOWN") {
-            settings.matrix_slowdown = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "BRIGHTNESS") {
-            settings.matrix_brightness = val as u32;
-        }
-        if let Some(v) = ini.get("MATRIX", "RGB_SEQUENCE") {
-            settings.matrix_rgb_sequence = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("MATRIX", "PWM_BITS") {
-            settings.matrix_pwm_bits = val as u32;
-        }
-        if let Some(val) = ini
-            .get("MATRIX", "PWM_LSB_NANOSECONDS")
-            .and_then(|s| s.parse::<u32>().ok())
-        {
-            settings.matrix_pwm_lsb_nanoseconds = val;
-        }
-        if let Some(val) = ini
-            .get("MATRIX", "LIMIT_REFRESH_RATE_HZ")
-            .and_then(|s| s.parse::<u32>().ok())
-        {
-            settings.matrix_limit_refresh_rate_hz = val;
-        }
-        if let Some(val) = ini
-            .get("MATRIX", "DISABLE_HARDWARE_PULSING")
-            .and_then(|s| s.parse::<bool>().ok())
-        {
-            settings.matrix_disable_hardware_pulsing = val;
-        }
-        if let Some(v) = ini.get("MATRIX", "DRIVER_CHIP") {
-            settings.matrix_driver_chip = v;
-        }
-
-        // TIME
-        if let Some(v) = ini.get("TIME", "FORMAT") {
-            settings.time_format = v;
-        }
-        if let Some(v) = ini.get("TIME", "CLOCK_FONT") {
-            settings.time_font = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("TIME", "CLOCK_SIZE") {
-            settings.time_size = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getint("TIME", "THEME") {
-            settings.time_theme = val as i32;
-        }
-        if let Some(v) = ini.get("TIME", "CLOCK_COLOR_1") {
-            settings.clock_color_1 = v;
-        }
-        if let Some(v) = ini.get("TIME", "CLOCK_COLOR_2") {
-            settings.clock_color_2 = v;
-        }
-        if let Ok(Some(val)) = ini.getint("TIME", "CLOCK_OFFSET_X") {
-            settings.time_offset_x = val as i32;
-        }
-        if let Ok(Some(val)) = ini.getint("TIME", "CLOCK_OFFSET_Y") {
-            settings.time_offset_y = val as i32;
-        }
-        if let Some(v) = ini
-            .get("TIME", "NTP_SERVER")
-            .or_else(|| ini.get("TIME", "NTPSERVER"))
-        {
-            settings.ntp_server = v;
-        }
-        if let Some(v) = ini.get("TIME", "TIMEZONE") {
-            settings.timezone = v;
-        }
-
-        // DATE
-        if let Some(v) = ini.get("DATE", "FORMAT") {
-            settings.date_format = v;
-        }
-        if let Some(v) = ini.get("DATE", "DATE_FONT") {
-            settings.date_font = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("DATE", "DATE_SIZE") {
-            settings.date_size = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getint("DATE", "THEME") {
-            settings.date_theme = val as i32;
-        }
-        if let Some(v) = ini.get("DATE", "DATE_COLOR_1") {
-            settings.date_color_1 = v;
-        }
-        if let Some(v) = ini.get("DATE", "DATE_COLOR_2") {
-            settings.date_color_2 = v;
-        }
-        if let Ok(Some(val)) = ini.getint("DATE", "DATE_OFFSET_X") {
-            settings.date_offset_x = val as i32;
-        }
-        if let Ok(Some(val)) = ini.getint("DATE", "DATE_OFFSET_Y") {
-            settings.date_offset_y = val as i32;
-        }
-
-        // WEATHER
-        if let Some(v) = ini.get("WEATHER", "API_KEY") {
-            settings.weather_api_key = v;
-        }
-        if let Some(v) = ini.get("WEATHER", "CITY") {
-            settings.weather_city = v;
-        }
-        if let Some(v) = ini.get("WEATHER", "LANG") {
-            settings.weather_lang = v;
-        }
-        if let Ok(Some(val)) = ini.getint("WEATHER", "WEATHER_OFFSET_X") {
-            settings.weather_offset_x = val as i32;
-        }
-        if let Ok(Some(val)) = ini.getint("WEATHER", "WEATHER_OFFSET_Y") {
-            settings.weather_offset_y = val as i32;
-        }
-
-        // IDLE
-        if let Some(v) = ini.get("IDLE", "ROTATION") {
-            let items: Vec<String> = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-            if !items.is_empty() {
-                settings.idle_rotation = items;
-            }
-        }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "CLOCK_DURATION_SEC") {
-            settings.idle_clock_duration_sec = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "DATE_DURATION_SEC") {
-            settings.idle_date_duration_sec = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getuint("IDLE", "WEATHER_DURATION_SEC") {
-            settings.idle_weather_duration_sec = val as u32;
-        }
-        if let Some(val) = ini
-            .getuint("IDLE", "GIFS_COUNT")
-            .or_else(|_| ini.getuint("IDLE", "GIF_DURATION_SEC"))
-            .ok()
-            .flatten()
-        {
-            settings.idle_gifs_count = val as u32;
-        }
-        if let Ok(Some(val)) = ini.getbool("IDLE", "FIGHTER_ENABLED") {
-            settings.idle_fighter_enabled = val;
-        }
-        if let Some(val) = ini
-            .getuint("IDLE", "FIGHTER_INTERVAL_SEC")
-            .or_else(|_| ini.getuint("IDLE", "FIGHTER_INTERVAL"))
-            .ok()
-            .flatten()
-        {
-            settings.idle_fighter_interval = val as u32;
-        }
-        if let Some(v) = ini.get("IDLE", "SELECTED_GIFS") {
-            settings.selected_gifs = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-        if let Some(v) = ini.get("IDLE", "SELECTED_SPRITES") {
-            settings.selected_sprites = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-
-        // CRYPTO & STOCKS
-        if let Some(v) = ini.get("CRYPTO", "SYMBOLS") {
-            settings.crypto_symbols = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-        if let Ok(Some(val)) = ini.getuint("CRYPTO", "CACHE_TTL_MIN") {
-            settings.crypto_cache_ttl_min = val as u32;
-        }
-        if let Some(v) = ini
-            .get("STOCK", "SYMBOLS")
-            .or_else(|| ini.get("STOCKS", "SYMBOLS"))
-        {
-            settings.stock_symbols = v
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
-        }
-        if let Ok(Some(val)) = ini
-            .getuint("STOCK", "CACHE_TTL_MIN")
-            .or_else(|_| ini.getuint("STOCKS", "CACHE_TTL_MIN"))
-        {
-            settings.stock_cache_ttl_min = val as u32;
-        }
-
-        // STANDBY
-        if let Ok(Some(val)) = ini.getbool("STANDBY", "NIGHT_MODE_ENABLED") {
-            settings.standby_enabled = val;
-        }
-        if let Some(v) = ini.get("STANDBY", "TURN_OFF_AT") {
-            settings.standby_turn_off = v;
-        }
-        if let Some(v) = ini.get("STANDBY", "WAKE_UP_AT") {
-            settings.standby_wake_up = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("STANDBY", "NIGHT_BRIGHTNESS") {
-            settings.standby_night_brightness = val as u32;
-        }
-
-        // MQTT
-        if let Ok(Some(val)) = ini.getbool("MQTT", "ENABLED") {
-            settings.mqtt_enabled = val;
-        }
-        if let Some(v) = ini.get("MQTT", "BROKER") {
-            settings.mqtt_broker = v;
-        }
-        if let Ok(Some(val)) = ini.getuint("MQTT", "PORT") {
-            settings.mqtt_port = val as u16;
-        }
-        if let Some(v) = ini.get("MQTT", "USER") {
-            settings.mqtt_user = v;
-        }
-        if let Some(v) = ini.get("MQTT", "PASS") {
-            settings.mqtt_pass = v;
-        }
-
-        // API
-        if let Ok(Some(val)) = ini.getbool("API", "AUTH_ENABLED") {
-            settings.api_auth_enabled = val;
-        }
-        if let Some(v) = ini.get("API", "TOKEN") {
-            settings.api_token = v;
-        }
-
-        // WIFI
-        if let Some(v) = ini.get("WIFI", "SSID") {
-            settings.wifi_ssid = v;
-        }
-        if let Some(v) = ini.get("WIFI", "PASS") {
-            settings.wifi_pass = v;
-        }
-        if let Ok(Some(val)) = ini.getbool("WIFI", "CONFIGURED") {
-            settings.wifi_configured = val;
-        }
-        if let Ok(Some(val)) = ini.getbool("WIFI", "DISABLE_INTERNAL_WIFI") {
-            settings.wifi_disable_internal = val;
-        }
+        cfg
     }
 
     pub fn save(&self) -> bool {
-        let file_path = self.config_file.lock().clone();
         let s = self.settings.read().clone();
-
-        let mut ini = Ini::new();
-
-        ini.set("MATRIX", "ROWS", Some(s.matrix_rows.to_string()));
-        ini.set("MATRIX", "COLS", Some(s.matrix_cols.to_string()));
-        ini.set("MATRIX", "CHAIN", Some(s.matrix_chain.to_string()));
-        ini.set("MATRIX", "PARALLEL", Some(s.matrix_parallel.to_string()));
-        ini.set(
-            "MATRIX",
-            "MULTIPLEXING",
-            Some(s.matrix_multiplexing.to_string()),
-        );
-        ini.set(
-            "MATRIX",
-            "ROW_ADDR_TYPE",
-            Some(s.matrix_row_addr_type.to_string()),
-        );
-        ini.set("MATRIX", "HARDWARE_MAPPING", Some(s.matrix_mapping));
-        ini.set("MATRIX", "SLOWDOWN", Some(s.matrix_slowdown.to_string()));
-        ini.set(
-            "MATRIX",
-            "BRIGHTNESS",
-            Some(s.matrix_brightness.to_string()),
-        );
-        ini.set("MATRIX", "RGB_SEQUENCE", Some(s.matrix_rgb_sequence));
-        ini.set("MATRIX", "PWM_BITS", Some(s.matrix_pwm_bits.to_string()));
-        ini.set(
-            "MATRIX",
-            "PWM_LSB_NANOSECONDS",
-            Some(s.matrix_pwm_lsb_nanoseconds.to_string()),
-        );
-        ini.set(
-            "MATRIX",
-            "LIMIT_REFRESH_RATE_HZ",
-            Some(s.matrix_limit_refresh_rate_hz.to_string()),
-        );
-        ini.set(
-            "MATRIX",
-            "DISABLE_HARDWARE_PULSING",
-            Some(s.matrix_disable_hardware_pulsing.to_string()),
-        );
-        ini.set("MATRIX", "DRIVER_CHIP", Some(s.matrix_driver_chip));
-
-        ini.set("TIME", "FORMAT", Some(s.time_format));
-        ini.set("TIME", "CLOCK_FONT", Some(s.time_font));
-        ini.set("TIME", "CLOCK_SIZE", Some(s.time_size.to_string()));
-        ini.set("TIME", "THEME", Some(s.time_theme.to_string()));
-        ini.set("TIME", "CLOCK_COLOR_1", Some(s.clock_color_1));
-        ini.set("TIME", "CLOCK_COLOR_2", Some(s.clock_color_2));
-        ini.set("TIME", "CLOCK_OFFSET_X", Some(s.time_offset_x.to_string()));
-        ini.set("TIME", "CLOCK_OFFSET_Y", Some(s.time_offset_y.to_string()));
-        ini.set("TIME", "NTP_SERVER", Some(s.ntp_server));
-        ini.set("TIME", "TIMEZONE", Some(s.timezone));
-
-        ini.set("DATE", "FORMAT", Some(s.date_format));
-        ini.set("DATE", "DATE_FONT", Some(s.date_font));
-        ini.set("DATE", "DATE_SIZE", Some(s.date_size.to_string()));
-        ini.set("DATE", "THEME", Some(s.date_theme.to_string()));
-        ini.set("DATE", "DATE_COLOR_1", Some(s.date_color_1));
-        ini.set("DATE", "DATE_COLOR_2", Some(s.date_color_2));
-        ini.set("DATE", "DATE_OFFSET_X", Some(s.date_offset_x.to_string()));
-        ini.set("DATE", "DATE_OFFSET_Y", Some(s.date_offset_y.to_string()));
-
-        ini.set("WEATHER", "API_KEY", Some(s.weather_api_key));
-        ini.set("WEATHER", "CITY", Some(s.weather_city));
-        ini.set("WEATHER", "LANG", Some(s.weather_lang));
-        ini.set(
-            "WEATHER",
-            "WEATHER_OFFSET_X",
-            Some(s.weather_offset_x.to_string()),
-        );
-        ini.set(
-            "WEATHER",
-            "WEATHER_OFFSET_Y",
-            Some(s.weather_offset_y.to_string()),
-        );
-
-        ini.set("IDLE", "ROTATION", Some(s.idle_rotation.join(",")));
-        ini.set(
-            "IDLE",
-            "CLOCK_DURATION_SEC",
-            Some(s.idle_clock_duration_sec.to_string()),
-        );
-        ini.set(
-            "IDLE",
-            "DATE_DURATION_SEC",
-            Some(s.idle_date_duration_sec.to_string()),
-        );
-        ini.set(
-            "IDLE",
-            "WEATHER_DURATION_SEC",
-            Some(s.idle_weather_duration_sec.to_string()),
-        );
-        ini.set("IDLE", "GIFS_COUNT", Some(s.idle_gifs_count.to_string()));
-        ini.set(
-            "IDLE",
-            "FIGHTER_ENABLED",
-            Some(if s.idle_fighter_enabled {
-                "true".to_string()
-            } else {
-                "false".to_string()
-            }),
-        );
-        ini.set(
-            "IDLE",
-            "FIGHTER_INTERVAL_SEC",
-            Some(s.idle_fighter_interval.to_string()),
-        );
-        ini.set("IDLE", "SELECTED_GIFS", Some(s.selected_gifs.join(",")));
-        ini.set(
-            "IDLE",
-            "SELECTED_SPRITES",
-            Some(s.selected_sprites.join(",")),
-        );
-
-        ini.set("CRYPTO", "SYMBOLS", Some(s.crypto_symbols.join(",")));
-        ini.set(
-            "CRYPTO",
-            "CACHE_TTL_MIN",
-            Some(s.crypto_cache_ttl_min.to_string()),
-        );
-        ini.set("STOCK", "SYMBOLS", Some(s.stock_symbols.join(",")));
-        ini.set(
-            "STOCK",
-            "CACHE_TTL_MIN",
-            Some(s.stock_cache_ttl_min.to_string()),
-        );
-
-        ini.set(
-            "STANDBY",
-            "NIGHT_MODE_ENABLED",
-            Some(s.standby_enabled.to_string()),
-        );
-        ini.set("STANDBY", "TURN_OFF_AT", Some(s.standby_turn_off));
-        ini.set("STANDBY", "WAKE_UP_AT", Some(s.standby_wake_up));
-        ini.set(
-            "STANDBY",
-            "NIGHT_BRIGHTNESS",
-            Some(s.standby_night_brightness.to_string()),
-        );
-
-        ini.set("MQTT", "ENABLED", Some(s.mqtt_enabled.to_string()));
-        ini.set("MQTT", "BROKER", Some(s.mqtt_broker));
-        ini.set("MQTT", "PORT", Some(s.mqtt_port.to_string()));
-        ini.set("MQTT", "USER", Some(s.mqtt_user));
-        ini.set("MQTT", "PASS", Some(s.mqtt_pass));
-
-        ini.set("API", "AUTH_ENABLED", Some(s.api_auth_enabled.to_string()));
-        ini.set("API", "TOKEN", Some(s.api_token));
-
-        ini.set("WIFI", "SSID", Some(s.wifi_ssid));
-        ini.set("WIFI", "PASS", Some(s.wifi_pass));
-        ini.set("WIFI", "CONFIGURED", Some(s.wifi_configured.to_string()));
-        ini.set(
-            "WIFI",
-            "DISABLE_INTERNAL_WIFI",
-            Some(s.wifi_disable_internal.to_string()),
-        );
-
-        ini.write(&file_path).is_ok()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_hex_color_comment_parsing() {
-        let ini_str = r#"
-[TIME]
-CLOCK_COLOR_1 = #ff0000 ; primary color comment
-CLOCK_COLOR_2 = #00ff00
-NTP_SERVER = pool.ntp.org
-"#;
-        let mut ini = configparser::ini::Ini::new();
-        ini.set_comment_symbols(&[';']);
-        let map = ini.read(ini_str.to_string()).unwrap();
-        assert_eq!(ini.get("TIME", "CLOCK_COLOR_1").unwrap(), "#ff0000");
-        assert_eq!(ini.get("TIME", "CLOCK_COLOR_2").unwrap(), "#00ff00");
+        if let Ok(json_str) = serde_json::to_string_pretty(&s) {
+            std::fs::write(&self.json_file, json_str).is_ok()
+        } else {
+            false
+        }
     }
 }

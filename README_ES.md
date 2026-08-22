@@ -25,7 +25,7 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 
 1. Graba el `.img` en tu tarjeta SD con **Raspberry Pi Imager**.
 2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!
-3. Abre el archivo `conf.ini` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
+3. Abre el archivo `config.json` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela.
 5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esa IP para acceder a la interfaz Web!
 
@@ -200,68 +200,43 @@ Consulta `tools/mugen_extractor/README_ES.md` para ver las instrucciones complet
 
 ---
 
-## ⚙️ Configuración avanzada (conf.ini)
+## ⚙️ Configuración avanzada (config.json)
 
-Si prefieres editar los ajustes manualmente en lugar de usar la interfaz Web, puedes editar directamente el archivo `conf.ini` ubicado en la partición **DATA** de tu tarjeta SD. 
-Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
+Si prefieres editar los ajustes manualmente en lugar de usar la interfaz Web, puedes editar directamente el archivo `config.json` ubicado en la partición **DATA** de tu tarjeta SD. Esto es especialmente útil para configurar el Wi-Fi antes del primer arranque.
 
-### 🌐 [WIFI]
-| Parameter | Default | Description |
-|---|---|---|
-| `SSID` | `YourNetworkName` | The name of your Wi-Fi network. |
-| `PASS` | `YourNetworkPassword` | The password for your Wi-Fi network. |
-| `CONFIGURED` | `false` | Set to `false` to force the Raspberry Pi to attempt a Wi-Fi connection on its next boot. Automatically sets back to `true` on success. |
+> ℹ️ ArcadeMatrix usa un único **`config.json`** estructurado (el antiguo formato `conf.ini` se ha eliminado). El archivo es **autorreparable**: cualquier clave faltante se recrea con su valor por defecto en el arranque, así que una edición manual parcial siempre es segura.
 
-### 🎛️ [MATRIX]
-| Parameter | Default | Description |
-|---|---|---|
-| `ROWS` / `COLS` | `32` / `64` | The pixel dimensions of a single LED panel. |
-| `HARDWARE_MAPPING` | `adafruit-hat` | Type of HAT/wiring used. (`adafruit-hat`, `adafruit-hat-pwm`, `regular-pi1`, `regular`). |
-| `CHAIN` / `PARALLEL` | `1` / `1` | `CHAIN` for horizontal daisy-chaining. `PARALLEL` for vertical stacking on multiple HUB75 ports. |
-| `SLOWDOWN` | `2` | Hardware slowdown (1 to 4). Increase if your Matrix has flickering or visual artifacts (especially Pi 3/4). |
-| `disable_hardware_pulsing`| `false` | **CRÍTICO:** Cámbialo a `true` para evitar que el chip Wi-Fi interno falle (a costa de un ligero parpadeo). |
-| `BRIGHTNESS` | `100` | Global matrix brightness (1 to 100). |
-| `RGB_SEQUENCE` | `RGB` | Color order. Change to `RBG` or `BGR` if your colors look swapped. |
+```json
+{
+  "matrix": { "width": 64, "height": 32, "chain_length": 1, "mapping": "adafruit-hat",
+              "rgb_sequence": "RGB", "slowdown": 2, "disable_hardware_pulsing": false },
+  "wifi":   { "ssid": "YourNetwork", "password": "YourPassword", "configured": false,
+              "disable_internal": false },
+  "mqtt":   { "enabled": false, "broker": "192.168.1.50", "port": 1883 },
+  "system": { "format_24h": true, "lang": "en", "night_mode_enabled": false,
+              "turn_off_at": "23:00", "wake_up_at": "07:00", "night_brightness": 20 },
+  "instances": [
+    { "instance_id": "clock_main", "engine_id": "clock",
+      "config": { "theme": "0", "font": "DotGothic16.ttf", "size": "16" } }
+  ],
+  "rotation": [ { "instance_id": "clock_main", "duration_sec": 30 } ],
+  "api_auth_enabled": false,
+  "api_token": ""
+}
+```
 
-### ⏰ [TIME] & [DATE]
-| Parameter | Default | Description |
-|---|---|---|
-| `FORMAT_24H` | `true` | `true` for 24-hour format, `false` for 12-hour AM/PM format. |
-| `CLOCK_FONT` | `DotGothic16.ttf`| Name of the `.ttf` or `.bdf` file in the `/fonts/` folder to use for the clock. |
-| `CLOCK_SIZE` | `16` | Font size (scaling factor) for the clock. |
-| `THEME` | `0` | The numeric ID of the animated clock theme (e.g. 19 for Flip, 21 for True Matrix). |
-| `CLOCK_COLOR_1` | `#ffffff` | Primary hex color. Used for gradients if theme is Custom (20). |
-| `CLOCK_COLOR_2` | `#ffffff` | Secondary hex color. Used for gradients if theme is Custom (20). |
+Puntos clave:
+* **`matrix`** — controlador de hardware (tamaño del panel, `mapping`, `rgb_sequence`, `slowdown`, `disable_hardware_pulsing`, ...). Editarlo activa un reinicio automático.
+* **`wifi`** — establece `configured: false` para forzar un intento de (re)conexión en el próximo arranque (se vuelve a poner automáticamente en `true` al tener éxito). Usa `disable_internal: true` con un adaptador USB externo.
+* **`mqtt`** — sincronización de marquees Recalbox/Batocera (ver más abajo).
+* **`system`** — zona horaria, idioma, formato 24h y programación Night/Standby (`night_brightness: 0` apaga completamente el panel).
+* **`instances` / `rotation`** — cada motor es una *instancia* autocontenida; `rotation` decide el orden de visualización y el `duration_sec` de cada slot. Editar una instancia desde la interfaz Web se aplica **en vivo, sin reinicio**.
+* **`api_auth_enabled` / `api_token`** — cuando está activado, los endpoints sensibles requieren la cabecera `X-API-Token` (ver la nota de API más abajo).
 
-*(La sección `[DATE]` contiene parámetros idénticos para configurar la visualización de la fecha.)*
+👉 **Referencia completa campo por campo:** [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
-### 🔄 [IDLE]
-| Parameter | Default | Description |
-|---|---|---|
-| `ROTATION` | `all` | Dictates rotation behavior (`clock`, `gifs`, `sprites`, or `all`). |
-| `CLOCK_DURATION_SEC`| `10` | How long the clock/date stays on screen during the rotation loop. |
-| `GIF_DURATION_SEC` | `10` | How long a single GIF stays on screen before advancing. |
-| `SELECTED_GIFS` | *(empty)* | Comma-separated list of media to loop. Leave empty to play everything. |
-| `SELECTED_SPRITES` | *(empty)* | Comma-separated list of sprites to loop. Leave empty to play everything. |
-
-### 📈 [CRYPTO] & 📊 [STOCK]
-| Parameter | Default | Description |
-|---|---|---|
-| `SYMBOLS` | `BTC,ETH,SOL,DOGE` / `AAPL,NVDA,TSLA,MSFT` | Comma-separated list of symbols to display. |
-| `CACHE_TTL_MIN` | `1` | Refresh rate / Cache TTL in minutes (prevents API rate limiting). |
-
-### 🌙 [STANDBY]
-| Parameter | Default | Description |
-|---|---|---|
-| `NIGHT_MODE_ENABLED`| `false` | If `true`, the Matrix will automatically turn off and wake up. |
-| `TURN_OFF_AT` | `23:00` | HH:MM formatted time for screen sleep. |
-| `WAKE_UP_AT` | `07:00` | HH:MM formatted time for screen wake. |
-
-### 🔒 [API]
-| Parameter | Default | Description |
-|---|---|---|
-| `AUTH_ENABLED` | `false` | If `true`, requires the `X-API-Token` header to match `TOKEN` on the sensitive endpoints: `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot`, `/api/system/shutdown`. Disabled by default so the bundled Web UI keeps working out of the box; enable it if the device is reachable beyond a trusted LAN. |
-| `TOKEN` | *(auto-generated)* | A random token generated on first boot. Copy it here (or read it from `conf.ini` after first run) and send it as `X-API-Token` when calling protected endpoints. |
+### 🔒 Autenticación de la API
+`api_auth_enabled` es `false` por defecto para que la interfaz Web incluida funcione inmediatamente. Establécelo en `true` (y copia el `api_token` generado automáticamente) para requerir la cabecera `X-API-Token` en endpoints sensibles como `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot` y `/api/system/shutdown`. Actívalo siempre que el dispositivo sea accesible más allá de una LAN de confianza.
 
 ## 🙏 Agradecimientos
 

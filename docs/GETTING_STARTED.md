@@ -20,7 +20,6 @@ On any Mac, Linux, or Windows machine without a physical Raspberry Pi connected:
 ```bash
 git clone <this-repo-url>
 cd ArcadeMatrix_RPi
-git checkout rust_migration
 
 # Fast compilation check
 cargo check
@@ -35,7 +34,9 @@ By default on Mac/Windows, the project uses `MockMatrix`, simulating the LED mat
 
 ## 3. Running the Test Suite
 
-The Rust test suite validates configuration parsing, Actix REST endpoints, and OTA firmware upload validation (`POST /api/update`):
+The Rust test suite validates configuration parsing, the engine registry and
+lifecycle, the self-healing config sanitizer (`tests/test_sanitizer.rs`), Actix
+REST endpoints, and OTA firmware upload validation (`POST /api/update`):
 
 ```bash
 cargo test

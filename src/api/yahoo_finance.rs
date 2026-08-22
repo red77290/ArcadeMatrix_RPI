@@ -25,7 +25,8 @@ impl StockProvider for YahooFinanceProvider {
 
         for url in urls {
             if let Ok(res) = client.get(&url).send() {
-                if res.status().is_success() {
+                let status = res.status();
+                if status.is_success() {
                     if let Ok(json) = res.json::<serde_json::Value>() {
                         if let Some((price, change)) = Self::parse(&json) {
                             info!(
@@ -39,7 +40,11 @@ impl StockProvider for YahooFinanceProvider {
                             return Some((price, change, Some(img_url)));
                         }
                     }
+                } else {
+                    tracing::warn!("[Yahoo] HTTP {} for {}", status.as_u16(), symbol);
                 }
+            } else {
+                tracing::warn!("[Yahoo] Request failed for {} (network/DNS/TLS?)", symbol);
             }
         }
 

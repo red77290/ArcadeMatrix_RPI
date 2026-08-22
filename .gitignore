@@ -42,7 +42,22 @@ rust-rpi-rgb-led-matrix-local/
 # Antigravity Temp Files
 scratch/
 .tempmediaStorage/
-test_*
+# Root-level scratch test binaries/artifacts (anchored so tests/*.rs stay tracked)
+/test_*
 assets.tar.gz
 
+# One-off dev scratch scripts (source mutators, applied manually - never commit)
+fix_*.py
+patch_*.py
+patch_*.sh
+clean_app.py
 
+# Obsolete/generated artifacts (engines.json is a dump of GET /api/engines)
+engines.json
+conf.ini
+conf.ini.backup
+
+
+# Node (doc tooling, not part of the project)
+node_modules/
+package-lock.json

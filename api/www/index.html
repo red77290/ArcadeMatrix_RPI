@@ -37,9 +37,7 @@
         <li class="nav-item" data-page="media">
           <span class="icon">🎬</span> <span data-i18n="nav_media">Media</span>
         </li>
-        <li class="nav-item" data-page="message">
-          <span class="icon">💬</span> <span data-i18n="nav_message">Message</span>
-        </li>
+        
         <li class="nav-item" data-page="system">
           <span class="icon">⚙️</span> <span data-i18n="nav_system">System</span>
         </li>
@@ -123,330 +121,9 @@
         </header>
 
         <div class="tabs">
-          <button class="tab-btn active" onclick="switchDisplayTab('clock')">🕒 Clock</button>
-          <button class="tab-btn" onclick="switchDisplayTab('date')">📅 Date</button>
-          <button class="tab-btn" onclick="switchDisplayTab('weather')">☁️ Weather</button>
-          <button class="tab-btn" onclick="switchDisplayTab('crypto')">📈 Crypto</button>
-          <button class="tab-btn" onclick="switchDisplayTab('stock')">📊 Stocks</button>
-          <button class="tab-btn" onclick="switchDisplayTab('idle')">🔄 Idle & Night</button>
-        </div>
-        
-        <div id="tab-clock" class="tab-pane active">
-          <div class="card glass shadow">
-            <h3>🕒 Clock Settings</h3>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Theme</label>
-              <select id="cfg-clock-theme" class="input">
-                <optgroup label="Publisher Colors">
-                  <option value="0">Nintendo</option>
-                  <option value="1">Capcom</option>
-                  <option value="2">Taito</option>
-                  <option value="3">Sega</option>
-                  <option value="4">Cave</option>
-                  <option value="5">Konami</option>
-                  <option value="6">SNK</option>
-                  <option value="7">Technos</option>
-                  <option value="8">IGS</option>
-                  <option value="9">Hudson</option>
-                  <option value="10">Banpresto</option>
-                  <option value="11">Namco</option>
-                </optgroup>
-                <optgroup label="Animated Characters">
-                  <option value="12">Ryu</option>
-                  <option value="13">Mario</option>
-                  <option value="14">Marco</option>
-                  <option value="15">Megaman</option>
-                  <option value="16">Space Invader</option>
-                  <option value="17">Bub</option>
-                </optgroup>
-                <optgroup label="Effects & Games">
-                  <option value="18">Cyberpunk</option>
-                  <option value="19">Flip Clock</option>
-                  <option value="20">Custom Gradient</option>
-                  <option value="21">True Matrix</option>
-                  <option value="22">Pong Clock</option>
-                  <option value="23">Tetris Clock</option>
-                  <option value="24">Word Clock</option>
-                  <option value="25">Binary Clock</option>
-                  <option value="26">Pac-Man Clock</option>
-                  <option value="27">Versus Health Bar</option>
-                  <option value="28">Slot Machine</option>
-                  <option value="29">Tetris Gameboy</option>
-                </optgroup>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Font</label>
-              <select id="cfg-clock-font" class="input"></select>
-            </div>
-            <div class="form-group">
-              <label>Format (Chrono strftime)</label>
-              <input type="text" id="cfg-clock-format" class="input" placeholder="%H:%M:%S">
-            </div>
-            <div class="form-group">
-              <label>Size (Scale)</label>
-              <input type="number" id="cfg-clock-size" class="input" value="2">
-            </div>
-          </div>
-          <div class="form-grid col-2" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>NTP Server</label>
-              <input type="text" id="cfg-ntp-server" class="input" placeholder="pool.ntp.org">
-            </div>
-            <div class="form-group">
-              <label>Timezone (e.g. Europe/Paris)</label>
-              <input type="text" id="cfg-timezone" class="input" placeholder="Europe/Paris">
-            </div>
-          </div>
-          <div class="form-grid col-4" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>Primary Color</label>
-              <input type="color" id="cfg-clock-color1" class="input" value="#ffffff">
-            </div>
-            <div class="form-group">
-              <label>Secondary Color</label>
-              <input type="color" id="cfg-clock-color2" class="input" value="#000000">
-            </div>
-            <div class="form-group">
-              <label>Offset X</label>
-              <input type="number" id="cfg-clock-x" class="input">
-            </div>
-            <div class="form-group">
-              <label>Offset Y</label>
-              <input type="number" id="cfg-clock-y" class="input">
-            </div>
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
+          <!-- Dynamic instances will generate tabs here -->
         </div>
 
-        <div id="tab-date" class="tab-pane">
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>📅 Date Settings</h3>
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Theme</label>
-              <select id="cfg-date-theme" class="input">
-                <optgroup label="Publisher Colors">
-                  <option value="0">Nintendo</option>
-                  <option value="1">Capcom</option>
-                  <option value="2">Taito</option>
-                  <option value="3">Sega</option>
-                  <option value="4">Cave</option>
-                  <option value="5">Konami</option>
-                  <option value="6">SNK</option>
-                  <option value="7">Technos</option>
-                  <option value="8">IGS</option>
-                  <option value="9">Hudson</option>
-                  <option value="10">Banpresto</option>
-                  <option value="11">Namco</option>
-                </optgroup>
-                <optgroup label="Animated Characters">
-                  <option value="12">Ryu</option>
-                  <option value="13">Mario</option>
-                  <option value="14">Marco</option>
-                  <option value="15">Megaman</option>
-                  <option value="16">Space Invader</option>
-                  <option value="17">Bub</option>
-                </optgroup>
-                <optgroup label="Effects & Games">
-                  <option value="18">Cyberpunk</option>
-                  <option value="19">Flip Clock</option>
-                  <option value="20">Custom Gradient</option>
-                  <option value="21">True Matrix</option>
-                </optgroup>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Font</label>
-              <select id="cfg-date-font" class="input"></select>
-            </div>
-            <div class="form-group">
-              <label>Format (Chrono strftime)</label>
-              <input type="text" id="cfg-date-format" class="input" placeholder="%a %d %b">
-            </div>
-            <div class="form-group">
-              <label>Size (Scale)</label>
-              <input type="number" id="cfg-date-size" class="input" value="1">
-            </div>
-          </div>
-          <div class="form-grid col-4" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>Primary Color</label>
-              <input type="color" id="cfg-date-color1" class="input" value="#ffffff">
-            </div>
-            <div class="form-group">
-              <label>Secondary Color</label>
-              <input type="color" id="cfg-date-color2" class="input" value="#000000">
-            </div>
-            <div class="form-group">
-              <label>Offset X</label>
-              <input type="number" id="cfg-date-x" class="input">
-            </div>
-            <div class="form-group">
-              <label>Offset Y</label>
-              <input type="number" id="cfg-date-y" class="input">
-            </div>
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
-        </div>
-
-        <div id="tab-weather" class="tab-pane">
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>☁️ Weather Settings (OpenWeatherMap)</h3>
-          <div class="form-grid col-3">
-            <div class="form-group">
-              <label>API Key</label>
-              <input type="text" id="cfg-weather-api" class="input" placeholder="OpenWeatherMap API Key">
-            </div>
-            <div class="form-group">
-              <label>City</label>
-              <input type="text" id="cfg-weather-city" class="input" placeholder="Paris,FR">
-            </div>
-            <div class="form-group">
-              <label>Language</label>
-              <select id="cfg-weather-lang" class="input">
-                <option value="en">EN</option>
-                <option value="fr">FR</option>
-                <option value="es">ES</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-grid col-2" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>Offset X</label>
-              <input type="number" id="cfg-weather-x" class="input" value="0">
-            </div>
-            <div class="form-group">
-              <label>Offset Y</label>
-              <input type="number" id="cfg-weather-y" class="input" value="0">
-            </div>
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
-        </div>
-
-        <div id="tab-crypto" class="tab-pane">
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>📈 Real-Time Crypto Ticker</h3>
-          <p class="text-muted">Live quotes fetched directly on display from Binance / CoinGecko.</p>
-          <div class="form-grid col-3">
-            <div class="form-group">
-              <label>Duration per Token (s)</label>
-              <input type="number" id="cfg-dur-crypto" class="input" value="5" min="2" max="60">
-            </div>
-            <div class="form-group">
-              <label>Refresh Rate (Minutes)</label>
-              <input type="number" id="cfg-cache-crypto" class="input" value="1" min="1" max="1440">
-            </div>
-            <div class="form-group">
-              <label>Search Symbols</label>
-              <input type="text" id="crypto-search-input" class="input" placeholder="🔍 Search BTC, ETH, SOL, DOGE, XRP...">
-            </div>
-          </div>
-          <div class="form-group" style="margin-top: 1rem;">
-            <label>Selected Crypto Symbols (Comma Separated)</label>
-            <input type="text" id="cfg-crypto-symbols" class="input" value="BTC,ETH,SOL,DOGE">
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
-        </div>
-
-        <div id="tab-stock" class="tab-pane">
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>📊 Real-Time Stock Market Ticker</h3>
-          <p class="text-muted">Live stock prices & 24h % changes fetched from Yahoo Finance.</p>
-          <div class="form-grid col-3">
-            <div class="form-group">
-              <label>Duration per Stock (s)</label>
-              <input type="number" id="cfg-dur-stock" class="input" value="5" min="2" max="60">
-            </div>
-            <div class="form-group">
-              <label>Refresh Rate (Minutes)</label>
-              <input type="number" id="cfg-cache-stock" class="input" value="1" min="1" max="1440">
-            </div>
-            <div class="form-group">
-              <label>Search Symbols</label>
-              <input type="text" id="stock-search-input" class="input" placeholder="🔍 Search AAPL, NVDA, TSLA, MSFT, GOOGL...">
-            </div>
-          </div>
-          <div class="form-group" style="margin-top: 1rem;">
-            <label>Selected Stock Tickers (Comma Separated)</label>
-            <input type="text" id="cfg-stock-symbols" class="input" value="AAPL,NVDA,TSLA,MSFT">
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
-        </div>
-
-        <div id="tab-idle" class="tab-pane">
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>🔄 Idle Rotation & Night Mode</h3>
-          <div class="form-group">
-            <label>Active Screens in Rotation</label>
-            <div class="rotation-toggles" style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
-              <label class="toggle-btn"><input type="checkbox" value="clock" id="rot-clock" style="display:none;"> <span class="toggle-label">🕒 Clock</span></label>
-              <label class="toggle-btn"><input type="checkbox" value="date" id="rot-date" style="display:none;"> <span class="toggle-label">📅 Date</span></label>
-              <label class="toggle-btn"><input type="checkbox" value="weather" id="rot-weather" style="display:none;"> <span class="toggle-label">☁️ Weather</span></label>
-              <label class="toggle-btn"><input type="checkbox" value="crypto" id="rot-crypto" style="display:none;"> <span class="toggle-label">📈 Crypto</span></label>
-              <label class="toggle-btn"><input type="checkbox" value="stocks" id="rot-stocks" style="display:none;"> <span class="toggle-label">📊 Stocks</span></label>
-              <label class="toggle-btn"><input type="checkbox" value="gifs" id="rot-gifs" style="display:none;"> <span class="toggle-label">🎬 GIFs</span></label>
-            </div>
-            <input type="hidden" id="cfg-rotation">
-          </div>
-          <div class="form-grid col-3" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>GIFs per cycle</label>
-              <input type="number" id="cfg-dur-gifs" class="input" min="1">
-            </div>
-            <div class="form-group">
-              <label>Sprites on screen</label>
-              <select id="cfg-sprite-enable" class="input">
-                <option value="true">ON</option>
-                <option value="false">OFF</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Fighter Interval (s)</label>
-              <input type="number" id="cfg-fighter-int" class="input" min="1">
-            </div>
-          </div>
-          <div class="form-grid col-3" style="margin-top: 1rem;">
-            <div class="form-group">
-              <label>Clock Duration (s)</label>
-              <input type="number" id="cfg-dur-clock" class="input" min="5">
-            </div>
-            <div class="form-group">
-              <label>Date Duration (s)</label>
-              <input type="number" id="cfg-dur-date" class="input" min="5">
-            </div>
-            <div class="form-group">
-              <label>Weather Duration (s)</label>
-              <input type="number" id="cfg-dur-weather" class="input" min="5">
-            </div>
-          </div>
-          <hr style="margin: 1.5rem 0; border-color: rgba(255,255,255,0.1);">
-          <div class="form-grid">
-            <div class="form-group">
-              <label>Night Mode</label>
-              <select id="cfg-night-enable" class="input">
-                <option value="false">Disabled</option>
-                <option value="true">Enabled</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Turn Off At (HH:MM)</label>
-              <input type="text" id="cfg-night-off" class="input" placeholder="23:00">
-            </div>
-            <div class="form-group">
-              <label>Wake Up At (HH:MM)</label>
-              <input type="text" id="cfg-night-on" class="input" placeholder="07:00">
-            </div>
-          </div>
-          <button class="btn btn-primary btn-save-display" style="margin-top: 1rem; width: 100%;">Save Display Settings</button>
-        </div>
-        </div>
       </section>
 
       <!-- Media Page -->
@@ -466,11 +143,23 @@
             <input type="file" id="marquee-file-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
           </div>
         </div>
-        
-        <div class="card glass shadow" style="margin-top: 2rem;">
-          <h3>GIF Playlists</h3>
-          <p>Select which GIF folders play during idle rotation.</p>
-          <div class="playlist-list"></div>
+        <div class="card glass shadow">
+          <h3>🥊 <span data-i18n="fighter_title">Fighter Overlay</span></h3>
+          <p class="text-muted" data-i18n="fighter_desc">Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.</p>
+          <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label data-i18n="fighter_enabled">Enabled</label>
+              <label class="switch">
+                <input type="checkbox" id="fighter-enabled">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label data-i18n="fighter_interval">Interval between fights (seconds)</label>
+              <input type="number" id="fighter-interval" class="input" value="10" min="1">
+            </div>
+          </div>
+          <button id="btn-save-fighter" class="btn btn-primary" style="margin-top: 1.5rem;" data-i18n="fighter_save">Save Fighter Settings</button>
         </div>
       </section>
 

@@ -1,7 +1,8 @@
 [package]
 name = "arcadematrix"
-version = "2.0.0"
+version = "3.0.0"
 edition = "2021"
+publish = false
 description = "ArcadeMatrix RPi - Native Rust LED matrix controller for HUB75 panels"
 license = "PolyForm-Noncommercial-1.0.0"
 build = "build.rs"
@@ -11,8 +12,6 @@ default = []
 hardware = []
 
 [dependencies]
-# Config
-configparser = "3"
 
 # Image processing
 image = "0.25"
@@ -64,6 +63,8 @@ tokio = { version = "1", features = ["fs", "process", "rt", "macros"] }
 rust-embed = "8.12.0"
 mime_guess = "2.0.5"
 bdf-parser = "0.1.0"
+linkme = "0.3.37"
+actix-cors = "0.7.1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -1,199 +1,504 @@
-🇬🇧 [English](DEVELOPER.md) | 🇫🇷 [Français](DEVELOPER_FR.md) | 🇪🇸 Español
+🇪🇸 Español | 🇬🇧 [English](DEVELOPER.md) | 🇫🇷 [Français](DEVELOPER_FR.md)
 
-# Guía del desarrollador
+# Guía del desarrollador (Raspberry Pi - Rust)
 
-Bienvenido a la guía de desarrollo de ArcadeMatrix. Este documento explica la arquitectura principal del proyecto y proporciona instrucciones paso a paso sobre cómo ampliarlo.
+Esta es la guía **completa** para extender ArcadeMatrix en Raspberry Pi. Detalla íntegramente el contrato `Engine`, todo el esquema `ConfigField` (incluidas las **listas de opciones dinámicas / personalizadas**, la multiselección, los campos condicionales y las políticas de auto-reparación), y recorre la creación de un nuevo motor de principio a fin.
 
-## Arquitectura: Renderers vs. Clocks
-
-Desde la gran refactorización, ArcadeMatrix separa estrictamente **la estética visual (Renderers)** de **la lógica de comportamiento (Clocks)**. Entender esta diferencia es fundamental antes de empezar a programar.
-
-### 1. Renderers (el «tema»)
-Ubicados en `engines/renderers/`.
-Un **Renderer** (p. ej. `CyberpunkRenderer`, `FlipRenderer`) es puramente estético. No le importa si está mostrando la hora, la fecha o el weather. Toma una cadena de texto, una fuente y la dibuja sobre un fondo estilizado o un efecto visual.
-- **Responsabilidad:** fondos, colores, efectos de partículas, animaciones de transición.
-- **Ventaja:** altamente reutilizable entre distintos Engines (`ClockEngine`, `DateEngine`, etc.).
-
-### 2. Specialized Clocks (el «mini-juego»)
-Ubicados en `engines/clocks/`.
-Un **Specialized Clock** (p. ej. `PongClock`, `TetrisClock`, `PacManClock`) es un motor de lógica dinámica. Gestiona un estado interno (como una pelota rebotando o bloques cayendo) para construir visualmente la visualización de la hora.
-- **Responsabilidad:** estado del juego, física, dibujo de sprites y generación visual de la hora en lugar de simplemente escribir una cadena.
-- **Ventaja:** completamente autónomo y permite visualizaciones muy complejas, frame a frame.
-
-## Ampliando la base de código Rust
-
-*Nota: ArcadeMatrix se reescribió recientemente en Rust. Los tutoriales para desarrolladores sobre cómo agregar Renderers, Clocks y Engines se están actualizando para reflejar la nueva arquitectura Rust (`src/engines/`). Mientras tanto, puedes inspeccionar las implementaciones existentes en `src/engines/renderers` para ver cómo se implementa el trait `Renderer`.*
+> Para el *porqué* del diseño (Registry, Lazy-Once, Árbitro, hilos, overlay), lee [ARCHITECTURE_ES.md](ARCHITECTURE_ES.md). Esta guía es el *cómo hacerlo*.
 
 ---
 
-## Tutorial 1: crear un nuevo Renderer
+## Tabla de contenidos
 
-Si quieres añadir un nuevo fondo genérico o efecto visual (como un tema «Synthwave») que pueda usarse tanto para Time como para Date:
-
-1. **Crear el archivo:**
-   Crea un archivo `engines/renderers/synthwave_renderer.rs`.
-
-2. **Implementar el trait:**
-   (Código omitido: consulta la implementación de `base_renderer.rs` para ver cómo implementar el trait `Renderer`).
-
-3. **Registrar el Renderer:**
-   Abre `engines/renderers/mod.rs` y añade tu nuevo Renderer al registro.
-
----
-
-## Tutorial 2: crear un nuevo Specialized Clock
-
-Si quieres crear un reloj complejo que juegue a un juego o construya la hora bloque por bloque:
-
-1. **Crear el archivo:**
-   Crea `engines/clocks/snake_clock.rs`.
-
-2. **Implementar la lógica:**
-   (Código omitido: consulta `clock_trait.rs` para ver los requisitos de la interfaz).
-
-3. **Registrar el reloj:**
-   Abre `engines/clock_engine.rs` e integra tu reloj en el motor de relojes.
+1. [Modelo mental](#1-modelo-mental)
+2. [El trait Engine en detalle](#2-el-trait-engine-en-detalle)
+3. [El ciclo de vida y las reglas de oro](#3-el-ciclo-de-vida-y-las-reglas-de-oro)
+4. [Capabilities y Requirements](#4-capabilities-y-requirements)
+5. [Referencia del ConfigSchema y del ConfigField](#5-referencia-del-configschema-y-del-configfield)
+6. [Listas de opciones personalizadas / dinámicas](#6-listas-de-opciones-personalizadas--dinámicas)
+7. [Campos de multiselección](#7-campos-de-multiselección)
+8. [Campos condicionales (`visible_when`)](#8-campos-condicionales-visible_when)
+9. [Políticas de validación auto-reparadoras](#9-políticas-de-validación-auto-reparadoras)
+10. [Tutorial: crear un nuevo motor](#10-tutorial-crear-un-nuevo-motor)
+11. [Tutorial: añadir un endpoint de lista personalizada](#11-tutorial-añadir-un-endpoint-de-lista-personalizada)
+12. [Leer la config en un motor](#12-leer-la-config-en-un-motor)
+13. [Dibujar en la matriz](#13-dibujar-en-la-matriz)
+14. [Pruebas y ejecución local](#14-pruebas-y-ejecución-local)
+15. [Checklist](#15-checklist)
 
 ---
 
-## Tutorial 3: crear un nuevo elemento de screensaver (Engine)
+## 1. Modelo mental
 
-Si quieres añadir un módulo completamente nuevo a la rotación idle:
+ArcadeMatrix no tiene **ninguna lista de funciones codificada** en `app.rs`. Cada motor es un plugin auto-registrado, descubierto en el arranque mediante un Registry resuelto en compilación (`linkme`).
 
-1. **Crear el archivo del Engine:**
-   Crea `engines/crypto.rs`.
+```mermaid
+flowchart LR
+    DEV["Escribes src/engines/my_engine.rs"] --> REGT["Registro #distributed_slice"]
+    REGT --> REG["EngineRegistry (auto-descubrimiento)"]
+    REG --> API["GET /api/engines"]
+    API --> UI["UI Web dinámica (formulario auto)"]
+    REG --> RT["EngineRuntime (Lazy-Once)"]
+    RT --> SCREEN["Matriz LED"]
+```
 
-2. **Registrar el Engine en la rotación:**
-   Abre `src/core/rotation.rs` para incluir tu motor en el ciclo de ejecución.
-
-3. **Actualizar UI y configuración:**
-   - Actualiza `src/api/server.rs` para aceptar tu nuevo engine en los parámetros.
-   - Actualiza `api/www/index.html` para que los usuarios puedan arrastrarlo y soltarlo en su rotación activa.
+Añadir un motor toca **dos archivos**: el motor en sí y una línea `pub mod` en `src/engines/mod.rs`. **`app.rs` nunca se edita.**
 
 ---
 
-## Integración de API y Web UI
+## 2. El trait Engine en detalle
 
-Cada vez que crees un tema nuevo o un reloj nuevo:
-1. Actualiza `src/api/server.rs` si tu nueva función requiere nuevos ajustes.
-2. Actualiza `api/www/index.html` para añadir tu nuevo Theme ID a los menús desplegables (`<select id="time_theme">`).
+Cada motor implementa `core::engine_contract::Engine`:
 
-### ⚠️ El código fuente del frontend no está en este repositorio
-
-`api/www/` solo contiene el dashboard **compilado/empaquetado** (`index.html`, `assets/index-*.js`,
-`assets/index-*.css`: una build minificada de Vite, JS/HTML/CSS plano, **no** Vue.js a pesar de que
-documentación antigua afirmaba lo contrario). Aquí no hay `package.json`, ni fuentes de componentes,
-ni configuración de Vite versionada, por lo que el bundle **no puede reconstruirse ni modificarse
-de forma significativa** solo desde este repositorio; únicamente puede editarse a mano sobre la salida
-ya minificada, lo que no escala más allá de ajustes triviales (como las entradas del desplegable de
-temas mencionadas arriba).
-
-Si necesitas realizar cambios importantes en la UI, tienes dos opciones:
-1. Localizar dónde vive el proyecto fuente original del frontend (si todavía existe) y volver a
-   integrarlo en este repositorio, por ejemplo dentro de una nueva carpeta `frontend/`, con un paso
-   de build que genere la salida en `api/www/`.
-2. Reconstruir desde cero un pequeño proyecto frontend contra la API REST existente (consulta
-   `src/api/server.rs` para la lista completa de rutas) si la fuente original realmente se ha perdido.
-
-En cualquier caso, **no sigas distribuyendo silenciosamente solo un bundle compilado sin una fuente
-de verdad documentada**: si encuentras/restauras la fuente, haz commit de ella y documenta aquí el
-comando de build.
-
-## Probando Tu Código
-
-Imponemos un 100% de cobertura de pruebas en las rutas API. Para verificar tu código:
-```bash
-cargo test
-```
-
-## Flujo de Desarrollo Local Rápido (Cross-Compilation)
-
-Para iterar rápidamente, no necesitas reconstruir todo el archivo `.img` de 14 GB ni compilar directamente en la Raspberry Pi lenta. ArcadeMatrix incluye scripts de compilación cruzada que funcionan en cualquier SO anfitrión (Windows, Linux, macOS) siempre que Docker esté instalado.
-
-### 1. Construir el Binario
-Este comando lanza un contenedor Docker ligero de Rust, instala la toolchain de compilación cruzada para ARM64 y compila tu código Rust nativamente en solo unos segundos. El binario resultante se guarda en `target/aarch64-unknown-linux-gnu/release/arcadematrix`.
-```bash
-bash scripts/build_local.sh
-```
-
-### 2. Desplegar en la Raspberry Pi
-Este comando utiliza `scp` y `ssh` para subir el nuevo binario compilado directamente a tu Raspberry Pi activa y reinicia el servicio systemd.
-```bash
-bash scripts/deploy_to_pi.sh pi@<TU_DIRECCION_IP_PI>
-```
-
-## Pruebas Unitarias y TDD
-El proyecto sigue los principios de TDD para la integración de API. Al agregar una nueva API, implemente la interfaz Provider correspondiente (`ICryptoProvider`, etc.) y escriba pruebas unitarias utilizando objetos Mock antes de conectarla. Las pruebas deben lograr la máxima cobertura en el análisis de JSON y la lógica de respaldo sin requerir hardware físico.
-
-## Personalización del Usuario del SO (Custom User)
-Si desea cambiar el usuario predeterminado (`pi`) y su contraseña predeterminada (`raspberry`) para la generación de imágenes o la implementación manual, puede editar el archivo `scripts/defaults.sh` antes de iniciar la compilación.
-
-```bash
-export AM_USER="tu_usuario"
-export AM_PASS="tu_contraseña"
-```
-Durante la generación de la imagen con `scripts/build_image.sh`, estas variables se leerán automáticamente. El hash de la contraseña se calculará dinámicamente usando SHA-512 para su inyección en el archivo `.img` (`userconf.txt`).
-Los scripts de implementación (`autoInstall.sh` y `deploy.sh`) también utilizarán estas variables para configurar correctamente los permisos (atravesar la carpeta principal para el demonio) e instalar los alias `.bash_aliases` en la ubicación correcta.
-
----
-
-## Tutorial: Añadir un Nuevo Módulo de Rotación (ej. Pager/Noticias)
-
-Si deseas añadir un nuevo módulo al bucle de rotación (por ejemplo, un "Pager" para noticias), sigue estos pasos:
-
-### Paso 1: La Interfaz Web
-En `api/www/index.html`, añade la casilla de verificación:
-```html
-<label class="toggle-checkbox">
-  <input type="checkbox" value="pager">
-  <span class="toggle-label">Pager</span>
-</label>
-```
-El JS incorporado enviará automáticamente este valor a `/api/settings`.
-
-### Paso 2: La Configuración (`conf.ini`)
-En `src/core/config.rs`, se utiliza un Enum `IdleRotationItem`. Añade tu variante:
 ```rust
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum IdleRotationItem {
-    Clock,
-    Gifs,
-    Sprites,
-    Pager, // <-- Nuevo módulo
+pub trait Engine: Send + Sync {
+    // --- Ciclo de vida obligatorio ---
+    fn initialize(&mut self, ctx: &mut EngineContext, config: &dyn EngineConfig)
+        -> Result<(), EngineError>;
+    fn activate(&mut self);
+    fn update(&mut self, ctx: &mut EngineContext);
+    fn render(&mut self, ctx: &mut EngineContext);
+    fn deactivate(&mut self);
+
+    // --- Opcional (con implementaciones por defecto) ---
+    fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
+    fn is_finished(&self) -> bool { false }
+    fn is_realtime(&self) -> bool { false }
+    fn set_rotation_budget(&mut self, _budget: u32) {}
+    fn self_paced(&self) -> bool { false }
 }
 ```
-Actualiza los traits `FromStr` y `Display` en `config.rs` para que la cadena `"pager"` se analice correctamente.
 
-### Paso 3: El Motor (Engine)
-Crea un archivo `src/engines/pager.rs` para la lógica de dibujo usando `imageproc` y `rusttype`.
+| Método | Por defecto | Cuándo sobrescribir |
+| :-- | :-- | :-- |
+| `initialize` | — | Siempre. Reservar búferes, cargar assets, leer config una vez. |
+| `activate` | — | Siempre. Reinicio barato del estado transitorio. |
+| `update` | — | Siempre. Lógica de negocio por frame. |
+| `render` | — | Siempre. Dibujar en `ctx.matrix`. |
+| `deactivate` | — | Siempre. Detener temporizadores/escuchas. |
+| `on_config_changed` | no-op | Si tu motor tiene ajustes editables (casi siempre). Releer **in situ**. |
+| `is_finished` | `false` | Si el motor tiene un fin intrínseco (p. ej. lista de tokens terminada) y debe avanzar la rotación antes. |
+| `is_realtime` | `false` | Si el motor anima solo en cierto estado en vivo y entonces necesita ~25 FPS. |
+| `set_rotation_budget` | no-op | Si el avance de rotación es por contador (p. ej. reproducir N GIFs). Recibe el valor numérico de la entrada. |
+| `self_paced` | `false` | Si el motor dirige su propio avance vía `is_finished` y NO debe ser forzado por el temporizador de duración. |
+
+---
+
+## 3. El ciclo de vida y las reglas de oro
+
+```mermaid
+stateDiagram-v2
+    [*] --> Initialized : factory() + initialize() (una vez)
+    Initialized --> Active : activate()
+    Active --> Active : update() + render() (bucle caliente)
+    Active --> Active : on_config_changed() (edición en vivo)
+    Active --> Standby : deactivate()
+    Standby --> Active : activate()
+```
+
+- **Regla de oro n.º 1 — asignar una vez.** Nunca crear un nuevo `String`/`Vec` en `update()`/`render()`. Pre-reservar en `initialize()` y mutar in situ:
+  ```rust
+  self.buf.clear();
+  write!(&mut self.buf, "{}:{}", h, m).ok();
+  ```
+- **Regla de oro n.º 2 — hot-reload in situ.** En `on_config_changed()` releer los valores en los campos existentes. La instancia **no** se recrea (Lazy-Once), así que conserva tus asignaciones.
+- **Regla de oro n.º 3 — sin E/S bloqueante en el bucle caliente.** El trabajo de red/disco pertenece a un hilo de fondo; entrega los resultados a `update()` vía un canal o estado compartido.
+
+---
+
+## 4. Capabilities y Requirements
+
+Declaradas en el descriptor, son metadatos estáticos que leen el runtime y la UI.
+
 ```rust
-use rpi_led_matrix::Canvas;
-
-pub struct PagerEngine {
-    news_text: String,
+Capabilities {
+    supports_128x32: bool,  // pistas de geometría del panel
+    supports_256x64: bool,
+    realtime: bool,         // true -> sondeado a ~25 FPS; false -> 1 Hz
+    interruptible: bool,    // puede ser expulsado por una fuente de mayor prioridad
 }
 
-impl PagerEngine {
+Requirements {
+    needs_audio: bool,
+    needs_network: bool,    // el motor llama a Internet
+    needs_sd: bool,
+}
+```
+
+- Pon `realtime: true` **solo** si dibujas una nueva frame en cada tick (GIF, texto desplazante, Spotify). El contenido estático (reloj/clima) debe quedar `false` para ahorrar CPU y Wi-Fi.
+- Para cadencia dinámica (animar a veces), mantén `realtime: false` y sobrescribe `is_realtime()` para devolver `true` mientras animas.
+
+---
+
+## 5. Referencia del ConfigSchema y del ConfigField
+
+El esquema es la **única fuente de verdad** para la UI y el sanitizer. Cada campo:
+
+```rust
+pub struct ConfigField {
+    pub id: &'static str,                 // clave de config (guardada en config.json)
+    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options
+    pub label: &'static str,              // etiqueta UI
+    pub description: &'static str,        // tooltip UI
+    pub default_value: &'static str,      // inyectado si falta (auto-reparación)
+    pub required: bool,
+    pub min_val: Option<&'static str>,    // límite numérico (Integer/Float)
+    pub max_val: Option<&'static str>,
+    pub step: Option<&'static str>,       // granularidad del stepper UI
+    pub options: Option<Vec<ConfigOption>>, // opciones estáticas para Options
+    pub visible_when: Option<&'static str>, // visibilidad condicional
+    pub options_endpoint: Option<&'static str>, // opciones dinámicas (lista personalizada)
+    pub multiple: bool,                   // multiselección (almacenamiento CSV)
+    pub validation_policy: ValidationPolicy, // Clamp | FallbackDefault | Reject | Accept
+}
+```
+
+Variantes de `ConfigType`:
+
+| Variante | Widget | Comportamiento del sanitizer |
+| :-- | :-- | :-- |
+| `Boolean` | select Activado/Desactivado | normaliza `true/1/yes/on` → `true`, si no el defecto |
+| `Integer` | campo numérico | parse + clamp/fallback a `min_val..max_val` |
+| `Float` | campo numérico | parse + clamp/fallback a `min_val..max_val` |
+| `String` | campo de texto | aceptado tal cual |
+| `Options` | desplegable (o cuadrícula de casillas si `multiple`) | el valor debe estar en `options` (salvo dinámico) |
+
+> **Consejo:** todos los valores se guardan como cadenas en `config.json`. Parséalos con los helpers `EngineConfig` (`get_int`, `get_bool`, `get_string`).
+
+---
+
+## 6. Listas de opciones personalizadas / dinámicas
+
+A veces las opciones **no se conocen en compilación** — las fuentes instaladas, las carpetas GIF en disco, los temas disponibles. En vez de una lista `options` estática, apunta el campo a un **endpoint de opciones**. El frontend lo consulta en vivo y construye el widget.
+
+```mermaid
+sequenceDiagram
+    participant UI as dynamic_engines.js
+    participant API as api-server
+    participant SRC as sistema de archivos / tabla de temas
+    UI->>API: GET /api/engines
+    API-->>UI: esquema (el campo tiene options_endpoint)
+    UI->>API: GET {options_endpoint}
+    API->>SRC: enumerar recursos
+    SRC-->>API: entradas
+    API-->>UI: [{value,label}, ...]
+    UI->>UI: renderizar desplegable / cuadrícula de casillas
+```
+
+Endpoints integrados (todos devuelven `[{ "value": ..., "label": ... }]`):
+
+| `options_endpoint` | Sirve | Respaldado por |
+| :-- | :-- | :-- |
+| `/api/fonts` | nombres de archivo de fuente | archivos en `fonts/` (`.ttf`, `.bdf`) |
+| `/api/playlists` | nombres de carpetas GIF | subdirectorios de `gifs/` |
+| `/api/themes` | id/nombre de tema | `core::theme::all_themes()` |
+
+Ejemplo real — los campos tema y fuente del motor **reloj**:
+
+```rust
+ConfigField {
+    id: "theme",
+    field_type: ConfigType::Options,
+    label: "Theme",
+    description: "Color theme",
+    default_value: "matrix",
+    options: None,                          // sin lista estática
+    options_endpoint: Some("/api/themes"),  // consultado en vivo
+    ..Default::default()
+},
+ConfigField {
+    id: "font",
+    field_type: ConfigType::Options,
+    label: "Font",
+    description: "Bitmap or TTF font",
+    default_value: "PressStart2P.ttf",
+    options_endpoint: Some("/api/fonts"),
+    ..Default::default()
+},
+```
+
+Como la lista se consulta en el momento del render, **soltar una nueva fuente en `fonts/` o una nueva carpeta en `gifs/` aparece de inmediato en la UI** — sin recompilar, sin cambio de esquema.
+
+---
+
+## 7. Campos de multiselección
+
+Pon `multiple: true` en un campo `Options` (estático o dinámico) para que el usuario elija **varios** valores. La UI renderiza una cuadrícula de casillas; la selección se guarda como una **cadena separada por comas** en la config de la instancia.
+
+Ejemplo real — la selección de playlists del motor **GIF**:
+
+```rust
+ConfigField {
+    id: "playlists",
+    field_type: ConfigType::Options,
+    label: "GIF Playlists",
+    description: "Which GIF folders to play",
+    default_value: "",
+    options_endpoint: Some("/api/playlists"),
+    multiple: true,                 // -> cuadrícula de casillas, almacenamiento CSV
+    ..Default::default()
+}
+```
+
+Guardado por ej. `"mario,zelda,sonic"`. En tu motor, divídelo:
+
+```rust
+let selected: Vec<String> = config
+    .get_string("playlists", "")
+    .split(',')
+    .map(str::trim)
+    .filter(|s| !s.is_empty())
+    .map(String::from)
+    .collect();
+```
+
+El sanitizer valida cada token contra el conjunto permitido (para opciones estáticas) y deja intactos los valores de endpoint dinámico. Esto reemplaza el antiguo enfoque de «codificar qué GIFs incluir/ignorar» por una selección explícita, dirigida por el usuario y declarativa.
+
+---
+
+## 8. Campos condicionales (`visible_when`)
+
+`visible_when` permite que un campo aparezca solo cuando otro campo tiene un estado dado, para construir formularios dependientes sin JavaScript específico del motor. Ponle el id del campo controlador; el frontend muestra el campo condicionalmente.
+
+```rust
+ConfigField {
+    id: "scroll_speed",
+    field_type: ConfigType::Integer,
+    label: "Scroll Speed",
+    visible_when: Some("animated"), // mostrado solo cuando el campo "animated" está activo
+    ..Default::default()
+}
+```
+
+---
+
+## 9. Políticas de validación auto-reparadoras
+
+`validation_policy` decide qué hace el `ConfigSanitizer` con un valor fuera de rango o ilegible en el arranque / al guardar.
+
+```mermaid
+flowchart TD
+    V["valor guardado"] --> P{¿válido?}
+    P -->|"sí"| KEEP["conservar"]
+    P -->|"no (fuera de rango)"| POL{validation_policy}
+    POL -->|"Clamp"| C["limitar a min/max"]
+    POL -->|"FallbackDefault"| F["reiniciar a default_value"]
+    POL -->|"Reject"| R["dejar tal cual (el motor se apaña)"]
+    POL -->|"Accept"| A["dejar tal cual"]
+    P -->|"no (número ilegible)"| PF{¿FallbackDefault?}
+    PF -->|"sí"| F
+    PF -->|"no"| A
+```
+
+| Política | Número fuera de rango | Número ilegible | Valor de opción inválido |
+| :-- | :-- | :-- | :-- |
+| `Clamp` | limitar | dejado tal cual | — |
+| `FallbackDefault` | reiniciar al defecto | reiniciar al defecto | reiniciar al defecto |
+| `Reject` | dejado tal cual | dejado tal cual | — |
+| `Accept` | dejado tal cual | dejado tal cual | — |
+
+Las claves faltantes siempre se **inyectan** con `default_value`; las claves ausentes del esquema se **podan**. Esto es lo que hace las actualizaciones OTA transparentes (los campos nuevos aparecen, los eliminados desaparecen).
+
+---
+
+## 10. Tutorial: crear un nuevo motor
+
+### Paso 1 — la struct (`src/engines/my_engine.rs`)
+
+```rust
+use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
+
+pub struct MyEngine {
+    my_setting: String, // búfer pre-reservado
+    counter: u32,
+}
+
+impl MyEngine {
     pub fn new() -> Self {
-        Self { news_text: "CARGANDO NOTICIAS...".to_string() }
-    }
-    
-    pub fn draw(&mut self, canvas: &mut Canvas) {
-        canvas.clear();
-        // Usar imageproc para dibujar texto
+        Self { my_setting: String::new(), counter: 0 }
     }
 }
 ```
 
-### Paso 4: El Bucle de Rotación
-En `src/core/rotation.rs` (o `main.rs`), añade el match para `Pager`:
+### Paso 2 — implementar el ciclo de vida
+
 ```rust
-match current_rotation_item {
-    IdleRotationItem::Clock => { /* ... */ },
-    IdleRotationItem::Pager => {
-        let mut pager = PagerEngine::new();
-        // Bucle hasta que expire la duración
-        pager.draw(&mut canvas);
-    },
+impl Engine for MyEngine {
+    fn initialize(&mut self, _ctx: &mut EngineContext, config: &dyn EngineConfig)
+        -> Result<(), EngineError> {
+        self.my_setting = config.get_string("my_setting", "default"); // alloc OK aquí
+        Ok(())
+    }
+
+    fn activate(&mut self) { self.counter = 0; }
+
+    fn update(&mut self, _ctx: &mut EngineContext) {
+        self.counter += 1; // sin asignación
+    }
+
+    fn render(&mut self, ctx: &mut EngineContext) {
+        ctx.matrix.clear();
+        // dibujar self.my_setting con los búferes existentes
+    }
+
+    fn deactivate(&mut self) {}
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.my_setting = config.get_string("my_setting", "default"); // in situ
+    }
 }
 ```
+
+### Paso 3 — registrar con un descriptor (auto-descubrimiento)
+
+```rust
+use crate::core::engine_contract::{
+    Capabilities, ConfigField, ConfigSchema, ConfigType, EngineDescriptor,
+    EngineMetadata, Requirements, ValidationPolicy,
+};
+use linkme::distributed_slice;
+
+#[distributed_slice(crate::core::registry::ENGINES)]
+fn register_my_engine() -> EngineDescriptor {
+    EngineDescriptor {
+        metadata: EngineMetadata {
+            id: "my_engine",
+            name: "My Custom Engine",
+            category: "misc",
+            version: "1.0",
+        },
+        capabilities: Capabilities::default(), // pon realtime:true si animas
+        requirements: Requirements::default(),
+        schema: ConfigSchema {
+            fields: vec![ConfigField {
+                id: "my_setting",
+                field_type: ConfigType::String,
+                label: "My Setting",
+                description: "Text to display",
+                default_value: "default",
+                validation_policy: ValidationPolicy::Accept,
+                ..Default::default() // sintaxis struct-update para el resto
+            }],
+        },
+        factory: || Box::new(MyEngine::new()),
+    }
+}
+```
+
+> Usar `..Default::default()` mantiene los registros cortos — solo detallas los campos que importan.
+
+### Paso 4 — exponer el módulo (`src/engines/mod.rs`)
+
+```rust
+pub mod my_engine;
+```
+
+Listo. El motor aparece ahora en `GET /api/engines`, obtiene un formulario auto-generado en la UI Web, y su config se sanea y recarga en caliente automáticamente. **Sin cambios en `app.rs`.**
+
+```mermaid
+flowchart LR
+    A["1. struct"] --> B["2. impl Engine"]
+    B --> C["3. descriptor #distributed_slice"]
+    C --> D["4. pub mod en engines/mod.rs"]
+    D --> E["Auto: API + UI + sanitizer + rotación"]
+```
+
+---
+
+## 11. Tutorial: añadir un endpoint de lista personalizada
+
+Si tu campo necesita opciones de un recurso que gestiona el usuario (archivos, playlists, presets), añade un endpoint de opciones y apunta un campo a él.
+
+### Paso 1 — el handler (`src/api/server.rs`)
+
+```rust
+#[get("/api/presets")]
+async fn get_presets(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) { return e; }
+    let mut out = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("presets") {
+        for entry in entries.flatten() {
+            if let Some(name) = entry.file_name().to_str() {
+                out.push(json!({ "value": name, "label": name }));
+            }
+        }
+    }
+    HttpResponse::Ok().json(out)
+}
+```
+
+Regístralo con los demás servicios en el builder `App` de actix.
+
+### Paso 2 — apuntar un campo a él
+
+```rust
+ConfigField {
+    id: "preset",
+    field_type: ConfigType::Options,
+    label: "Preset",
+    options_endpoint: Some("/api/presets"),
+    // multiple: true, // descomenta para una cuadrícula de casillas
+    ..Default::default()
+}
+```
+
+El frontend no necesita **ningún** cambio — `dynamic_engines.js` ya consulta cualquier `options_endpoint` y renderiza un desplegable (o cuadrícula de casillas si `multiple`).
+
+---
+
+## 12. Leer la config en un motor
+
+El motor recibe un proxy restringido `&dyn EngineConfig` (nunca todo el `config.json`):
+
+```rust
+let interval = config.get_int("interval", 10);      // i32 parseado
+let enabled  = config.get_bool("enabled", true);    // true/1
+let label    = config.get_string("label", "Hello"); // String propia
+```
+
+Estos mapean sobre el `HashMap<String,String>` de la instancia. Las claves corresponden a los `id` de tu esquema.
+
+---
+
+## 13. Dibujar en la matriz
+
+`ctx.matrix` es un `&mut dyn MatrixBackend`. Patrón típico:
+
+```rust
+fn render(&mut self, ctx: &mut EngineContext) {
+    ctx.matrix.clear();
+    // dibujar píxeles / texto / bitmaps en ctx.matrix
+    // NO llames a ctx.matrix.update() — el bucle de render envía la frame
+}
+```
+
+El **bucle de render** posee `update()` (el envío al panel) y, tras el retorno de tu `render()`, puede ejecutar la pasada aditiva del **overlay Fighter** encima de tu frame (ver [ARCHITECTURE_ES.md §11](ARCHITECTURE_ES.md#11-el-compositor-de-overlay-fighter)).
+
+---
+
+## 14. Pruebas y ejecución local
+
+```bash
+rtk cargo fmt
+rtk cargo test          # pruebas unitarias + integración
+rtk cargo build --release
+```
+
+- Prueba unitariamente la lógica pura (parsers, formateo) directamente en el módulo del motor (`#[cfg(test)]`).
+- La matriz simulada (`tests/test_matrix.rs`) permite afirmar píxeles sin hardware.
+- La prueba del registry (`tests/test_registry.rs`) verifica el descubrimiento, los descriptores y el ciclo de vida del runtime — una buena plantilla para pruebas de motor.
+
+El hook de pre-commit ejecuta el validador de release, el validador de doc/claves de config, `cargo fmt --check` y la suite de pruebas completa.
+
+---
+
+## 15. Checklist
+
+- [ ] La struct pre-reserva búferes; sin asignación en `update`/`render`.
+- [ ] `on_config_changed` relee cada campo editable **in situ**.
+- [ ] `Capabilities.realtime` refleja si animas cada frame (o sobrescribe `is_realtime`).
+- [ ] Cada campo del esquema tiene un `default_value` y una `validation_policy` sensatos.
+- [ ] Las opciones dinámicas usan `options_endpoint`; el multi-valor usa `multiple: true` (CSV).
+- [ ] Registrado vía `#[distributed_slice]`; módulo añadido a `engines/mod.rs`.
+- [ ] `app.rs` intacto.
+- [ ] `cargo fmt`, `cargo test`, `cargo build --release` pasan todos.

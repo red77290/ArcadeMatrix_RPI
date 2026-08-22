@@ -50,12 +50,27 @@ pub struct EngineMetadata {
     pub version: &'static str,
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Capabilities {
     pub supports_128x32: bool,
     pub supports_256x64: bool,
     pub realtime: bool,
     pub interruptible: bool,
+    pub allows_overlay: bool,
+    pub is_overlay: bool,
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self {
+            supports_128x32: true,
+            supports_256x64: true,
+            realtime: false,
+            interruptible: true,
+            allows_overlay: true,
+            is_overlay: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, Serialize)]

@@ -10,7 +10,7 @@ info:
     out-of-range values clamped/fallback) before being persisted atomically to
     `config.json`, and the running engine is notified live via
     `on_config_changed()`.
-  version: 2.0.0
+  version: 3.0.0
 servers:
   - url: http://arcadematrix.local:8080
     description: Default local mDNS address

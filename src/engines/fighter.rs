@@ -273,16 +273,34 @@ impl FighterEngine {
             let dir64 = "fighters_64";
             let dir32 = "fighters_32";
 
-            let mut index = Self::load_index(dir64);
-            let mut dir = dir64;
+            // Pick the asset set that matches the panel height. A 64px (or taller)
+            // panel prefers fighters_64; anything shorter uses fighters_32. We only
+            // touch the other resolution as a last-resort fallback, so a 32px panel
+            // never logs spurious errors about the fighters_64 assets.
+            let (preferred, fallback) = if matrix_height >= 64 {
+                (dir64, dir32)
+            } else {
+                (dir32, dir64)
+            };
 
-            if index.is_empty() || matrix_height < 64 {
-                index = Self::load_index(dir32);
-                dir = dir32;
+            let mut dir = preferred;
+            let mut index = Self::load_index(preferred);
+
+            if index.is_empty() {
+                let alt = Self::load_index(fallback);
+                if !alt.is_empty() {
+                    index = alt;
+                    dir = fallback;
+                }
             }
 
             if index.is_empty() {
-                tracing::warn!("FighterEngine: No valid index.json found!");
+                tracing::warn!(
+                    "FighterEngine: No valid index.json found (looked in '{}' for a \
+                     {}px panel). Are the fighter sprite assets deployed?",
+                    preferred,
+                    matrix_height
+                );
                 return;
             }
 

@@ -1,4 +1,4 @@
-use crate::api::CryptoProvider;
+use crate::api::{CryptoProvider, PriceHistory, Timeframe};
 use std::time::Duration;
 use tracing::info;
 
@@ -47,6 +47,51 @@ impl CryptoProvider for BinanceProvider {
 
         None
     }
+
+    fn fetch_history(&self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+            .ok()?;
+
+        let mut binance_symbol = symbol.to_uppercase();
+        if !binance_symbol.ends_with("USDT") && !binance_symbol.ends_with("USD") {
+            binance_symbol.push_str("USDT");
+        }
+
+        let (interval, limit) = match tf {
+            Timeframe::Hourly => ("1m", 60),
+            Timeframe::Daily => ("1h", 24),
+            Timeframe::Weekly => ("4h", 42),
+            Timeframe::Monthly => ("1d", 30),
+        };
+
+        let url = format!(
+            "https://api.binance.com/api/v3/klines?symbol={}&interval={}&limit={}",
+            binance_symbol, interval, limit
+        );
+
+        if let Ok(res) = client.get(&url).send() {
+            if res.status().is_success() {
+                if let Ok(json) = res.json::<serde_json::Value>() {
+                    if let Some(hist) = Self::parse_klines(&json) {
+                        info!(
+                            "[Binance] Fetched {} history points for {} ({:?})",
+                            hist.points.len(),
+                            symbol,
+                            tf
+                        );
+                        return Some(hist);
+                    }
+                }
+            } else {
+                tracing::warn!("[Binance] History HTTP {} for {}", res.status().as_u16(), symbol);
+            }
+        }
+
+        None
+    }
 }
 
 impl BinanceProvider {
@@ -66,6 +111,23 @@ impl BinanceProvider {
             None
         }
     }
+
+    pub fn parse_klines(json: &serde_json::Value) -> Option<PriceHistory> {
+        if let Some(candles) = json.as_array() {
+            let mut raw_points = Vec::with_capacity(candles.len());
+            for candle in candles {
+                if let Some(close_str) = candle.get(4).and_then(|v| v.as_str()) {
+                    if let Ok(close_val) = close_str.parse::<f64>() {
+                        if close_val > 0.0 {
+                            raw_points.push(close_val);
+                        }
+                    }
+                }
+            }
+            return PriceHistory::from_raw(&raw_points);
+        }
+        None
+    }
 }
 
 #[cfg(test)]
@@ -80,5 +142,18 @@ mod tests {
         let (price, change) = BinanceProvider::parse(&payload).unwrap();
         assert_eq!(price, 62000.0);
         assert_eq!(change, 1.5);
+    }
+
+    #[test]
+    fn test_parse_klines() {
+        let payload = json!([
+            [1610000000000u64, "100.0", "105.0", "99.0", "102.5", "1000"],
+            [1610003600000u64, "102.5", "108.0", "101.0", "107.0", "1500"],
+            [1610007200000u64, "107.0", "107.0", "95.0", "96.0", "2000"]
+        ]);
+        let hist = BinanceProvider::parse_klines(&payload).unwrap();
+        assert_eq!(hist.points.len(), 3);
+        assert_eq!(hist.min, 96.0);
+        assert_eq!(hist.max, 107.0);
     }
 }

@@ -10,6 +10,8 @@ struct Drop {
 
 pub struct CyberpunkRenderer {
     drops: Vec<Drop>,
+    width: u32,
+    height: u32,
 }
 
 impl CyberpunkRenderer {
@@ -29,10 +31,20 @@ impl CyberpunkRenderer {
             })
             .collect();
 
-        Self { drops }
+        Self {
+            drops,
+            width,
+            height,
+        }
     }
 
     pub fn render(&mut self, matrix: &mut dyn MatrixBackend) {
+        let current_w = matrix.width() as u32;
+        let current_h = matrix.height() as u32;
+        if current_w != self.width || current_h != self.height {
+            *self = Self::new(current_w, current_h);
+        }
+
         let w = matrix.width() as i32;
         let h = matrix.height() as f32;
         let mut rng = rand::thread_rng();

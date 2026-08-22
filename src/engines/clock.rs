@@ -155,6 +155,8 @@ impl Engine for ClockEngine {
         if reset_clocks {
             let w = matrix.width() as u32;
             let h = matrix.height() as u32;
+            self.cyberpunk = CyberpunkRenderer::new(w, h);
+            self.true_matrix = TrueMatrixRenderer::new(w, h);
             self.pong = PongClock::new(w, h);
             self.tetris = TetrisClock::new(false);
             self.tetris_gb = TetrisClock::new(true);
@@ -175,12 +177,12 @@ impl Engine for ClockEngine {
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
-                    0,
+                    18,
                     self.time_size,
                     self.time_offset_x,
                     self.time_offset_y,
-                    Some((0, 255, 255)),
-                    None,
+                    Some((0, 140, 0)),
+                    Some((0, 0, 0)),
                 );
             }
             21 => {

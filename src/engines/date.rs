@@ -106,6 +106,10 @@ impl Engine for DateEngine {
             self.base_renderer = BaseRenderer::from_font_path(&self.date_font);
             self.last_font = self.date_font.clone();
             self.flip.reset();
+            let w = matrix.width() as u32;
+            let h = matrix.height() as u32;
+            self.cyberpunk = CyberpunkRenderer::new(w, h);
+            self.true_matrix = TrueMatrixRenderer::new(w, h);
         }
 
         let color1 = parse_hex_color(&self.date_color_1);
@@ -117,12 +121,12 @@ impl Engine for DateEngine {
                 self.base_renderer.render_text(
                     matrix,
                     &date_str,
-                    0,
+                    18,
                     self.date_size,
                     self.date_offset_x,
                     self.date_offset_y,
-                    color1,
-                    None,
+                    Some((0, 140, 0)),
+                    Some((0, 0, 0)),
                 );
             }
             21 => {

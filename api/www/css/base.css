@@ -244,7 +244,7 @@ body {
 .rotation-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
   margin: 1rem 0;
   width: 100%;
   box-sizing: border-box;
@@ -252,10 +252,9 @@ body {
 
 .rotation-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  padding: 0.75rem 0.85rem;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
@@ -270,92 +269,113 @@ body {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-.rotation-info {
+.rotation-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.rotation-title-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex: 1 1 0;
+  flex: 1 1 auto;
   min-width: 0;
-  overflow: hidden;
 }
 
 .rotation-order-badge {
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--accent-primary);
-  background: rgba(99, 102, 241, 0.15);
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  padding: 0.15rem 0.4rem;
-  border-radius: var(--radius-sm);
+  color: #fff;
+  background: var(--accent-primary);
+  box-shadow: 0 0 8px var(--accent-glow);
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.rotation-title {
+  font-weight: 600;
+  color: #ffffff;
+  font-size: 0.95rem;
+  word-break: break-word;
+  line-height: 1.3;
+}
+
+.rotation-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   flex-shrink: 0;
 }
 
-.rotation-name {
-  font-weight: 600;
-  color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 0.9rem;
-  min-width: 0;
-}
-
-.rotation-controls {
+.rotation-settings-bar {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
-  flex-shrink: 0;
-  flex-wrap: nowrap;
-  margin-left: auto;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  width: 100%;
 }
 
 .rotation-dur-group {
   display: inline-flex;
   align-items: center;
-  gap: 0.25rem;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 0.15rem 0.4rem;
+  gap: 0.35rem;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 0.2rem 0.5rem;
   border-radius: var(--radius-sm);
   border: 1px solid var(--glass-border);
 }
 
+.rotation-dur-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
 .rotation-dur-input {
-  width: 3.2rem !important;
-  padding: 0.2rem 0.25rem !important;
+  width: 3.5rem !important;
+  padding: 0.2rem 0.3rem !important;
   text-align: center;
   background: transparent !important;
   border: none !important;
   color: #fff !important;
-  font-weight: 600;
-  font-size: 0.85rem;
+  font-weight: 700;
+  font-size: 0.9rem;
 }
 
 .rotation-unit {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   user-select: none;
 }
 
 .rotation-fighter-lbl {
   display: inline-flex;
   align-items: center;
-  gap: 0.2rem;
-  font-size: 0.8rem;
-  color: var(--text-muted);
+  gap: 0.3rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
   cursor: pointer;
-  padding: 0.2rem 0.35rem;
+  padding: 0.25rem 0.5rem;
   background: rgba(255, 255, 255, 0.04);
   border-radius: var(--radius-sm);
   border: 1px solid rgba(255, 255, 255, 0.06);
   user-select: none;
   flex-shrink: 0;
+  transition: background var(--transition-fast);
 }
 
-.rotation-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
-  flex-shrink: 0;
+.rotation-fighter-lbl:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
 }
 
 .rotation-add-card {

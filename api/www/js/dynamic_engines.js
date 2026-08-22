@@ -301,62 +301,25 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       const row = document.createElement('div');
       row.className = 'rotation-row';
 
-      // Left info: order badge + instance title
-      const info = document.createElement('div');
-      info.className = 'rotation-info';
+      // 1. Top Header: Badge + Instance Name + Action Buttons
+      const header = document.createElement('div');
+      header.className = 'rotation-row-header';
+
+      const titleGroup = document.createElement('div');
+      titleGroup.className = 'rotation-title-group';
 
       const badge = document.createElement('span');
       badge.className = 'rotation-order-badge';
       badge.innerText = `#${idx + 1}`;
-      info.appendChild(badge);
+      titleGroup.appendChild(badge);
 
       const label = document.createElement('span');
-      label.className = 'rotation-name';
+      label.className = 'rotation-title';
       label.title = nameFor(entry.instance_id);
       label.innerText = nameFor(entry.instance_id);
-      info.appendChild(label);
+      titleGroup.appendChild(label);
 
-      row.appendChild(info);
-
-      // Right controls: duration + unit + fighter + actions
-      const controls = document.createElement('div');
-      controls.className = 'rotation-controls';
-
-      const countBased = isCountBased(entry.instance_id);
-
-      // Duration input group
-      const durGroup = document.createElement('div');
-      durGroup.className = 'rotation-dur-group';
-      durGroup.title = countBased ? 'Number of GIFs to play before rotating' : 'Duration (seconds)';
-
-      const dur = document.createElement('input');
-      dur.type = 'number';
-      dur.className = 'input rotation-dur-input';
-      dur.min = '1';
-      dur.value = entry.duration_sec;
-      dur.onchange = () => { entry.duration_sec = parseInt(dur.value) || 1; };
-      durGroup.appendChild(dur);
-
-      const unit = document.createElement('span');
-      unit.className = 'rotation-unit';
-      unit.innerText = countBased ? 'GIFs' : 'sec';
-      durGroup.appendChild(unit);
-
-      controls.appendChild(durGroup);
-
-      // Per-entry Fighter overlay toggle
-      const fightLbl = document.createElement('label');
-      fightLbl.className = 'rotation-fighter-lbl';
-      fightLbl.title = 'Show the Fighter overlay on this screen';
-      const fightCb = document.createElement('input');
-      fightCb.type = 'checkbox';
-      fightCb.checked = entry.fighter_overlay !== false;
-      fightCb.onchange = () => { entry.fighter_overlay = fightCb.checked; };
-      fightLbl.appendChild(fightCb);
-      const fightTxt = document.createElement('span');
-      fightTxt.innerText = '🥊';
-      fightLbl.appendChild(fightTxt);
-      controls.appendChild(fightLbl);
+      header.appendChild(titleGroup);
 
       // Action buttons (Up, Down, Delete)
       const actions = document.createElement('div');
@@ -388,9 +351,55 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       del.onclick = () => { entries.splice(idx, 1); render(); };
       actions.appendChild(del);
 
-      controls.appendChild(actions);
-      row.appendChild(controls);
+      header.appendChild(actions);
+      row.appendChild(header);
 
+      // 2. Bottom Settings Bar: Duration + Fighter Overlay
+      const settingsBar = document.createElement('div');
+      settingsBar.className = 'rotation-settings-bar';
+
+      const countBased = isCountBased(entry.instance_id);
+
+      // Duration input group
+      const durGroup = document.createElement('div');
+      durGroup.className = 'rotation-dur-group';
+      durGroup.title = countBased ? 'Number of GIFs to play before rotating' : 'Duration in seconds';
+
+      const durLbl = document.createElement('span');
+      durLbl.className = 'rotation-dur-label';
+      durLbl.innerText = countBased ? 'Count:' : 'Duration:';
+      durGroup.appendChild(durLbl);
+
+      const dur = document.createElement('input');
+      dur.type = 'number';
+      dur.className = 'input rotation-dur-input';
+      dur.min = '1';
+      dur.value = entry.duration_sec;
+      dur.onchange = () => { entry.duration_sec = parseInt(dur.value) || 1; };
+      durGroup.appendChild(dur);
+
+      const unit = document.createElement('span');
+      unit.className = 'rotation-unit';
+      unit.innerText = countBased ? 'GIFs' : 'sec';
+      durGroup.appendChild(unit);
+
+      settingsBar.appendChild(durGroup);
+
+      // Per-entry Fighter overlay toggle
+      const fightLbl = document.createElement('label');
+      fightLbl.className = 'rotation-fighter-lbl';
+      fightLbl.title = 'Show the Fighter overlay on this screen';
+      const fightCb = document.createElement('input');
+      fightCb.type = 'checkbox';
+      fightCb.checked = entry.fighter_overlay !== false;
+      fightCb.onchange = () => { entry.fighter_overlay = fightCb.checked; };
+      fightLbl.appendChild(fightCb);
+      const fightTxt = document.createElement('span');
+      fightTxt.innerText = '🥊 Overlay';
+      fightLbl.appendChild(fightTxt);
+      settingsBar.appendChild(fightLbl);
+
+      row.appendChild(settingsBar);
       list.appendChild(row);
     });
     if (entries.length === 0) {

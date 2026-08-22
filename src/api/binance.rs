@@ -86,7 +86,11 @@ impl CryptoProvider for BinanceProvider {
                     }
                 }
             } else {
-                tracing::warn!("[Binance] History HTTP {} for {}", res.status().as_u16(), symbol);
+                tracing::warn!(
+                    "[Binance] History HTTP {} for {}",
+                    res.status().as_u16(),
+                    symbol
+                );
             }
         }
 

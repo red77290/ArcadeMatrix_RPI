@@ -127,7 +127,10 @@ impl YahooFinanceProvider {
     }
 
     pub fn parse_chart(json: &serde_json::Value) -> Option<PriceHistory> {
-        if let Some(result) = json["chart"]["result"].as_array().and_then(|arr| arr.first()) {
+        if let Some(result) = json["chart"]["result"]
+            .as_array()
+            .and_then(|arr| arr.first())
+        {
             if let Some(close_arr) = result["indicators"]["quote"]
                 .as_array()
                 .and_then(|q| q.first())

@@ -122,7 +122,11 @@ impl CryptoProvider for CoinGeckoProvider {
                     }
                 }
             } else {
-                tracing::warn!("[CoinGecko] History HTTP {} for {}", res.status().as_u16(), symbol);
+                tracing::warn!(
+                    "[CoinGecko] History HTTP {} for {}",
+                    res.status().as_u16(),
+                    symbol
+                );
             }
         }
 

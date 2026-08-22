@@ -74,7 +74,8 @@ impl StockEngine {
             .collect();
         self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
         self.show_chart = config.get_bool("show_chart", true);
-        self.chart_timeframe = Timeframe::from_str_opt(&config.get_string("chart_timeframe", "daily"));
+        self.chart_timeframe =
+            Timeframe::from_str_opt(&config.get_string("chart_timeframe", "daily"));
         self.page_seconds = config.get_int("page_seconds", 5).clamp(3, 30) as u64;
 
         // Keep the cursor in range after the symbol list shrinks.
@@ -88,10 +89,10 @@ impl StockEngine {
     fn fetch_history(&mut self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
         let now = Instant::now();
         let ttl_secs = match tf {
-            Timeframe::Hourly => 60,      // 1 min
-            Timeframe::Daily => 300,      // 5 min
-            Timeframe::Weekly => 1800,    // 30 min
-            Timeframe::Monthly => 7200,   // 2 hours
+            Timeframe::Hourly => 60,    // 1 min
+            Timeframe::Daily => 300,    // 5 min
+            Timeframe::Weekly => 1800,  // 30 min
+            Timeframe::Monthly => 7200, // 2 hours
         };
 
         if let Some((hist, ts)) = self.history_cache.get(&(symbol.to_string(), tf)) {
@@ -102,7 +103,8 @@ impl StockEngine {
 
         for provider in &self.providers {
             if let Some(hist) = provider.fetch_history(symbol, tf) {
-                self.history_cache.insert((symbol.to_string(), tf), (hist.clone(), now));
+                self.history_cache
+                    .insert((symbol.to_string(), tf), (hist.clone(), now));
                 return Some(hist);
             }
         }
@@ -352,7 +354,9 @@ impl Engine for StockEngine {
                             _ => &crate::engines::icons::ICON_AAPL,
                         };
                         let icon_color = crate::engines::icons::get_stock_color(&symbol);
-                        crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, scale, icon_color);
+                        crate::engines::icons::draw_icon(
+                            matrix, icon, icon_x, icon_y, scale, icon_color,
+                        );
                     }
 
                     let sym_w = self.draw_plain_text(matrix, &symbol, 28, 6, (255, 255, 255), 2.0);
@@ -406,7 +410,9 @@ impl Engine for StockEngine {
                             _ => &crate::engines::icons::ICON_AAPL,
                         };
                         let icon_color = crate::engines::icons::get_stock_color(&symbol);
-                        crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+                        crate::engines::icons::draw_icon(
+                            matrix, icon, icon_x, icon_y, 2, icon_color,
+                        );
                     }
 
                     let sym_w = self.draw_plain_text(matrix, &symbol, 20, 4, (255, 255, 255), 1.0);
@@ -424,7 +430,8 @@ impl Engine for StockEngine {
                 if height >= 64 {
                     // Header line
                     let header_text = format!("{} ({})", symbol, tf_label);
-                    let sym_w = self.draw_plain_text(matrix, &header_text, 6, 4, (255, 255, 255), 1.0);
+                    let sym_w =
+                        self.draw_plain_text(matrix, &header_text, 6, 4, (255, 255, 255), 1.0);
 
                     let font = self.base_renderer.font();
                     let (_, price_w, _) = font.get_pixel_map(&price_str, 1.0);
@@ -441,17 +448,33 @@ impl Engine for StockEngine {
                     let spark_h = 35;
 
                     if let Some(hist) = history_opt {
-                        let is_up = hist.points.last().unwrap_or(&0.0) >= hist.points.first().unwrap_or(&0.0);
+                        let is_up = hist.points.last().unwrap_or(&0.0)
+                            >= hist.points.first().unwrap_or(&0.0);
                         let line_color = if is_up { (0, 255, 120) } else { (255, 60, 60) };
-                        let fill_color = if is_up { Some((0, 30, 10)) } else { Some((35, 10, 10)) };
-                        draw_sparkline(matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color, fill_color);
+                        let fill_color = if is_up {
+                            Some((0, 30, 10))
+                        } else {
+                            Some((35, 10, 10))
+                        };
+                        draw_sparkline(
+                            matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color,
+                            fill_color,
+                        );
                     } else {
-                        self.draw_plain_text(matrix, "Loading chart...", 6, spark_y + 10, (120, 120, 120), 1.0);
+                        self.draw_plain_text(
+                            matrix,
+                            "Loading chart...",
+                            6,
+                            spark_y + 10,
+                            (120, 120, 120),
+                            1.0,
+                        );
                     }
                 } else {
                     // 32px height panel
                     let header_text = format!("{} {}", symbol, tf_label);
-                    let sym_w = self.draw_plain_text(matrix, &header_text, 2, 1, (255, 255, 255), 1.0);
+                    let sym_w =
+                        self.draw_plain_text(matrix, &header_text, 2, 1, (255, 255, 255), 1.0);
 
                     let font = self.base_renderer.font();
                     let (_, price_w, _) = font.get_pixel_map(&price_str, 1.0);
@@ -464,12 +487,27 @@ impl Engine for StockEngine {
                     let spark_h = 19;
 
                     if let Some(hist) = history_opt {
-                        let is_up = hist.points.last().unwrap_or(&0.0) >= hist.points.first().unwrap_or(&0.0);
+                        let is_up = hist.points.last().unwrap_or(&0.0)
+                            >= hist.points.first().unwrap_or(&0.0);
                         let line_color = if is_up { (0, 255, 120) } else { (255, 60, 60) };
-                        let fill_color = if is_up { Some((0, 30, 10)) } else { Some((35, 10, 10)) };
-                        draw_sparkline(matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color, fill_color);
+                        let fill_color = if is_up {
+                            Some((0, 30, 10))
+                        } else {
+                            Some((35, 10, 10))
+                        };
+                        draw_sparkline(
+                            matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color,
+                            fill_color,
+                        );
                     } else {
-                        self.draw_plain_text(matrix, "Loading...", 4, spark_y + 4, (120, 120, 120), 1.0);
+                        self.draw_plain_text(
+                            matrix,
+                            "Loading...",
+                            4,
+                            spark_y + 4,
+                            (120, 120, 120),
+                            1.0,
+                        );
                     }
                 }
             }
@@ -515,12 +553,25 @@ fn register_stock_engine() -> EngineDescriptor {
                     description: "Timeframe for historical price chart",
                     default_value: "daily",
                     options: Some(vec![
-                        crate::core::engine_contract::ConfigOption { label: "1 Hour", value: "hourly" },
-                        crate::core::engine_contract::ConfigOption { label: "1 Day", value: "daily" },
-                        crate::core::engine_contract::ConfigOption { label: "1 Week", value: "weekly" },
-                        crate::core::engine_contract::ConfigOption { label: "1 Month", value: "monthly" },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "1 Hour",
+                            value: "hourly",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "1 Day",
+                            value: "daily",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "1 Week",
+                            value: "weekly",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "1 Month",
+                            value: "monthly",
+                        },
                     ]),
-                    validation_policy: crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

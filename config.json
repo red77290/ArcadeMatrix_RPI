@@ -48,15 +48,23 @@
     "turn_off_at": "23:00",
     "wake_up_at": "07:00",
     "night_brightness": 10,
-    "day_brightness": 100
+    "day_brightness": 100,
+    "idle_fighter_enabled": true,
+    "idle_fighter_interval": 10
   },
   "instances": [
     {
       "instance_id": "default_clock",
       "engine_id": "clock",
       "config": {
-        "theme": "0",
-        "format": "%H:%M:%S"
+        "size": "2",
+        "offset_y": "0",
+        "font": "PressStart2P.ttf",
+        "format": "%H:%M:%S",
+        "color_1": "#FFFFFF",
+        "offset_x": "0",
+        "color_2": "#FFFFFF",
+        "theme": "0"
       }
     },
     {
@@ -64,18 +72,23 @@
       "engine_id": "weather",
       "config": {
         "api_key": "",
-        "city": ""
+        "lang": "en",
+        "city": "",
+        "offset_x": "0",
+        "offset_y": "0"
       }
     }
   ],
   "rotation": [
     {
       "instance_id": "default_clock",
-      "duration_sec": 60
+      "duration_sec": 60,
+      "fighter_overlay": true
     },
     {
       "instance_id": "default_weather",
-      "duration_sec": 15
+      "duration_sec": 15,
+      "fighter_overlay": true
     }
   ],
   "api_auth_enabled": false,

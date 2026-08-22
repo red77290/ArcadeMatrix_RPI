@@ -13,14 +13,17 @@ fn test_rotation_state() {
         arcadematrix::core::config::RotationEntry {
             instance_id: "clock".to_string(),
             duration_sec: 10,
+            fighter_overlay: true,
         },
         arcadematrix::core::config::RotationEntry {
             instance_id: "date".to_string(),
             duration_sec: 10,
+            fighter_overlay: true,
         },
         arcadematrix::core::config::RotationEntry {
             instance_id: "weather".to_string(),
             duration_sec: 10,
+            fighter_overlay: true,
         },
     ];
 

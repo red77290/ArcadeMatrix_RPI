@@ -78,6 +78,8 @@ Vous pouvez aussi pousser des identifiants à l'exécution avec `POST /api/wifi 
 | `wake_up_at` | `String` | Heure de réveil (ex. `"07:00"`). |
 | `night_brightness` | `int` | Luminosité de veille (`0` = matrice complètement éteinte). |
 | `day_brightness` | `int` | Luminosité de jour en direct (`0`–`100`). Réglée via le curseur du tableau de bord et conservée après un redémarrage. |
+| `idle_fighter_enabled` | `bool` | Interrupteur principal de l'overlay Combattant décoratif superposé aux écrans de rotation en veille (activation par écran via chaque entrée de rotation). |
+| `idle_fighter_interval` | `int` | Secondes entre deux animations de combat (minimum `1`). |
 
 ---
 

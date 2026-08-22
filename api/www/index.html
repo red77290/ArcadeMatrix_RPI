@@ -143,6 +143,24 @@
             <input type="file" id="marquee-file-input" accept="image/png, image/jpeg, image/gif" style="display: none;">
           </div>
         </div>
+        <div class="card glass shadow">
+          <h3>🥊 <span data-i18n="fighter_title">Fighter Overlay</span></h3>
+          <p class="text-muted" data-i18n="fighter_desc">Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.</p>
+          <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-group">
+              <label data-i18n="fighter_enabled">Enabled</label>
+              <label class="switch">
+                <input type="checkbox" id="fighter-enabled">
+                <span class="slider"></span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label data-i18n="fighter_interval">Interval between fights (seconds)</label>
+              <input type="number" id="fighter-interval" class="input" value="10" min="1">
+            </div>
+          </div>
+          <button id="btn-save-fighter" class="btn btn-primary" style="margin-top: 1.5rem;" data-i18n="fighter_save">Save Fighter Settings</button>
+        </div>
       </section>
 
       <!-- Message Page -->

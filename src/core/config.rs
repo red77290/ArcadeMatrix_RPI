@@ -22,6 +22,15 @@ pub struct EngineInstance {
 pub struct RotationEntry {
     pub instance_id: String,
     pub duration_sec: u32,
+    /// Per-entry toggle for the Fighter overlay on this rotation screen. Lets the
+    /// user enable/disable the decorative sprites independently for each screen.
+    /// Defaults to `true` so existing configs keep showing the overlay.
+    #[serde(default = "default_fighter_overlay")]
+    pub fighter_overlay: bool,
+}
+
+fn default_fighter_overlay() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -85,6 +94,21 @@ pub struct SystemConfig {
     pub wake_up_at: String,
     pub night_brightness: u32,
     pub day_brightness: u32,
+    /// Fighter overlay (decorative sprites composited on top of idle rotation
+    /// screens). Formerly the "media/gif" idle animation. Defaults preserve the
+    /// historical behaviour from the pre-refactor `main` branch.
+    #[serde(default = "default_fighter_enabled")]
+    pub idle_fighter_enabled: bool,
+    #[serde(default = "default_fighter_interval")]
+    pub idle_fighter_interval: u32,
+}
+
+fn default_fighter_enabled() -> bool {
+    true
+}
+
+fn default_fighter_interval() -> u32 {
+    10
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +196,8 @@ impl Default for SystemConfig {
             wake_up_at: "07:00".to_string(),
             night_brightness: 10,
             day_brightness: 100,
+            idle_fighter_enabled: default_fighter_enabled(),
+            idle_fighter_interval: default_fighter_interval(),
         }
     }
 }
@@ -248,10 +274,12 @@ impl Config {
                 RotationEntry {
                     instance_id: "default_clock".to_string(),
                     duration_sec: 60,
+                    fighter_overlay: true,
                 },
                 RotationEntry {
                     instance_id: "default_weather".to_string(),
                     duration_sec: 15,
+                    fighter_overlay: true,
                 },
             ];
             needs_save = true;

@@ -78,6 +78,8 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 | `wake_up_at` | `String` | Wake-up time (e.g., `"07:00"`). |
 | `night_brightness` | `int` | Standby brightness (`0` = matrix completely off). |
 | `day_brightness` | `int` | Live daytime brightness (`0`–`100`). Set from the dashboard slider and persisted across restarts. |
+| `idle_fighter_enabled` | `bool` | Master switch for the decorative Fighter overlay composited on top of idle rotation screens (per-screen opt-in via each rotation entry). |
+| `idle_fighter_interval` | `int` | Seconds between two fight animations (minimum `1`). |
 
 ---
 

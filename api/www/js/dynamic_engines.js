@@ -323,6 +323,22 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       unit.innerText = countBased ? 'GIFs' : 'sec';
       row.appendChild(unit);
 
+      // Per-entry Fighter overlay toggle. Lets the user decide, screen by screen,
+      // whether the decorative fighter sprites are composited on top (including
+      // over full-repaint screens such as gifs).
+      const fightLbl = document.createElement('label');
+      fightLbl.title = 'Show the Fighter overlay on this screen';
+      fightLbl.style = 'display:flex; align-items:center; gap:0.25rem; font-size:0.85rem; color:var(--text-muted);';
+      const fightCb = document.createElement('input');
+      fightCb.type = 'checkbox';
+      fightCb.checked = entry.fighter_overlay !== false;
+      fightCb.onchange = () => { entry.fighter_overlay = fightCb.checked; };
+      fightLbl.appendChild(fightCb);
+      const fightTxt = document.createElement('span');
+      fightTxt.innerText = '🥊';
+      fightLbl.appendChild(fightTxt);
+      row.appendChild(fightLbl);
+
       const up = document.createElement('button');
       up.className = 'btn';
       up.innerText = '▲';
@@ -369,7 +385,7 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
   addBtn.innerText = '➕ Add to rotation';
   addBtn.onclick = () => {
     if (!sel.value) return;
-    entries.push({ instance_id: sel.value, duration_sec: 30 });
+    entries.push({ instance_id: sel.value, duration_sec: 30, fighter_overlay: true });
     render();
   };
   addRow.appendChild(sel);
@@ -384,6 +400,7 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
     const payload = entries.map(e => ({
       instance_id: e.instance_id,
       duration_sec: parseInt(e.duration_sec) || 1,
+      fighter_overlay: e.fighter_overlay !== false,
     }));
     try {
       await API.post('/api/rotation', payload);

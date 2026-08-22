@@ -39,6 +39,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initOta();
   loadVersion();
   initCustomMarquee();
+  initFighterOverlay();
   initNetworkSettings();
   initSettings();
   initDynamicEngines();
@@ -264,6 +265,41 @@ function initCustomMarquee() {
       window.showToast('Failed to display marquee image', 'error');
     }
   }
+}
+
+function initFighterOverlay() {
+  const enabledEl = document.getElementById('fighter-enabled');
+  const intervalEl = document.getElementById('fighter-interval');
+  const saveBtn = document.getElementById('btn-save-fighter');
+  if (!enabledEl || !intervalEl || !saveBtn) return;
+
+  // Load current values from the canonical system config.
+  (async () => {
+    try {
+      const cfg = await API.get('/api/system');
+      const sys = cfg.system || {};
+      if (typeof sys.idle_fighter_enabled === 'boolean') {
+        enabledEl.checked = sys.idle_fighter_enabled;
+      }
+      if (typeof sys.idle_fighter_interval === 'number') {
+        intervalEl.value = sys.idle_fighter_interval;
+      }
+    } catch (e) {
+      console.error('Failed to load fighter settings', e);
+    }
+  })();
+
+  saveBtn.addEventListener('click', async () => {
+    try {
+      await API.post('/api/system', {
+        idle_fighter_enabled: enabledEl.checked,
+        idle_fighter_interval: parseInt(intervalEl.value) || 1,
+      });
+      window.showToast('Fighter overlay settings saved!', 'success');
+    } catch (e) {
+      window.showToast('Failed to save fighter settings', 'error');
+    }
+  });
 }
 
 function initNetworkSettings() {

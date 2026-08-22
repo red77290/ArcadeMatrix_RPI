@@ -372,6 +372,10 @@ impl ArcadeMatrixApp {
 
         let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
         let mut message_engine = crate::engines::message::MessageEngine::new();
+        // Fighter overlay compositor: draws decorative sprites additively on top
+        // of idle rotation screens. Shown per rotation entry via the
+        // `fighter_overlay` toggle (see RotationEntry) gated by the master switch.
+        let mut fighter_engine = crate::engines::fighter::FighterEngine::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -669,6 +673,22 @@ impl ArcadeMatrixApp {
                             rotation_state.next_mode(&idle_list);
                         }
                     }
+                }
+
+                // --- Fighter overlay pass (additive, drawn on top of the
+                // rotation frame). Shown when the master toggle is on and this
+                // rotation entry opts in. Whether to overlay a full-repaint screen
+                // (e.g. a gif) is left to the user via the per-entry toggle.
+                let fighter_on =
+                    settings.system.idle_fighter_enabled && current_mode.fighter_overlay;
+                if fighter_on {
+                    fighter_engine.set_interval(settings.system.idle_fighter_interval);
+                    fighter_engine.composite(matrix.as_mut());
+                    // Keep the high-cadence path while a fight is on screen so the
+                    // sprite animation stays smooth instead of the 1fps static tick.
+                    current_realtime = current_realtime || fighter_engine.is_active();
+                } else if fighter_engine.is_active() {
+                    fighter_engine.stop();
                 }
 
                 last_index = current_index;

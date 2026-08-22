@@ -105,6 +105,14 @@ async fn post_system(
     if let Some(v) = body.get("api_token").and_then(|v| v.as_str()) {
         s.api_token = v.to_string();
     }
+    // Fighter overlay toggle/interval (media page). Handled as top-level keys so
+    // the UI can patch them without replacing the whole `system` object.
+    if let Some(v) = body.get("idle_fighter_enabled").and_then(|v| v.as_bool()) {
+        s.system.idle_fighter_enabled = v;
+    }
+    if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
+        s.system.idle_fighter_interval = (v.max(1)) as u32;
+    }
     // Live daytime brightness (0-100), applied immediately without a restart.
     if let Some(v) = body
         .get("brightness_limit")

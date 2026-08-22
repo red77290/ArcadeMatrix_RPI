@@ -78,6 +78,8 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `wake_up_at` | `String` | Hora de despertar (ej. `"07:00"`). |
 | `night_brightness` | `int` | Brillo de espera (`0` = matriz completamente apagada). |
 | `day_brightness` | `int` | Brillo diurno en vivo (`0`–`100`). Se ajusta con el control del panel y se conserva tras un reinicio. |
+| `idle_fighter_enabled` | `bool` | Interruptor principal de la superposición decorativa de Luchador sobre las pantallas de rotación inactivas (activación por pantalla mediante cada entrada de rotación). |
+| `idle_fighter_interval` | `int` | Segundos entre dos animaciones de combate (mínimo `1`). |
 
 ---
 

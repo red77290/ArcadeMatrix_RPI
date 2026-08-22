@@ -21,10 +21,11 @@ Esta es la guía **completa** para extender ArcadeMatrix en Raspberry Pi. Detall
 9. [Políticas de validación auto-reparadoras](#9-políticas-de-validación-auto-reparadoras)
 10. [Tutorial: crear un nuevo motor](#10-tutorial-crear-un-nuevo-motor)
 11. [Tutorial: añadir un endpoint de lista personalizada](#11-tutorial-añadir-un-endpoint-de-lista-personalizada)
-12. [Leer la config en un motor](#12-leer-la-config-en-un-motor)
-13. [Dibujar en la matriz](#13-dibujar-en-la-matriz)
-14. [Pruebas y ejecución local](#14-pruebas-y-ejecución-local)
-15. [Checklist](#15-checklist)
+12. [Tutorial: añadir un nuevo tema de reloj](#12-tutorial-añadir-un-nuevo-tema-de-reloj)
+13. [Leer la config en un motor](#13-leer-la-config-en-un-motor)
+14. [Dibujar en la matriz](#14-dibujar-en-la-matriz)
+15. [Pruebas y ejecución local](#15-pruebas-y-ejecución-local)
+16. [Checklist](#16-checklist)
 
 ---
 
@@ -442,11 +443,87 @@ ConfigField {
 }
 ```
 
-El frontend no necesita **ningún** cambio — `dynamic_engines.js` ya consulta cualquier `options_endpoint` y renderiza un desplegable (o cuadrícula de casillas si `multiple`).
+---
+
+## 12. Tutorial: añadir un nuevo tema de reloj
+
+Los relojes en ArcadeMatrix están organizados en módulos de renderizado bajo `ClockEngine` (`src/engines/clock.rs`). Para añadir un nuevo tema visual o animación de reloj (ej: *SpaceInvadersClock*):
+
+### Paso 1 — Crear `src/engines/clocks/space_invaders_clock.rs`
+
+```rust
+use chrono::Timelike;
+use crate::engines::renderers::BaseRenderer;
+
+pub struct SpaceInvadersClock {
+    base: BaseRenderer,
+    invader_frame: u32,
+    last_anim_ms: u128,
+}
+
+impl SpaceInvadersClock {
+    pub fn new() -> Self {
+        Self {
+            base: BaseRenderer::new(),
+            invader_frame: 0,
+            last_anim_ms: 0,
+        }
+    }
+
+    pub fn draw(
+        &mut self,
+        matrix: &mut dyn crate::matrix::MatrixBackend,
+        now: chrono::DateTime<chrono::Local>,
+        font: &str,
+        size: u32,
+        color: (u8, u8, u8),
+    ) {
+        let time_str = now.format("%H:%M:%S").to_string();
+        self.base.draw_text_centered(matrix, &time_str, font, size, color);
+    }
+}
+```
+
+### Paso 2 — Exponer en `src/engines/clocks/mod.rs`
+
+```rust
+pub mod space_invaders_clock;
+pub use space_invaders_clock::SpaceInvadersClock;
+```
+
+### Paso 3 — Conectar en `ClockEngine` (`src/engines/clock.rs`)
+
+1. Añadir la estructura en `ClockEngine`:
+```rust
+pub struct ClockEngine {
+    // ...
+    space_invaders: SpaceInvadersClock,
+}
+```
+
+2. Inicializar en `ClockEngine::new`:
+```rust
+space_invaders: SpaceInvadersClock::new(),
+```
+
+3. Enrutar el renderizado en `render()`:
+```rust
+25 => self.space_invaders.draw(ctx.matrix, now, &self.time_font, self.time_size, c1),
+```
+
+### Paso 4 — Declarar la opción en `ClockEngine::descriptor()`
+
+Añade `{ label: "Space Invaders Clock", value: "25" }` a las opciones del campo `theme`:
+
+```rust
+ConfigOption { label: "Space Invaders Clock", value: "25" },
+```
+
+La interfaz Web renderiza dinámicamente la nueva opción en el selector de temas y aplica el cambio en caliente al guardar.
 
 ---
 
-## 12. Leer la config en un motor
+## 13. Leer la config en un motor
 
 El motor recibe un proxy restringido `&dyn EngineConfig` (nunca todo el `config.json`):
 
@@ -460,7 +537,7 @@ Estos mapean sobre el `HashMap<String,String>` de la instancia. Las claves corre
 
 ---
 
-## 13. Dibujar en la matriz
+## 14. Dibujar en la matriz
 
 `ctx.matrix` es un `&mut dyn MatrixBackend`. Patrón típico:
 
@@ -476,7 +553,7 @@ El **bucle de render** posee `update()` (el envío al panel) y, tras el retorno 
 
 ---
 
-## 14. Pruebas y ejecución local
+## 15. Pruebas y ejecución local
 
 ```bash
 rtk cargo fmt
@@ -492,7 +569,7 @@ El hook de pre-commit ejecuta el validador de release, el validador de doc/clave
 
 ---
 
-## 15. Checklist
+## 16. Checklist
 
 - [ ] La struct pre-reserva búferes; sin asignación en `update`/`render`.
 - [ ] `on_config_changed` relee cada campo editable **in situ**.

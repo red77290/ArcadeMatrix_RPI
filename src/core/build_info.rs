@@ -8,8 +8,8 @@
 //! and the startup banner would disagree about which binary is running.
 //! Reading them here once keeps every consumer consistent.
 
-/// Semantic crate version (`Cargo.toml`).
-pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Semantic crate version (dynamically detected from git tag / CI / Cargo.toml).
+pub const VERSION: &str = env!("APP_VERSION");
 
 /// Rust target triple the binary was built for.
 pub const ARCH: &str = env!("BUILD_TARGET");

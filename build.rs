@@ -7,6 +7,33 @@ fn main() {
         "cargo:rustc-env=BUILD_TARGET={}",
         std::env::var("TARGET").unwrap_or_default()
     );
+
+    // Dynamic version detection: CI env -> Git tag -> Cargo.toml
+    let mut version = std::env::var("GITHUB_REF_NAME")
+        .ok()
+        .filter(|v| v.starts_with('v'))
+        .map(|v| v.trim_start_matches('v').to_string());
+
+    if version.is_none() {
+        if let Ok(output) = std::process::Command::new("git")
+            .args(["describe", "--tags", "--always"])
+            .output()
+        {
+            if output.status.success() {
+                let tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let clean = tag.trim_start_matches('v');
+                if let Some(semver) = clean.split('-').next() {
+                    if semver.contains('.') {
+                        version = Some(semver.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    let final_version = version.unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+    println!("cargo:rustc-env=APP_VERSION={final_version}");
+
     // Short git commit hash of the built tree, so a running binary can be traced
     // back to an exact source revision (e.g. to confirm a deploy actually landed).
     let git_commit = std::process::Command::new("git")
@@ -19,7 +46,8 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BUILD_GIT_COMMIT={git_commit}");
     println!("cargo:rerun-if-changed=Cargo.toml");
-    // Rebuild the stamp whenever HEAD moves so the hash never goes stale.
+    // Rebuild the stamp whenever HEAD or tags move
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");
+    println!("cargo:rerun-if-changed=.git/refs/tags");
 }

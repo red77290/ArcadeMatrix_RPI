@@ -285,7 +285,7 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
 
   const card = document.createElement('div');
   card.className = 'card glass shadow';
-  card.style.margin = '1rem 0';
+  card.style = 'margin: 1rem 0; box-sizing: border-box; max-width: 100%; overflow: hidden;';
 
   const title = document.createElement('h3');
   title.innerText = '🔁 Rotation';
@@ -402,34 +402,46 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
     }
   }
 
-  // Add-to-rotation controls.
+  // Add-to-rotation card with custom compact select
+  const addCard = document.createElement('div');
+  addCard.className = 'rotation-add-card';
+
+  const addTitle = document.createElement('span');
+  addTitle.className = 'rotation-add-title';
+  addTitle.innerText = '➕ Add Instance to Rotation';
+  addCard.appendChild(addTitle);
+
   const addRow = document.createElement('div');
   addRow.className = 'rotation-add-row';
+
   const sel = document.createElement('select');
-  sel.className = 'input';
-  sel.style = 'flex:1 1 200px; min-width:150px;';
+  sel.className = 'rotation-select';
   instancesList.forEach(inst => {
     const opt = document.createElement('option');
     opt.value = inst.instance_id;
     opt.innerText = nameFor(inst.instance_id);
     sel.appendChild(opt);
   });
+
   const addBtn = document.createElement('button');
-  addBtn.className = 'btn btn-primary';
-  addBtn.innerText = '➕ Add to rotation';
+  addBtn.type = 'button';
+  addBtn.className = 'btn btn-primary rotation-add-btn';
+  addBtn.innerText = 'Add';
   addBtn.onclick = () => {
     if (!sel.value) return;
     entries.push({ instance_id: sel.value, duration_sec: 30, fighter_overlay: true });
     render();
   };
+
   addRow.appendChild(sel);
   addRow.appendChild(addBtn);
-  card.appendChild(addRow);
+  addCard.appendChild(addRow);
+  card.appendChild(addCard);
 
   const saveBtn = document.createElement('button');
-  saveBtn.className = 'btn btn-primary';
-  saveBtn.style = 'margin-top:1rem; width:100%;';
-  saveBtn.innerText = 'Save Rotation';
+  saveBtn.type = 'button';
+  saveBtn.className = 'btn btn-primary rotation-save-btn';
+  saveBtn.innerText = '💾 Save Rotation';
   saveBtn.onclick = async () => {
     const payload = entries.map(e => ({
       instance_id: e.instance_id,

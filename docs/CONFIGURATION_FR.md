@@ -192,4 +192,22 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 | `offset_x` | `int` | `0` | Décalage horizontal en pixels. |
 | `offset_y` | `int` | `0` | Décalage vertical en pixels. |
 
-Les autres moteurs enregistrés (`weather`, `crypto`, `stock`, `gif`, `message`, `marquee`, `spotify`) exposent leurs propres champs de la même manière — consultez `GET /api/engines` pour le schéma de référence, toujours à jour.
+### Moteur : `crypto`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `symbols` | `String` | `BTC,ETH` | Séparés par virgule | Symboles cryptos à surveiller. |
+| `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
+| `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
+| `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |
+| `cache_ttl_min` | `int` | `1` | `1` à `60` | Minutes de rétention du cache de cotation. |
+
+### Moteur : `stock`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `symbols` | `String` | `AAPL,NVDA,TSLA` | Séparés par virgule | Tickers boursiers à surveiller. |
+| `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
+| `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
+| `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |
+| `cache_ttl_min` | `int` | `1` | `1` à `60` | Minutes de rétention du cache de cotation. |
+
+Les autres moteurs enregistrés (`weather`, `gif`, `message`, `marquee`, `spotify`) exposent leurs propres champs de la même manière — consultez `GET /api/engines` pour le schéma de référence, toujours à jour.

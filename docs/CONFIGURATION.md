@@ -192,4 +192,22 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `offset_x` | `int` | `0` | Horizontal pixel offset. |
 | `offset_y` | `int` | `0` | Vertical pixel offset. |
 
-Other registered engines (`weather`, `crypto`, `stock`, `gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.
+### Engine: `crypto`
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `symbols` | `String` | `BTC,ETH` | Comma-separated | Crypto symbols to monitor. |
+| `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
+| `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
+| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
+| `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
+
+### Engine: `stock`
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `symbols` | `String` | `AAPL,NVDA,TSLA` | Comma-separated | Stock ticker symbols to monitor. |
+| `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
+| `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
+| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
+| `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
+
+Other registered engines (`weather`, `gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.

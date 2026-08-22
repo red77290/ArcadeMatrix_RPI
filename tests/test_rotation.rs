@@ -3,7 +3,7 @@ use arcadematrix::core::rotation::{is_night_time, RotationState};
 
 #[test]
 fn test_night_mode_range() {
-    assert_eq!(is_night_time(false, "23:00", "07:00"), false);
+    assert!(!is_night_time(false, "23:00", "07:00"));
 }
 
 #[test]

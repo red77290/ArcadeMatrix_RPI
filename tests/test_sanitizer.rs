@@ -84,13 +84,14 @@ fn register_sanitizer_engine() -> EngineDescriptor {
 }
 
 fn settings_with(config: HashMap<String, String>) -> ConfigSettings {
-    let mut s = ConfigSettings::default();
-    s.instances = vec![EngineInstance {
-        instance_id: "test_inst".to_string(),
-        engine_id: "test.sanitizer".to_string(),
-        config,
-    }];
-    s
+    ConfigSettings {
+        instances: vec![EngineInstance {
+            instance_id: "test_inst".to_string(),
+            engine_id: "test.sanitizer".to_string(),
+            config,
+        }],
+        ..Default::default()
+    }
 }
 
 #[test]

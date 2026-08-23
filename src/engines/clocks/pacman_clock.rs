@@ -52,7 +52,9 @@ impl PacmanClock {
             self.last_minute = now_min;
             self.old_time_str = time_str.to_string();
             self.new_time_str = time_str.to_string();
-        } else if self.last_minute != now_min && !self.transitioning {
+        } else if (self.last_minute != now_min || self.old_time_str != time_str)
+            && !self.transitioning
+        {
             self.transitioning = true;
             self.old_time_str = self.new_time_str.clone();
             self.new_time_str = time_str.to_string();

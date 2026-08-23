@@ -84,8 +84,18 @@ impl PongClock {
             self.force_miss_left = true;
             self.last_minute = minutes as i32;
         }
+        // Detect hour change → force a miss on the right paddle
         if hours as i32 != self.last_hour {
+            self.force_miss_right = true;
             self.last_hour = hours as i32;
+        }
+
+        // Safety fallback: if not currently in a deliberate miss animation, guarantee synchronization
+        if !self.force_miss_left && self.score_right != minutes {
+            self.score_right = minutes;
+        }
+        if !self.force_miss_right && self.score_left != hours {
+            self.score_left = hours;
         }
 
         // Physics update
@@ -121,8 +131,18 @@ impl PongClock {
         // AI Right
         if self.dx > 0.0 {
             // Ball moving right
-            let diff2 = self.ball_y - self.p2_y;
-            self.p2_y += diff2.signum() * tracking_speed.min(diff2.abs());
+            if self.force_miss_right {
+                // Deliberate miss: move away from ball
+                let center_y = h / 2.0;
+                if self.ball_y < center_y {
+                    self.p2_y = (self.p2_y + tracking_speed).min(h - self.pad_h / 2.0);
+                } else {
+                    self.p2_y = (self.p2_y - tracking_speed).max(self.pad_h / 2.0);
+                }
+            } else {
+                let diff2 = self.ball_y - self.p2_y;
+                self.p2_y += diff2.signum() * tracking_speed.min(diff2.abs());
+            }
         }
 
         // Left paddle collision
@@ -144,9 +164,10 @@ impl PongClock {
         if self.ball_x >= w - self.pad_w as f32 - self.ball_size as f32 {
             let top = self.p2_y - self.pad_h / 2.0;
             let bot = self.p2_y + self.pad_h / 2.0;
-            if self.ball_y < top || self.ball_y > bot {
+            if self.force_miss_right || self.ball_y < top || self.ball_y > bot {
                 // Miss! Point to left
                 self.score_left = hours;
+                self.force_miss_right = false;
                 self.reset_ball(w, h, true);
             } else {
                 self.dx = -self.dx.abs();

@@ -203,7 +203,12 @@ if __name__ == "__main__":
         tracing::info!("Creating directory {}...", target_dir);
         {
             let mut channel = sess.channel_session().unwrap();
-            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
+            channel
+                .exec(&format!(
+                    "mkdir -p {} /userdata/system/configs/emulationstation/scripts",
+                    target_dir
+                ))
+                .ok();
             channel.wait_close().ok();
         }
 
@@ -226,6 +231,49 @@ if __name__ == "__main__":
                     daemon_path, daemon_code
                 ))
                 .ok();
+            channel.wait_close().ok();
+        }
+
+        let hook_path = "/userdata/system/scripts/arcadematrix_hook.sh";
+        let hook_code = r#"#!/bin/sh
+EVENT="$(basename "$0")"
+SYSTEM="$1"
+ROMPATH="$2"
+GAMENAME="$3"
+
+case "$EVENT" in
+    game-selected)
+        STATE="browsing"
+        ;;
+    game-start)
+        STATE="playing"
+        ;;
+    game-end)
+        STATE="stopped"
+        ;;
+    system-selected)
+        STATE="browsing"
+        ROMPATH=""
+        ;;
+    *)
+        STATE="browsing"
+        ;;
+esac
+
+cat > /tmp/es_state.inf << EOF
+SystemId=$SYSTEM
+GamePath=$ROMPATH
+State=$STATE
+EOF
+"#;
+        tracing::info!("Installing Batocera event hooks...");
+        {
+            let mut channel = sess.channel_session().unwrap();
+            let install_hooks_cmd = format!(
+                "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\nfor evt in game-selected game-start game-end system-selected; do ln -sf {} /userdata/system/scripts/$evt; ln -sf {} /userdata/system/configs/emulationstation/scripts/$evt; done\n",
+                hook_path, hook_code, hook_path, hook_path, hook_path
+            );
+            channel.exec(&install_hooks_cmd).ok();
             channel.wait_close().ok();
         }
 

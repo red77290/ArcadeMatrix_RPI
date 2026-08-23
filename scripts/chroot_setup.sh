@@ -62,8 +62,12 @@ ln -s $PROJ_DIR/data/crypto_icons $PROJ_DIR/crypto_icons
 ln -s $PROJ_DIR/data/stock_icons $PROJ_DIR/stock_icons
 
 echo "⚙️ [chroot] Copying config.json to DATA partition..."
-cp $PROJ_DIR/config.json $PROJ_DIR/data/config.json
-cp $PROJ_DIR/config.json.backup $PROJ_DIR/data/config.json.backup || true
+if [ ! -L "$PROJ_DIR/config.json" ]; then
+    cp $PROJ_DIR/config.json $PROJ_DIR/data/config.json
+fi
+if [ -f "$PROJ_DIR/config.json.backup" ] && [ ! -L "$PROJ_DIR/config.json.backup" ]; then
+    cp $PROJ_DIR/config.json.backup $PROJ_DIR/data/config.json.backup || true
+fi
 chown $AM_USER:$AM_USER $PROJ_DIR/data/config.json $PROJ_DIR/data/config.json.backup || true
 
 # Create symlink for config.json

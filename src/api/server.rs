@@ -616,11 +616,17 @@ async fn get_timezones() -> impl actix_web::Responder {
         ("America/New_York", "America/New_York (EST/EDT, UTC-5/-4)"),
         ("America/Chicago", "America/Chicago (CST/CDT, UTC-6/-5)"),
         ("America/Denver", "America/Denver (MST/MDT, UTC-7/-6)"),
-        ("America/Los_Angeles", "America/Los_Angeles (PST/PDT, UTC-8/-7)"),
+        (
+            "America/Los_Angeles",
+            "America/Los_Angeles (PST/PDT, UTC-8/-7)",
+        ),
         ("America/Montreal", "America/Montreal (UTC-5/-4)"),
         ("America/Toronto", "America/Toronto (UTC-5/-4)"),
         ("America/Vancouver", "America/Vancouver (UTC-8/-7)"),
-        ("America/Anchorage", "America/Anchorage (AKST/AKDT, UTC-9/-8)"),
+        (
+            "America/Anchorage",
+            "America/Anchorage (AKST/AKDT, UTC-9/-8)",
+        ),
         ("America/Sao_Paulo", "America/Sao_Paulo (BRT, UTC-3)"),
         ("America/Buenos_Aires", "America/Buenos_Aires (ART, UTC-3)"),
         ("Pacific/Honolulu", "Pacific/Honolulu (HST, UTC-10)"),
@@ -632,12 +638,24 @@ async fn get_timezones() -> impl actix_web::Responder {
         ("Asia/Bangkok", "Asia/Bangkok (ICT, UTC+7)"),
         ("Asia/Dubai", "Asia/Dubai (GST, UTC+4)"),
         ("Asia/Kolkata", "Asia/Kolkata (IST, UTC+5:30)"),
-        ("Australia/Sydney", "Australia/Sydney (AEST/AEDT, UTC+10/+11)"),
-        ("Australia/Melbourne", "Australia/Melbourne (AEST/AEDT, UTC+10/+11)"),
+        (
+            "Australia/Sydney",
+            "Australia/Sydney (AEST/AEDT, UTC+10/+11)",
+        ),
+        (
+            "Australia/Melbourne",
+            "Australia/Melbourne (AEST/AEDT, UTC+10/+11)",
+        ),
         ("Australia/Brisbane", "Australia/Brisbane (AEST, UTC+10)"),
-        ("Australia/Adelaide", "Australia/Adelaide (ACST/ACDT, UTC+9:30/+10:30)"),
+        (
+            "Australia/Adelaide",
+            "Australia/Adelaide (ACST/ACDT, UTC+9:30/+10:30)",
+        ),
         ("Australia/Perth", "Australia/Perth (AWST, UTC+8)"),
-        ("Pacific/Auckland", "Pacific/Auckland (NZST/NZDT, UTC+12/+13)"),
+        (
+            "Pacific/Auckland",
+            "Pacific/Auckland (NZST/NZDT, UTC+12/+13)",
+        ),
         ("UTC", "UTC (Coordinated Universal Time)"),
     ];
     let res: Vec<serde_json::Value> = zones

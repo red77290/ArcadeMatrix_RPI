@@ -109,7 +109,10 @@ pub fn parse_tz(tz_str: &str) -> Option<chrono_tz::Tz> {
 
     // 3. Etc/GMT offset mapping (e.g. UTC+2, GMT-3, etc.)
     if upper.starts_with("UTC") || upper.starts_with("GMT") {
-        let rest = upper.trim_start_matches("UTC").trim_start_matches("GMT").trim();
+        let rest = upper
+            .trim_start_matches("UTC")
+            .trim_start_matches("GMT")
+            .trim();
         if rest.is_empty() {
             return Some(chrono_tz::UTC);
         }

@@ -1,5 +1,46 @@
 import { API } from './api.js';
 
+export const GLOBAL_TIMEZONES = [
+  { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
+  { value: "Europe/London", label: "Europe/London (UTC+0/+1)" },
+  { value: "Europe/Berlin", label: "Europe/Berlin (UTC+1/+2)" },
+  { value: "Europe/Madrid", label: "Europe/Madrid (UTC+1/+2)" },
+  { value: "Europe/Rome", label: "Europe/Rome (UTC+1/+2)" },
+  { value: "Europe/Brussels", label: "Europe/Brussels (UTC+1/+2)" },
+  { value: "Europe/Amsterdam", label: "Europe/Amsterdam (UTC+1/+2)" },
+  { value: "Europe/Zurich", label: "Europe/Zurich (UTC+1/+2)" },
+  { value: "Europe/Vienna", label: "Europe/Vienna (UTC+1/+2)" },
+  { value: "Europe/Athens", label: "Europe/Athens (UTC+2/+3)" },
+  { value: "Europe/Helsinki", label: "Europe/Helsinki (UTC+2/+3)" },
+  { value: "Europe/Moscow", label: "Europe/Moscow (UTC+3)" },
+  { value: "America/New_York", label: "America/New_York (EST/EDT, UTC-5/-4)" },
+  { value: "America/Chicago", label: "America/Chicago (CST/CDT, UTC-6/-5)" },
+  { value: "America/Denver", label: "America/Denver (MST/MDT, UTC-7/-6)" },
+  { value: "America/Los_Angeles", label: "America/Los_Angeles (PST/PDT, UTC-8/-7)" },
+  { value: "America/Montreal", label: "America/Montreal (UTC-5/-4)" },
+  { value: "America/Toronto", label: "America/Toronto (UTC-5/-4)" },
+  { value: "America/Vancouver", label: "America/Vancouver (UTC-8/-7)" },
+  { value: "America/Anchorage", label: "America/Anchorage (AKST/AKDT, UTC-9/-8)" },
+  { value: "America/Sao_Paulo", label: "America/Sao_Paulo (BRT, UTC-3)" },
+  { value: "America/Buenos_Aires", label: "America/Buenos_Aires (ART, UTC-3)" },
+  { value: "Pacific/Honolulu", label: "Pacific/Honolulu (HST, UTC-10)" },
+  { value: "Asia/Tokyo", label: "Asia/Tokyo (JST, UTC+9)" },
+  { value: "Asia/Shanghai", label: "Asia/Shanghai (CST, UTC+8)" },
+  { value: "Asia/Hong_Kong", label: "Asia/Hong_Kong (HKT, UTC+8)" },
+  { value: "Asia/Singapore", label: "Asia/Singapore (SGT, UTC+8)" },
+  { value: "Asia/Seoul", label: "Asia/Seoul (KST, UTC+9)" },
+  { value: "Asia/Bangkok", label: "Asia/Bangkok (ICT, UTC+7)" },
+  { value: "Asia/Dubai", label: "Asia/Dubai (GST, UTC+4)" },
+  { value: "Asia/Kolkata", label: "Asia/Kolkata (IST, UTC+5:30)" },
+  { value: "Australia/Sydney", label: "Australia/Sydney (AEST/AEDT, UTC+10/+11)" },
+  { value: "Australia/Melbourne", label: "Australia/Melbourne (AEST/AEDT, UTC+10/+11)" },
+  { value: "Australia/Brisbane", label: "Australia/Brisbane (AEST, UTC+10)" },
+  { value: "Australia/Adelaide", label: "Australia/Adelaide (ACST/ACDT, UTC+9:30/+10:30)" },
+  { value: "Australia/Perth", label: "Australia/Perth (AWST, UTC+8)" },
+  { value: "Pacific/Auckland", label: "Pacific/Auckland (NZST/NZDT, UTC+12/+13)" },
+  { value: "UTC", label: "UTC (Coordinated Universal Time)" }
+];
+
 export async function initDynamicEngines() {
   const container = document.getElementById('page-display');
   const tabsContainer = document.querySelector('.tabs');
@@ -121,8 +162,19 @@ export async function initDynamicEngines() {
           const configMap = instance.config || {};
           const currentVal = configMap[field.id] !== undefined ? configMap[field.id] : field.default_value;
 
-          // 1. Dynamic Options from API
-          if (field.options_endpoint) {
+          // 1. Dynamic Options from API or Local Data
+          if (field.id === 'timezone' || field.options_endpoint === '/api/timezones') {
+              input = document.createElement('select');
+              input.className = 'input';
+              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+              GLOBAL_TIMEZONES.forEach(opt => {
+                  const option = document.createElement('option');
+                  option.value = opt.value;
+                  option.innerText = opt.label;
+                  if (opt.value === currentVal) option.selected = true;
+                  input.appendChild(option);
+              });
+          } else if (field.options_endpoint) {
              const data = await API.get(field.options_endpoint).catch(() => []);
              if (field.multiple) {
                  // Checkboxes grid

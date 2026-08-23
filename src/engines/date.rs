@@ -17,6 +17,7 @@ pub struct DateEngine {
     date_font: String,
     date_size: u32,
     date_theme: i32,
+    timezone: String,
     date_color_1: String,
     date_color_2: String,
     date_offset_x: i32,
@@ -37,6 +38,7 @@ impl DateEngine {
             date_font: "PressStart2P.ttf".to_string(),
             date_size: 2,
             date_theme: 0,
+            timezone: "".to_string(),
             date_color_1: "#ffffff".to_string(),
             date_color_2: "#ffffff".to_string(),
             date_offset_x: 0,
@@ -53,6 +55,7 @@ impl DateEngine {
         self.date_font = config.get_string("font", "PressStart2P.ttf");
         self.date_size = config.get_int("size", 2) as u32;
         self.date_theme = config.get_int("theme", 0);
+        self.timezone = config.get_string("timezone", "");
         self.date_color_1 = config.get_string("color_1", "#ffffff");
         self.date_color_2 = config.get_string("color_2", "#ffffff");
         self.date_offset_x = config.get_int("offset_x", 0);
@@ -84,15 +87,17 @@ impl Engine for DateEngine {
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
-        let tz: chrono_tz::Tz = context
-            .config
-            .settings
-            .read()
-            .system
-            .timezone
-            .parse()
-            .unwrap_or(chrono_tz::UTC);
-        let now = chrono::Utc::now().with_timezone(&tz);
+        let tz_str = if !self.timezone.is_empty() {
+            self.timezone.clone()
+        } else {
+            context.config.settings.read().system.timezone.clone()
+        };
+
+        let now = if let Some(tz) = crate::engines::clock::parse_tz(&tz_str) {
+            chrono::Utc::now().with_timezone(&tz).naive_local()
+        } else {
+            chrono::Local::now().naive_local()
+        };
 
         let mut format_str = self.date_format.clone();
         format_str = format_str.replace("YYYY", "%Y");
@@ -235,6 +240,16 @@ fn register_date_engine() -> EngineDescriptor {
                     default_value: "PressStart2P.ttf",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     options_endpoint: Some("/api/fonts"),
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "timezone",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Timezone",
+                    description: "Select timezone or region",
+                    default_value: "Europe/Paris",
+                    options_endpoint: Some("/api/timezones"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

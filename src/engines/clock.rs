@@ -26,6 +26,7 @@ pub struct ClockEngine {
     time_font: String,
     time_size: u32,
     time_theme: i32,
+    timezone: String,
     clock_color_1: String,
     clock_color_2: String,
     time_offset_x: i32,
@@ -34,6 +35,97 @@ pub struct ClockEngine {
     last_font: String,
     last_theme: i32,
     last_size: u32,
+}
+
+pub fn parse_tz(tz_str: &str) -> Option<chrono_tz::Tz> {
+    let clean = tz_str.trim();
+    if clean.is_empty() {
+        return None;
+    }
+    // 1. Full IANA timezone database (600+ world timezones: Europe/Paris, America/New_York, Asia/Tokyo, etc.)
+    if let Ok(tz) = clean.parse::<chrono_tz::Tz>() {
+        return Some(tz);
+    }
+
+    // 2. POSIX string prefix & alias resolution for standard global regions
+    let upper = clean.to_uppercase();
+    if upper.starts_with("CET") || upper.starts_with("CEST") {
+        return "Europe/Paris".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("WET") || upper.starts_with("WEST") || upper.starts_with("GMT0BST") {
+        return "Europe/London".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("EET") || upper.starts_with("EEST") {
+        return "Europe/Athens".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("MSK") {
+        return "Europe/Moscow".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("EST5EDT") || upper.starts_with("EST") {
+        return "America/New_York".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("CST6CDT") {
+        return "America/Chicago".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("MST7MDT") || upper.starts_with("MST") {
+        return "America/Denver".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("PST8PDT") || upper.starts_with("PST") {
+        return "America/Los_Angeles".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("AKST") {
+        return "America/Anchorage".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("HST") {
+        return "Pacific/Honolulu".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("JST") {
+        return "Asia/Tokyo".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("CST-8") || upper.starts_with("HKT") {
+        return "Asia/Shanghai".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("SGT") {
+        return "Asia/Singapore".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("IST") {
+        return "Asia/Kolkata".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("AEST") || upper.starts_with("AEDT") {
+        return "Australia/Sydney".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("ACST") {
+        return "Australia/Adelaide".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("AWST") {
+        return "Australia/Perth".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("NZST") || upper.starts_with("NZDT") {
+        return "Pacific/Auckland".parse::<chrono_tz::Tz>().ok();
+    }
+    if upper.starts_with("BRT") {
+        return "America/Sao_Paulo".parse::<chrono_tz::Tz>().ok();
+    }
+
+    // 3. Etc/GMT offset mapping (e.g. UTC+2, GMT-3, etc.)
+    if upper.starts_with("UTC") || upper.starts_with("GMT") {
+        let rest = upper.trim_start_matches("UTC").trim_start_matches("GMT").trim();
+        if rest.is_empty() {
+            return Some(chrono_tz::UTC);
+        }
+        if let Ok(offset) = rest.parse::<i32>() {
+            let iana_name = if offset > 0 {
+                format!("Etc/GMT-{}", offset)
+            } else {
+                format!("Etc/GMT+{}", -offset)
+            };
+            if let Ok(tz) = iana_name.parse::<chrono_tz::Tz>() {
+                return Some(tz);
+            }
+        }
+    }
+
+    None
 }
 
 impl ClockEngine {
@@ -56,6 +148,7 @@ impl ClockEngine {
             time_font: "PressStart2P.ttf".to_string(),
             time_size: 2,
             time_theme: 0,
+            timezone: "".to_string(),
             clock_color_1: "#ffffff".to_string(),
             clock_color_2: "#ffffff".to_string(),
             time_offset_x: 0,
@@ -75,6 +168,7 @@ impl ClockEngine {
         self.time_font = config.get_string("font", "PressStart2P.ttf");
         self.time_size = config.get_int("size", 2) as u32;
         self.time_theme = config.get_int("theme", 0);
+        self.timezone = config.get_string("timezone", "");
         self.clock_color_1 = config.get_string("color_1", "#ffffff");
         self.clock_color_2 = config.get_string("color_2", "#ffffff");
         self.time_offset_x = config.get_int("offset_x", 0);
@@ -107,15 +201,17 @@ impl Engine for ClockEngine {
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
 
-        let tz: chrono_tz::Tz = context
-            .config
-            .settings
-            .read()
-            .system
-            .timezone
-            .parse()
-            .unwrap_or(chrono_tz::UTC);
-        let now = chrono::Utc::now().with_timezone(&tz);
+        let tz_str = if !self.timezone.is_empty() {
+            self.timezone.clone()
+        } else {
+            context.config.settings.read().system.timezone.clone()
+        };
+
+        let now = if let Some(tz) = parse_tz(&tz_str) {
+            chrono::Utc::now().with_timezone(&tz).naive_local()
+        } else {
+            chrono::Local::now().naive_local()
+        };
 
         // Full time string with seconds (for binary clock)
         let time_str_full = now.format(&self.time_format).to_string();
@@ -318,6 +414,16 @@ fn register_clock_engine() -> EngineDescriptor {
                     default_value: "PressStart2P.ttf",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     options_endpoint: Some("/api/fonts"),
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "timezone",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Timezone",
+                    description: "Select timezone or region",
+                    default_value: "Europe/Paris",
+                    options_endpoint: Some("/api/timezones"),
+                    validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

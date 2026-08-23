@@ -82,6 +82,8 @@ jobs:
         with:
           files: arcadematrix_*
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
 
   build-image:
     name: Build Precompiled SD Image (${{ matrix.arch }})
@@ -146,3 +148,5 @@ jobs:
         with:
           files: ArcadeMatrix_Release_${{ matrix.arch }}.img.xz
           generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}

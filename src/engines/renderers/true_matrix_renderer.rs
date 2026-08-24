@@ -14,7 +14,7 @@ pub struct TrueMatrixRenderer {
 impl TrueMatrixRenderer {
     pub fn new(width: u32, height: u32) -> Self {
         let mut rng = rand::thread_rng();
-        // Spaced every 10 pixels matching legacy Python: range(0, width, 10)
+        // Spaced every 10 pixels for optimal matrix density: range(0, width, 10)
         let col_count = ((width + 9) / 10).max(1) as usize;
         let matrix_cols: Vec<i32> = (0..col_count)
             .map(|_| rng.gen_range(-(height as i32).max(10)..-10))

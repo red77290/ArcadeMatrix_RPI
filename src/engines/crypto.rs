@@ -528,7 +528,7 @@ fn register_crypto_engine() -> EngineDescriptor {
             id: "crypto",
             name: "CryptoEngine",
             category: "finance",
-            version: "1.1.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),

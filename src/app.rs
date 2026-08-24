@@ -602,7 +602,7 @@ impl ArcadeMatrixApp {
                     .iter()
                     .find(|i| i.instance_id == current_mode.instance_id)
                     .map(|i| i.engine_id.clone())
-                    .unwrap_or_else(|| current_mode.instance_id.clone()); // fallback to legacy strings if no instance
+                    .unwrap_or_else(|| current_mode.instance_id.clone()); // fallback to instance_id if not found
 
                 matrix.clear();
                 let empty_map = std::collections::HashMap::new();
@@ -617,8 +617,7 @@ impl ArcadeMatrixApp {
                 let engine_config = inst_config;
 
                 // Whether the active engine needs a high frame rate. Derived from the
-                // engine descriptor's `realtime` capability (Sprint 3 metadata) instead
-                // of legacy hardcoded instance-id string matching.
+                // engine descriptor's `realtime` capability dynamically.
                 let mut current_realtime =
                     crate::core::registry::EngineRegistry::get_descriptor(&engine_id)
                         .map(|d| d.capabilities.realtime)

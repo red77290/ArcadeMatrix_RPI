@@ -471,7 +471,7 @@ fn register_weather_engine() -> EngineDescriptor {
             id: "weather",
             name: "WeatherEngine",
             category: "info",
-            version: "1.0.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),

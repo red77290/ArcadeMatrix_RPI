@@ -328,9 +328,9 @@ fn register_gif_engine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
             id: "gifs",
-            name: "GifEngine",
+            name: "GifPlayer",
             category: "media",
-            version: "1.0.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities {
             realtime: true,

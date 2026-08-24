@@ -382,7 +382,7 @@ fn register_clock_engine() -> EngineDescriptor {
             id: "clock",
             name: "ClockEngine",
             category: "info",
-            version: "1.0.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),

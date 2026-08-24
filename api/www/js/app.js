@@ -70,7 +70,7 @@ function initNavigation() {
 
 async function loadVersion() {
   try {
-    const data = await API.get('/api/stats').catch(() => ({version: '3.0.0'}));
+    const data = await API.get('/api/version').catch(() => API.get('/api/stats')).catch(() => ({version: '3.0.0', arch: 'aarch64'}));
     const versionTag = document.getElementById('version-tag');
     const otaVer = document.getElementById('ota-current-version');
     const otaArch = document.getElementById('ota-current-arch');

@@ -63,7 +63,7 @@ fn register_spotify_engine() -> EngineDescriptor {
             id: "spotify",
             name: "Spotify Player",
             category: "media",
-            version: "1.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities {
             realtime: true,

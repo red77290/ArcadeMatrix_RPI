@@ -219,7 +219,7 @@ fn register_message_engine() -> EngineDescriptor {
             id: "message",
             name: "MessageEngine",
             category: "info",
-            version: "1.0.0",
+            version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities {
             realtime: true,

@@ -478,11 +478,19 @@ async function initSettings() {
       });
     }
 
+    // Night Mode
+    setChk('cfg-night-mode-enabled', sys.night_mode_enabled);
+    setVal('cfg-turn-off-at', sys.turn_off_at || '23:00');
+    setVal('cfg-wake-up-at', sys.wake_up_at || '07:00');
     const sliderNightBright = document.getElementById('cfg-night-brightness');
     if (sliderNightBright) {
+      const nb = (sys.night_brightness !== undefined) ? sys.night_brightness : 10;
+      sliderNightBright.value = nb;
+      const v = document.getElementById('night-brightness-val');
+      if (v) v.textContent = nb + '%';
       sliderNightBright.addEventListener('input', (e) => {
-        const v = document.getElementById('night-brightness-val');
-        if (v) v.textContent = e.target.value + '%';
+        const val = document.getElementById('night-brightness-val');
+        if (val) val.textContent = e.target.value + '%';
       });
     }
 
@@ -518,6 +526,29 @@ async function initSettings() {
     console.error('Failed to load settings', e);
   }
 
+
+  // Save Night Mode settings
+  const btnSaveNight = document.getElementById('btn-save-night');
+  if (btnSaveNight) {
+    btnSaveNight.addEventListener('click', async () => {
+      const nightEnabled = document.getElementById('cfg-night-mode-enabled')?.checked || false;
+      const turnOffAt = document.getElementById('cfg-turn-off-at')?.value || '23:00';
+      const wakeUpAt = document.getElementById('cfg-wake-up-at')?.value || '07:00';
+      const nightBright = parseInt(document.getElementById('cfg-night-brightness')?.value) || 0;
+
+      try {
+        await API.post('/api/system', {
+          night_mode_enabled: nightEnabled,
+          turn_off_at: turnOffAt,
+          wake_up_at: wakeUpAt,
+          night_brightness: nightBright
+        });
+        window.showToast('Night Mode settings saved!', 'success');
+      } catch (e) {
+        window.showToast('Failed to save Night Mode settings', 'error');
+      }
+    });
+  }
 
   // Save HW settings
   const btnSaveHw = document.getElementById('btn-save-hw');

@@ -222,6 +222,7 @@
 
         <div class="tabs" style="margin-bottom: 1.5rem;">
           <button class="tab-btn active" onclick="switchSystemTab('hardware')">⚙️ Hardware</button>
+          <button class="tab-btn" onclick="switchSystemTab('night')">🌙 Night Mode</button>
           <button class="tab-btn" onclick="switchSystemTab('network')">🌐 Network</button>
           <button class="tab-btn" onclick="switchSystemTab('mqtt')">🔄 MQTT & API</button>
           <button class="tab-btn" onclick="switchSystemTab('ota')">🚀 Updates</button>
@@ -298,25 +299,23 @@
             </div>
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Slowdown <span class="tooltip-icon" data-i18n-tooltip="tt_hw_slowdown">?</span></label>
-                <input type="number" id="hw-slowdown" class="input" value="2">
+                <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 4=4, Pi 5=5)">?</span></label>
+                <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
               </div>
-            </div>
-            <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>PWM Bits <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_bits">?</span></label>
+                <label>PWM Bits <span class="tooltip-icon" data-tooltip="Color depth (1-11)">?</span></label>
                 <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
               </div>
               <div class="form-group">
-                <label>PWM LSB (ns) <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_lsb">?</span></label>
-                <input type="number" id="hw-pwm-lsb" class="input" value="130">
+                <label>PWM LSB (ns) <span class="tooltip-icon" data-tooltip="LSB pulse width (130 default)">?</span></label>
+                <input type="number" id="hw-pwm-lsb" class="input" value="130" min="50" max="3000">
               </div>
               <div class="form-group">
-                <label>Limit Refresh Rate (Hz) <span class="tooltip-icon" data-i18n-tooltip="tt_hw_limit_refresh">?</span></label>
-                <input type="number" id="hw-limit-refresh" class="input" value="0" min="0" max="300">
+                <label>Limit Refresh (Hz) <span class="tooltip-icon" data-tooltip="Max refresh rate in Hz (0 = unlimited)">?</span></label>
+                <input type="number" id="hw-limit-refresh" class="input" value="0" min="0" max="500">
               </div>
               <div class="form-group">
-                <label>Disable Hardware Pulsing <span class="tooltip-icon" data-i18n-tooltip="tt_hw_disable_pulsing">?</span></label>
+                <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if audio is glitching">?</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
                     <input type="checkbox" id="hw-disable-pulsing">
@@ -326,6 +325,45 @@
               </div>
             </div>
             <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Save Hardware Settings</button>
+          </div>
+        </div>
+
+        <!-- Night Mode & Standby -->
+        <div id="sys-tab-night" class="tab-pane">
+          <div class="card glass shadow">
+            <h3>🌙 Night Mode & Standby Schedule</h3>
+            <p class="text-muted">Automatically reduce matrix brightness or completely turn off the display at night.</p>
+            
+            <div class="form-grid col-3" style="margin-top: 1.5rem;">
+              <div class="form-group">
+                <label>Enable Night Mode</label>
+                <div style="display: flex; align-items: center; height: 100%;">
+                  <label class="switch">
+                    <input type="checkbox" id="cfg-night-mode-enabled">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Turn Off Time (Bedtime)</label>
+                <input type="time" id="cfg-turn-off-at" class="input" value="23:00">
+              </div>
+              <div class="form-group">
+                <label>Wake Up Time (Morning)</label>
+                <input type="time" id="cfg-wake-up-at" class="input" value="07:00">
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top: 1.5rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                <label style="margin: 0;">Night Brightness</label>
+                <span id="night-brightness-val" class="badge" style="font-size: 1rem; font-weight: 700;">10%</span>
+              </div>
+              <input type="range" id="cfg-night-brightness" min="0" max="100" value="10" step="1" style="width: 100%; accent-color: var(--accent-primary);">
+              <small class="text-muted" style="display: block; margin-top: 0.5rem;">Set to 0% to completely power off the LED panel and pause DMA rendering during night hours.</small>
+            </div>
+
+            <button id="btn-save-night" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">💾 Save Night Mode Settings</button>
           </div>
         </div>
 

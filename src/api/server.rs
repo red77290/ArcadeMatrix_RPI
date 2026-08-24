@@ -113,6 +113,18 @@ async fn post_system(
     if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
         s.system.idle_fighter_interval = (v.max(1)) as u32;
     }
+    if let Some(v) = body.get("night_mode_enabled").and_then(|v| v.as_bool()) {
+        s.system.night_mode_enabled = v;
+    }
+    if let Some(v) = body.get("turn_off_at").and_then(|v| v.as_str()) {
+        s.system.turn_off_at = v.to_string();
+    }
+    if let Some(v) = body.get("wake_up_at").and_then(|v| v.as_str()) {
+        s.system.wake_up_at = v.to_string();
+    }
+    if let Some(v) = body.get("night_brightness").and_then(|v| v.as_u64()) {
+        s.system.night_brightness = (v.min(100)) as u32;
+    }
     // Live daytime brightness (0-100), applied immediately without a restart.
     if let Some(v) = body
         .get("brightness_limit")

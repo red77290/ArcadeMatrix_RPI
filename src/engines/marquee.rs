@@ -71,6 +71,14 @@ impl Engine for MarqueeEngine {
 
     fn deactivate(&mut self) {}
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
+
+    fn allows_overlay(&self) -> bool {
+        false
+    }
+
+    fn allow_rotation(&self) -> bool {
+        false
+    }
 }
 
 #[distributed_slice(crate::core::registry::ENGINES)]
@@ -82,7 +90,11 @@ fn register_marquee_engine() -> EngineDescriptor {
             category: "image",
             version: crate::core::build_info::VERSION,
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities {
+            allow_rotation: false,
+            allows_overlay: false,
+            ..Default::default()
+        },
         requirements: Requirements::default(),
         schema: ConfigSchema { fields: vec![] },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {

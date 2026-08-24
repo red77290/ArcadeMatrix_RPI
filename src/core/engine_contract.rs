@@ -56,8 +56,15 @@ pub struct Capabilities {
     pub supports_256x64: bool,
     pub realtime: bool,
     pub interruptible: bool,
+    /// Declares whether this engine permits transverse overlays (such as the M.U.G.E.N Fighter)
+    /// to be composited on top of its rendered frame.
+    /// If false, overlays are permanently forbidden for this engine regardless of user settings.
+    /// If true, active overlay display is governed by user settings (master switch + per-slot toggle).
     pub allows_overlay: bool,
-    pub is_overlay: bool,
+    /// Declares whether this engine can be selected by users as part of the normal display rotation loop.
+    /// If false, the engine is strictly event-driven/preemptive (e.g. Marquee game covers, system alerts)
+    /// and will not appear in the Web UI rotation picker or be permitted by the ConfigSanitizer.
+    pub allow_rotation: bool,
 }
 
 impl Default for Capabilities {
@@ -68,7 +75,7 @@ impl Default for Capabilities {
             realtime: false,
             interruptible: true,
             allows_overlay: true,
-            is_overlay: false,
+            allow_rotation: true,
         }
     }
 }
@@ -212,6 +219,19 @@ pub trait Engine: Send + Sync {
     /// force-advanced by the rotation duration timer. Defaults to `false`.
     fn self_paced(&self) -> bool {
         false
+    }
+
+    /// Declares whether this specific engine instance authorizes transverse overlays
+    /// (like Fighter) to composite on top of its rendered pixels.
+    /// Defaults to true. Can be overridden to false for full-screen emergency alerts, etc.
+    fn allows_overlay(&self) -> bool {
+        true
+    }
+
+    /// Declares whether this engine is eligible for the normal user rotation sequence.
+    /// Defaults to true. Returns false for purely event-driven/preemptive engines (e.g. Marquee).
+    fn allow_rotation(&self) -> bool {
+        true
     }
 }
 

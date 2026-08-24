@@ -372,10 +372,9 @@ impl ArcadeMatrixApp {
 
         let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
         let mut message_engine = crate::engines::message::MessageEngine::new();
-        // Fighter overlay compositor: draws decorative sprites additively on top
-        // of idle rotation screens. Shown per rotation entry via the
-        // `fighter_overlay` toggle (see RotationEntry) gated by the master switch.
-        let mut fighter_engine = crate::engines::fighter::FighterEngine::new(width, height);
+        // Transverse overlay manager: applies decorative overlays (like Fighter) additively
+        // onto base display frames following the 3-tier hierarchy.
+        let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -654,6 +653,16 @@ impl ArcadeMatrixApp {
                         // clocks fall back to the 1fps static cadence.
                         current_realtime = current_realtime || engine.is_realtime();
 
+                        // Polymorphic 3-tier overlay resolution
+                        if engine.allows_overlay() {
+                            overlay_manager.configure(&current_mode.overlays, &settings.system);
+                        } else {
+                            overlay_manager.configure(
+                                &crate::core::config::OverlayConfig::default(),
+                                &settings.system,
+                            );
+                        }
+
                         // Advance on intrinsic completion, or on the duration
                         // timer for time-based engines only. Self-paced engines
                         // drive the advance solely through is_finished().
@@ -666,6 +675,10 @@ impl ArcadeMatrixApp {
                     } else {
                         // Fallback if engine fails to load
                         current_realtime = false;
+                        overlay_manager.configure(
+                            &crate::core::config::OverlayConfig::default(),
+                            &settings.system,
+                        );
                         if rotation_state.mode_start_time.elapsed()
                             >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
@@ -674,21 +687,9 @@ impl ArcadeMatrixApp {
                     }
                 }
 
-                // --- Fighter overlay pass (additive, drawn on top of the
-                // rotation frame). Shown when the master toggle is on and this
-                // rotation entry opts in. Whether to overlay a full-repaint screen
-                // (e.g. a gif) is left to the user via the per-entry toggle.
-                let fighter_on =
-                    settings.system.idle_fighter_enabled && current_mode.fighter_overlay;
-                if fighter_on {
-                    fighter_engine.set_interval(settings.system.idle_fighter_interval);
-                    fighter_engine.composite(matrix.as_mut());
-                    // Keep the high-cadence path while a fight is on screen so the
-                    // sprite animation stays smooth instead of the 1fps static tick.
-                    current_realtime = current_realtime || fighter_engine.is_active();
-                } else if fighter_engine.is_active() {
-                    fighter_engine.stop();
-                }
+                // --- Transverse overlay pass (additive, drawn on top of the base rotation frame) ---
+                overlay_manager.composite(matrix.as_mut());
+                current_realtime = current_realtime || overlay_manager.is_active();
 
                 last_index = current_index;
                 realtime_cadence = current_realtime;

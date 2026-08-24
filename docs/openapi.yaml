@@ -692,6 +692,13 @@ components:
         duration_sec:
           type: integer
           description: Base display duration; engines may end early via is_finished().
+        overlays:
+          type: object
+          description: Transverse additive overlay configurations.
+          properties:
+            fighter:
+              type: boolean
+              description: Per-screen toggle for the M.U.G.E.N fighter overlay.
 
     EngineDescriptor:
       type: object
@@ -718,10 +725,16 @@ components:
             realtime:
               type: boolean
               description: >
-                true = updated/rendered every frame (60 FPS cadence);
+                true = updated/rendered every frame (~25-60 FPS cadence);
                 false = low-frequency cadence.
             interruptible:
               type: boolean
+            allows_overlay:
+              type: boolean
+              description: Whether this engine authorizes transverse overlays (like Fighter).
+            allow_rotation:
+              type: boolean
+              description: Whether this engine can be selected by users in the rotation loop.
         requirements:
           type: object
           properties:

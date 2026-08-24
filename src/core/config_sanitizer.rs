@@ -24,31 +24,34 @@ impl ConfigSanitizer {
             keys_pruned: 0,
         };
 
-        let registry_engines = crate::core::registry::ENGINES;
+        // Normalize all rotation entries (e.g. migrate legacy fighter_overlay to overlays.fighter)
+        for rot in &mut config.rotation {
+            rot.normalize();
+        }
+
+        // Filter out instances that point to unknown engines (e.g. "fighter" or invalid IDs)
+        let before_inst_count = config.instances.len();
+        config.instances.retain(|inst| {
+            let valid = crate::core::registry::EngineRegistry::get_descriptor(&inst.engine_id).is_some();
+            if !valid {
+                warn!(
+                    "Sanitizer: Unknown or unselectable engine_id '{}' for instance '{}' - removing instance",
+                    inst.engine_id, inst.instance_id
+                );
+                result.invalid_instances += 1;
+                result.modified = true;
+            }
+            valid
+        });
 
         for inst in &mut config.instances {
             // Find engine schema
             let engine_id = inst.engine_id.as_str();
-            let mut schema_opt = None;
-            for desc_fn in registry_engines {
-                let desc = desc_fn();
-                if desc.metadata.id == engine_id {
-                    schema_opt = Some(desc.schema);
-                    break;
-                }
-            }
-
-            let schema = match schema_opt {
-                Some(s) => s,
-                None => {
-                    warn!(
-                        "Sanitizer: Unknown engine_id '{}' for instance '{}'",
-                        engine_id, inst.instance_id
-                    );
-                    result.invalid_instances += 1;
-                    continue;
-                }
+            let desc = match crate::core::registry::EngineRegistry::get_descriptor(engine_id) {
+                Some(d) => d,
+                None => continue,
             };
+            let schema = desc.schema;
 
             let valid_keys: std::collections::HashSet<String> =
                 schema.fields.iter().map(|f| f.id.to_string()).collect();
@@ -184,6 +187,26 @@ impl ConfigSanitizer {
                 result.keys_pruned += pruned as u16;
                 result.modified = true;
             }
+        }
+
+        // Prune rotation entries that reference non-existent instances or engines with allow_rotation == false
+        let valid_rot_instances: std::collections::HashSet<String> = config
+            .instances
+            .iter()
+            .filter(|inst| {
+                crate::core::registry::EngineRegistry::get_descriptor(&inst.engine_id)
+                    .map(|d| d.capabilities.allow_rotation)
+                    .unwrap_or(false)
+            })
+            .map(|inst| inst.instance_id.clone())
+            .collect();
+
+        let before_rot_len = config.rotation.len();
+        config
+            .rotation
+            .retain(|r| valid_rot_instances.contains(&r.instance_id));
+        if config.rotation.len() != before_rot_len {
+            result.modified = true;
         }
 
         if result.modified {

@@ -18,19 +18,40 @@ pub struct EngineInstance {
     pub config: std::collections::HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OverlayConfig {
+    #[serde(default)]
+    pub fighter: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RotationEntry {
     pub instance_id: String,
     pub duration_sec: u32,
-    /// Per-entry toggle for the Fighter overlay on this rotation screen. Lets the
-    /// user enable/disable the decorative sprites independently for each screen.
-    /// Defaults to `true` so existing configs keep showing the overlay.
-    #[serde(default = "default_fighter_overlay")]
-    pub fighter_overlay: bool,
+    /// Transverse overlays configuration for this rotation slot (e.g. fighter overlay).
+    #[serde(default)]
+    pub overlays: OverlayConfig,
+    /// Backward-compatibility fallback for legacy configs with top-level `fighter_overlay`.
+    #[serde(default, skip_serializing)]
+    pub fighter_overlay: Option<bool>,
 }
 
-fn default_fighter_overlay() -> bool {
-    true
+impl RotationEntry {
+    pub fn new(instance_id: impl Into<String>, duration_sec: u32) -> Self {
+        Self {
+            instance_id: instance_id.into(),
+            duration_sec,
+            overlays: OverlayConfig::default(),
+            fighter_overlay: None,
+        }
+    }
+
+    /// Normalizes the rotation entry by applying legacy `fighter_overlay` if present
+    pub fn normalize(&mut self) {
+        if let Some(fo) = self.fighter_overlay.take() {
+            self.overlays.fighter = fo;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -270,12 +291,14 @@ impl Config {
                 RotationEntry {
                     instance_id: "default_clock".to_string(),
                     duration_sec: 60,
-                    fighter_overlay: true,
+                    overlays: OverlayConfig { fighter: true },
+                    fighter_overlay: None,
                 },
                 RotationEntry {
                     instance_id: "default_weather".to_string(),
                     duration_sec: 15,
-                    fighter_overlay: true,
+                    overlays: OverlayConfig { fighter: true },
+                    fighter_overlay: None,
                 },
             ];
             needs_save = true;

@@ -134,17 +134,24 @@ An array holding the configuration of each logical block.
 Editing an instance through the Web UI (`POST /api/instances`) is applied **live, without a restart**: the runtime calls the engine's `on_config_changed()` on the next frame (Lazy-Once hot-reload). Adding or removing an instance resets the rotation cleanly.
 
 ### `"rotation"`
-Defines the display order and per-slot duration.
+Defines the display order, per-slot duration, and transverse overlay toggles.
 
 ```json
 {
   "instance_id": "crypto_main",
-  "duration_sec": 30
+  "duration_sec": 30,
+  "overlays": {
+    "fighter": true
+  }
 }
 ```
+* `instance_id`: Target engine instance.
+* `duration_sec`: Dwell duration in seconds (or playback budget for self-paced engines like GIF).
+* `overlays.fighter`: (`bool`) Granular toggle for the M.U.G.E.N Fighter decorative overlay on this specific screen.
+
 Only instances listed here are ever initialized, saving memory for unused features. The rotation is editable from the Web UI **Rotation** panel (`GET`/`POST /api/rotation`).
 
-> Note: `duration_sec` belongs to the **rotation** entry, not to the instance `config`.
+> **Human-Readable Persistence**: When saved to disk (`config.json`), the file is always written formatted and indented (`to_string_pretty`) so it can be cleanly inspected and edited by hand without breaking.
 
 ---
 

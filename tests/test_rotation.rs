@@ -10,21 +10,9 @@ fn test_night_mode_range() {
 fn test_rotation_state() {
     let mut rot = RotationState::new();
     let modes = vec![
-        arcadematrix::core::config::RotationEntry {
-            instance_id: "clock".to_string(),
-            duration_sec: 10,
-            fighter_overlay: true,
-        },
-        arcadematrix::core::config::RotationEntry {
-            instance_id: "date".to_string(),
-            duration_sec: 10,
-            fighter_overlay: true,
-        },
-        arcadematrix::core::config::RotationEntry {
-            instance_id: "weather".to_string(),
-            duration_sec: 10,
-            fighter_overlay: true,
-        },
+        arcadematrix::core::config::RotationEntry::new("clock", 10),
+        arcadematrix::core::config::RotationEntry::new("date", 10),
+        arcadematrix::core::config::RotationEntry::new("weather", 10),
     ];
 
     assert_eq!(rot.next_mode(&modes).unwrap().instance_id, "date");

@@ -134,17 +134,24 @@ Un array que contiene la configuración de cada bloque lógico.
 Editar una instancia a través de la interfaz Web (`POST /api/instances`) se aplica **en vivo, sin reinicio**: el runtime llama al `on_config_changed()` del motor en el siguiente frame (hot-reload Lazy-Once). Añadir o eliminar una instancia reinicia limpiamente la rotación.
 
 ### `"rotation"`
-Define el orden de visualización y la duración por slot.
+Define el orden de visualización, la duración por slot y la activación de overlays transversales.
 
 ```json
 {
   "instance_id": "crypto_main",
-  "duration_sec": 30
+  "duration_sec": 30,
+  "overlays": {
+    "fighter": true
+  }
 }
 ```
+* `instance_id`: Nombre de la instancia objetivo.
+* `duration_sec`: Duración en pantalla en segundos (o cuota de reproducción para motores autónomos como GIF).
+* `overlays.fighter`: (`bool`) Interruptor granular para el overlay decorativo de lucha M.U.G.E.N en esta pantalla específica.
+
 Solo se inicializan las instancias enumeradas aquí, ahorrando memoria para funciones no utilizadas. La rotación se puede editar desde el panel **Rotation** de la interfaz Web (`GET`/`POST /api/rotation`).
 
-> Nota: `duration_sec` pertenece a la entrada de **rotation**, no al `config` de la instancia.
+> **Persistencia Legible**: Al guardarse en disco (`config.json`), el archivo siempre se escribe formateado con sangrías claras para permitir su inspección y modificación manual segura.
 
 ---
 

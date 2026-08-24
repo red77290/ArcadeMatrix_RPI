@@ -549,35 +549,39 @@ flowchart LR
 
 ---
 
-## 11. Le compositeur d'overlay Fighter
+## 11. L'Architecture d'Overlay Transverse & OverlayManager
 
-Le Fighter n'est **pas** un `Engine` et n'est **pas** arbitré. C'est un *overlay additif* : des sprites de combattants décoratifs dessinés **par-dessus** la frame de rotation courante. Comme l'arbitre est exclusif (un seul gagnant par frame), un overlay ne peut pas être modélisé comme une source concurrente — c'est donc une passe de composition séparée.
+Le Fighter n'est **pas** un `Engine` dans l'`EngineRegistry` et n'est **pas** arbitré en tant que source d'affichage principale. C'est un *overlay transverse additif* : des sprites de combattants décoratifs incrustés **par-dessus** le framebuffer de l'écran actif.
+
+L'architecture applique strictement une **hiérarchie de contrôle à 3 niveaux** :
+
+$$\text{Overlay Actif} = \text{engine.allows\_overlay}() \land \text{config.system.idle\_fighter\_enabled} \land \text{rotation\_entry.overlays.fighter}$$
 
 ```mermaid
 sequenceDiagram
-    participant RLoop as Render loop
-    participant Eng as Active engine
+    participant RLoop as Boucle de rendu
+    participant Eng as Moteur actif
+    participant OM as OverlayManager
     participant MX as MatrixBackend
-    participant FE as FighterEngine
 
-    RLoop->>Eng: update() + render(ctx)
-    Note over RLoop: EngineContext scope closes (matrix borrow freed)
-    RLoop->>RLoop: gate = idle_fighter_enabled AND entry.fighter_overlay
-    alt overlay on
-        RLoop->>FE: set_interval(idle_fighter_interval)
-        RLoop->>FE: composite(matrix)
-        FE-->>RLoop: is_active() -> keep realtime cadence
-    else overlay off
-        RLoop->>FE: stop() if active
+    RLoop->>Eng: update(ctx) + render(ctx)
+    Note over RLoop: Vérifie eng.allows_overlay()
+    alt allows_overlay == true
+        RLoop->>OM: configure(entry.overlays, system)
+    else allows_overlay == false
+        RLoop->>OM: configure(vide, system)
     end
+    RLoop->>OM: composite(matrix)
+    OM-->>RLoop: is_active() -> maintient haute cadence
     RLoop->>MX: update()
 ```
 
-Décisions de conception :
-
-- **Opt-in par entrée.** Chaque `RotationEntry` possède `fighter_overlay: bool`. L'overlay s'affiche seulement quand le **maître** (`system.idle_fighter_enabled`) *et* le drapeau de l'entrée courante sont tous deux vrais. Il n'y a délibérément **aucune** capacité « masquer sur GIF » automatique — l'utilisateur décide par écran.
-- **Cycle de vie autogéré.** `FighterEngine` charge les sprites dans un thread de fond, planifie les combats sur son propre intervalle, et choisit le jeu d'assets selon la hauteur du panneau (`fighters_64` si hauteur ≥ 64, sinon `fighters_32`, avec repli en dernier recours sur l'autre jeu).
-- **Couplage de cadence.** Tant qu'un combat est à l'écran, la boucle garde le chemin haute cadence pour que l'animation reste fluide, même par-dessus une horloge statique.
+### Règles Clés & Invariants :
+1. **Niveau 1 — Capacité Moteur (`allows_overlay`)** : Capacité fixe déclarée par le moteur. Si `false`, les overlays sont strictement interdits (ex. `MarqueeEngine` ou alertes textuelles d'urgence).
+2. **Niveau 2 — Master Switch Global (`system.idle_fighter_enabled`)** : Préférence système permettant à l'utilisateur d'activer ou couper les overlays pour l'ensemble du périphérique.
+3. **Niveau 3 — Interrupteur par Entrée de Rotation (`rotation[i].overlays.fighter`)** : Choix granulaire de l'utilisateur pour chaque carte de rotation dans la Web UI. Schéma JSON canonique : `"overlays": { "fighter": true }`.
+4. **Persistance en Mémoire Vive** : L'`OverlayManager` crée l'instance `FighterEngine` une seule fois au démarrage et la conserve en mémoire vive lors des transitions de rotation, éliminant ainsi les allocations dynamiques et le scintillement.
+5. **Formatage Lisible de `config.json`** : Lors de son enregistrement sur disque, `config.json` est systématiquement indenté et formaté pour permettre une lecture et édition directe par un humain sans contrainte.
 
 ---
 

@@ -134,17 +134,24 @@ Un tableau contenant la configuration de chaque bloc logique.
 Modifier une instance via la Web UI (`POST /api/instances`) est appliqué **à chaud, sans redémarrage** : le runtime appelle `on_config_changed()` du moteur à la frame suivante (hot-reload Lazy-Once). Ajouter ou supprimer une instance réinitialise proprement la rotation.
 
 ### `"rotation"`
-Définit l'ordre d'affichage et la durée de chaque créneau.
+Définit l'ordre d'affichage, la durée de chaque créneau et l'activation des overlays transversaux.
 
 ```json
 {
   "instance_id": "crypto_main",
-  "duration_sec": 30
+  "duration_sec": 30,
+  "overlays": {
+    "fighter": true
+  }
 }
 ```
+* `instance_id` : Nom de l'instance ciblée.
+* `duration_sec` : Durée d'affichage en secondes (ou quota de lecture pour les moteurs autonomes comme GIF).
+* `overlays.fighter` : (`bool`) Interrupteur granulaire pour l'overlay décoratif de combat M.U.G.E.N sur cet écran précis.
+
 Seules les instances listées ici sont initialisées, ce qui économise de la mémoire pour les fonctionnalités inutilisées. La rotation est modifiable depuis le panneau **Rotation** de la Web UI (`GET`/`POST /api/rotation`).
 
-> Note : `duration_sec` appartient à l'entrée de **rotation**, pas au `config` de l'instance.
+> **Persistance Lisible** : Lors de son enregistrement sur disque (`config.json`), le fichier est systématiquement écrit formaté avec des indentations claires pour permettre une relecture et modification manuelle sans risque.
 
 ---
 

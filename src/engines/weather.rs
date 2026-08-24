@@ -19,6 +19,7 @@ pub struct WeatherEngine {
     api_key: String,
     city: String,
     lang: String,
+    units: String,
     offset_x: i32,
     offset_y: i32,
 }
@@ -37,6 +38,7 @@ impl WeatherEngine {
             api_key: "".to_string(),
             city: "".to_string(),
             lang: "en".to_string(),
+            units: "metric".to_string(),
             offset_x: 0,
             offset_y: 0,
         }
@@ -52,6 +54,7 @@ impl WeatherEngine {
         self.api_key = config.get_string("api_key", "");
         self.city = config.get_string("city", "");
         self.lang = config.get_string("lang", "en");
+        self.units = config.get_string("units", "metric");
         self.offset_x = config.get_int("offset_x", 0);
         self.offset_y = config.get_int("offset_y", 0);
     }
@@ -122,9 +125,17 @@ impl Engine for WeatherEngine {
         }
 
         if self.forecasts.is_empty() {
+            let empty_text = if self.units.eq_ignore_ascii_case("imperial")
+                || self.units.eq_ignore_ascii_case("fahrenheit")
+                || self.units.eq_ignore_ascii_case("f")
+            {
+                "--°F"
+            } else {
+                "--°C"
+            };
             self.base_renderer.render_text(
                 context.matrix,
-                "--°C",
+                empty_text,
                 0,
                 2,
                 self.offset_x,
@@ -438,7 +449,8 @@ impl WeatherEngine {
         self.panorama = None; // Invalidate panorama cache
 
         for provider in &self.providers {
-            if let Some(forecasts) = provider.fetch_forecast(api_key, city, &self.lang) {
+            if let Some(forecasts) = provider.fetch_forecast(api_key, city, &self.lang, &self.units)
+            {
                 self.forecasts = forecasts;
                 return;
             }
@@ -478,9 +490,29 @@ fn register_weather_engine() -> EngineDescriptor {
                     id: "city",
                     field_type: crate::core::engine_contract::ConfigType::String,
                     label: "City",
-                    description: "City name for forecast",
+                    description: "City name for forecast (e.g. Paris,FR or for US: Tucson,AZ,US)",
                     default_value: "",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "units",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Units",
+                    description: "Temperature unit: metric (°C) or imperial (°F)",
+                    default_value: "metric",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Celsius (°C)",
+                            value: "metric",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Fahrenheit (°F)",
+                            value: "imperial",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

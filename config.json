@@ -57,15 +57,15 @@
       "instance_id": "default_clock",
       "engine_id": "clock",
       "config": {
+        "offset_y": "0",
         "format": "%H:%M:%S",
         "color_1": "#FFFFFF",
         "size": "2",
-        "offset_x": "0",
-        "font": "PressStart2P.ttf",
-        "theme": "0",
-        "timezone": "Europe/Paris",
         "color_2": "#FFFFFF",
-        "offset_y": "0"
+        "font": "PressStart2P.ttf",
+        "timezone": "Europe/Paris",
+        "theme": "0",
+        "offset_x": "0"
       }
     },
     {
@@ -73,10 +73,11 @@
       "engine_id": "weather",
       "config": {
         "city": "",
-        "api_key": "",
         "lang": "en",
+        "api_key": "",
         "offset_x": "0",
-        "offset_y": "0"
+        "offset_y": "0",
+        "units": "metric"
       }
     }
   ],

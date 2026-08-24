@@ -71,8 +71,6 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `timezone` | `String` | Cadena POSIX (ej. `CET-1CEST,M3.5.0,M10.5.0/3`). |
 | `format_24h` | `bool` | Formato de hora. `true` = 23:00, `false` = 11:00 PM. |
 | `lang` | `String` | Idioma del sistema (ej. `en`, `fr`, `es`). |
-| `unit` | `String` | Unidad de medida para el clima (`metric` / `imperial`). |
-| `temp_offset` | `float` | Offset de calibración aplicado a la temperatura reportada. |
 | `night_mode_enabled` | `bool` | Activa el apagado automático / la reducción de brillo por la noche. |
 | `turn_off_at` | `String` | Hora de inicio de espera (ej. `"23:00"`). |
 | `wake_up_at` | `String` | Hora de despertar (ej. `"07:00"`). |
@@ -210,4 +208,20 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
 
-Otros motores registrados (`weather`, `gif`, `message`, `marquee`, `spotify`) exponen sus propios campos de la misma forma — consulta `GET /api/engines` para ver el schema autoritativo y siempre actualizado.
+### Motor: `weather`
+| Campo | Tipo | Predeterminado | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `api_key` | `String` | `""` | Clave API gratuita | Clave API de OpenWeatherMap (gratis en [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
+| `city` | `String` | `""` | Texto | Ubicación de la ciudad para el pronóstico (ver guía abajo). |
+| `units` | `Options` | `metric` | `metric`, `imperial` | Unidad de temperatura: `metric` para Celsius (°C) o `imperial` para Fahrenheit (°F). |
+| `lang` | `Options` | `en` | `en`, `fr`, `es` | Idioma de las etiquetas de días (TODAY / AUJ. / HOY). |
+| `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal de píxeles. |
+| `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical de píxeles. |
+
+#### Cómo formatear el campo `city` en OpenWeatherMap
+OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
+* **Ubicaciones Internacionales:** Use `Ciudad,CodigoPais` (ej. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
+* **Ubicaciones en Estados Unidos:** Use `Ciudad,CodigoEstado,CodigoPais` (ej. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
+* **Dónde buscar el nombre exacto:** Vaya a [openweathermap.org](https://openweathermap.org) y busque su ciudad.
+
+Los otros motores registrados (`gif`, `message`, `marquee`, `spotify`) exponen sus propios campos de la misma manera — consulte `GET /api/engines` para ver el esquema de referencia, siempre actualizado.

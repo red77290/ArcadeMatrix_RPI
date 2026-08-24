@@ -71,8 +71,6 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 | `timezone` | `String` | POSIX string (e.g., `CET-1CEST,M3.5.0,M10.5.0/3`). |
 | `format_24h` | `bool` | Time format. `true` = 23:00, `false` = 11:00 PM. |
 | `lang` | `String` | System language (e.g., `en`, `fr`, `es`). |
-| `unit` | `String` | Measurement unit for weather (`metric` / `imperial`). |
-| `temp_offset` | `float` | Calibration offset applied to the reported temperature. |
 | `night_mode_enabled` | `bool` | Enables automatic turn-off / brightness reduction at night. |
 | `turn_off_at` | `String` | Standby start time (e.g., `"23:00"`). |
 | `wake_up_at` | `String` | Wake-up time (e.g., `"07:00"`). |
@@ -210,4 +208,20 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
 | `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
 
-Other registered engines (`weather`, `gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.
+### Engine: `weather`
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `api_key` | `String` | `""` | Free API key | Your OpenWeatherMap API Key (free tier at [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
+| `city` | `String` | `""` | Text | City location (see formatting guide below). |
+| `units` | `Options` | `metric` | `metric`, `imperial` | Temperature unit: `metric` for Celsius (°C) or `imperial` for Fahrenheit (°F). |
+| `lang` | `Options` | `en` | `en`, `fr`, `es` | Language code for day labels (TODAY / AUJ. / HOY). |
+| `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel shift. |
+| `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel shift. |
+
+#### How to Format the `city` Field on OpenWeatherMap
+OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the US) to disambiguate locations:
+* **International Locations:** Use `City,CountryCode` (e.g. `Paris,FR`, `London,GB`, `Tokyo,JP`, `Montreal,CA`).
+* **United States Locations:** Use `City,StateCode,CountryCode` (e.g. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`). Specifying only the city or omitting the country may return an incorrect city with the same name.
+* **Where to Look:** Go to [openweathermap.org](https://openweathermap.org), search for your city. The top search result header and URL show the exact `City,State,Country` string recognized by the API.
+
+Other registered engines (`gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.

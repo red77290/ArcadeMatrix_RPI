@@ -224,4 +224,31 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 * **United States Locations:** Use `City,StateCode,CountryCode` (e.g. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`). Specifying only the city or omitting the country may return an incorrect city with the same name.
 * **Where to Look:** Go to [openweathermap.org](https://openweathermap.org), search for your city. The top search result header and URL show the exact `City,State,Country` string recognized by the API.
 
-Other registered engines (`gif`, `message`, `marquee`, `spotify`) expose their own fields the same way — inspect `GET /api/engines` for the authoritative, always-up-to-date schema.
+### Engine: `gifs`
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `playlists` | `String` (Multi) | `""` | Options from `/api/playlists` | Active GIF playlists or folders to cycle through (comma-separated). |
+
+### Engine: `message`
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `text` | `String` | `Hello` | Text | The text banner or message to display. |
+| `color` | `String` | `#ffffff` | Hex Color | Text color in `#RRGGBB` format. |
+| `size` | `int` | `1` | `1` to `4` | Font scaling multiplier. |
+| `direction` | `Options` | `left` | `left`, `none` | Scroll direction (`left` for leftward scrolling, `none` for centered static text). |
+| `speed` | `int` | `50` | `10` to `200` | Milliseconds per scroll step (lower is faster; ignored when static). |
+| `font` | `String` | `Default` | Dynamic | Font file from `/fonts/`. |
+
+### Engine: `spotify`
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Your Spotify API Client ID for the "Now Playing" album art and metadata display. |
+
+### Engine: `marquee`
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| *(auto)* | `None` | — | Internal Pixelcade/Recalbox/Batocera marquee sync engine. Displays scraped game box-art and marquees received via MQTT / Webhook. |
+
+---
+
+*Note: All schemas can also be queried dynamically in JSON format from the running system at `GET /api/engines`.*

@@ -224,4 +224,31 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 * **Emplacements aux États-Unis :** Utilisez `Ville,CodeEtat,CodePays` (ex. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
 * **Où trouver le nom exact :** Rendez-vous sur [openweathermap.org](https://openweathermap.org) et recherchez votre ville.
 
-Les autres moteurs enregistrés (`gif`, `message`, `marquee`, `spotify`) exposent leurs propres champs de la même manière — consultez `GET /api/engines` pour le schéma de référence, toujours à jour.
+### Moteur : `gifs`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `playlists` | `String` (Multi) | `""` | Options depuis `/api/playlists` | Dossiers / Playlists de GIFs actives à faire défiler (séparées par virgule). |
+
+### Moteur : `message`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `text` | `String` | `Hello` | Texte | Texte du message ou de la bannière à afficher. |
+| `color` | `String` | `#ffffff` | Couleur Hex | Couleur du texte au format `#RRGGBB`. |
+| `size` | `int` | `1` | `1` à `4` | Multiplicateur d'échelle de la police. |
+| `direction` | `Options` | `left` | `left`, `none` | Sens de défilement (`left` pour défilement vers la gauche, `none` pour texte statique centré). |
+| `speed` | `int` | `50` | `10` à `200` | Millisecondes par pixel de défilement (plus bas = plus rapide ; ignoré en statique). |
+| `font` | `String` | `Default` | Dynamique | Police de caractères depuis `/fonts/`. |
+
+### Moteur : `spotify`
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Votre Client ID Spotify pour l'affichage de la pochette et du titre en cours de lecture. |
+
+### Moteur : `marquee`
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| *(auto)* | `None` | — | Moteur interne de synchronisation des marquees Pixelcade / Recalbox / Batocera reçus via MQTT ou Webhook. |
+
+---
+
+*Note : L'ensemble des schémas de configuration peut également être interrogé en direct au format JSON via `GET /api/engines`.*

@@ -224,4 +224,31 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 * **Ubicaciones en Estados Unidos:** Use `Ciudad,CodigoEstado,CodigoPais` (ej. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
 * **Dónde buscar el nombre exacto:** Vaya a [openweathermap.org](https://openweathermap.org) y busque su ciudad.
 
-Los otros motores registrados (`gif`, `message`, `marquee`, `spotify`) exponen sus propios campos de la misma manera — consulte `GET /api/engines` para ver el esquema de referencia, siempre actualizado.
+### Motor: `gifs`
+| Campo | Tipo | Predeterminado | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `playlists` | `String` (Multi) | `""` | Opciones desde `/api/playlists` | Carpetas / Listas de reproducción de GIFs activas para rotar (separadas por comas). |
+
+### Motor: `message`
+| Campo | Tipo | Predeterminado | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `text` | `String` | `Hello` | Texto | Texto del mensaje o cartel a mostrar. |
+| `color` | `String` | `#ffffff` | Color Hex | Color del texto en formato `#RRGGBB`. |
+| `size` | `int` | `1` | `1` a `4` | Multiplicador de escala de la fuente. |
+| `direction` | `Options` | `left` | `left`, `none` | Dirección de desplazamiento (`left` para desplazamiento hacia la izquierda, `none` para texto estático centrado). |
+| `speed` | `int` | `50` | `10` a `200` | Milisegundos por píxel de desplazamiento (menor = más rápido; ignorado en estático). |
+| `font` | `String` | `Default` | Dinámico | Archivo de fuente desde `/fonts/`. |
+
+### Motor: `spotify`
+| Campo | Tipo | Predeterminado | Descripción |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Su Client ID de Spotify API para mostrar la carátula del álbum y los metadatos de "Now Playing". |
+
+### Motor: `marquee`
+| Campo | Tipo | Predeterminado | Descripción |
+| :--- | :--- | :--- | :--- |
+| *(auto)* | `None` | — | Motor interno de sincronización de marquesinas Pixelcade / Recalbox / Batocera recibidas mediante MQTT o Webhook. |
+
+---
+
+*Nota: Todos los esquemas se pueden consultar en vivo en formato JSON mediante `GET /api/engines`.*

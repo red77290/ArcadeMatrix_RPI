@@ -207,20 +207,33 @@ export async function initDynamicEngines() {
              }
           }
           // 2. Static Options
-          else if (field.field_type === 4 || field.field_type === 'Options') { 
-             input = document.createElement('select');
-             input.className = 'input';
-             input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
-             if (field.options && field.options.length > 0) {
-               field.options.forEach(opt => {
-                 const option = document.createElement('option');
-                 option.value = opt.value;
-                 option.innerText = opt.label;
-                 if (opt.value === currentVal) option.selected = true;
-                 input.appendChild(option);
-               });
-             }
-          } 
+           else if (field.field_type === 4 || field.field_type === 'Options') { 
+              input = document.createElement('select');
+              input.className = 'input';
+              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+              const formatOptLabel = (val, raw) => {
+                const lang = localStorage.getItem('lang') || 'en';
+                const dict = translations[lang] || translations.en;
+                const v = String(val).toLowerCase().trim();
+                if (field.id === 'direction' || v === 'rtl' || v === 'ltr' || v === 'ttb' || v === 'btt' || v === 'static' || v === 'left' || v === 'right' || v === 'up' || v === 'down' || v === 'none') {
+                  if (v === 'rtl' || v === 'left') return dict.dir_rtl || "Right to Left (RTL)";
+                  if (v === 'ltr' || v === 'right') return dict.dir_ltr || "Left to Right (LTR)";
+                  if (v === 'ttb' || v === 'down') return dict.dir_ttb || "Top to Bottom (TTB)";
+                  if (v === 'btt' || v === 'up') return dict.dir_btt || "Bottom to Top (BTT)";
+                  if (v === 'static' || v === 'none') return dict.dir_static || "Static (No Scroll)";
+                }
+                return raw || val;
+              };
+              if (field.options && field.options.length > 0) {
+                field.options.forEach(opt => {
+                  const option = document.createElement('option');
+                  option.value = opt.value;
+                  option.innerText = formatOptLabel(opt.value, opt.label);
+                  if (opt.value === currentVal) option.selected = true;
+                  input.appendChild(option);
+                });
+              }
+           } 
           // 3. Boolean
           else if (field.field_type === 0 || field.field_type === 'Boolean') { 
              input = document.createElement('select');

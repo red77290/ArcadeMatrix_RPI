@@ -565,7 +565,7 @@ impl ArcadeMatrixApp {
                     }
                 } else if req.source == "WAITING_MARQUEE" {
                     if !was_mqtt_waiting {
-                        message_engine.reset_state(matrix.width() as f32);
+                        message_engine.reset_state(matrix.width() as f32, matrix.height() as f32);
                         was_mqtt_waiting = true;
                     }
                     let msg_payload = crate::engines::message::MessagePayload::new(

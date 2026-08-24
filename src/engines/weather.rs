@@ -230,45 +230,173 @@ impl WeatherEngine {
             .chain(std::iter::once(self.forecasts[0].clone()))
             .collect();
 
-        let scale = if mh >= 64 { 2.0 } else { 1.0 };
-        let icon_size = if mh >= 64 { mh - 8 } else { mh - 4 }.max(8);
+        let is_wide = mw >= 128;
+        let is_tall = mh >= 64;
 
         for (i, slide) in slides.iter().enumerate() {
             let base_x = i as u32 * mw;
 
-            self.draw_icon(
-                &mut panorama,
-                &slide.icon,
-                base_x as i32 + offset_x,
-                (mh as i32 - 24) / 2 + offset_y,
-            );
+            if mw >= 256 && mh >= 64 {
+                // --- 256x64 Ultra-Widescreen HD Layout ---
+                let icon_x = base_x as i32 + offset_x + 24;
+                let icon_y = (mh as i32 - 24) / 2 + offset_y;
+                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-            // Draw label and temp as pixel text directly onto panorama
-            let text_x =
-                (base_x as i32 + offset_x + icon_size as i32 + (8.0 * scale) as i32).max(0);
+                let temp_x = icon_x + 44;
+                let temp_y = (mh as i32 - 16) / 2 + offset_y;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp,
+                    temp_x,
+                    temp_y,
+                    (255, 255, 255),
+                    2.0,
+                );
 
-            let (label_y, temp_y) = if scale >= 2.0 {
-                (offset_y + 8, offset_y + 36)
+                let font = self.base_renderer.font();
+                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
+                let right_x = temp_x + temp_w + 20;
+
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.label,
+                    right_x,
+                    offset_y + mh as i32 / 2 - 16,
+                    (180, 180, 255),
+                    2.0,
+                );
+
+                if !slide.condition.is_empty() {
+                    self.draw_arcade_text(
+                        &mut panorama,
+                        &slide.condition,
+                        right_x,
+                        offset_y + mh as i32 / 2 + 6,
+                        (200, 200, 200),
+                        1.0,
+                    );
+                }
+            } else if is_wide && !is_tall {
+                // --- 128x32 Optimized Spacious Layout ---
+                // 1. Weather Icon on Left (24x24)
+                let icon_x = base_x as i32 + offset_x + 4;
+                let icon_y = (mh as i32 - 24) / 2 + offset_y;
+                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
+
+                // 2. Large Temperature in Center (scale 2.0 = 16px high)
+                let temp_x = icon_x + 28;
+                let temp_y = (mh as i32 - 16) / 2 + offset_y;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp,
+                    temp_x,
+                    temp_y,
+                    (255, 255, 255),
+                    2.0,
+                );
+
+                // 3. Right Column: Day Label on top, Condition on bottom
+                let font = self.base_renderer.font();
+                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
+                let mut right_x = temp_x + temp_w + 8;
+                if right_x < base_x as i32 + 82 + offset_x {
+                    right_x = base_x as i32 + 82 + offset_x;
+                }
+                if right_x > (base_x + mw) as i32 - 40 {
+                    right_x = (base_x + mw) as i32 - 40;
+                }
+
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.label,
+                    right_x,
+                    offset_y + 4,
+                    (180, 180, 255),
+                    1.0,
+                );
+
+                if !slide.condition.is_empty() {
+                    self.draw_arcade_text(
+                        &mut panorama,
+                        &slide.condition,
+                        right_x,
+                        offset_y + 18,
+                        (200, 200, 200),
+                        1.0,
+                    );
+                }
+            } else if is_tall && is_wide {
+                // --- 128x64 or larger Spacious Layout ---
+                let icon_x = base_x as i32 + offset_x + 8;
+                let icon_y = (mh as i32 - 24) / 2 + offset_y;
+                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
+
+                let temp_x = icon_x + 32;
+                let temp_y = (mh as i32 - 16) / 2 + offset_y;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp,
+                    temp_x,
+                    temp_y,
+                    (255, 255, 255),
+                    2.0,
+                );
+
+                let font = self.base_renderer.font();
+                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
+                let mut right_x = temp_x + temp_w + 10;
+                if right_x < base_x as i32 + 88 + offset_x {
+                    right_x = base_x as i32 + 88 + offset_x;
+                }
+
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.label,
+                    right_x,
+                    offset_y + mh as i32 / 2 - 12,
+                    (180, 180, 255),
+                    1.0,
+                );
+
+                if !slide.condition.is_empty() {
+                    self.draw_arcade_text(
+                        &mut panorama,
+                        &slide.condition,
+                        right_x,
+                        offset_y + mh as i32 / 2 + 4,
+                        (200, 200, 200),
+                        1.0,
+                    );
+                }
             } else {
-                (offset_y + 4, offset_y + 16)
-            };
+                // --- 64x64 or Compact Vertical Layout ---
+                let icon_x = base_x as i32 + (mw as i32 - 24) / 2 + offset_x;
+                let icon_y = offset_y + 16;
+                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-            self.draw_arcade_text(
-                &mut panorama,
-                &slide.label,
-                text_x,
-                label_y,
-                (180, 180, 255),
-                scale,
-            );
-            self.draw_arcade_text(
-                &mut panorama,
-                &slide.temp,
-                text_x,
-                temp_y,
-                (255, 255, 255),
-                scale,
-            );
+                let font = self.base_renderer.font();
+                let (_, label_w, _) = font.get_pixel_map(&slide.label, 1.0);
+                let label_x = base_x as i32 + (mw as i32 - label_w) / 2 + offset_x;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.label,
+                    label_x,
+                    offset_y + 4,
+                    (180, 180, 255),
+                    1.0,
+                );
+
+                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
+                let temp_x = base_x as i32 + (mw as i32 - temp_w) / 2 + offset_x;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp,
+                    temp_x,
+                    offset_y + 44,
+                    (255, 255, 255),
+                    2.0,
+                );
+            }
         }
 
         let mut rgb_panorama = RgbImage::new(pano_w, mh);

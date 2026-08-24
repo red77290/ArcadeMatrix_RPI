@@ -16,6 +16,8 @@ struct ForecastMain {
 #[derive(Deserialize)]
 struct ForecastWeather {
     icon: String,
+    #[serde(default)]
+    main: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -41,12 +43,17 @@ impl WeatherProvider for OpenWeatherMapProvider {
             tracing::warn!("[OpenWeatherMap] No city configured; cannot fetch forecast.");
             return None;
         }
+        if api_key.trim().is_empty() {
+            tracing::warn!("[OpenWeatherMap] No API key configured; cannot fetch forecast.");
+            return None;
+        }
 
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(10))
             .build()
             .ok()?;
 
+        let req_lang = if lang.is_empty() { "fr" } else { lang };
         let req_units = if units.eq_ignore_ascii_case("imperial")
             || units.eq_ignore_ascii_case("fahrenheit")
             || units.eq_ignore_ascii_case("f")
@@ -59,7 +66,7 @@ impl WeatherProvider for OpenWeatherMapProvider {
         let encoded_city = city.trim().replace(' ', "%20");
         let url = format!(
             "https://api.openweathermap.org/data/2.5/forecast?q={}&appid={}&units={}&lang={}",
-            encoded_city, api_key, req_units, lang
+            encoded_city, api_key, req_units, req_lang
         );
 
         let res = match client.get(&url).send() {
@@ -72,8 +79,6 @@ impl WeatherProvider for OpenWeatherMapProvider {
 
         let status = res.status();
         if !status.is_success() {
-            // Surface the API's own error message (invalid/inactive key -> 401,
-            // unknown city -> 404) instead of silently rendering "--°C".
             let body = res.text().unwrap_or_default();
             let hint = match status.as_u16() {
                 401 => " (invalid or not-yet-activated API key)",
@@ -99,25 +104,27 @@ impl WeatherProvider for OpenWeatherMapProvider {
             }
         };
 
-        let wday = Local::now().weekday().number_from_sunday() - 1; // 0=Sunday
-        match Self::parse(&json, lang, req_units, true, wday) {
-            Some(forecasts) => {
-                info!(
-                    "[OpenWeatherMap] Parsed {} days for {} (units: {})",
-                    forecasts.len(),
-                    city,
-                    req_units
-                );
-                Some(forecasts)
-            }
-            None => {
-                tracing::warn!(
-                    "[OpenWeatherMap] Response parsed but contained no usable forecast entries for '{}'.",
-                    city
-                );
-                None
-            }
+        let local_now = chrono::Local::now();
+        let current_wday = local_now
+            .format("%w")
+            .to_string()
+            .parse::<u32>()
+            .unwrap_or(0);
+        let parsed = Self::parse(&json, req_lang, req_units, true, current_wday);
+        if let Some(ref list) = parsed {
+            info!(
+                "[OpenWeatherMap] Parsed {} days for {} (units: {})",
+                list.len(),
+                city,
+                req_units
+            );
+        } else {
+            tracing::warn!(
+                "[OpenWeatherMap] Response parsed but contained no usable forecast entries for '{}'.",
+                city
+            );
         }
+        parsed
     }
 }
 
@@ -126,14 +133,13 @@ impl OpenWeatherMapProvider {
         json: &serde_json::Value,
         lang: &str,
         units: &str,
-        have_time: bool,
+        _have_time: bool,
         current_wday: u32,
     ) -> Option<Vec<DayForecast>> {
-        let data: Result<ForecastApiResponse, _> = serde_json::from_value(json.clone());
-        if let Ok(data) = data {
-            let indices = [0usize, 8, 16];
+        if let Ok(data) = serde_json::from_value::<ForecastApiResponse>(json.clone()) {
+            let indices = [0, 8, 16];
+            let mut labels = Vec::new();
 
-            let mut labels = vec![];
             if lang.eq_ignore_ascii_case("fr") {
                 labels.push("AUJ.");
                 labels.push("DEMN");
@@ -164,17 +170,24 @@ impl OpenWeatherMapProvider {
                 .iter()
                 .zip(labels.iter())
                 .filter_map(|(&idx, &label)| {
-                    data.list.get(idx).map(|entry| DayForecast {
-                        label: label.to_string(),
-                        temp: format!(
-                            "{:.0}{} ({:.0}/{:.0})",
-                            entry.main.temp, unit_sym, entry.main.temp_min, entry.main.temp_max
-                        ),
-                        icon: entry
+                    data.list.get(idx).map(|entry| {
+                        let cond = entry
                             .weather
                             .get(0)
-                            .map(|w| w.icon.clone())
-                            .unwrap_or_default(),
+                            .and_then(|w| w.main.clone())
+                            .unwrap_or_else(|| {
+                                format!("{:.0}/{:.0}", entry.main.temp_min, entry.main.temp_max)
+                            });
+                        DayForecast {
+                            label: label.to_string(),
+                            temp: format!("{:.0}{}", entry.main.temp, unit_sym),
+                            condition: cond,
+                            icon: entry
+                                .weather
+                                .get(0)
+                                .map(|w| w.icon.clone())
+                                .unwrap_or_default(),
+                        }
                     })
                 })
                 .collect();
@@ -198,7 +211,7 @@ mod tests {
             "list": [
                 {
                     "main": {"temp": 22.5, "temp_min": 20.0, "temp_max": 25.0},
-                    "weather": [{"icon": "01d"}]
+                    "weather": [{"icon": "01d", "main": "Clear"}]
                 },
                 {"main": {"temp": 23.0, "temp_min": 20.0, "temp_max": 25.0}, "weather": [{"icon": "01d"}]},
                 {"main": {"temp": 24.0, "temp_min": 20.0, "temp_max": 25.0}, "weather": [{"icon": "01d"}]},
@@ -209,19 +222,21 @@ mod tests {
                 {"main": {"temp": 29.0, "temp_min": 20.0, "temp_max": 25.0}, "weather": [{"icon": "01d"}]},
                 {
                     "main": {"temp": 30.0, "temp_min": 25.0, "temp_max": 35.0},
-                    "weather": [{"icon": "02d"}]
+                    "weather": [{"icon": "02d", "main": "Clouds"}]
                 }
             ]
         });
 
         // current_wday = 0 (Sunday), so Day 3 should be Tuesday (TUE in EN)
         let forecasts = OpenWeatherMapProvider::parse(&payload, "en", "metric", true, 0).unwrap();
-        assert_eq!(forecasts.len(), 2); // Because list only has 9 items, index 16 is missing
+        assert_eq!(forecasts.len(), 2);
         assert_eq!(forecasts[0].label, "TODAY");
-        assert_eq!(forecasts[0].temp, "22°C (20/25)");
+        assert_eq!(forecasts[0].temp, "22°C");
+        assert_eq!(forecasts[0].condition, "Clear");
         assert_eq!(forecasts[0].icon, "01d");
         assert_eq!(forecasts[1].label, "TMRW");
-        assert_eq!(forecasts[1].temp, "30°C (25/35)");
+        assert_eq!(forecasts[1].temp, "30°C");
+        assert_eq!(forecasts[1].condition, "Clouds");
         assert_eq!(forecasts[1].icon, "02d");
     }
 }

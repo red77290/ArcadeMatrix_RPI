@@ -1,5 +1,4 @@
 use crate::api::{DayForecast, WeatherProvider};
-use chrono::{Datelike, Local};
 use serde::Deserialize;
 use std::time::Duration;
 use tracing::info;

@@ -83,8 +83,9 @@ export async function initDynamicEngines() {
        const inst = prompt("Enter a unique name for this instance (e.g. main_" + eng + "):", eng);
        if (!inst) return;
        API.post('/api/instances', { instance_id: inst, engine_id: eng, config: {} }).then(() => {
-           window.showToast('Instance created, please refresh', 'success');
-           setTimeout(() => location.reload(), 1000);
+           window.showToast('Instance created', 'success');
+           localStorage.setItem('activePage', 'display');
+           setTimeout(() => location.reload(), 500);
        });
     };
     
@@ -133,7 +134,8 @@ export async function initDynamicEngines() {
           if (confirm('Are you sure you want to remove this instance?')) {
               API.delete(`/api/instances/${instance.instance_id}`).then(() => {
                   window.showToast('Instance removed', 'success');
-                  setTimeout(() => location.reload(), 1000);
+                  localStorage.setItem('activePage', 'display');
+                  setTimeout(() => location.reload(), 500);
               });
           }
       };
@@ -206,21 +208,62 @@ export async function initDynamicEngines() {
                  });
              }
           }
-          // 2. Static Options
-           else if (field.field_type === 4 || field.field_type === 'Options') { 
+          else if (field.field_type === 4 || field.field_type === 'Options') { 
               input = document.createElement('select');
               input.className = 'input';
               input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
               const formatOptLabel = (val, raw) => {
                 const lang = localStorage.getItem('lang') || 'en';
                 const dict = translations[lang] || translations.en;
-                const v = String(val).toLowerCase().trim();
-                if (field.id === 'direction' || v === 'rtl' || v === 'ltr' || v === 'ttb' || v === 'btt' || v === 'static' || v === 'left' || v === 'right' || v === 'up' || v === 'down' || v === 'none') {
-                  if (v === 'rtl' || v === 'left') return dict.dir_rtl || "Right to Left (RTL)";
-                  if (v === 'ltr' || v === 'right') return dict.dir_ltr || "Left to Right (LTR)";
-                  if (v === 'ttb' || v === 'down') return dict.dir_ttb || "Top to Bottom (TTB)";
-                  if (v === 'btt' || v === 'up') return dict.dir_btt || "Bottom to Top (BTT)";
-                  if (v === 'static' || v === 'none') return dict.dir_static || "Static (No Scroll)";
+                const v = String(val).trim();
+                const lower = v.toLowerCase();
+                if (field.id === 'direction' || ['rtl', 'ltr', 'ttb', 'btt', 'static', 'left', 'right', 'up', 'down', 'none'].includes(lower)) {
+                  if (lower === 'rtl' || lower === 'left') return dict.dir_rtl || "Right to Left (RTL)";
+                  if (lower === 'ltr' || lower === 'right') return dict.dir_ltr || "Left to Right (LTR)";
+                  if (lower === 'ttb' || lower === 'down') return dict.dir_ttb || "Top to Bottom (TTB)";
+                  if (lower === 'btt' || lower === 'up') return dict.dir_btt || "Bottom to Top (BTT)";
+                  if (lower === 'static' || lower === 'none') return dict.dir_static || "Static (No Scroll)";
+                }
+                if (field.id === 'units' || field.id === 'unit') {
+                  if (lower === 'c' || lower === 'metric') return "Celsius (°C)";
+                  if (lower === 'f' || lower === 'imperial') return "Fahrenheit (°F)";
+                }
+                if (field.id === 'lang') {
+                  if (lower === 'fr') return "Français (French)";
+                  if (lower === 'en') return "English";
+                  if (lower === 'es') return "Español (Spanish)";
+                  if (lower === 'de') return "Deutsch (German)";
+                  if (lower === 'it') return "Italiano (Italian)";
+                }
+                if (field.id === 'chart_timeframe') {
+                  if (lower === 'hourly') return "Hourly (1h)";
+                  if (lower === 'daily') return "Daily (24h)";
+                  if (lower === 'weekly') return "Weekly (7d)";
+                  if (lower === 'monthly') return "Monthly (30d)";
+                }
+                if (field.id === 'currency') {
+                  if (lower === 'usd') return "US Dollar ($ USD)";
+                  if (lower === 'eur') return "Euro (€ EUR)";
+                  if (lower === 'gbp') return "British Pound (£ GBP)";
+                  if (lower === 'jpy') return "Japanese Yen (¥ JPY)";
+                }
+                if (field.id === 'style') {
+                  if (lower === 'spectrum') return "Spectrum Bars";
+                  if (lower === 'waveform') return "Waveform Oscilloscope";
+                  if (lower === 'radial') return "Radial Circular";
+                  if (lower === 'neon_fire') return "Neon Fire";
+                }
+                if (field.id === 'date_format') {
+                  if (v === '%d/%m/%Y') return "DD/MM/YYYY (24/08/2026)";
+                  if (v === '%Y-%m-%d') return "YYYY-MM-DD (2026-08-24)";
+                  if (v === '%d %b %Y') return "DD Mon YYYY (24 Aug 2026)";
+                  if (v === '%A %d %B') return "Weekday DD Month (Monday 24 August)";
+                }
+                if (field.id === 'clock_format') {
+                  if (v === '%H:%M:%S') return "24h with Seconds (HH:MM:SS)";
+                  if (v === '%H:%M') return "24h (HH:MM)";
+                  if (v === '%I:%M:%S %p') return "12h with Seconds (HH:MM:SS AM/PM)";
+                  if (v === '%I:%M %p') return "12h (HH:MM AM/PM)";
                 }
                 return raw || val;
               };

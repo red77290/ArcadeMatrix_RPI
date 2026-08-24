@@ -45,18 +45,27 @@ document.addEventListener('DOMContentLoaded', () => {
   initDynamicEngines();
 });
 
+export function switchPage(pageName) {
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+  const navItem = document.querySelector(`.nav-item[data-page="${pageName}"]`);
+  const pageEl = document.getElementById(`page-${pageName}`);
+  if (navItem) navItem.classList.add('active');
+  if (pageEl) pageEl.classList.add('active');
+  localStorage.setItem('activePage', pageName);
+}
+
 function initNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-
-      item.classList.add('active');
-      const pageId = `page-${item.getAttribute('data-page')}`;
-      const pageEl = document.getElementById(pageId);
-      if (pageEl) pageEl.classList.add('active');
+      const page = item.getAttribute('data-page');
+      switchPage(page);
     });
   });
+
+  const savedPage = localStorage.getItem('activePage') || 'dashboard';
+  switchPage(savedPage);
 
   const langSelect = document.getElementById('lang-selector');
   if (langSelect) {

@@ -283,7 +283,13 @@
               </div>
               <div class="form-group">
                 <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Default 0. Set to 1 for AB, 2 for direct, 3 for ABC, 4 for ShiftReg. Used for complex P2 panels.">?</span></label>
-                <input type="number" id="hw-row-addr-type" class="input" value="0" min="0" max="4">
+                <select id="hw-row-addr-type" class="input">
+                  <option value="0">0 - Direct Binary (Default)</option>
+                  <option value="1">1 - Direct 16 Lines (AB)</option>
+                  <option value="2">2 - Direct 32 Lines (ABC)</option>
+                  <option value="3">3 - Direct 64 Lines (ABCD)</option>
+                  <option value="4">4 - Shift Register (ShiftReg)</option>
+                </select>
               </div>
               <div class="form-group">
                 <label>Multiplexing <span class="tooltip-icon" data-tooltip="Default 0. 1=Stripe, 2=Checkered. Useful for indoor panels.">?</span></label>

@@ -315,7 +315,13 @@ impl FighterEngine {
             let idx1 = rng.gen_range(0..fighters.len());
             let (name1, meta1) = fighters[idx1].clone();
 
-            let h1 = (meta1.ground_y - meta1.head_y).max(meta1.height) as f32;
+            let h1 = if meta1.height > 0 {
+                meta1.height as f32
+            } else if (meta1.ground_y - meta1.head_y) > 5 {
+                (meta1.ground_y - meta1.head_y) as f32
+            } else {
+                32.0
+            };
 
             let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters
                 .iter()
@@ -323,10 +329,13 @@ impl FighterEngine {
                     if name == &name1 {
                         return false;
                     }
-                    let h2 = (meta.ground_y - meta.head_y).max(meta.height) as f32;
-                    if h1 <= 0.0 || h2 <= 0.0 {
-                        return true;
-                    }
+                    let h2 = if meta.height > 0 {
+                        meta.height as f32
+                    } else if (meta.ground_y - meta.head_y) > 5 {
+                        (meta.ground_y - meta.head_y) as f32
+                    } else {
+                        32.0
+                    };
                     let min_h = h1.min(h2);
                     let max_h = h1.max(h2);
                     (min_h / max_h) >= 0.80
@@ -335,13 +344,33 @@ impl FighterEngine {
 
             let (name2, meta2) = if !valid_opponents.is_empty() {
                 let idx2 = rng.gen_range(0..valid_opponents.len());
-                valid_opponents[idx2].clone()
+                (*valid_opponents[idx2]).clone()
             } else {
-                let mut idx2 = rng.gen_range(0..fighters.len());
-                while idx2 == idx1 {
-                    idx2 = rng.gen_range(0..fighters.len());
+                // Find opponent with closest height difference
+                let mut candidates: Vec<&(String, FighterIndexMeta)> =
+                    fighters.iter().filter(|(name, _)| name != &name1).collect();
+                candidates.sort_by(|(_, m_a), (_, m_b)| {
+                    let h_a = if m_a.height > 0 {
+                        m_a.height as f32
+                    } else {
+                        32.0
+                    };
+                    let h_b = if m_b.height > 0 {
+                        m_b.height as f32
+                    } else {
+                        32.0
+                    };
+                    let diff_a = (h_a - h1).abs();
+                    let diff_b = (h_b - h1).abs();
+                    diff_a
+                        .partial_cmp(&diff_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                if !candidates.is_empty() {
+                    (*candidates[0]).clone()
+                } else {
+                    fighters[0].clone()
                 }
-                fighters[idx2].clone()
             };
 
             tracing::info!(

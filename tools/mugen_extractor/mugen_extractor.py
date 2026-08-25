@@ -31,9 +31,7 @@ class SFFv1Parser:
     def __init__(self, filepath):
         self.filepath = filepath
         self.images = {}
-        self.paltype = 0
         self.first_palette = None
-        self.base_palette = None
         self.parse()
 
     def parse(self):
@@ -43,11 +41,8 @@ class SFFv1Parser:
             
             num_images = struct.unpack('<I', header[20:24])[0]
             first_offset = struct.unpack('<I', header[24:28])[0]
-            self.paltype = header[32] if len(header) > 32 else 0
             
             next_offset = first_offset
-            last_pal = None
-            pal_candidates = []
             for _ in range(num_images):
                 if next_offset == 0: break
                 f.seek(next_offset)
@@ -58,44 +53,13 @@ class SFFv1Parser:
                 
                 if data_length > 0:
                     pcx_data = f.read(data_length)
-                    curr_pal = None
-                    if len(pcx_data) > 768:
-                        curr_pal = pcx_data[-768:]
-                        last_pal = curr_pal
-                        if not self.first_palette:
-                            self.first_palette = curr_pal
-                            
-                        # Evaluate candidate palette for character body
-                        if grp != 9000:
-                            u_colors = len(set(tuple(curr_pal[j:j+3]) for j in range(0, 768, 3) if tuple(curr_pal[j:j+3]) != (0,0,0)))
-                            lum = sum(0.299*curr_pal[j] + 0.587*curr_pal[j+1] + 0.114*curr_pal[j+2] for j in range(0, 768, 3)) / 256
-                            # Priority for neutral lighting (not dark shadow < 25 or flash > 200)
-                            score = u_colors * 5
-                            if 35 <= lum <= 180: score += 200
-                            elif lum < 25: score -= 300
-                            elif lum > 200: score -= 300
-                            if grp in [20, 21]: score += 400
-                            elif grp in [0, 1, 10, 40, 100, 200, 5000]: score += 200
-                            pal_candidates.append((score, curr_pal))
-                    elif same_pal != 0 and last_pal:
-                        curr_pal = last_pal
-                    elif last_pal:
-                        curr_pal = last_pal
-                        
+                    if not self.first_palette and len(pcx_data) > 768:
+                        self.first_palette = pcx_data[-768:]
                     self.images[(grp, img)] = {
                         'x': x,
                         'y': y,
-                        'data': pcx_data,
-                        'pal': curr_pal if curr_pal else last_pal,
-                        'grp': grp,
-                        'img': img
+                        'data': pcx_data
                     }
-                    
-            if pal_candidates:
-                pal_candidates.sort(key=lambda x: x[0], reverse=True)
-                self.base_palette = pal_candidates[0][1]
-            else:
-                self.base_palette = self.first_palette
 
 class AirParser:
     def __init__(self, filepath):
@@ -139,7 +103,8 @@ def process_character(char_dir, out_dir):
     sff = SFFv1Parser(sff_files[0])
     air = AirParser(air_files[0])
 
-    if not sff.base_palette:
+    master_palette = sff.first_palette
+    if not master_palette:
         return False
 
     required_anims = {}
@@ -240,10 +205,7 @@ def process_character(char_dir, out_dir):
                     'oy': oy,
                     'delay': f['delay'],
                     'min_y': min_y,
-                    'max_y': max_y,
-                    'pal': img_info.get('pal'),
-                    'grp': img_info.get('grp', 0),
-                    'img_id': img_info.get('img', 0)
+                    'max_y': max_y
                 })
 
         if valid_frames:
@@ -339,19 +301,10 @@ def process_character(char_dir, out_dir):
                 except:
                     indices = [0] * (img_obj.width * img_obj.height)
                 
+                trans_idx = indices[0] if indices else 0
+                
                 rgba_canvas = Image.new('RGBA', (orig_w, orig_h), (0,0,0,0))
                 rgba_pixels = rgba_canvas.load()
-                
-                # If SFF has shared palette (paltype == 1), body frames (grp < 1000) use base_palette
-                # Individual frames / FX (grp >= 1000 or paltype == 0) use frame_pal if available
-                frame_pal = fr.get('pal')
-                if sff.paltype == 1:
-                    if fr.get('grp', 0) >= 1000 and frame_pal:
-                        use_pal = frame_pal
-                    else:
-                        use_pal = sff.base_palette
-                else:
-                    use_pal = frame_pal if frame_pal else sff.base_palette
                 
                 for py in range(img_obj.height):
                     for px in range(img_obj.width):
@@ -360,22 +313,18 @@ def process_character(char_dir, out_dir):
                         if 0 <= cx < orig_w and 0 <= cy < orig_h:
                             val = indices[py * img_obj.width + px]
                             if isinstance(val, tuple):
-                                # If image is RGB/RGBA
                                 if len(val) >= 4:
                                     if val[3] > 0:
                                         rgba_pixels[cx, cy] = val
                                 elif val != (0, 255, 0) and val != (255, 0, 255):
                                     rgba_pixels[cx, cy] = (val[0], val[1], val[2], 255)
                             else:
-                                # 8-bit paletted index: Index 0 is ALWAYS TRANSPARENT in MUGEN
                                 idx = int(val)
-                                if idx != 0 and idx * 3 + 2 < len(use_pal):
-                                    r = use_pal[idx*3]
-                                    g = use_pal[idx*3 + 1]
-                                    b = use_pal[idx*3 + 2]
-                                    # Filter out background mask colors (green/magenta) if accidentally mapped
-                                    if not (r == 0 and g == 255 and b == 0) and not (r == 255 and g == 0 and b == 255):
-                                        rgba_pixels[cx, cy] = (r, g, b, 255)
+                                if idx != trans_idx and idx * 3 + 2 < len(master_palette):
+                                    r = master_palette[idx*3]
+                                    g = master_palette[idx*3 + 1]
+                                    b = master_palette[idx*3 + 2]
+                                    rgba_pixels[cx, cy] = (r, g, b, 255)
                                         
                 if orig_w != canvas_w or orig_h != canvas_h:
                     rgba_canvas = rgba_canvas.resize((canvas_w, canvas_h), Image.Resampling.NEAREST)
@@ -389,8 +338,10 @@ def process_character(char_dir, out_dir):
                         if c565 == TRANSPARENT_COLOR_565: c565 = 0x0001
                         f.write(struct.pack('<H', c565))
                         
+    stand_h = int(walk_h * scale) if walk_h else canvas_h
     return {
-        'height': canvas_h,
+        'height': stand_h if stand_h > 0 else canvas_h,
+        'canvas_height': canvas_h,
         'ground_y': ground_y,
         'head_y': head_y,
         'origin_x': origin_x,
@@ -410,7 +361,7 @@ if __name__ == "__main__":
     # start_extractor.sh/.bat wrappers (which prompt the user and pass -i/-o).
     parser.add_argument("--src", "-i", dest="src", type=str, required=True, help="Source directory containing Mugen characters")
     parser.add_argument("--dest", "-o", dest="dest", type=str, default="fighters_32", help="Output directory for the generated .fgt files and index (default: ./fighters_32)")
-    parser.add_argument("--mode", type=str, choices=['SCALED', 'FULLSIZE'], default='FULLSIZE', 
+    parser.add_argument("--mode", type=str, choices=['SCALED', 'FULLSIZE'], default='SCALED', 
                         help="SCALED: Resize character to perfectly fit screen height (for standard ESP32). FULLSIZE: Extract at 1:1 original scale (for RPi or ESP32-S3 with PSRAM).")
     parser.add_argument("--scale", "--scaling", dest="scale", type=float, default=None,
                         help="Custom scaling factor (e.g. 0.5 for 50%%, 0.8, 2.0). Overrides default SCALED/FULLSIZE mode calculations when specified.")
@@ -426,14 +377,18 @@ if __name__ == "__main__":
     COMPRESS_FGT = args.compress
 
     src_dir = args.src
+    target_h = 64 if "64" in args.dest else 32
     out_dirs = [
-        (args.dest, TARGET_HEIGHT)
+        (args.dest, target_h)
     ]
     
     start_time = time.time()
     chars = [os.path.join(src_dir, d) for d in os.listdir(src_dir) if os.path.isdir(os.path.join(src_dir, d))]
     
-    print(f"Starting extraction in mode: {EXTRACT_MODE}")
+    if CUSTOM_SCALE:
+        print(f"Starting extraction in mode: {EXTRACT_MODE} with custom scale: {CUSTOM_SCALE}")
+    else:
+        print(f"Starting extraction in mode: {EXTRACT_MODE}")
     
     for out_dir, target_h in out_dirs:
         TARGET_HEIGHT = target_h

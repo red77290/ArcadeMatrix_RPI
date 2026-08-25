@@ -27,105 +27,13 @@ def find_file_case_insensitive(directory, target_path):
         if not found: return None
     return curr_dir
 
-def score_palette(pal_bytes):
-    """
-    Scores a 768-byte palette (256 RGB triplets).
-    Higher score = richer, more authentic character palette.
-    Penalizes all-black silhouettes, all-white flash palettes, and 16-color portrait palettes.
-    """
-    if not pal_bytes or len(pal_bytes) < 768:
-        return -1000
-    
-    unique_colors = set()
-    total_lum = 0
-    non_zero_colors = 0
-    
-    for i in range(256):
-        r = pal_bytes[i*3]
-        g = pal_bytes[i*3 + 1]
-        b = pal_bytes[i*3 + 2]
-        if (r, g, b) != (0, 0, 0):
-            unique_colors.add((r, g, b))
-            non_zero_colors += 1
-            lum = 0.299 * r + 0.587 * g + 0.114 * b
-            total_lum += lum
-            
-    num_unique = len(unique_colors)
-    if num_unique <= 4:
-        return -500 # Broken or flat silhouette
-        
-    avg_lum = total_lum / max(1, non_zero_colors)
-    
-    # Penalize extreme average brightness (pure dark < 18 or pure blown-out white > 235)
-    lum_penalty = 0
-    if avg_lum < 18:
-        lum_penalty = (18 - avg_lum) * 15
-    elif avg_lum > 235:
-        lum_penalty = (avg_lum - 235) * 15
-        
-    return (num_unique * 10) + (non_zero_colors * 2) - lum_penalty
-
-
-def get_best_palette(char_dir, sff):
-    """
-    Finds the highest-quality 256-color palette for a character:
-    1. Checks official .act palette files referenced in the character's .def file.
-    2. Checks canonical base idle/walk sprites (0,0), (0,1), (20,0) in the SFF.
-    3. Scans all other sprites in the SFF and selects the highest scoring palette.
-    """
-    candidates = []
-    
-    # 1. Try .act files in .def
-    def_files = glob.glob(os.path.join(char_dir, "*.def"))
-    if def_files:
-        try:
-            with open(def_files[0], 'r', errors='ignore') as f:
-                for line in f:
-                    line_clean = line.split(';')[0].strip()
-                    if line_clean.lower().startswith('pal') and '=' in line_clean:
-                        pal_path_raw = line_clean.split('=')[-1].strip()
-                        pal_file = find_file_case_insensitive(char_dir, pal_path_raw)
-                        if pal_file and os.path.isfile(pal_file):
-                            try:
-                                with open(pal_file, 'rb') as pf:
-                                    act_data = pf.read(768)
-                                    if len(act_data) == 768:
-                                        score = score_palette(act_data) + 500 # Bonus for official .def palette
-                                        candidates.append((score, act_data, f"DEF({os.path.basename(pal_file)})"))
-                            except Exception:
-                                pass
-        except Exception:
-            pass
-            
-    # 2. Check canonical base sprites in SFF: (0, 0), (0, 1), (20, 0), (21, 0), (5000, 0)
-    canonical_keys = [(0, 0), (0, 1), (20, 0), (21, 0), (5000, 0), (100, 0), (40, 0)]
-    for key in canonical_keys:
-        if key in sff.images and sff.images[key].get('pal'):
-            pal = sff.images[key]['pal']
-            score = score_palette(pal) + 300 # Bonus for base idle/walk sprite palette
-            candidates.append((score, pal, f"SFF({key})"))
-            
-    # 3. Check all other sprites in SFF
-    for key, img_info in sff.images.items():
-        if img_info.get('pal'):
-            pal = img_info['pal']
-            score = score_palette(pal)
-            candidates.append((score, pal, f"SFF_ALL({key})"))
-            
-    if not candidates:
-        return sff.first_palette
-        
-    candidates.sort(key=lambda x: x[0], reverse=True)
-    best_score, best_pal, best_source = candidates[0]
-    logging.info(f"Selected master palette from {best_source} with score {best_score}")
-    return best_pal
-
-
 class SFFv1Parser:
     def __init__(self, filepath):
         self.filepath = filepath
         self.images = {}
+        self.paltype = 0
         self.first_palette = None
+        self.base_palette = None
         self.parse()
 
     def parse(self):
@@ -135,9 +43,11 @@ class SFFv1Parser:
             
             num_images = struct.unpack('<I', header[20:24])[0]
             first_offset = struct.unpack('<I', header[24:28])[0]
+            self.paltype = header[32] if len(header) > 32 else 0
             
             next_offset = first_offset
             last_pal = None
+            pal_candidates = []
             for _ in range(num_images):
                 if next_offset == 0: break
                 f.seek(next_offset)
@@ -154,17 +64,38 @@ class SFFv1Parser:
                         last_pal = curr_pal
                         if not self.first_palette:
                             self.first_palette = curr_pal
+                            
+                        # Evaluate candidate palette for character body
+                        if grp != 9000:
+                            u_colors = len(set(tuple(curr_pal[j:j+3]) for j in range(0, 768, 3) if tuple(curr_pal[j:j+3]) != (0,0,0)))
+                            lum = sum(0.299*curr_pal[j] + 0.587*curr_pal[j+1] + 0.114*curr_pal[j+2] for j in range(0, 768, 3)) / 256
+                            # Priority for neutral lighting (not dark shadow < 25 or flash > 200)
+                            score = u_colors * 5
+                            if 35 <= lum <= 180: score += 200
+                            elif lum < 25: score -= 300
+                            elif lum > 200: score -= 300
+                            if grp in [20, 21]: score += 400
+                            elif grp in [0, 1, 10, 40, 100, 200, 5000]: score += 200
+                            pal_candidates.append((score, curr_pal))
                     elif same_pal != 0 and last_pal:
+                        curr_pal = last_pal
+                    elif last_pal:
                         curr_pal = last_pal
                         
                     self.images[(grp, img)] = {
                         'x': x,
                         'y': y,
                         'data': pcx_data,
-                        'pal': curr_pal,
+                        'pal': curr_pal if curr_pal else last_pal,
                         'grp': grp,
                         'img': img
                     }
+                    
+            if pal_candidates:
+                pal_candidates.sort(key=lambda x: x[0], reverse=True)
+                self.base_palette = pal_candidates[0][1]
+            else:
+                self.base_palette = self.first_palette
 
 class AirParser:
     def __init__(self, filepath):
@@ -208,8 +139,7 @@ def process_character(char_dir, out_dir):
     sff = SFFv1Parser(sff_files[0])
     air = AirParser(air_files[0])
 
-    master_palette = get_best_palette(char_dir, sff)
-    if not master_palette:
+    if not sff.base_palette:
         return False
 
     required_anims = {}
@@ -412,13 +342,16 @@ def process_character(char_dir, out_dir):
                 rgba_canvas = Image.new('RGBA', (orig_w, orig_h), (0,0,0,0))
                 rgba_pixels = rgba_canvas.load()
                 
-                # Determine which palette to use for this frame:
-                # If the frame has its own valid palette (e.g. for special FX / projectiles)
-                # and it's not a standard body group, use the frame's palette if it's high quality.
+                # If SFF has shared palette (paltype == 1), body frames (grp < 1000) use base_palette
+                # Individual frames / FX (grp >= 1000 or paltype == 0) use frame_pal if available
                 frame_pal = fr.get('pal')
-                use_pal = master_palette
-                if frame_pal and fr.get('grp', 0) >= 1000 and score_palette(frame_pal) > 200:
-                    use_pal = frame_pal
+                if sff.paltype == 1:
+                    if fr.get('grp', 0) >= 1000 and frame_pal:
+                        use_pal = frame_pal
+                    else:
+                        use_pal = sff.base_palette
+                else:
+                    use_pal = frame_pal if frame_pal else sff.base_palette
                 
                 for py in range(img_obj.height):
                     for px in range(img_obj.width):

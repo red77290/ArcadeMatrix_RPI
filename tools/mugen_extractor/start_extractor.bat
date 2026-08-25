@@ -1,7 +1,8 @@
 @echo off
-echo ===================================
-echo ArcadeMatrix MUGEN / Sprite Extractor
-echo ===================================
+setlocal enabledelayedexpansion
+echo =====================================================
+echo    ArcadeMatrix RPi MUGEN / Sprite Character Extractor
+echo =====================================================
 
 cd /d "%~dp0"
 
@@ -22,34 +23,51 @@ echo [INFO] Installing requirements...
 pip install -r requirements.txt -q
 
 echo.
-echo Please enter the path to the folder containing your MUGEN chars:
-set /p input_folder="Input Folder: "
+set "default_input=.\chars"
+set /p input_folder="Dossier Source MUGEN [default: %default_input%]: "
+if "%input_folder%"=="" set "input_folder=%default_input%"
 
 echo.
-echo Please enter the path where you want the .fgt files saved:
-set /p output_folder="Output Folder (e.g. ./fighters_32): "
+set "default_output=.\fighters_64"
+set /p output_folder="Dossier Destination [default: %default_output%]: "
+if "%output_folder%"=="" set "output_folder=%default_output%"
 
 echo.
-echo Select your target platform:
-echo 1) ESP32 - 128x32 Matrix (Scale 0.5, Uncompressed)
-echo 2) ESP32 - 256x64 Matrix (No Scale, Uncompressed)
-echo 3) Raspberry Pi (No Scale, Compressed)
-set /p platform_choice="Choice (1/2/3): "
+echo -----------------------------------------------------
+echo Choix du Facteur d'Echelle (Scaling Factor) :
+echo    * 1.0   : Recommande Raspberry Pi / Matrice 64px+
+echo    * 0.5   : Echelle 50%% pour matrice 32px
+echo    * auto  : Ajustement automatique proportionnel
+echo    * Ou entrez une valeur personnalisee (ex: 0.4, 0.75, 1.25, 2.0)
+echo -----------------------------------------------------
+set "scale_input="
+set /p scale_input="Echelle souhaitee [default: 1.0]: "
+if "%scale_input%"=="" set "scale_input=1.0"
 
 echo.
-if "%platform_choice%"=="1" (
-    echo [INFO] Running for ESP32 128x32...
-    python mugen_extractor.py -i "%input_folder%" -o "%output_folder%" --scale 0.5
-) else if "%platform_choice%"=="2" (
-    echo [INFO] Running for ESP32 256x64...
-    python mugen_extractor.py -i "%input_folder%" -o "%output_folder%"
-) else if "%platform_choice%"=="3" (
-    echo [INFO] Running for Raspberry Pi...
-    python mugen_extractor.py -i "%input_folder%" -o "%output_folder%" --compress
+echo -----------------------------------------------------
+echo Compression des fichiers (.fgt vs .fgt.gz) :
+echo    * y (Oui) : Recommande pour Raspberry Pi (-80%% espace)
+echo    * n (Non) : Fichiers bruts non compresses
+echo -----------------------------------------------------
+set "compress_input="
+set /p compress_input="Compresser en .fgt.gz ? (y/n) [default: y]: "
+if "%compress_input%"=="" set "compress_input=y"
+
+set "EXTRA_ARGS="
+if "%scale_input%"=="auto" (
+    set "EXTRA_ARGS=--mode SCALED"
 ) else (
-    echo [ERROR] Invalid choice. Using default settings...
-    python mugen_extractor.py -i "%input_folder%" -o "%output_folder%"
+    set "EXTRA_ARGS=--scale %scale_input%"
 )
+
+if /i "%compress_input%"=="y" (
+    set "EXTRA_ARGS=%EXTRA_ARGS% --compress"
+)
+
+echo.
+echo Lancement de l'extraction...
+python mugen_extractor.py -i "%input_folder%" -o "%output_folder%" %EXTRA_ARGS%
 
 echo.
 echo [DONE]

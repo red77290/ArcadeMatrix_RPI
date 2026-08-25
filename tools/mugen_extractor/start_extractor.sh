@@ -1,7 +1,7 @@
 #!/bin/bash
-echo "==================================="
-echo "ArcadeMatrix MUGEN / Sprite Extractor"
-echo "==================================="
+echo "====================================================="
+echo "   ArcadeMatrix RPi MUGEN / Sprite Character Extractor"
+echo "====================================================="
 
 # Go to script directory
 cd "$(dirname "$0")" || exit
@@ -22,30 +22,60 @@ echo "[INFO] Installing requirements..."
 pip install -r requirements.txt -q
 
 echo ""
-read -p "Input Folder (containing MUGEN chars): " input_folder
-read -p "Output Folder (e.g. ./fighters_32): " output_folder
+# 1. Input Folder
+default_input="./chars"
+read -e -p "📁 Dossier Source MUGEN (contenant les personnages) [$default_input]: " input_folder
+input_folder="${input_folder:-$default_input}"
 
-echo ""
-echo "Select your target platform:"
-echo "1) ESP32 - 128x32 Matrix (Scale 0.5, Uncompressed)"
-echo "2) ESP32 - 256x64 Matrix (No Scale, Uncompressed)"
-echo "3) Raspberry Pi (No Scale, Compressed)"
-read -p "Choice (1/2/3): " platform_choice
+# 2. Output Folder
+default_output="./fighters_64"
+read -e -p "📁 Dossier Destination (ex: ./fighters_64) [$default_output]: " output_folder
+output_folder="${output_folder:-$default_output}"
 
+# 3. Scaling / Échelle
 echo ""
-if [ "$platform_choice" = "1" ]; then
-    echo "[INFO] Running for ESP32 128x32..."
-    python mugen_extractor.py -i "$input_folder" -o "$output_folder" --scale 0.5
-elif [ "$platform_choice" = "2" ]; then
-    echo "[INFO] Running for ESP32 256x64..."
-    python mugen_extractor.py -i "$input_folder" -o "$output_folder"
-elif [ "$platform_choice" = "3" ]; then
-    echo "[INFO] Running for Raspberry Pi..."
-    python mugen_extractor.py -i "$input_folder" -o "$output_folder" --compress
+echo "-----------------------------------------------------"
+echo "📏 Choix du Facteur d'Échelle (Scaling Factor) :"
+echo "   • 1.0   : Recommandé Raspberry Pi / Matrice 64px+ (Taille 1:1 d'origine)"
+echo "   • 0.5   : Échelle 50% (pour matrices 32px de haut)"
+echo "   • auto  : Ajustement automatique proportionnel à la hauteur de l'écran"
+echo "   • Ou entrez une valeur personnalisée (ex: 0.4, 0.75, 1.25, 2.0)"
+echo "-----------------------------------------------------"
+read -p "Échelle souhaitée [défaut: 1.0]: " scale_input
+scale_input="${scale_input:-1.0}"
+
+# 4. Compression
+echo ""
+echo "-----------------------------------------------------"
+echo "🗜️  Compression des fichiers (.fgt vs .fgt.gz) :"
+echo "   • y (Oui) : Recommandé pour Raspberry Pi (gain ~80% d'espace disque)"
+echo "   • n (Non) : Fichiers bruts non compressés"
+echo "-----------------------------------------------------"
+read -p "Compresser en .fgt.gz ? (y/n) [défaut: y]: " compress_input
+compress_input="${compress_input:-y}"
+
+# Build arguments
+EXTRA_ARGS=""
+if [ "$scale_input" = "auto" ] || [ "$scale_input" = "scaled" ] || [ "$scale_input" = "SCALED" ]; then
+    EXTRA_ARGS="--mode SCALED"
+elif [ "$scale_input" = "1.0" ] || [ "$scale_input" = "full" ] || [ "$scale_input" = "FULLSIZE" ]; then
+    EXTRA_ARGS="--scale 1.0"
 else
-    echo "[ERROR] Invalid choice. Using default settings..."
-    python mugen_extractor.py -i "$input_folder" -o "$output_folder"
+    EXTRA_ARGS="--scale $scale_input"
+fi
+
+if [ "$compress_input" = "y" ] || [ "$compress_input" = "Y" ] || [ "$compress_input" = "yes" ]; then
+    EXTRA_ARGS="$EXTRA_ARGS --compress"
 fi
 
 echo ""
-echo "[DONE]"
+echo "🚀 Lancement de l'extraction :"
+echo "   • Source      : $input_folder"
+echo "   • Destination : $output_folder"
+echo "   • Paramètres  : $EXTRA_ARGS"
+echo ""
+
+python mugen_extractor.py -i "$input_folder" -o "$output_folder" $EXTRA_ARGS
+
+echo ""
+echo "✅ [TERMINÉ] Extraction terminée."

@@ -359,12 +359,9 @@ impl FighterEngine {
             let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
 
             if let (Some(c1), Some(c2)) = (c1, c2) {
-                let c1_ground_at_0 = c1.meta.ground_y as i32 - c1.meta.head_y as i32;
-                let c2_ground_at_0 = c2.meta.ground_y as i32 - c2.meta.head_y as i32;
-                let fight_max_h = c1_ground_at_0.max(c2_ground_at_0);
-
-                let y1 = fight_max_h - c1.meta.ground_y as i32;
-                let y2 = fight_max_h - c2.meta.ground_y as i32;
+                let ground_y_screen = (c1.meta.ground_y as i32).max(c2.meta.ground_y as i32);
+                let y1 = ground_y_screen - c1.meta.ground_y as i32;
+                let y2 = ground_y_screen - c2.meta.ground_y as i32;
 
                 let mut mirrored_c2 = c2.clone();
                 for anim in mirrored_c2.anims.values_mut() {

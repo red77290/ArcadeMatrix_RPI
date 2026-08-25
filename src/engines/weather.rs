@@ -331,12 +331,13 @@ impl WeatherEngine {
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
                 let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 1.0);
-                let mut right_x = temp_x + min_w.max(max_w) + 8;
-                if right_x < base_x as i32 + 78 + offset_x {
-                    right_x = base_x as i32 + 78 + offset_x;
+                let mut right_x = temp_x + min_w.max(max_w) + 6;
+                if right_x < base_x as i32 + 60 + offset_x {
+                    right_x = base_x as i32 + 60 + offset_x;
                 }
-                if right_x > (base_x + mw) as i32 - 40 {
-                    right_x = (base_x + mw) as i32 - 40;
+                let max_right = (base_x + mw) as i32 - 42;
+                if right_x > max_right {
+                    right_x = max_right;
                 }
 
                 self.draw_arcade_text(
@@ -349,9 +350,31 @@ impl WeatherEngine {
                 );
 
                 if !slide.condition.is_empty() {
+                    let avail_w = ((base_x + mw) as i32 - right_x - 2).max(6);
+                    let max_chars = (avail_w / 6).max(1) as usize;
+                    let mut cond = slide.condition.clone();
+                    if cond.chars().count() > max_chars {
+                        if max_chars > 3 {
+                            cond = format!(
+                                "{}.",
+                                &cond[..cond
+                                    .char_indices()
+                                    .nth(max_chars - 1)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(cond.len())]
+                            );
+                        } else {
+                            cond = cond[..cond
+                                .char_indices()
+                                .nth(max_chars)
+                                .map(|(i, _)| i)
+                                .unwrap_or(cond.len())]
+                                .to_string();
+                        }
+                    }
                     self.draw_arcade_text(
                         &mut panorama,
-                        &slide.condition,
+                        &cond,
                         right_x,
                         offset_y + 18,
                         color_desc,
@@ -384,9 +407,13 @@ impl WeatherEngine {
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
                 let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
-                let mut right_x = temp_x + min_w.max(max_w) + 10;
-                if right_x < base_x as i32 + 82 + offset_x {
-                    right_x = base_x as i32 + 82 + offset_x;
+                let mut right_x = temp_x + min_w.max(max_w) + 8;
+                if right_x < base_x as i32 + 72 + offset_x {
+                    right_x = base_x as i32 + 72 + offset_x;
+                }
+                let max_right = (base_x + mw) as i32 - 46;
+                if right_x > max_right {
+                    right_x = max_right;
                 }
 
                 self.draw_arcade_text(
@@ -399,19 +426,111 @@ impl WeatherEngine {
                 );
 
                 if !slide.condition.is_empty() {
+                    let avail_w = ((base_x + mw) as i32 - right_x - 2).max(6);
+                    let max_chars = (avail_w / 6).max(1) as usize;
+                    let mut cond = slide.condition.clone();
+                    if cond.chars().count() > max_chars {
+                        if max_chars > 3 {
+                            cond = format!(
+                                "{}.",
+                                &cond[..cond
+                                    .char_indices()
+                                    .nth(max_chars - 1)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(cond.len())]
+                            );
+                        } else {
+                            cond = cond[..cond
+                                .char_indices()
+                                .nth(max_chars)
+                                .map(|(i, _)| i)
+                                .unwrap_or(cond.len())]
+                                .to_string();
+                        }
+                    }
                     self.draw_arcade_text(
                         &mut panorama,
-                        &slide.condition,
+                        &cond,
                         right_x,
                         offset_y + 38,
                         color_desc,
                         1.0,
                     );
                 }
+            } else if mw <= 64 && mh <= 32 {
+                // --- 64x32 Compact Horizontal Layout ---
+                let icon_x = base_x as i32 + offset_x + 2;
+                let icon_y = (mh as i32 - 24) / 2 + offset_y;
+                self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
+
+                let right_x = icon_x + 26;
+                let avail_w = ((base_x + mw) as i32 - right_x - 1).max(6);
+                let max_chars = (avail_w / 6).max(1) as usize;
+
+                // Line 1: Day Label
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.label,
+                    right_x,
+                    offset_y + 2,
+                    color_label,
+                    1.0,
+                );
+
+                // Line 2: Temperatures (Min + Max)
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_min,
+                    right_x,
+                    offset_y + 11,
+                    color_morning,
+                    1.0,
+                );
+                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_max,
+                    right_x + min_w + 2,
+                    offset_y + 11,
+                    color_afternoon,
+                    1.0,
+                );
+
+                // Line 3: Condition
+                if !slide.condition.is_empty() {
+                    let mut cond = slide.condition.clone();
+                    if cond.chars().count() > max_chars {
+                        if max_chars > 3 {
+                            cond = format!(
+                                "{}.",
+                                &cond[..cond
+                                    .char_indices()
+                                    .nth(max_chars - 1)
+                                    .map(|(i, _)| i)
+                                    .unwrap_or(cond.len())]
+                            );
+                        } else {
+                            cond = cond[..cond
+                                .char_indices()
+                                .nth(max_chars)
+                                .map(|(i, _)| i)
+                                .unwrap_or(cond.len())]
+                                .to_string();
+                        }
+                    }
+                    self.draw_arcade_text(
+                        &mut panorama,
+                        &cond,
+                        right_x,
+                        offset_y + 21,
+                        color_desc,
+                        1.0,
+                    );
+                }
             } else {
-                // --- 64x64 or Compact Vertical Layout ---
+                // --- 64x64 or Vertical Layout ---
                 let icon_x = base_x as i32 + (mw as i32 - 24) / 2 + offset_x;
-                let icon_y = offset_y + 16;
+                let icon_y = offset_y + 14;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
                 let (_, label_w, _) = font.get_pixel_map(&slide.label, 1.0);
@@ -420,10 +539,23 @@ impl WeatherEngine {
                     &mut panorama,
                     &slide.label,
                     label_x,
-                    offset_y + 4,
+                    offset_y + 3,
                     color_label,
                     1.0,
                 );
+
+                if !slide.condition.is_empty() {
+                    let (_, desc_w, _) = font.get_pixel_map(&slide.condition, 1.0);
+                    let desc_x = base_x as i32 + (mw as i32 - desc_w) / 2 + offset_x;
+                    self.draw_arcade_text(
+                        &mut panorama,
+                        &slide.condition,
+                        desc_x,
+                        offset_y + 40,
+                        color_desc,
+                        1.0,
+                    );
+                }
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
                 let min_x = base_x as i32 + (mw as i32 - min_w) / 2 + offset_x;
@@ -431,7 +563,7 @@ impl WeatherEngine {
                     &mut panorama,
                     &slide.temp_min,
                     min_x,
-                    offset_y + 44,
+                    offset_y + 49,
                     color_morning,
                     1.0,
                 );
@@ -442,7 +574,7 @@ impl WeatherEngine {
                     &mut panorama,
                     &slide.temp_max,
                     max_x,
-                    offset_y + 54,
+                    offset_y + 57,
                     color_afternoon,
                     1.0,
                 );

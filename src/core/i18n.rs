@@ -90,11 +90,11 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
             if lower.contains("clear") || lower.contains("sun") {
                 "Soleil"
             } else if lower.contains("few clouds") || lower.contains("scattered") {
-                "Éclaircies"
+                "Eclairc."
             } else if lower.contains("overcast") {
                 "Couvert"
             } else if lower.contains("cloud") {
-                "Nuageux"
+                "Nuages"
             } else if lower.contains("thunder") || lower.contains("storm") {
                 "Orage"
             } else if lower.contains("drizzle") {
@@ -106,7 +106,7 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
             } else if lower.contains("mist") {
                 "Brume"
             } else if lower.contains("fog") {
-                "Brouillard"
+                "Brouill."
             } else {
                 "Variable"
             }
@@ -119,11 +119,11 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
             } else if lower.contains("overcast") {
                 "Cubierto"
             } else if lower.contains("cloud") {
-                "Nublado"
+                "Nubes"
             } else if lower.contains("thunder") || lower.contains("storm") {
-                "Tormenta"
+                "Torm."
             } else if lower.contains("drizzle") {
-                "Llovizna"
+                "Lloviz."
             } else if lower.contains("rain") {
                 "Lluvia"
             } else if lower.contains("snow") {
@@ -140,13 +140,13 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
             if lower.contains("clear") || lower.contains("sun") {
                 "Clear"
             } else if lower.contains("few clouds") || lower.contains("scattered") {
-                "Partly Cloudy"
+                "P.Cloudy"
             } else if lower.contains("overcast") {
                 "Overcast"
             } else if lower.contains("cloud") {
                 "Clouds"
             } else if lower.contains("thunder") || lower.contains("storm") {
-                "Thunderstorm"
+                "Storm"
             } else if lower.contains("drizzle") {
                 "Drizzle"
             } else if lower.contains("rain") {

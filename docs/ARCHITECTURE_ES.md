@@ -18,13 +18,14 @@ Este documento es la referencia **profunda y exhaustiva** de la arquitectura Arc
 6. [Modelo de configuración: `config.json` → instancias](#6-modelo-de-configuración-configjson--instancias)
 7. [Auto-reparación: el ConfigSanitizer](#7-auto-reparación-el-configsanitizer)
 8. [Propagación de config y hot reload](#8-propagación-de-config-y-hot-reload)
-9. [UI dinámica por esquema y listas personalizadas](#9-ui-dinámica-por-esquema-y-listas-personalizadas)
-10. [El árbitro de visualización](#10-el-árbitro-de-visualización)
-11. [El compositor de overlay Fighter](#11-el-compositor-de-overlay-fighter)
-12. [Aislamiento del runtime y modelo de hilos](#12-aislamiento-del-runtime-y-modelo-de-hilos)
-13. [Cadencia de renderizado](#13-cadencia-de-renderizado)
-14. [Superficie de la API HTTP](#14-superficie-de-la-api-http)
-15. [Metadatos de compilación](#15-metadatos-de-compilación)
+9. [UI dinámica guiada por esquemas y listas personalizadas](#9-ui-dinámica-guiada-por-esquemas-y-listas-personalizadas)
+10. [Arquitectura de Internacionalización (i18n) y Fuente Única de Verdad](#10-arquitectura-de-internacionalización-i18n-y-fuente-única-de-verdad)
+11. [Display Arbiter: resolución de prioridades multifuente](#11-display-arbiter-resolución-de-prioridades-multifuente)
+12. [El compositor de overlay Fighter](#12-el-compositor-de-overlay-fighter)
+13. [Aislamiento runtime y modelo de hilos](#13-aislamiento-runtime-y-modelo-de-hilos)
+14. [Regulación de cadencia (Frame pacing)](#14-regulación-de-cadencia-frame-pacing)
+15. [Superficie de API HTTP](#15-superficie-de-api-http)
+16. [Metadatos de build y telemetría](#16-metadatos-de-build-y-telemetría)
 
 ---
 
@@ -493,7 +494,39 @@ Un campo puede llevar `visible_when` referenciando otro campo, permitiendo al fr
 
 ---
 
-## 10. El árbitro de visualización
+## 10. Arquitectura de Internacionalización (i18n) y Fuente Única de Verdad
+
+ArcadeMatrix separa estrictamente la configuración visual global de la lógica interna de los motores:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Usuario
+    participant WebUI as WebUI (#lang-selector)
+    participant API as api-server (/api/system)
+    participant Disk as config.json (system.lang)
+    participant I18N as crate::core::i18n
+    participant ENG as Motores Activos (Weather, WordClock..)
+    participant MX as Panel LED / Matriz
+
+    User->>WebUI: Selecciona "English" / "Español" / "Français"
+    WebUI->>WebUI: Aplica inmediatamente translations[lang] en el DOM
+    WebUI->>API: POST /api/system { "lang": "es" }
+    API->>Disk: Guarda atómicamente system.lang = "es"
+    API->>ENG: señal reset_rotation
+    ENG->>I18N: i18n::weather_day_label() / word_clock_lines()
+    I18N-->>ENG: Devuelve cadenas traducidas en "es"
+    ENG->>MX: Renderiza directamente los textos traducidos en la matriz
+```
+
+### Ventajas de la Arquitectura i18n Centralizada:
+1. **Cero Redundancia en Esquemas:** Ningún motor individual (`WeatherEngine`, `WordClock`, `DecibelEngine`, etc.) expone un campo `lang` en su esquema.
+2. **Sincronización Universal:** Cambiar el idioma en la cabecera de la WebUI reconfigura instantáneamente todo el sistema (WebUI + visualización en la matriz).
+3. **Extensibilidad Directa:** Añadir un nuevo idioma (ej: Alemán `de`) requiere únicamente una entrada en `SUPPORTED_LANGUAGES` (Front) y las tablas del módulo `crate::core::i18n` (Back-end Rust y C++).
+
+---
+
+## 11. Display Arbiter: resolución de prioridades multifuente
 
 La rotación no es lo único que puede poseer la pantalla. Los marquees (frontends de arcade), banners MQTT, mensajes de un disparo y el reproductor GIF compiten por ella. El `DisplayArbiter` lo resuelve por **prioridad**, de modo que el Core nunca contiene lógica de negocio `if source == "mqtt"` en el bucle de render.
 

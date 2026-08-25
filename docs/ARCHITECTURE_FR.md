@@ -19,12 +19,13 @@ Ce document est la référence **approfondie et exhaustive** de l'architecture A
 7. [Auto-réparation : le ConfigSanitizer](#7-auto-réparation--le-configsanitizer)
 8. [Propagation de config et hot reload](#8-propagation-de-config-et-hot-reload)
 9. [UI dynamique pilotée par schéma et listes personnalisées](#9-ui-dynamique-pilotée-par-schéma-et-listes-personnalisées)
-10. [L'arbitre d'affichage](#10-larbitre-daffichage)
-11. [Le compositeur d'overlay Fighter](#11-le-compositeur-doverlay-fighter)
-12. [Isolation runtime et modèle de threads](#12-isolation-runtime-et-modèle-de-threads)
-13. [Cadence de rendu](#13-cadence-de-rendu)
-14. [Surface de l'API HTTP](#14-surface-de-lapi-http)
-15. [Métadonnées de build](#15-métadonnées-de-build)
+10. [Architecture d'Internationalisation (i18n) & Source de Vérité Unique](#10-architecture-dinternationalisation-i18n--source-de-vérité-unique)
+11. [Display Arbiter : gestion des priorités multi-sources](#11-display-arbiter--gestion-des-priorités-multi-sources)
+12. [Le compositeur d'overlay Fighter](#12-le-compositeur-doverlay-fighter)
+13. [Isolation runtime et modèle de threads](#13-isolation-runtime-et-modèle-de-threads)
+14. [Régulation de cadence (Frame pacing)](#14-régulation-de-cadence-frame-pacing)
+15. [Surface d'API HTTP](#15-surface-dapi-http)
+16. [Métadonnées de build et télémétrie](#16-métadonnées-de-build-et-télémétrie)
 
 ---
 
@@ -493,7 +494,39 @@ Un champ peut porter `visible_when` référençant un autre champ, permettant au
 
 ---
 
-## 10. L'arbitre d'affichage
+## 10. Architecture d'Internationalisation (i18n) & Source de Vérité Unique
+
+ArcadeMatrix sépare strictement la configuration de présentation globale de la logique interne des moteurs :
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Utilisateur
+    participant WebUI as WebUI (#lang-selector)
+    participant API as api-server (/api/system)
+    participant Disk as config.json (system.lang)
+    participant I18N as crate::core::i18n
+    participant ENG as Moteurs Actifs (Weather, WordClock..)
+    participant MX as Panneau LED / Matrice
+
+    User->>WebUI: Sélectionne "English" / "Español" / "Français"
+    WebUI->>WebUI: Applique immédiatement translations[lang] sur le DOM
+    WebUI->>API: POST /api/system { "lang": "en" }
+    API->>Disk: Sauvegarde atomique system.lang = "en"
+    API->>ENG: reset_rotation signal
+    ENG->>I18N: i18n::weather_day_label() / word_clock_lines()
+    I18N-->>ENG: Retourne chaînes traduites en "en"
+    ENG->>MX: Rend directement les textes traduits sur la matrice
+```
+
+### Avantages de l'Architecture i18n Centralisée :
+1. **Zéro Redondance de Schéma :** Aucun moteur individuel (`WeatherEngine`, `WordClock`, `DecibelEngine`, etc.) n'a de champ `lang` dans son schéma.
+2. **Synchronisation Universelle :** Changer la langue dans l'en-tête de la WebUI reconfigure instantanément toute la machine (WebUI + Affichage Matrice).
+3. **Extensibilité Trivialement Simple :** Pour ajouter une langue (ex: Allemand `de`), il suffit d'ajouter une entrée dans `SUPPORTED_LANGUAGES` (Front) et les dictionnaires du module `crate::core::i18n` (Back-end Rust et C++).
+
+---
+
+## 11. Display Arbiter : gestion des priorités multi-sources
 
 La rotation n'est pas la seule à pouvoir posséder l'écran. Les marquees (frontends d'arcade), bannières MQTT, messages one-shot et le lecteur GIF se disputent l'affichage. Le `DisplayArbiter` tranche par **priorité**, si bien que le Core ne contient jamais de logique métier `if source == "mqtt"` dans la boucle de rendu.
 

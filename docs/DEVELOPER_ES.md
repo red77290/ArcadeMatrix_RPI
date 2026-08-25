@@ -22,10 +22,11 @@ Esta es la guía **completa** para extender ArcadeMatrix en Raspberry Pi. Detall
 10. [Tutorial: crear un nuevo motor](#10-tutorial-crear-un-nuevo-motor)
 11. [Tutorial: añadir un endpoint de lista personalizada](#11-tutorial-añadir-un-endpoint-de-lista-personalizada)
 12. [Tutorial: añadir un nuevo tema de reloj](#12-tutorial-añadir-un-nuevo-tema-de-reloj)
-13. [Leer la config en un motor](#13-leer-la-config-en-un-motor)
-14. [Dibujar en la matriz](#14-dibujar-en-la-matriz)
-15. [Pruebas y ejecución local](#15-pruebas-y-ejecución-local)
-16. [Checklist](#16-checklist)
+13. [Internacionalización y Centralización i18n (Front y Back)](#13-internacionalización-y-centralización-i18n-front-y-back)
+14. [Leer la config en un motor](#14-leer-la-config-en-un-motor)
+15. [Dibujar en la matriz](#15-dibujar-en-la-matriz)
+16. [Pruebas y ejecución local](#16-pruebas-y-ejecución-local)
+17. [Checklist](#17-checklist)
 
 ---
 
@@ -513,17 +514,61 @@ space_invaders: SpaceInvadersClock::new(),
 
 ### Paso 4 — Declarar la opción en `ClockEngine::descriptor()`
 
-Añade `{ label: "Space Invaders Clock", value: "25" }` a las opciones del campo `theme`:
-
-```rust
-ConfigOption { label: "Space Invaders Clock", value: "25" },
-```
-
-La interfaz Web renderiza dinámicamente la nueva opción en el selector de temas y aplica el cambio en caliente al guardar.
+Añade `{ label: "Space Invaders Clock", value: "25" }` a las opciones del campo `theme`.
 
 ---
 
-## 13. Leer la config en un motor
+## 13. Internacionalización y Centralización i18n (Front y Back)
+
+ArcadeMatrix en Raspberry Pi utiliza el módulo centralizado [`crate::core::i18n`](../src/core/i18n.rs).
+
+> [!IMPORTANT]
+> **Regla de oro: Nunca añada un campo `lang` en el esquema de sus motores (`ConfigSchema`).**
+> El idioma del sistema (`system.lang`) es la fuente única de verdad. Cuando el usuario cambia de idioma en la cabecera de la WebUI (`#lang-selector`), la interfaz envía `POST /api/system` `{ "lang": code }`, guardando el ajuste y propagándolo inmediatamente a todos los motores activos.
+
+### A. Uso en un motor Rust (`crate::core::i18n`)
+
+```rust
+use crate::core::i18n::{self, Lang};
+
+// 1. Leer el idioma del sistema desde el contexto
+let sys_lang = ctx.config.settings.read().system.lang.clone();
+let lang = Lang::from_str_code(&sys_lang);
+
+// 2. Nombres de días meteorológicos (ej: "HOY", "MAÑA", "DOM"..)
+let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
+
+// 3. Traducción de condiciones climáticas
+let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
+
+// 4. Líneas completas del reloj de texto (WordClock)
+let lines = i18n::word_clock_lines(lang, hours, minutes);
+
+// 5. Niveles de ruido / decibelios
+let noise = i18n::noise_level(lang, level_index);
+```
+
+### B. Tutorial: Añadir un nuevo idioma (ej: Alemán `de`) en 3 pasos
+
+1. **Front-end WebUI (`api/www/js/i18n.js` o `index.html`):**
+   Añada el idioma a `SUPPORTED_LANGUAGES` y complete las traducciones:
+   ```javascript
+   export const SUPPORTED_LANGUAGES = [
+     { code: 'fr', label: 'Français' },
+     { code: 'en', label: 'English' },
+     { code: 'es', label: 'Español' },
+     { code: 'de', label: 'Deutsch' },
+   ];
+   ```
+2. **Back-end Raspberry Pi (`src/core/i18n.rs`):**
+   - Añada la variante `De` al enum `Lang`.
+   - Implemente las tablas de correspondencia para clima, reloj de texto y ruido.
+3. **Back-end ESP32 (`src/core/I18n.h` & `src/core/I18n.cpp`):**
+   - Añada `DE` al enum `Lang` y complete los métodos estáticos en `I18n.cpp`.
+
+---
+
+## 14. Leer la config en un motor
 
 El motor recibe un proxy restringido `&dyn EngineConfig` (nunca todo el `config.json`):
 
@@ -537,7 +582,7 @@ Estos mapean sobre el `HashMap<String,String>` de la instancia. Las claves corre
 
 ---
 
-## 14. Dibujar en la matriz
+## 15. Dibujar en la matriz
 
 `ctx.matrix` es un `&mut dyn MatrixBackend`. Patrón típico:
 
@@ -553,7 +598,7 @@ El **bucle de render** posee `update()` (el envío al panel) y, tras el retorno 
 
 ---
 
-## 15. Pruebas y ejecución local
+## 16. Pruebas y ejecución local
 
 ```bash
 rtk cargo fmt
@@ -569,13 +614,14 @@ El hook de pre-commit ejecuta el validador de release, el validador de doc/clave
 
 ---
 
-## 16. Checklist
+## 17. Checklist
 
 - [ ] La struct pre-reserva búferes; sin asignación en `update`/`render`.
 - [ ] `on_config_changed` relee cada campo editable **in situ**.
 - [ ] `Capabilities.realtime` refleja si animas cada frame (o sobrescribe `is_realtime`).
 - [ ] Cada campo del esquema tiene un `default_value` y una `validation_policy` sensatos.
 - [ ] Las opciones dinámicas usan `options_endpoint`; el multi-valor usa `multiple: true` (CSV).
+- [ ] Los textos localizados utilizan el módulo centralizado `crate::core::i18n` (ningún campo `lang` redundante en el esquema).
 - [ ] Registrado vía `#[distributed_slice]`; módulo añadido a `engines/mod.rs`.
 - [ ] `app.rs` intacto.
 - [ ] `cargo fmt`, `cargo test`, `cargo build --release` pasan todos.

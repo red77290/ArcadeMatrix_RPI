@@ -22,10 +22,11 @@ Ceci est le guide **complet** pour étendre ArcadeMatrix sur Raspberry Pi. Il d�
 10. [Tutoriel : créer un nouveau moteur](#10-tutoriel--créer-un-nouveau-moteur)
 11. [Tutoriel : ajouter un endpoint de liste personnalisée](#11-tutoriel--ajouter-un-endpoint-de-liste-personnalisée)
 12. [Tutoriel : ajouter un nouveau thème d'horloge](#12-tutoriel--ajouter-un-nouveau-thème-dhorloge)
-13. [Lire la config dans un moteur](#13-lire-la-config-dans-un-moteur)
-14. [Dessiner dans la matrice](#14-dessiner-dans-la-matrice)
-15. [Tests et exécution locale](#15-tests-et-exécution-locale)
-16. [Checklist](#16-checklist)
+13. [Internationalisation & Centralisation i18n (Front & Back)](#13-internationalisation--centralisation-i18n-front--back)
+14. [Lire la config dans un moteur](#14-lire-la-config-dans-un-moteur)
+15. [Dessiner dans la matrice](#15-dessiner-dans-la-matrice)
+16. [Tests et exécution locale](#16-tests-et-exécution-locale)
+17. [Checklist](#17-checklist)
 
 ---
 
@@ -525,7 +526,57 @@ L'interface Web rend dynamiquement la nouvelle option dans le sélecteur de thè
 
 ---
 
-## 13. Lire la config dans un moteur
+## 13. Internationalisation & Centralisation i18n (Front & Back)
+
+ArcadeMatrix sur Raspberry Pi utilise le module centralisé [`crate::core::i18n`](../src/core/i18n.rs).
+
+> [!IMPORTANT]
+> **Règle d'or : Ne jamais ajouter de champ `lang` dans les schémas de vos moteurs (`ConfigSchema`).**
+> La langue globale du système (`system.lang`) est la source unique de vérité. Dès que l'utilisateur modifie la langue dans le sélecteur du bandeau (`#lang-selector`), l'interface envoie `POST /api/system` `{ "lang": code }`, persistant la langue et la propageant en direct à tous les moteurs actifs.
+
+### A. Utilisation dans un moteur Rust (`crate::core::i18n`)
+
+```rust
+use crate::core::i18n::{self, Lang};
+
+// 1. Lire la langue système depuis le contexte
+let sys_lang = ctx.config.settings.read().system.lang.clone();
+let lang = Lang::from_str_code(&sys_lang);
+
+// 2. Libellés des jours météo (ex: "AUJ.", "DEMN", "LUN"..)
+let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
+
+// 3. Traduction des conditions météo
+let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
+
+// 4. Lignes complètes de l'horloge en mots (WordClock)
+let lines = i18n::word_clock_lines(lang, hours, minutes);
+
+// 5. Niveaux sonores / décibels
+let noise = i18n::noise_level(lang, level_index);
+```
+
+### B. Tutoriel : Ajouter une nouvelle langue (ex : Allemand `de`) en 3 étapes
+
+1. **Front-end WebUI (`api/www/js/i18n.js` ou `index.html`) :**
+   Ajoutez la langue dans `SUPPORTED_LANGUAGES` et complétez les traductions :
+   ```javascript
+   export const SUPPORTED_LANGUAGES = [
+     { code: 'fr', label: 'Français' },
+     { code: 'en', label: 'English' },
+     { code: 'es', label: 'Español' },
+     { code: 'de', label: 'Deutsch' },
+   ];
+   ```
+2. **Back-end Raspberry Pi (`src/core/i18n.rs`) :**
+   - Ajoutez la variante `De` à l'enum `Lang`.
+   - Renseignez les dictionnaires et tables de correspondance dans `i18n.rs`.
+3. **Back-end ESP32 (`src/core/I18n.h` & `src/core/I18n.cpp`) :**
+   - Ajoutez `DE` à l'enum `Lang` et implémentez les méthodes statiques dans `I18n.cpp`.
+
+---
+
+## 14. Lire la config dans un moteur
 
 Le moteur reçoit un proxy restreint `&dyn EngineConfig` (jamais tout le `config.json`) :
 
@@ -539,7 +590,7 @@ Ceux-ci mappent sur le `HashMap<String,String>` de l'instance. Les clés corresp
 
 ---
 
-## 14. Dessiner dans la matrice
+## 15. Dessiner dans la matrice
 
 `ctx.matrix` est un `&mut dyn MatrixBackend`. Motif typique :
 
@@ -555,7 +606,7 @@ La **boucle de rendu** possède `update()` (l'envoi au panneau) et, après le re
 
 ---
 
-## 15. Tests et exécution locale
+## 16. Tests et exécution locale
 
 ```bash
 rtk cargo fmt
@@ -571,13 +622,14 @@ Le hook de pré-commit exécute le validateur de release, le validateur de doc/c
 
 ---
 
-## 16. Checklist
+## 17. Checklist
 
 - [ ] La struct pré-alloue les buffers ; aucune allocation dans `update`/`render`.
 - [ ] `on_config_changed` relit chaque champ éditable **sur place**.
 - [ ] `Capabilities.realtime` reflète si tu animes chaque frame (ou surcharge `is_realtime`).
 - [ ] Chaque champ de schéma a un `default_value` et une `validation_policy` sensés.
 - [ ] Les choix dynamiques utilisent `options_endpoint` ; le multi-valeur utilise `multiple: true` (CSV).
+- [ ] Les textes localisés utilisent le module centralisé `crate::core::i18n` (aucun champ `lang` redondant dans le schéma).
 - [ ] Enregistré via `#[distributed_slice]` ; module ajouté à `engines/mod.rs`.
 - [ ] `app.rs` intouché.
 - [ ] `cargo fmt`, `cargo test`, `cargo build --release` passent tous.

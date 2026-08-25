@@ -22,10 +22,11 @@ This is the **complete** guide to extending ArcadeMatrix on Raspberry Pi. It exp
 10. [Tutorial: Create a New Engine](#10-tutorial-create-a-new-engine)
 11. [Tutorial: Add a Custom-List Endpoint](#11-tutorial-add-a-custom-list-endpoint)
 12. [Tutorial: Add a New Clock Face / Theme](#12-tutorial-add-a-new-clock-face--theme)
-13. [Reading Config in an Engine](#13-reading-config-in-an-engine)
-14. [Rendering into the Matrix](#14-rendering-into-the-matrix)
-15. [Testing & Local Run](#15-testing--local-run)
-16. [Checklist](#16-checklist)
+13. [Internationalization & Centralized i18n (Front & Back)](#13-internationalization--centralized-i18n-front--back)
+14. [Reading Config in an Engine](#14-reading-config-in-an-engine)
+15. [Rendering into the Matrix](#15-rendering-into-the-matrix)
+16. [Testing & Local Run](#16-testing--local-run)
+17. [Checklist](#17-checklist)
 
 ---
 
@@ -525,7 +526,57 @@ The WebUI dynamically renders the option in the theme selector, and changes take
 
 ---
 
-## 13. Reading Config in an Engine
+## 13. Internationalization & Centralized i18n (Front & Back)
+
+ArcadeMatrix on Raspberry Pi uses the centralized [`crate::core::i18n`](../src/core/i18n.rs) module.
+
+> [!IMPORTANT]
+> **Golden Rule: Never add a `lang` field to your engine's `ConfigSchema`.**
+> The system language (`system.lang`) is the single source of truth. When the user changes language in the WebUI header (`#lang-selector`), the UI sends `POST /api/system` `{ "lang": code }`, persisting the setting and propagating it immediately to all active engines.
+
+### A. Usage in a Rust Engine (`crate::core::i18n`)
+
+```rust
+use crate::core::i18n::{self, Lang};
+
+// 1. Read system language from context
+let sys_lang = ctx.config.settings.read().system.lang.clone();
+let lang = Lang::from_str_code(&sys_lang);
+
+// 2. Weather day names (e.g. "TODAY", "TMRW", "MON"..)
+let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
+
+// 3. Translated weather condition strings
+let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
+
+// 4. WordClock full text lines
+let lines = i18n::word_clock_lines(lang, hours, minutes);
+
+// 5. Noise / Decibel level statuses
+let noise = i18n::noise_level(lang, level_index);
+```
+
+### B. Tutorial: Adding a New Language (e.g. German `de`) in 3 Steps
+
+1. **Front-end WebUI (`api/www/js/i18n.js` or `index.html`):**
+   Add the language to `SUPPORTED_LANGUAGES` and complete translations:
+   ```javascript
+   export const SUPPORTED_LANGUAGES = [
+     { code: 'fr', label: 'Français' },
+     { code: 'en', label: 'English' },
+     { code: 'es', label: 'Español' },
+     { code: 'de', label: 'Deutsch' },
+   ];
+   ```
+2. **Raspberry Pi Back-end (`src/core/i18n.rs`):**
+   - Add variant `De` to enum `Lang`.
+   - Provide translation lookups for weather, word clock, and noise status.
+3. **ESP32 Back-end (`src/core/I18n.h` & `src/core/I18n.cpp`):**
+   - Add `DE` to enum `Lang` and implement the static translation methods.
+
+---
+
+## 14. Reading Config in an Engine
 
 The engine receives a restricted `&dyn EngineConfig` proxy (never the whole `config.json`):
 
@@ -539,7 +590,7 @@ These map onto the instance's `HashMap<String,String>`. Keys correspond to your 
 
 ---
 
-## 14. Rendering into the Matrix
+## 15. Rendering into the Matrix
 
 `ctx.matrix` is a `&mut dyn MatrixBackend`. Typical pattern:
 
@@ -555,7 +606,7 @@ The **render loop** owns `update()` (the flush to the panel) and, after your `re
 
 ---
 
-## 15. Testing & Local Run
+## 16. Testing & Local Run
 
 ```bash
 rtk cargo fmt
@@ -571,13 +622,14 @@ The pre-commit hook runs the release validator, doc/config-key validator, `cargo
 
 ---
 
-## 16. Checklist
+## 17. Checklist
 
 - [ ] Struct pre-allocates buffers; no allocation in `update`/`render`.
 - [ ] `on_config_changed` re-reads every editable field **in place**.
 - [ ] `Capabilities.realtime` reflects whether you animate every frame (or override `is_realtime`).
 - [ ] Every schema field has a sensible `default_value` and `validation_policy`.
 - [ ] Dynamic choices use `options_endpoint`; multi-value uses `multiple: true` (CSV).
+- [ ] Localized strings use the centralized `crate::core::i18n` module (no redundant `lang` field in schema).
 - [ ] Registered via `#[distributed_slice]`; module added to `engines/mod.rs`.
 - [ ] `app.rs` untouched.
 - [ ] `cargo fmt`, `cargo test`, `cargo build --release` all pass.

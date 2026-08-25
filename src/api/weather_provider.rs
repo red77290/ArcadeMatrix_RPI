@@ -2,6 +2,8 @@
 pub struct DayForecast {
     pub label: String,
     pub temp: String,
+    pub temp_min: String,
+    pub temp_max: String,
     pub condition: String,
     pub icon: String,
 }

@@ -235,34 +235,47 @@ impl WeatherEngine {
 
         for (i, slide) in slides.iter().enumerate() {
             let base_x = i as u32 * mw;
+            let font = self.base_renderer.font();
+
+            let color_morning = (120, 200, 255);
+            let color_afternoon = (255, 150, 50);
+            let color_label = (180, 180, 255);
+            let color_desc = (210, 210, 210);
 
             if mw >= 256 && mh >= 64 {
                 // --- 256x64 Ultra-Widescreen HD Layout ---
-                let icon_x = base_x as i32 + offset_x + 24;
+                let icon_x = base_x as i32 + offset_x + 20;
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-                let temp_x = icon_x + 44;
-                let temp_y = (mh as i32 - 16) / 2 + offset_y;
+                let temp_x = icon_x + 36;
                 self.draw_arcade_text(
                     &mut panorama,
-                    &slide.temp,
+                    &slide.temp_min,
                     temp_x,
-                    temp_y,
-                    (255, 255, 255),
+                    offset_y + 10,
+                    color_morning,
+                    2.0,
+                );
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_max,
+                    temp_x,
+                    offset_y + 38,
+                    color_afternoon,
                     2.0,
                 );
 
-                let font = self.base_renderer.font();
-                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
-                let right_x = temp_x + temp_w + 20;
+                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
+                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
+                let right_x = temp_x + min_w.max(max_w) + 18;
 
                 self.draw_arcade_text(
                     &mut panorama,
                     &slide.label,
                     right_x,
-                    offset_y + mh as i32 / 2 - 16,
-                    (180, 180, 255),
+                    offset_y + 10,
+                    color_label,
                     2.0,
                 );
 
@@ -271,36 +284,40 @@ impl WeatherEngine {
                         &mut panorama,
                         &slide.condition,
                         right_x,
-                        offset_y + mh as i32 / 2 + 6,
-                        (200, 200, 200),
-                        1.0,
+                        offset_y + 38,
+                        color_desc,
+                        2.0,
                     );
                 }
             } else if is_wide && !is_tall {
                 // --- 128x32 Optimized Spacious Layout ---
-                // 1. Weather Icon on Left (24x24)
                 let icon_x = base_x as i32 + offset_x + 4;
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-                // 2. Large Temperature in Center (scale 2.0 = 16px high)
                 let temp_x = icon_x + 28;
-                let temp_y = (mh as i32 - 16) / 2 + offset_y;
                 self.draw_arcade_text(
                     &mut panorama,
-                    &slide.temp,
+                    &slide.temp_min,
                     temp_x,
-                    temp_y,
-                    (255, 255, 255),
-                    2.0,
+                    offset_y + 4,
+                    color_morning,
+                    1.0,
+                );
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_max,
+                    temp_x,
+                    offset_y + 18,
+                    color_afternoon,
+                    1.0,
                 );
 
-                // 3. Right Column: Day Label on top, Condition on bottom
-                let font = self.base_renderer.font();
-                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
-                let mut right_x = temp_x + temp_w + 8;
-                if right_x < base_x as i32 + 82 + offset_x {
-                    right_x = base_x as i32 + 82 + offset_x;
+                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
+                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 1.0);
+                let mut right_x = temp_x + min_w.max(max_w) + 8;
+                if right_x < base_x as i32 + 78 + offset_x {
+                    right_x = base_x as i32 + 78 + offset_x;
                 }
                 if right_x > (base_x + mw) as i32 - 40 {
                     right_x = (base_x + mw) as i32 - 40;
@@ -311,7 +328,7 @@ impl WeatherEngine {
                     &slide.label,
                     right_x,
                     offset_y + 4,
-                    (180, 180, 255),
+                    color_label,
                     1.0,
                 );
 
@@ -321,40 +338,47 @@ impl WeatherEngine {
                         &slide.condition,
                         right_x,
                         offset_y + 18,
-                        (200, 200, 200),
+                        color_desc,
                         1.0,
                     );
                 }
             } else if is_tall && is_wide {
                 // --- 128x64 or larger Spacious Layout ---
-                let icon_x = base_x as i32 + offset_x + 8;
+                let icon_x = base_x as i32 + offset_x + 6;
                 let icon_y = (mh as i32 - 24) / 2 + offset_y;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-                let temp_x = icon_x + 32;
-                let temp_y = (mh as i32 - 16) / 2 + offset_y;
+                let temp_x = icon_x + 30;
                 self.draw_arcade_text(
                     &mut panorama,
-                    &slide.temp,
+                    &slide.temp_min,
                     temp_x,
-                    temp_y,
-                    (255, 255, 255),
+                    offset_y + 12,
+                    color_morning,
+                    2.0,
+                );
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_max,
+                    temp_x,
+                    offset_y + 38,
+                    color_afternoon,
                     2.0,
                 );
 
-                let font = self.base_renderer.font();
-                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
-                let mut right_x = temp_x + temp_w + 10;
-                if right_x < base_x as i32 + 88 + offset_x {
-                    right_x = base_x as i32 + 88 + offset_x;
+                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 2.0);
+                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 2.0);
+                let mut right_x = temp_x + min_w.max(max_w) + 10;
+                if right_x < base_x as i32 + 82 + offset_x {
+                    right_x = base_x as i32 + 82 + offset_x;
                 }
 
                 self.draw_arcade_text(
                     &mut panorama,
                     &slide.label,
                     right_x,
-                    offset_y + mh as i32 / 2 - 12,
-                    (180, 180, 255),
+                    offset_y + 14,
+                    color_label,
                     1.0,
                 );
 
@@ -363,8 +387,8 @@ impl WeatherEngine {
                         &mut panorama,
                         &slide.condition,
                         right_x,
-                        offset_y + mh as i32 / 2 + 4,
-                        (200, 200, 200),
+                        offset_y + 38,
+                        color_desc,
                         1.0,
                     );
                 }
@@ -374,7 +398,6 @@ impl WeatherEngine {
                 let icon_y = offset_y + 16;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
-                let font = self.base_renderer.font();
                 let (_, label_w, _) = font.get_pixel_map(&slide.label, 1.0);
                 let label_x = base_x as i32 + (mw as i32 - label_w) / 2 + offset_x;
                 self.draw_arcade_text(
@@ -382,19 +405,30 @@ impl WeatherEngine {
                     &slide.label,
                     label_x,
                     offset_y + 4,
-                    (180, 180, 255),
+                    color_label,
                     1.0,
                 );
 
-                let (_, temp_w, _) = font.get_pixel_map(&slide.temp, 2.0);
-                let temp_x = base_x as i32 + (mw as i32 - temp_w) / 2 + offset_x;
+                let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
+                let min_x = base_x as i32 + (mw as i32 - min_w) / 2 + offset_x;
                 self.draw_arcade_text(
                     &mut panorama,
-                    &slide.temp,
-                    temp_x,
+                    &slide.temp_min,
+                    min_x,
                     offset_y + 44,
-                    (255, 255, 255),
-                    2.0,
+                    color_morning,
+                    1.0,
+                );
+
+                let (_, max_w, _) = font.get_pixel_map(&slide.temp_max, 1.0);
+                let max_x = base_x as i32 + (mw as i32 - max_w) / 2 + offset_x;
+                self.draw_arcade_text(
+                    &mut panorama,
+                    &slide.temp_max,
+                    max_x,
+                    offset_y + 54,
+                    color_afternoon,
+                    1.0,
                 );
             }
         }

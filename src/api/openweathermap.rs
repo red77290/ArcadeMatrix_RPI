@@ -17,6 +17,8 @@ struct ForecastWeather {
     icon: String,
     #[serde(default)]
     main: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -28,6 +30,89 @@ struct ForecastEntry {
 #[derive(Deserialize)]
 struct ForecastApiResponse {
     list: Vec<ForecastEntry>,
+}
+
+fn translate_condition(main: &str, desc: &str, lang: &str) -> String {
+    let m = main.to_lowercase();
+    let d = desc.to_lowercase();
+    let l = lang.to_lowercase();
+
+    if l == "fr" {
+        if m.contains("clear") {
+            return "Soleil".to_string();
+        }
+        if m.contains("cloud") {
+            if d.contains("couvert") || d.contains("overcast") {
+                return "Couvert".to_string();
+            }
+            if d.contains("part") || d.contains("peu") || d.contains("scat") {
+                return "Eclaircies".to_string();
+            }
+            return "Nuageux".to_string();
+        }
+        if m.contains("rain") || m.contains("drizzle") {
+            return "Pluie".to_string();
+        }
+        if m.contains("thunder") {
+            return "Orage".to_string();
+        }
+        if m.contains("snow") {
+            return "Neige".to_string();
+        }
+        if m.contains("mist") || m.contains("fog") || m.contains("haze") {
+            return "Brume".to_string();
+        }
+        if !desc.is_empty() {
+            let mut c = desc.chars();
+            return match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
+            };
+        }
+        return "Meteo".to_string();
+    } else if l == "es" {
+        if m.contains("clear") {
+            return "Soleado".to_string();
+        }
+        if m.contains("cloud") {
+            return "Nublado".to_string();
+        }
+        if m.contains("rain") || m.contains("drizzle") {
+            return "Lluvia".to_string();
+        }
+        if m.contains("thunder") {
+            return "Tormenta".to_string();
+        }
+        if m.contains("snow") {
+            return "Nieve".to_string();
+        }
+        if m.contains("mist") || m.contains("fog") {
+            return "Niebla".to_string();
+        }
+    }
+
+    if m.contains("clear") {
+        return "Clear".to_string();
+    }
+    if m.contains("cloud") {
+        return "Clouds".to_string();
+    }
+    if m.contains("rain") {
+        return "Rain".to_string();
+    }
+    if m.contains("drizzle") {
+        return "Drizzle".to_string();
+    }
+    if m.contains("thunder") {
+        return "Thunder".to_string();
+    }
+    if m.contains("snow") {
+        return "Snow".to_string();
+    }
+    if m.contains("mist") || m.contains("fog") {
+        return "Fog".to_string();
+    }
+    main.to_string()
 }
 
 impl WeatherProvider for OpenWeatherMapProvider {
@@ -167,19 +252,37 @@ impl OpenWeatherMapProvider {
 
             let forecasts: Vec<DayForecast> = indices
                 .iter()
-                .zip(labels.iter())
-                .filter_map(|(&idx, &label)| {
+                .enumerate()
+                .filter_map(|(day_idx, &idx)| {
                     data.list.get(idx).map(|entry| {
-                        let cond = entry
+                        let start_k = day_idx * 8;
+                        let end_k = ((day_idx + 1) * 8).min(data.list.len());
+                        let mut day_min = entry.main.temp_min.min(entry.main.temp);
+                        let mut day_max = entry.main.temp_max.max(entry.main.temp);
+                        for k in start_k..end_k {
+                            if let Some(e) = data.list.get(k) {
+                                day_min = day_min.min(e.main.temp_min).min(e.main.temp);
+                                day_max = day_max.max(e.main.temp_max).max(e.main.temp);
+                            }
+                        }
+
+                        let raw_main = entry
                             .weather
                             .get(0)
-                            .and_then(|w| w.main.clone())
-                            .unwrap_or_else(|| {
-                                format!("{:.0}/{:.0}", entry.main.temp_min, entry.main.temp_max)
-                            });
+                            .and_then(|w| w.main.as_deref())
+                            .unwrap_or("");
+                        let raw_desc = entry
+                            .weather
+                            .get(0)
+                            .and_then(|w| w.description.as_deref())
+                            .unwrap_or("");
+                        let cond = translate_condition(raw_main, raw_desc, lang);
+
                         DayForecast {
-                            label: label.to_string(),
+                            label: labels[day_idx].to_string(),
                             temp: format!("{:.0}{}", entry.main.temp, unit_sym),
+                            temp_min: format!("{:.0}{}", day_min, unit_sym),
+                            temp_max: format!("{:.0}{}", day_max, unit_sym),
                             condition: cond,
                             icon: entry
                                 .weather
@@ -231,10 +334,14 @@ mod tests {
         assert_eq!(forecasts.len(), 2);
         assert_eq!(forecasts[0].label, "TODAY");
         assert_eq!(forecasts[0].temp, "22°C");
+        assert_eq!(forecasts[0].temp_min, "20°C");
+        assert_eq!(forecasts[0].temp_max, "29°C");
         assert_eq!(forecasts[0].condition, "Clear");
         assert_eq!(forecasts[0].icon, "01d");
         assert_eq!(forecasts[1].label, "TMRW");
         assert_eq!(forecasts[1].temp, "30°C");
+        assert_eq!(forecasts[1].temp_min, "25°C");
+        assert_eq!(forecasts[1].temp_max, "35°C");
         assert_eq!(forecasts[1].condition, "Clouds");
         assert_eq!(forecasts[1].icon, "02d");
     }

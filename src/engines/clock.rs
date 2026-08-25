@@ -163,19 +163,87 @@ impl ClockEngine {
         }
     }
 
-    /// Reads every configurable field from the instance config. Shared by
-    /// `initialize` (first load) and `on_config_changed` (live UI edits) so a
-    /// theme/font/color change is applied on the fly without restarting.
+    /// Reads every configurable field from the instance config. Supports both
+    /// unprefixed (format, font, size, theme) and legacy prefixed (clock_format,
+    /// clock_font, clock_size, clock_theme) keys.
     fn apply_config(&mut self, config: &dyn EngineConfig) {
-        self.time_format = config.get_string("format", "%H:%M:%S");
-        self.time_font = config.get_string("font", "PressStart2P.ttf");
-        self.time_size = config.get_int("size", 2) as u32;
-        self.time_theme = config.get_int("theme", 0);
-        self.timezone = config.get_string("timezone", "");
-        self.clock_color_1 = config.get_string("color_1", "#ffffff");
-        self.clock_color_2 = config.get_string("color_2", "#ffffff");
-        self.time_offset_x = config.get_int("offset_x", 0);
-        self.time_offset_y = config.get_int("offset_y", 0);
+        let fmt = config.get_string("format", "");
+        self.time_format = if !fmt.is_empty() {
+            fmt
+        } else {
+            config.get_string("clock_format", "%H:%M:%S")
+        };
+
+        let font = config.get_string("font", "");
+        let font = if !font.is_empty() {
+            font
+        } else {
+            config.get_string("clock_font", "")
+        };
+        let font = if !font.is_empty() {
+            font
+        } else {
+            config.get_string("clock_font_path", "")
+        };
+        self.time_font = if !font.is_empty() {
+            font
+        } else {
+            config.get_string("font_path", "PressStart2P.ttf")
+        };
+
+        let size = config.get_int("size", 0);
+        self.time_size = if size > 0 {
+            size as u32
+        } else {
+            let cs = config.get_int("clock_size", 2);
+            if cs > 0 {
+                cs as u32
+            } else {
+                2
+            }
+        };
+
+        let theme = config.get_int("theme", -1);
+        self.time_theme = if theme >= 0 {
+            theme
+        } else {
+            config.get_int("clock_theme", 0)
+        };
+
+        let tz = config.get_string("timezone", "");
+        self.timezone = if !tz.is_empty() {
+            tz
+        } else {
+            config.get_string("clock_timezone", "")
+        };
+
+        let c1 = config.get_string("color_1", "");
+        self.clock_color_1 = if !c1.is_empty() {
+            c1
+        } else {
+            config.get_string("clock_color_1", "#ffffff")
+        };
+
+        let c2 = config.get_string("color_2", "");
+        self.clock_color_2 = if !c2.is_empty() {
+            c2
+        } else {
+            config.get_string("clock_color_2", "#ffffff")
+        };
+
+        let ox = config.get_int("offset_x", 0);
+        self.time_offset_x = if ox != 0 {
+            ox
+        } else {
+            config.get_int("clock_offset_x", 0)
+        };
+
+        let oy = config.get_int("offset_y", 0);
+        self.time_offset_y = if oy != 0 {
+            oy
+        } else {
+            config.get_int("clock_offset_y", 0)
+        };
     }
 }
 

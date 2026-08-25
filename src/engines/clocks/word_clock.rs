@@ -91,38 +91,13 @@ impl WordClock {
             _ => format!("{}", rounded_m),
         };
 
-        let lines = [
+        let lines = vec![
             "IL EST".to_string(),
             format!("{}{}", str_h, str_h_suffix),
             str_m,
         ];
 
-        let line_spacing = 4 * scale as i32;
-        let mut total_h = 0;
-        let mut line_heights = Vec::new();
-
-        for line in &lines {
-            let (_, _, lh) = font.get_pixel_map(line, scale as f32);
-            let final_lh = if lh == 0 { 8 * scale as i32 } else { lh };
-            line_heights.push(final_lh);
-            total_h += final_lh + line_spacing;
-        }
-        if total_h > 0 {
-            total_h -= line_spacing;
-        }
-
-        let mut y = (h - total_h) / 2;
-        for (i, line) in lines.iter().enumerate() {
-            let (_, lw, _) = font.get_pixel_map(line, scale as f32);
-            let x = (w - lw) / 2;
-            let color = if i % 2 == 0 {
-                (0, 220, 255)
-            } else {
-                (255, 120, 0)
-            };
-            BaseRenderer::draw_text_at(matrix, line, font, scale as f32, x, y, color, (0, 0, 0));
-            y += line_heights[i] + line_spacing;
-        }
+        self.draw_lines(matrix, &lines, font, scale, w, h);
     }
 
     fn render_en(
@@ -281,17 +256,68 @@ impl WordClock {
     fn draw_lines(
         &self,
         matrix: &mut dyn MatrixBackend,
-        lines: &[String],
+        raw_lines: &[String],
         font: &ArcadeFont<'_>,
-        scale: u32,
+        requested_scale: u32,
         w: i32,
         h: i32,
     ) {
-        let line_spacing = 4 * scale as i32;
+        let max_chars = (w / 8).max(1) as usize;
+        let mut lines = Vec::new();
+
+        for raw in raw_lines {
+            if raw.len() <= max_chars {
+                lines.push(raw.clone());
+            } else {
+                let words: Vec<&str> = raw.split_whitespace().collect();
+                let mut current = String::new();
+                for word in words {
+                    if current.is_empty() {
+                        current = word.to_string();
+                    } else if current.len() + 1 + word.len() <= max_chars {
+                        current.push(' ');
+                        current.push_str(word);
+                    } else {
+                        lines.push(current);
+                        current = word.to_string();
+                    }
+                }
+                if !current.is_empty() {
+                    lines.push(current);
+                }
+            }
+        }
+
+        let mut scale = requested_scale.max(1);
+        while scale > 1 {
+            let mut overflows = false;
+            let mut total_h = 0;
+            let line_spacing = if h >= 64 { 4 } else { 2 } * scale as i32;
+
+            for line in &lines {
+                let (_, lw, lh) = font.get_pixel_map(line, scale as f32);
+                if lw > w {
+                    overflows = true;
+                    break;
+                }
+                let final_lh = if lh == 0 { 8 * scale as i32 } else { lh };
+                total_h += final_lh + line_spacing;
+            }
+            if total_h > h {
+                overflows = true;
+            }
+            if overflows {
+                scale -= 1;
+            } else {
+                break;
+            }
+        }
+
+        let line_spacing = if h >= 64 { 4 } else { 2 } * scale as i32;
         let mut total_h = 0;
         let mut line_heights = Vec::new();
 
-        for line in lines {
+        for line in &lines {
             let (_, _, lh) = font.get_pixel_map(line, scale as f32);
             let final_lh = if lh == 0 { 8 * scale as i32 } else { lh };
             line_heights.push(final_lh);

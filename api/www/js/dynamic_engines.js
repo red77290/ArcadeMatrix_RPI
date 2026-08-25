@@ -1,4 +1,5 @@
 import { API } from './api.js';
+import { translations } from './i18n.js';
 
 export const GLOBAL_TIMEZONES = [
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
@@ -145,7 +146,8 @@ export async function initDynamicEngines() {
         e.currentTarget.classList.add('active');
         
         document.querySelectorAll('#page-display .tab-pane').forEach(pane => pane.classList.remove('active'));
-        document.getElementById(tabId).classList.add('active');
+        const targetPane = document.getElementById(tabId);
+        if (targetPane) targetPane.classList.add('active');
       };
       
       tabsContainer.insertBefore(tabBtn, addContainer);
@@ -251,7 +253,7 @@ export async function initDynamicEngines() {
               input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
               const formatOptLabel = (val, raw) => {
                 const lang = localStorage.getItem('lang') || 'en';
-                const dict = translations[lang] || translations.en;
+                const dict = (typeof translations !== 'undefined' && translations && translations[lang]) ? translations[lang] : ((typeof translations !== 'undefined' && translations) ? translations.en : {});
                 const v = String(val).trim();
                 const lower = v.toLowerCase();
                 if (field.id === 'direction' || ['rtl', 'ltr', 'ttb', 'btt', 'static', 'left', 'right', 'up', 'down', 'none'].includes(lower)) {

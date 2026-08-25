@@ -461,6 +461,9 @@ async function initSettings() {
     const matrix = cfg.matrix || {};
     const mqtt = cfg.mqtt || {};
 
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+
     // Dashboard brightness (0-100) is the live daytime brightness (day_brightness).
     const sliderBright = document.getElementById('slider-brightness');
     if (sliderBright) {
@@ -495,8 +498,6 @@ async function initSettings() {
     }
 
     // Hardware (nested matrix.*)
-    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
     setVal('hw-rows', matrix.height);
     setVal('hw-cols', matrix.width);
     setVal('hw-chain', matrix.chain_length);

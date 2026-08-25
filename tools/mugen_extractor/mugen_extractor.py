@@ -27,16 +27,99 @@ def find_file_case_insensitive(directory, target_path):
         if not found: return None
     return curr_dir
 
-def get_def_palette(cdir):
-    def_files = glob.glob(os.path.join(cdir, "*.def"))
-    if not def_files: return None
-    with open(def_files[0], 'r', errors='ignore') as f:
-        for line in f:
-            if line.strip().lower().startswith('pal1'):
-                if '=' in line:
-                    path = line.split('=')[-1].strip().split(';')[0].strip()
-                    return find_file_case_insensitive(cdir, path)
-    return None
+def score_palette(pal_bytes):
+    """
+    Scores a 768-byte palette (256 RGB triplets).
+    Higher score = richer, more authentic character palette.
+    Penalizes all-black silhouettes, all-white flash palettes, and 16-color portrait palettes.
+    """
+    if not pal_bytes or len(pal_bytes) < 768:
+        return -1000
+    
+    unique_colors = set()
+    total_lum = 0
+    non_zero_colors = 0
+    
+    for i in range(256):
+        r = pal_bytes[i*3]
+        g = pal_bytes[i*3 + 1]
+        b = pal_bytes[i*3 + 2]
+        if (r, g, b) != (0, 0, 0):
+            unique_colors.add((r, g, b))
+            non_zero_colors += 1
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            total_lum += lum
+            
+    num_unique = len(unique_colors)
+    if num_unique <= 4:
+        return -500 # Broken or flat silhouette
+        
+    avg_lum = total_lum / max(1, non_zero_colors)
+    
+    # Penalize extreme average brightness (pure dark < 18 or pure blown-out white > 235)
+    lum_penalty = 0
+    if avg_lum < 18:
+        lum_penalty = (18 - avg_lum) * 15
+    elif avg_lum > 235:
+        lum_penalty = (avg_lum - 235) * 15
+        
+    return (num_unique * 10) + (non_zero_colors * 2) - lum_penalty
+
+
+def get_best_palette(char_dir, sff):
+    """
+    Finds the highest-quality 256-color palette for a character:
+    1. Checks official .act palette files referenced in the character's .def file.
+    2. Checks canonical base idle/walk sprites (0,0), (0,1), (20,0) in the SFF.
+    3. Scans all other sprites in the SFF and selects the highest scoring palette.
+    """
+    candidates = []
+    
+    # 1. Try .act files in .def
+    def_files = glob.glob(os.path.join(char_dir, "*.def"))
+    if def_files:
+        try:
+            with open(def_files[0], 'r', errors='ignore') as f:
+                for line in f:
+                    line_clean = line.split(';')[0].strip()
+                    if line_clean.lower().startswith('pal') and '=' in line_clean:
+                        pal_path_raw = line_clean.split('=')[-1].strip()
+                        pal_file = find_file_case_insensitive(char_dir, pal_path_raw)
+                        if pal_file and os.path.isfile(pal_file):
+                            try:
+                                with open(pal_file, 'rb') as pf:
+                                    act_data = pf.read(768)
+                                    if len(act_data) == 768:
+                                        score = score_palette(act_data) + 500 # Bonus for official .def palette
+                                        candidates.append((score, act_data, f"DEF({os.path.basename(pal_file)})"))
+                            except Exception:
+                                pass
+        except Exception:
+            pass
+            
+    # 2. Check canonical base sprites in SFF: (0, 0), (0, 1), (20, 0), (21, 0), (5000, 0)
+    canonical_keys = [(0, 0), (0, 1), (20, 0), (21, 0), (5000, 0), (100, 0), (40, 0)]
+    for key in canonical_keys:
+        if key in sff.images and sff.images[key].get('pal'):
+            pal = sff.images[key]['pal']
+            score = score_palette(pal) + 300 # Bonus for base idle/walk sprite palette
+            candidates.append((score, pal, f"SFF({key})"))
+            
+    # 3. Check all other sprites in SFF
+    for key, img_info in sff.images.items():
+        if img_info.get('pal'):
+            pal = img_info['pal']
+            score = score_palette(pal)
+            candidates.append((score, pal, f"SFF_ALL({key})"))
+            
+    if not candidates:
+        return sff.first_palette
+        
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    best_score, best_pal, best_source = candidates[0]
+    logging.info(f"Selected master palette from {best_source} with score {best_score}")
+    return best_pal
+
 
 class SFFv1Parser:
     def __init__(self, filepath):
@@ -54,6 +137,7 @@ class SFFv1Parser:
             first_offset = struct.unpack('<I', header[24:28])[0]
             
             next_offset = first_offset
+            last_pal = None
             for _ in range(num_images):
                 if next_offset == 0: break
                 f.seek(next_offset)
@@ -64,11 +148,22 @@ class SFFv1Parser:
                 
                 if data_length > 0:
                     pcx_data = f.read(data_length)
-                    if not self.first_palette and len(pcx_data) > 768:
-                        self.first_palette = pcx_data[-768:]
+                    curr_pal = None
+                    if len(pcx_data) > 768:
+                        curr_pal = pcx_data[-768:]
+                        last_pal = curr_pal
+                        if not self.first_palette:
+                            self.first_palette = curr_pal
+                    elif same_pal != 0 and last_pal:
+                        curr_pal = last_pal
+                        
                     self.images[(grp, img)] = {
-                        'x': x, 'y': y,
-                        'data': pcx_data
+                        'x': x,
+                        'y': y,
+                        'data': pcx_data,
+                        'pal': curr_pal,
+                        'grp': grp,
+                        'img': img
                     }
 
 class AirParser:
@@ -110,29 +205,33 @@ def process_character(char_dir, out_dir):
     air_files = glob.glob(os.path.join(char_dir, "*.air"))
     if not sff_files or not air_files: return False
 
-    # We explicitly ignore .act files to fix the BGR vs RGB palette inversion issue.
-    # The script will rely entirely on the main palette embedded within the .sff file.
-    master_palette = None
-
     sff = SFFv1Parser(sff_files[0])
     air = AirParser(air_files[0])
 
+    master_palette = get_best_palette(char_dir, sff)
     if not master_palette:
-        master_palette = sff.first_palette
-        if not master_palette: return False
+        return False
 
-    required_anims = {
-        0: 'stand',
-        20: 'walk'
-    }
-    attack_anims = [200, 210, 220, 230, 240, 250, 400, 410, 420]
-    for act_id in attack_anims:
+    required_anims = {}
+    
+    # Stand (fallback to crouch 11 or first anim)
+    if 0 in air.animations: required_anims[0] = 'stand'
+    elif 11 in air.animations: required_anims[11] = 'stand'
+    elif len(air.animations) > 0: required_anims[list(air.animations.keys())[0]] = 'stand'
+    
+    # Walk (fallback to back walk 21 or run 100)
+    if 20 in air.animations: required_anims[20] = 'walk'
+    elif 21 in air.animations: required_anims[21] = 'walk'
+    elif 100 in air.animations: required_anims[100] = 'walk'
+
+    # Attack (any from 200-499)
+    for act_id in range(200, 500):
         if act_id in air.animations:
             required_anims[act_id] = 'attack'
             break
             
-    hit_anims = [5000, 5001, 5002, 5010, 5011, 5012]
-    for act_id in hit_anims:
+    # Hit (any from 5000-5099)
+    for act_id in range(5000, 5100):
         if act_id in air.animations:
             required_anims[act_id] = 'hit'
             break
@@ -205,7 +304,17 @@ def process_character(char_dir, out_dir):
                 global_max_x = max(global_max_x, max_x)
                 global_max_y = max(global_max_y, max_y)
                 
-                valid_frames.append({'img': img_obj, 'ox': ox, 'oy': oy, 'delay': f['delay'], 'min_y': min_y, 'max_y': max_y})
+                valid_frames.append({
+                    'img': img_obj,
+                    'ox': ox,
+                    'oy': oy,
+                    'delay': f['delay'],
+                    'min_y': min_y,
+                    'max_y': max_y,
+                    'pal': img_info.get('pal'),
+                    'grp': img_info.get('grp', 0),
+                    'img_id': img_info.get('img', 0)
+                })
 
         if valid_frames:
             all_valid_frames[anim_name] = valid_frames
@@ -247,6 +356,8 @@ def process_character(char_dir, out_dir):
         scale = 1.0
         if walk_h > TARGET_HEIGHT:
             scale = TARGET_HEIGHT / walk_h
+        canvas_w = max(1, int(orig_w * scale))
+        canvas_h = max(1, int(orig_h * scale))
     else:
         # FULLSIZE Mode
         scale = 1.0
@@ -287,7 +398,6 @@ def process_character(char_dir, out_dir):
 
             for fr in valid_frames:
                 img_obj = fr['img']
-                # Paste coordinates so that the character's axis aligns with global origin
                 paste_x = -global_min_x - fr['ox']
                 paste_y = -global_min_y - fr['oy']
                 
@@ -299,25 +409,39 @@ def process_character(char_dir, out_dir):
                 except:
                     indices = [0] * (img_obj.width * img_obj.height)
                 
-                trans_idx = indices[0] if indices else 0
-                
                 rgba_canvas = Image.new('RGBA', (orig_w, orig_h), (0,0,0,0))
                 rgba_pixels = rgba_canvas.load()
+                
+                # Determine which palette to use for this frame:
+                # If the frame has its own valid palette (e.g. for special FX / projectiles)
+                # and it's not a standard body group, use the frame's palette if it's high quality.
+                frame_pal = fr.get('pal')
+                use_pal = master_palette
+                if frame_pal and fr.get('grp', 0) >= 1000 and score_palette(frame_pal) > 200:
+                    use_pal = frame_pal
                 
                 for py in range(img_obj.height):
                     for px in range(img_obj.width):
                         cx = paste_x + px
                         cy = paste_y + py
                         if 0 <= cx < orig_w and 0 <= cy < orig_h:
-                            idx = indices[py * img_obj.width + px]
-                            if idx != trans_idx:
-                                if isinstance(idx, tuple):
-                                    rgba_pixels[cx, cy] = (idx[0], idx[1], idx[2], 255)
-                                else:
-                                    if idx * 3 + 2 < len(master_palette):
-                                        r = master_palette[idx*3]
-                                        g = master_palette[idx*3 + 1]
-                                        b = master_palette[idx*3 + 2]
+                            val = indices[py * img_obj.width + px]
+                            if isinstance(val, tuple):
+                                # If image is RGB/RGBA
+                                if len(val) >= 4:
+                                    if val[3] > 0:
+                                        rgba_pixels[cx, cy] = val
+                                elif val != (0, 255, 0) and val != (255, 0, 255):
+                                    rgba_pixels[cx, cy] = (val[0], val[1], val[2], 255)
+                            else:
+                                # 8-bit paletted index: Index 0 is ALWAYS TRANSPARENT in MUGEN
+                                idx = int(val)
+                                if idx != 0 and idx * 3 + 2 < len(use_pal):
+                                    r = use_pal[idx*3]
+                                    g = use_pal[idx*3 + 1]
+                                    b = use_pal[idx*3 + 2]
+                                    # Filter out background mask colors (green/magenta) if accidentally mapped
+                                    if not (r == 0 and g == 255 and b == 0) and not (r == 255 and g == 0 and b == 255):
                                         rgba_pixels[cx, cy] = (r, g, b, 255)
                                         
                 if orig_w != canvas_w or orig_h != canvas_h:

@@ -1,6 +1,7 @@
 import { API } from './api.js';
-import { setLanguage } from './i18n.js';
+import { setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
 import './components/toast.js';
+import { initDynamicEngines } from './dynamic_engines.js';
 
 let selectedOtaFile = null;
 
@@ -38,37 +39,65 @@ document.addEventListener('DOMContentLoaded', () => {
   initOta();
   loadVersion();
   initCustomMarquee();
+  initFighterOverlay();
   initNetworkSettings();
   initSettings();
-  initPlaylists();
+  initDynamicEngines();
 });
+
+export function switchPage(pageName) {
+  document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+
+  const navItem = document.querySelector(`.nav-item[data-page="${pageName}"]`);
+  const pageEl = document.getElementById(`page-${pageName}`);
+  if (navItem) navItem.classList.add('active');
+  if (pageEl) pageEl.classList.add('active');
+  localStorage.setItem('activePage', pageName);
+}
 
 function initNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
-      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-
-      item.classList.add('active');
-      const pageId = `page-${item.getAttribute('data-page')}`;
-      const pageEl = document.getElementById(pageId);
-      if (pageEl) pageEl.classList.add('active');
+      const page = item.getAttribute('data-page');
+      switchPage(page);
     });
   });
 
+  const savedPage = localStorage.getItem('activePage') || 'dashboard';
+  switchPage(savedPage);
+
   const langSelect = document.getElementById('lang-selector');
   if (langSelect) {
+    langSelect.innerHTML = '';
+    SUPPORTED_LANGUAGES.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = l.label;
+      langSelect.appendChild(opt);
+    });
+
+    const savedLang = localStorage.getItem('lang');
     const defaultLang = navigator.language.split('-')[0];
-    const initialLang = ['en', 'fr', 'es'].includes(defaultLang) ? defaultLang : 'en';
+    const initialLang = savedLang || (SUPPORTED_LANGUAGES.some(l => l.code === defaultLang) ? defaultLang : 'fr');
     langSelect.value = initialLang;
     setLanguage(initialLang);
-    langSelect.addEventListener('change', (e) => setLanguage(e.target.value));
+
+    langSelect.addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      setLanguage(selected);
+      try {
+        await API.post('/api/system', { lang: selected });
+      } catch (err) {
+        console.warn('Failed to sync lang to backend:', err);
+      }
+    });
   }
 }
 
 async function loadVersion() {
   try {
-    const data = await API.get('/api/version');
+    const data = await API.get('/api/version').catch(() => API.get('/api/stats')).catch(() => ({version: '3.0.0', arch: 'aarch64'}));
     const versionTag = document.getElementById('version-tag');
     const otaVer = document.getElementById('ota-current-version');
     const otaArch = document.getElementById('ota-current-arch');
@@ -112,21 +141,6 @@ function initDashboard() {
     });
   }
 
-  const btnRestartApp = document.getElementById('btn-restart-app');
-  if (btnRestartApp) {
-    btnRestartApp.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to soft restart the application? (Hardware config will be reapplied)')) {
-        try {
-          await API.post('/api/system/restart_app');
-          window.showToast('Restarting application...', 'info');
-          setTimeout(() => location.reload(), 2000);
-        } catch (e) {
-          window.showToast('Failed to restart application', 'error');
-        }
-      }
-    });
-  }
-
   const btnShutdown = document.getElementById('btn-shutdown');
   if (btnShutdown) {
     btnShutdown.addEventListener('click', async () => {
@@ -141,10 +155,24 @@ function initDashboard() {
     });
   }
 
+  const btnRestartApp = document.getElementById('btn-restart-app');
+  if (btnRestartApp) {
+    btnRestartApp.addEventListener('click', async () => {
+      if (confirm('Restart the ArcadeMatrix app? The display will go blank for a few seconds.')) {
+        try {
+          await API.post('/api/system/restart');
+          window.showToast('Restarting app...', 'info');
+        } catch (e) {
+          window.showToast('Failed to restart app', 'error');
+        }
+      }
+    });
+  }
+
   // System Info Polling
   setInterval(async () => {
     try {
-      const info = await API.get('/api/system_info');
+      const info = await API.get('/api/stats');
       document.getElementById('metric-cpu').textContent = `${info.cpu_load.toFixed(1)} %`;
       document.getElementById('metric-temp').textContent = `${info.temperature_c.toFixed(1)} °C`;
       document.getElementById('metric-ram').textContent = `${info.ram_used_mb} MB`;
@@ -266,6 +294,41 @@ function initCustomMarquee() {
   }
 }
 
+function initFighterOverlay() {
+  const enabledEl = document.getElementById('fighter-enabled');
+  const intervalEl = document.getElementById('fighter-interval');
+  const saveBtn = document.getElementById('btn-save-fighter');
+  if (!enabledEl || !intervalEl || !saveBtn) return;
+
+  // Load current values from the canonical system config.
+  (async () => {
+    try {
+      const cfg = await API.get('/api/system');
+      const sys = cfg.system || {};
+      if (typeof sys.idle_fighter_enabled === 'boolean') {
+        enabledEl.checked = sys.idle_fighter_enabled;
+      }
+      if (typeof sys.idle_fighter_interval === 'number') {
+        intervalEl.value = sys.idle_fighter_interval;
+      }
+    } catch (e) {
+      console.error('Failed to load fighter settings', e);
+    }
+  })();
+
+  saveBtn.addEventListener('click', async () => {
+    try {
+      await API.post('/api/system', {
+        idle_fighter_enabled: enabledEl.checked,
+        idle_fighter_interval: parseInt(intervalEl.value) || 1,
+      });
+      window.showToast('Fighter overlay settings saved!', 'success');
+    } catch (e) {
+      window.showToast('Failed to save fighter settings', 'error');
+    }
+  });
+}
+
 function initNetworkSettings() {
   const btnSaveWifi = document.getElementById('btn-save-wifi');
   if (btnSaveWifi) {
@@ -373,13 +436,18 @@ function initNetworkSettings() {
   const btnSaveMqtt = document.getElementById('btn-save-mqtt');
   if (btnSaveMqtt) {
     btnSaveMqtt.addEventListener('click', async () => {
-      const mqtt_enable = document.getElementById('hw-mqtt-enable').value === '1';
-      const mqtt_broker = document.getElementById('hw-mqtt-broker').value;
-      const mqtt_port = parseInt(document.getElementById('hw-mqtt-port').value, 10);
-      const mqtt_user = document.getElementById('hw-mqtt-user').value;
-      const mqtt_pass = document.getElementById('hw-mqtt-pass').value;
+      const base = (window.__sysConfig && window.__sysConfig.mqtt) ? { ...window.__sysConfig.mqtt } : {};
+      const mqtt = {
+        ...base,
+        enabled: document.getElementById('hw-mqtt-enable').value === '1',
+        broker: document.getElementById('hw-mqtt-broker').value,
+        port: parseInt(document.getElementById('hw-mqtt-port').value, 10) || 1883,
+        user: document.getElementById('hw-mqtt-user').value,
+        pass: document.getElementById('hw-mqtt-pass').value,
+      };
       try {
-        await API.post('/api/settings', { mqtt_enable, mqtt_broker, mqtt_port, mqtt_user, mqtt_pass });
+        await API.post('/api/system', { mqtt });
+        if (window.__sysConfig) window.__sysConfig.mqtt = mqtt;
         window.showToast('MQTT Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save MQTT Settings', 'error');
@@ -393,7 +461,7 @@ function initNetworkSettings() {
       const api_auth_enabled = document.getElementById('hw-api-auth').value === 'true';
       const api_token = document.getElementById('hw-api-token').value;
       try {
-        await API.post('/api/settings', { api_auth_enabled, api_token });
+        await API.post('/api/system', { api_auth_enabled, api_token });
         window.showToast('API Auth Settings Saved!', 'success');
       } catch (e) {
         window.showToast('Failed to save API Auth Settings', 'error');
@@ -403,338 +471,142 @@ function initNetworkSettings() {
 }
 
 async function initSettings() {
-  // Load fonts list
+  // Load current settings (canonical nested model straight from config.json).
   try {
-    const fonts = await API.get('/api/fonts');
-    const clockFontSel = document.getElementById('cfg-clock-font');
-    const dateFontSel = document.getElementById('cfg-date-font');
-    if (clockFontSel && dateFontSel) {
-      fonts.forEach(f => {
-        clockFontSel.add(new Option(f, f));
-        dateFontSel.add(new Option(f, f));
-      });
-    }
-  } catch (e) {
-    console.warn('Failed to load fonts list', e);
-  }
+    const cfg = await API.get('/api/system');
+    window.__sysConfig = cfg; // keep the full config to merge on save
+    const sys = cfg.system || {};
+    const matrix = cfg.matrix || {};
+    const mqtt = cfg.mqtt || {};
 
-  // Load current settings
-  try {
-    const s = await API.get('/api/settings');
-    
-    // Dashboard
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+
+    if (sys.lang) {
+      const ls = document.getElementById('lang-selector');
+      if (ls) ls.value = sys.lang;
+      setLanguage(sys.lang);
+    }
+
+    // Dashboard brightness (0-100) is the live daytime brightness (day_brightness).
     const sliderBright = document.getElementById('slider-brightness');
     if (sliderBright) {
-      sliderBright.value = s.brightness_limit;
-      document.getElementById('val-brightness').textContent = s.brightness_limit;
+      const bright = sys.day_brightness ?? 100;
+      sliderBright.value = bright;
+      const valEl = document.getElementById('val-brightness');
+      if (valEl) valEl.textContent = bright;
       sliderBright.addEventListener('input', (e) => {
-        document.getElementById('val-brightness').textContent = e.target.value;
+        const v = document.getElementById('val-brightness');
+        if (v) v.textContent = e.target.value;
       });
       sliderBright.addEventListener('change', async (e) => {
-        await API.post('/api/settings', { brightness_limit: parseInt(e.target.value) });
+        await API.post('/api/system', { brightness_limit: parseInt(e.target.value) });
         window.showToast('Brightness updated', 'info');
       });
     }
 
-    // Hardware
-    document.getElementById('hw-rows').value = s.matrix_rows;
-    document.getElementById('hw-cols').value = s.matrix_cols;
-    document.getElementById('hw-chain').value = s.matrix_chain;
-    document.getElementById('hw-parallel').value = s.matrix_parallel;
-    if (document.getElementById('hw-driver-chip')) document.getElementById('hw-driver-chip').value = s.matrix_driver_chip || 'SHIFTREG';
-    if (document.getElementById('hw-row-addr-type')) document.getElementById('hw-row-addr-type').value = s.matrix_row_addr_type || 0;
-    if (document.getElementById('hw-multiplexing')) document.getElementById('hw-multiplexing').value = s.matrix_multiplexing || 0;
-    document.getElementById('hw-mapping').value = s.matrix_mapping || 'regular';
-    document.getElementById('hw-rgb').value = s.matrix_rgb_sequence || 'RGB';
-    document.getElementById('hw-slowdown').value = s.matrix_slowdown;
-    document.getElementById('hw-pwm-bits').value = s.matrix_pwm_bits;
-    document.getElementById('hw-pwm-lsb').value = s.matrix_pwm_lsb_nanoseconds;
-    document.getElementById('hw-disable-pulsing').checked = s.matrix_disable_hardware_pulsing;
-    document.getElementById('hw-limit-refresh').value = s.matrix_limit_refresh_rate_hz;
-    
-    // MQTT
-    document.getElementById('hw-mqtt-enable').value = s.mqtt_enabled ? '1' : '0';
-    document.getElementById('hw-mqtt-broker').value = s.mqtt_broker;
-    document.getElementById('hw-mqtt-port').value = s.mqtt_port;
-    document.getElementById('hw-mqtt-user').value = s.mqtt_user || '';
-    document.getElementById('hw-mqtt-pass').value = s.mqtt_pass || '';
-
-    // API
-    document.getElementById('hw-api-auth').value = s.api_auth_enabled ? 'true' : 'false';
-    document.getElementById('hw-api-token').value = s.api_token || '';
-
-    // Clock
-    document.getElementById('cfg-clock-theme').value = s.clock_theme;
-    document.getElementById('cfg-clock-font').value = s.clock_font;
-    document.getElementById('cfg-clock-format').value = s.time_format;
-    document.getElementById('cfg-clock-size').value = s.time_size || 2;
-    document.getElementById('cfg-ntp-server').value = s.ntp_server || 'pool.ntp.org';
-    document.getElementById('cfg-timezone').value = s.timezone || 'Europe/Paris';
-    document.getElementById('cfg-clock-color1').value = s.clock_color_1.toLowerCase();
-    document.getElementById('cfg-clock-color2').value = s.clock_color_2.toLowerCase();
-    document.getElementById('cfg-clock-x').value = s.clock_offset_x;
-    document.getElementById('cfg-clock-y').value = s.clock_offset_y;
-
-    // Date
-    document.getElementById('cfg-date-theme').value = s.date_theme;
-    document.getElementById('cfg-date-font').value = s.date_font;
-    document.getElementById('cfg-date-format').value = s.date_format;
-    document.getElementById('cfg-date-size').value = s.date_size || 1;
-    document.getElementById('cfg-date-color1').value = s.date_color_1.toLowerCase();
-    document.getElementById('cfg-date-color2').value = s.date_color_2.toLowerCase();
-    document.getElementById('cfg-date-x').value = s.date_offset_x;
-    document.getElementById('cfg-date-y').value = s.date_offset_y;
-
-    // Weather
-    document.getElementById('cfg-weather-api').value = s.weather_api_key;
-    document.getElementById('cfg-weather-city').value = s.weather_city;
-    document.getElementById('cfg-weather-lang').value = s.weather_lang;
-    document.getElementById('cfg-weather-x').value = s.weather_offset_x || 0;
-    document.getElementById('cfg-weather-y').value = s.weather_offset_y || 0;
-
-    // Crypto & Stock
-    if (document.getElementById('cfg-crypto-symbols')) document.getElementById('cfg-crypto-symbols').value = s.crypto_symbols || 'BTC,ETH,SOL,DOGE';
-    if (document.getElementById('cfg-dur-crypto')) document.getElementById('cfg-dur-crypto').value = s.crypto_duration_sec || 5;
-    if (document.getElementById('cfg-cache-crypto')) document.getElementById('cfg-cache-crypto').value = s.crypto_cache_ttl_min || 1;
-    if (document.getElementById('cfg-stock-symbols')) document.getElementById('cfg-stock-symbols').value = s.stock_symbols || 'AAPL,NVDA,TSLA,MSFT';
-    if (document.getElementById('cfg-dur-stock')) document.getElementById('cfg-dur-stock').value = s.stock_duration_sec || 5;
-    if (document.getElementById('cfg-cache-stock')) document.getElementById('cfg-cache-stock').value = s.stock_cache_ttl_min || 1;
-
-    // Rotation
-    document.getElementById('cfg-rotation').value = s.rotation;
-    const rotationArr = (s.rotation || '').split(',').map(x => x.trim());
-    document.querySelectorAll('.rotation-toggles input[type="checkbox"]').forEach(cb => {
-      cb.checked = rotationArr.includes(cb.value);
-    });
-    document.getElementById('cfg-dur-clock').value = s.clock_duration_sec;
-    document.getElementById('cfg-dur-date').value = s.date_duration_sec;
-    document.getElementById('cfg-dur-weather').value = s.weather_duration_sec;
-    document.getElementById('cfg-dur-gifs').value = s.gifs_count || 5;
-    document.getElementById('cfg-sprite-enable').value = s.fighter_enabled === 'true' ? 'true' : 'false';
-    document.getElementById('cfg-fighter-int').value = s.fighter_interval_sec || 5;
-
     // Night Mode
-    document.getElementById('cfg-night-enable').value = s.night_mode_enabled ? 'true' : 'false';
-    document.getElementById('cfg-night-off').value = s.turn_off_at;
-    document.getElementById('cfg-night-on').value = s.wake_up_at;
+    setChk('cfg-night-mode-enabled', sys.night_mode_enabled);
+    setVal('cfg-turn-off-at', sys.turn_off_at || '23:00');
+    setVal('cfg-wake-up-at', sys.wake_up_at || '07:00');
+    const sliderNightBright = document.getElementById('cfg-night-brightness');
+    if (sliderNightBright) {
+      const nb = (sys.night_brightness !== undefined) ? sys.night_brightness : 10;
+      sliderNightBright.value = nb;
+      const v = document.getElementById('night-brightness-val');
+      if (v) v.textContent = nb + '%';
+      sliderNightBright.addEventListener('input', (e) => {
+        const val = document.getElementById('night-brightness-val');
+        if (val) val.textContent = e.target.value + '%';
+      });
+    }
 
+    // Hardware (nested matrix.*)
+    setVal('hw-rows', matrix.height);
+    setVal('hw-cols', matrix.width);
+    setVal('hw-chain', matrix.chain_length);
+    setVal('hw-parallel', 1);
+    setVal('hw-driver-chip', matrix.driver_chip || 'SHIFTREG');
+    setVal('hw-row-addr-type', matrix.row_address_mode ?? 0);
+    setVal('hw-multiplexing', matrix.multiplexing ?? 0);
+    setVal('hw-mapping', matrix.mapping || 'regular');
+    setVal('hw-rgb', matrix.rgb_sequence || 'RGB');
+    setVal('hw-slowdown', matrix.slowdown);
+    setVal('hw-pwm-bits', matrix.pwm_bits);
+    setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds);
+    setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing);
+    setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz);
+
+    // MQTT (nested mqtt.*)
+    setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
+    setVal('hw-mqtt-broker', mqtt.broker);
+    setVal('hw-mqtt-port', mqtt.port);
+    setVal('hw-mqtt-user', mqtt.user || '');
+    setVal('hw-mqtt-pass', mqtt.pass || '');
+
+    // API auth (top-level)
+    setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');
+    setVal('hw-api-token', cfg.api_token || '');
   } catch (e) {
     console.error('Failed to load settings', e);
   }
 
-  // Save Display Settings
-  const btnSaveDisplayList = document.querySelectorAll('.btn-save-display');
-  btnSaveDisplayList.forEach(btnSaveDisplay => {
-    btnSaveDisplay.addEventListener('click', async () => {
-      btnSaveDisplay.disabled = true;
-      btnSaveDisplay.textContent = 'Saving...';
+
+  // Save Night Mode settings
+  const btnSaveNight = document.getElementById('btn-save-night');
+  if (btnSaveNight) {
+    btnSaveNight.addEventListener('click', async () => {
+      const nightEnabled = document.getElementById('cfg-night-mode-enabled')?.checked || false;
+      const turnOffAt = document.getElementById('cfg-turn-off-at')?.value || '23:00';
+      const wakeUpAt = document.getElementById('cfg-wake-up-at')?.value || '07:00';
+      const nightBright = parseInt(document.getElementById('cfg-night-brightness')?.value) || 0;
+
       try {
-          const selectedRotations = Array.from(document.querySelectorAll('.rotation-toggles input[type="checkbox"]:checked'))
-            .map(cb => cb.value).join(',');
-
-          const payload = {
-            clock_theme: parseInt(document.getElementById('cfg-clock-theme').value),
-            clock_font: document.getElementById('cfg-clock-font').value,
-            time_format: document.getElementById('cfg-clock-format').value,
-            time_size: parseInt(document.getElementById('cfg-clock-size').value) || 2,
-            ntp_server: document.getElementById('cfg-ntp-server').value,
-            timezone: document.getElementById('cfg-timezone').value,
-            clock_color_1: document.getElementById('cfg-clock-color1').value,
-            clock_color_2: document.getElementById('cfg-clock-color2').value,
-            clock_offset_x: parseInt(document.getElementById('cfg-clock-x').value) || 0,
-            clock_offset_y: parseInt(document.getElementById('cfg-clock-y').value) || 0,
-
-            date_theme: parseInt(document.getElementById('cfg-date-theme').value),
-            date_font: document.getElementById('cfg-date-font').value,
-            date_format: document.getElementById('cfg-date-format').value,
-            date_size: parseInt(document.getElementById('cfg-date-size').value) || 1,
-            date_color_1: document.getElementById('cfg-date-color1').value,
-            date_color_2: document.getElementById('cfg-date-color2').value,
-            date_offset_x: parseInt(document.getElementById('cfg-date-x').value) || 0,
-            date_offset_y: parseInt(document.getElementById('cfg-date-y').value) || 0,
-
-            weather_api_key: document.getElementById('cfg-weather-api').value,
-            weather_city: document.getElementById('cfg-weather-city').value,
-            weather_lang: document.getElementById('cfg-weather-lang').value,
-            weather_offset_x: parseInt(document.getElementById('cfg-weather-x').value) || 0,
-            weather_offset_y: parseInt(document.getElementById('cfg-weather-y').value) || 0,
-
-            crypto_symbols: document.getElementById('cfg-crypto-symbols') ? document.getElementById('cfg-crypto-symbols').value : 'BTC,ETH,SOL,DOGE',
-            crypto_duration_sec: parseInt(document.getElementById('cfg-dur-crypto')?.value) || 5,
-            crypto_cache_ttl_min: parseInt(document.getElementById('cfg-cache-crypto')?.value) || 1,
-            stock_symbols: document.getElementById('cfg-stock-symbols') ? document.getElementById('cfg-stock-symbols').value : 'AAPL,NVDA,TSLA,MSFT',
-            stock_duration_sec: parseInt(document.getElementById('cfg-dur-stock')?.value) || 5,
-            stock_cache_ttl_min: parseInt(document.getElementById('cfg-cache-stock')?.value) || 1,
-
-            rotation: selectedRotations,
-            clock_duration_sec: parseInt(document.getElementById('cfg-dur-clock').value) || 10,
-          date_duration_sec: parseInt(document.getElementById('cfg-dur-date').value) || 10,
-          weather_duration_sec: parseInt(document.getElementById('cfg-dur-weather').value) || 10,
-          gifs_count: parseInt(document.getElementById('cfg-dur-gifs').value) || 5,
-          fighter_enabled: document.getElementById('cfg-sprite-enable').value === 'true',
-          fighter_interval_sec: parseInt(document.getElementById('cfg-fighter-int').value) || 5,
-
-          night_mode_enabled: document.getElementById('cfg-night-enable').value === 'true',
-          turn_off_at: document.getElementById('cfg-night-off').value,
-          wake_up_at: document.getElementById('cfg-night-on').value,
-        };
-        await API.post('/api/settings', payload);
-        window.showToast('Display settings saved!', 'success');
+        await API.post('/api/system', {
+          night_mode_enabled: nightEnabled,
+          turn_off_at: turnOffAt,
+          wake_up_at: wakeUpAt,
+          night_brightness: nightBright
+        });
+        window.showToast('Night Mode settings saved!', 'success');
       } catch (e) {
-        window.showToast('Failed to save settings', 'error');
-      } finally {
-        btnSaveDisplay.disabled = false;
-        btnSaveDisplay.textContent = 'Save Display Settings';
+        window.showToast('Failed to save Night Mode settings', 'error');
       }
     });
-  });
+  }
 
   // Save HW settings
   const btnSaveHw = document.getElementById('btn-save-hw');
   if (btnSaveHw) {
     btnSaveHw.addEventListener('click', async () => {
-      const rows = parseInt(document.getElementById('hw-rows').value) || 32;
-      const cols = parseInt(document.getElementById('hw-cols').value) || 64;
-      const chain = parseInt(document.getElementById('hw-chain').value) || 1;
-      const parallel = parseInt(document.getElementById('hw-parallel').value) || 1;
-      const driverChip = document.getElementById('hw-driver-chip')?.value || 'SHIFTREG';
-      const rowAddrType = parseInt(document.getElementById('hw-row-addr-type')?.value) || 0;
-      const multiplexing = parseInt(document.getElementById('hw-multiplexing')?.value) || 0;
-      const mapping = document.getElementById('hw-mapping').value || 'regular';
-      const rgb = document.getElementById('hw-rgb').value || 'RGB';
-      const slowdown = parseInt(document.getElementById('hw-slowdown').value) || 2;
-      const pwmBits = parseInt(document.getElementById('hw-pwm-bits').value) || 11;
-      const pwmLsb = parseInt(document.getElementById('hw-pwm-lsb').value) || 130;
-      const disablePulsing = document.getElementById('hw-disable-pulsing').checked;
-      const limitRefresh = parseInt(document.getElementById('hw-limit-refresh').value) || 120;
-      
+      // Start from the full loaded matrix config so untouched fields (panel_type,
+      // color_depth, latch_blanking, ...) are preserved instead of reset to default.
+      const base = (window.__sysConfig && window.__sysConfig.matrix) ? { ...window.__sysConfig.matrix } : {};
+      const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
+      const matrix = {
+        ...base,
+        height: numOr('hw-rows', 32),
+        width: numOr('hw-cols', 64),
+        chain_length: numOr('hw-chain', 1),
+        driver_chip: document.getElementById('hw-driver-chip')?.value || 'SHIFTREG',
+        row_address_mode: numOr('hw-row-addr-type', 0),
+        multiplexing: numOr('hw-multiplexing', 0),
+        mapping: document.getElementById('hw-mapping')?.value || 'regular',
+        rgb_sequence: document.getElementById('hw-rgb')?.value || 'RGB',
+        slowdown: numOr('hw-slowdown', 2),
+        pwm_bits: numOr('hw-pwm-bits', 11),
+        pwm_lsb_nanoseconds: numOr('hw-pwm-lsb', 130),
+        disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
+        limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
+      };
       try {
-        await API.post('/api/settings', { 
-          matrix_rows: rows,
-          matrix_cols: cols,
-          matrix_chain: chain,
-          matrix_parallel: parallel,
-          matrix_driver_chip: driverChip,
-          matrix_row_addr_type: rowAddrType,
-          matrix_multiplexing: multiplexing,
-          matrix_mapping: mapping,
-          matrix_rgb_sequence: rgb,
-          matrix_slowdown: slowdown,
-          matrix_pwm_bits: pwmBits,
-          matrix_pwm_lsb_nanoseconds: pwmLsb,
-          matrix_disable_hardware_pulsing: disablePulsing,
-          matrix_limit_refresh_rate_hz: limitRefresh
-        });
-        window.showToast('Hardware settings saved! Restarting app...', 'success');
-        setTimeout(async () => {
-          await API.post('/api/system/restart_app');
-        }, 1500);
+        await API.post('/api/system', { matrix });
+        if (window.__sysConfig) window.__sysConfig.matrix = matrix;
+        window.showToast('Hardware settings saved! The panel will restart to apply changes.', 'success');
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }
     });
-  }
-
-  // Send Custom Message
-  const btnSendMsg = document.getElementById('btn-send-message');
-  if (btnSendMsg) {
-    btnSendMsg.addEventListener('click', async () => {
-      const text = document.getElementById('msg-input').value;
-      const color = document.getElementById('msg-color')?.value || '#ffffff';
-      const size = parseInt(document.getElementById('msg-size')?.value) || 1;
-      const direction = document.getElementById('msg-direction')?.value || 'left';
-      const speed = parseInt(document.getElementById('msg-speed')?.value) || 30;
-      const timeout = parseInt(document.getElementById('msg-timeout')?.value) || 10;
-      
-      if (!text) return;
-      try {
-        await API.post('/api/message', {
-          text: text,
-          color: color,
-          size: size,
-          direction: direction,
-          speed: speed,
-          timeoutSeconds: timeout
-        });
-        window.showToast('Message sent!', 'success');
-      } catch (e) {
-        window.showToast('Failed to send message', 'error');
-      }
-    });
-  }
-}
-
-async function initPlaylists() {
-  const container = document.querySelector('.playlist-list');
-  if (!container) return;
-  
-  container.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--text-color);">Loading GIFs...<br><small style="opacity:0.7">Reading SD Card, this may take a few seconds...</small></div>`;
-  
-  try {
-    const res = await API.get('/api/playlists');
-    const allPlaylists = res; 
-    
-    let selectedPaths = [];
-    try {
-      const selRes = await API.get('/api/playlists/selected');
-      selectedPaths = selRes.playlists || [];
-    } catch (e) {
-      console.warn('Could not fetch selected playlists', e);
-    }
-    
-    let html = '';
-    for (const [name, info] of Object.entries(allPlaylists)) {
-      const isChecked = selectedPaths.includes(info.path) ? 'checked' : '';
-      const count = info.count || (info.files ? info.files.length : 0);
-      
-      html += `
-        <div class="playlist-item">
-          <div class="info">
-            <h4>${name}</h4>
-            <span>${count} GIFs found</span>
-          </div>
-          <div class="action">
-            <label style="display:flex; align-items:center; cursor:pointer;">
-              <input type="checkbox" class="playlist-cb" value="${info.path}" ${isChecked} style="width:20px;height:20px;margin-right:10px;accent-color:var(--primary);">
-              Include
-            </label>
-          </div>
-        </div>
-      `;
-    }
-    
-    if (Object.keys(allPlaylists).length === 0) {
-      html = `<div style="padding:1rem;text-align:center;">No GIF folders found. Check your data/gifs directory.</div>`;
-    } else {
-      html += `<button id="btn-save-playlists" class="btn btn-primary" style="margin-top:1rem; width:100%;">Save GIF Playlists</button>`;
-    }
-    
-    container.innerHTML = html;
-    
-    const btnSave = document.getElementById('btn-save-playlists');
-    if (btnSave) {
-      btnSave.addEventListener('click', async () => {
-        btnSave.disabled = true;
-        btnSave.textContent = 'Saving...';
-        
-        const checkboxes = document.querySelectorAll('.playlist-cb:checked');
-        const pathsToSave = Array.from(checkboxes).map(cb => cb.value);
-        
-        try {
-          await API.post('/api/playlists/save', { playlists: pathsToSave });
-          window.showToast('Playlists saved successfully!', 'success');
-        } catch (e) {
-          window.showToast('Failed to save playlists', 'error');
-        } finally {
-          btnSave.disabled = false;
-          btnSave.textContent = 'Save GIF Playlists';
-        }
-      });
-    }
-    
-  } catch (e) {
-    container.innerHTML = `<div style="padding:2rem;text-align:center;color:#ef4444;">Failed to load playlists.</div>`;
-    console.error(e);
   }
 }
 

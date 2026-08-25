@@ -1,12 +1,31 @@
-use crate::api::ota::{get_version, handle_update};
-use crate::core::config::Config;
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use crate::core::config::{Config, EngineInstance, RotationEntry};
+use crate::core::config_sanitizer::ConfigSanitizer;
+use crate::core::registry::EngineRegistry;
+use actix_multipart::Multipart;
+use actix_web::{delete, get, post, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+use futures_util::StreamExt;
+use rust_embed::RustEmbed;
 use serde_json::json;
+use std::net::UdpSocket;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use sysinfo::System;
 
 pub struct AppState {
     pub config: Arc<Config>,
+}
+
+/// Best-effort local IPv4 discovery (used to tell a game console where to push
+/// MQTT marquee events). Falls back to loopback when offline.
+fn get_local_ip() -> String {
+    if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
+        if socket.connect("8.8.8.8:80").is_ok() {
+            if let Ok(addr) = socket.local_addr() {
+                return addr.ip().to_string();
+            }
+        }
+    }
+    "127.0.0.1".to_string()
 }
 
 fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
@@ -26,535 +45,369 @@ fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
             "message": "Missing or invalid X-API-Token header"
         })));
     }
-
     Ok(())
 }
 
-#[get("/api/fonts")]
-async fn api_fonts() -> impl Responder {
-    let mut fonts = Vec::new();
-    if let Ok(entries) = std::fs::read_dir("fonts") {
-        for entry in entries.flatten() {
-            if let Ok(name) = entry.file_name().into_string() {
-                let lower_name = name.to_lowercase();
-                if lower_name.ends_with(".ttf")
-                    || lower_name.ends_with(".otf")
-                    || lower_name.ends_with(".bdf")
-                {
-                    fonts.push(name);
-                }
-            }
-        }
+#[get("/api/system")]
+async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
     }
-    HttpResponse::Ok().json(fonts)
-}
-
-#[get("/api/settings")]
-async fn get_settings(data: web::Data<AppState>) -> impl Responder {
     let s = data.config.settings.read();
     HttpResponse::Ok().json(json!({
-        "brightness_limit": s.matrix_brightness,
-        "color_depth": 24,
-        "rotation": s.idle_rotation.join(","),
-        "clock_offset_x": s.time_offset_x,
-        "clock_offset_y": s.time_offset_y,
-        "date_offset_x": s.date_offset_x,
-        "date_offset_y": s.date_offset_y,
-        "weather_offset_x": s.weather_offset_x,
-        "weather_offset_y": s.weather_offset_y,
-        "clock_size": s.time_size,
-        "clock_font": s.time_font,
-        "clock_theme": s.time_theme,
-        "clock_color_1": s.clock_color_1,
-        "clock_color_2": s.clock_color_2,
-        "time_format": s.time_format,
-        "date_size": s.date_size,
-        "date_font": s.date_font,
-        "date_theme": s.date_theme,
-        "date_format": s.date_format,
-        "date_color_1": s.date_color_1,
-        "date_color_2": s.date_color_2,
-        "night_mode_enabled": s.standby_enabled,
-        "turn_off_at": s.standby_turn_off,
-        "wake_up_at": s.standby_wake_up,
-        "matrix_brightness_night": s.standby_night_brightness,
-        "matrix_power": data.config.matrix_power.load(std::sync::atomic::Ordering::Relaxed),
-        "matrix_brightness": s.matrix_brightness,
-        "matrix_slowdown": s.matrix_slowdown,
-        "matrix_rows": s.matrix_rows,
-        "matrix_cols": s.matrix_cols,
-        "matrix_chain": s.matrix_chain,
-        "matrix_parallel": s.matrix_parallel,
-        "matrix_driver_chip": s.matrix_driver_chip,
-        "matrix_multiplexing": s.matrix_multiplexing,
-        "matrix_row_addr_type": s.matrix_row_addr_type,
-        "matrix_mapping": s.matrix_mapping,
-        "matrix_rgb_sequence": s.matrix_rgb_sequence,
-        "matrix_pwm_bits": s.matrix_pwm_bits,
-        "matrix_pwm_lsb_nanoseconds": s.matrix_pwm_lsb_nanoseconds,
-        "matrix_disable_hardware_pulsing": s.matrix_disable_hardware_pulsing,
-        "matrix_limit_refresh_rate_hz": s.matrix_limit_refresh_rate_hz,
-        "mqtt_enabled": s.mqtt_enabled,
-        "mqtt_broker": s.mqtt_broker,
-        "mqtt_port": s.mqtt_port,
-        "mqtt_user": s.mqtt_user,
-        "clock_duration_sec": s.idle_clock_duration_sec,
-        "date_duration_sec": s.idle_date_duration_sec,
-        "weather_duration_sec": s.idle_weather_duration_sec,
-        "gifs_count": s.idle_gifs_count,
-        "fighter_enabled": s.idle_fighter_enabled,
-        "fighter_interval_sec": s.idle_fighter_interval,
-        "weather_api_key": s.weather_api_key,
-        "weather_city": s.weather_city,
-        "weather_lang": s.weather_lang,
-        "crypto_symbols": s.crypto_symbols.join(","),
-        "crypto_cache_ttl_min": s.crypto_cache_ttl_min,
-        "stock_symbols": s.stock_symbols.join(","),
-        "stock_cache_ttl_min": s.stock_cache_ttl_min,
+        "system": s.system,
+        "matrix": s.matrix,
+        "mqtt": s.mqtt,
+        "wifi": s.wifi,
+        "api_auth_enabled": s.api_auth_enabled,
+        "api_token": s.api_token
     }))
 }
 
-#[post("/api/settings")]
-async fn post_settings(
+#[post("/api/system")]
+async fn post_system(
+    req: HttpRequest,
     data: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let mut s = data.config.settings.write();
-    let old_s = s.clone();
-
-    // Matrix settings
-    if let Some(v) = body.get("brightness_limit").and_then(|v| v.as_u64()) {
-        s.matrix_brightness = v as u32;
-        data.config
-            .matrix_brightness
-            .store(v as u32, std::sync::atomic::Ordering::Relaxed);
+    // Snapshot the fields that require a hardware restart to take effect.
+    let prev_matrix = serde_json::to_value(&s.matrix).ok();
+    let prev_disable_wifi = s.wifi.disable_internal;
+    // Simplified update (normally you'd merge the fields)
+    if let Some(sys) = body.get("system") {
+        if let Ok(sys_val) = serde_json::from_value(sys.clone()) {
+            s.system = sys_val;
+        }
     }
-    if let Some(v) = body.get("matrix_slowdown").and_then(|v| v.as_u64()) {
-        s.matrix_slowdown = v as u32;
+    if let Some(mat) = body.get("matrix") {
+        if let Ok(mat_val) = serde_json::from_value(mat.clone()) {
+            s.matrix = mat_val;
+        }
     }
-    if let Some(v) = body.get("matrix_rows").and_then(|v| v.as_u64()) {
-        s.matrix_rows = v as u32;
+    if let Some(mq) = body.get("mqtt") {
+        if let Ok(mq_val) = serde_json::from_value(mq.clone()) {
+            s.mqtt = mq_val;
+        }
     }
-    if let Some(v) = body.get("matrix_cols").and_then(|v| v.as_u64()) {
-        s.matrix_cols = v as u32;
+    if let Some(wf) = body.get("wifi") {
+        if let Ok(wf_val) = serde_json::from_value(wf.clone()) {
+            s.wifi = wf_val;
+        }
     }
-    if let Some(v) = body.get("matrix_chain").and_then(|v| v.as_u64()) {
-        s.matrix_chain = v as u32;
-    }
-    if let Some(v) = body.get("matrix_parallel").and_then(|v| v.as_u64()) {
-        s.matrix_parallel = v as u32;
-    }
-    if let Some(v) = body.get("matrix_driver_chip").and_then(|v| v.as_str()) {
-        s.matrix_driver_chip = v.to_string();
-    }
-    if let Some(v) = body.get("matrix_multiplexing").and_then(|v| v.as_u64()) {
-        s.matrix_multiplexing = v as u32;
-    }
-    if let Some(v) = body.get("matrix_row_addr_type").and_then(|v| v.as_u64()) {
-        s.matrix_row_addr_type = v as u32;
-    }
-    if let Some(v) = body.get("matrix_mapping").and_then(|v| v.as_str()) {
-        s.matrix_mapping = v.to_string();
-    }
-    if let Some(v) = body.get("matrix_rgb_sequence").and_then(|v| v.as_str()) {
-        s.matrix_rgb_sequence = v.to_string();
-    }
-    if let Some(v) = body.get("matrix_pwm_bits").and_then(|v| v.as_u64()) {
-        s.matrix_pwm_bits = v as u32;
-    }
-    if let Some(v) = body
-        .get("matrix_pwm_lsb_nanoseconds")
-        .and_then(|v| v.as_u64())
-    {
-        s.matrix_pwm_lsb_nanoseconds = v as u32;
-    }
-    if let Some(v) = body
-        .get("matrix_disable_hardware_pulsing")
-        .and_then(|v| v.as_bool())
-    {
-        s.matrix_disable_hardware_pulsing = v;
-    }
-    if let Some(v) = body
-        .get("matrix_limit_refresh_rate_hz")
-        .and_then(|v| v.as_u64())
-    {
-        s.matrix_limit_refresh_rate_hz = v as u32;
-    }
-
-    // Clock settings
-    if let Some(v) = body.get("clock_theme").and_then(|v| v.as_i64()) {
-        s.time_theme = v as i32;
-    }
-    if let Some(v) = body.get("clock_font").and_then(|v| v.as_str()) {
-        s.time_font = v.to_string();
-    }
-    if let Some(v) = body.get("time_size").and_then(|v| v.as_u64()) {
-        s.time_size = v as u32;
-    }
-    if let Some(v) = body.get("ntp_server").and_then(|v| v.as_str()) {
-        s.ntp_server = v.to_string();
-    }
-    if let Some(v) = body.get("timezone").and_then(|v| v.as_str()) {
-        s.timezone = v.to_string();
-    }
-    if let Some(v) = body.get("clock_color_1").and_then(|v| v.as_str()) {
-        s.clock_color_1 = v.to_string();
-    }
-    if let Some(v) = body.get("clock_color_2").and_then(|v| v.as_str()) {
-        s.clock_color_2 = v.to_string();
-    }
-    if let Some(v) = body.get("clock_offset_x").and_then(|v| v.as_i64()) {
-        s.time_offset_x = v as i32;
-    }
-    if let Some(v) = body.get("clock_offset_y").and_then(|v| v.as_i64()) {
-        s.time_offset_y = v as i32;
-    }
-    if let Some(v) = body.get("time_format").and_then(|v| v.as_str()) {
-        s.time_format = v.to_string();
-    }
-
-    // Date settings
-    if let Some(v) = body.get("date_theme").and_then(|v| v.as_i64()) {
-        s.date_theme = v as i32;
-    }
-    if let Some(v) = body.get("date_font").and_then(|v| v.as_str()) {
-        s.date_font = v.to_string();
-    }
-    if let Some(v) = body.get("date_size").and_then(|v| v.as_u64()) {
-        s.date_size = v as u32;
-    }
-    if let Some(v) = body.get("date_format").and_then(|v| v.as_str()) {
-        s.date_format = v.to_string();
-    }
-    if let Some(v) = body.get("date_color_1").and_then(|v| v.as_str()) {
-        s.date_color_1 = v.to_string();
-    }
-    if let Some(v) = body.get("date_color_2").and_then(|v| v.as_str()) {
-        s.date_color_2 = v.to_string();
-    }
-    if let Some(v) = body.get("date_offset_x").and_then(|v| v.as_i64()) {
-        s.date_offset_x = v as i32;
-    }
-    if let Some(v) = body.get("date_offset_y").and_then(|v| v.as_i64()) {
-        s.date_offset_y = v as i32;
-    }
-
-    // Weather settings
-    if let Some(v) = body.get("weather_api_key").and_then(|v| v.as_str()) {
-        s.weather_api_key = v.to_string();
-    }
-    if let Some(v) = body.get("weather_city").and_then(|v| v.as_str()) {
-        s.weather_city = v.to_string();
-    }
-    if let Some(v) = body.get("weather_lang").and_then(|v| v.as_str()) {
-        s.weather_lang = v.to_string();
-    }
-    if let Some(v) = body.get("weather_offset_x").and_then(|v| v.as_i64()) {
-        s.weather_offset_x = v as i32;
-    }
-    if let Some(v) = body.get("weather_offset_y").and_then(|v| v.as_i64()) {
-        s.weather_offset_y = v as i32;
-    }
-
-    // Rotation & Idle settings
-    if let Some(v) = body.get("rotation").and_then(|v| v.as_str()) {
-        s.idle_rotation = v
-            .split(',')
-            .map(|item| item.trim().to_string())
-            .filter(|item| !item.is_empty())
-            .collect();
-    }
-    if let Some(v) = body.get("clock_duration_sec").and_then(|v| v.as_u64()) {
-        s.idle_clock_duration_sec = v as u32;
-    }
-    if let Some(v) = body.get("date_duration_sec").and_then(|v| v.as_u64()) {
-        s.idle_date_duration_sec = v as u32;
-    }
-    if let Some(v) = body.get("weather_duration_sec").and_then(|v| v.as_u64()) {
-        s.idle_weather_duration_sec = v as u32;
-    }
-    if let Some(v) = body.get("gifs_count").and_then(|v| v.as_u64()) {
-        s.idle_gifs_count = v as u32;
-    }
-    if let Some(v) = body.get("fighter_interval_sec").and_then(|v| v.as_u64()) {
-        s.idle_fighter_interval = v as u32;
-    }
-    if let Some(v) = body.get("fighter_enabled").and_then(|v| v.as_bool()) {
-        s.idle_fighter_enabled = v;
-    }
-
-    // Crypto & Stock settings
-    if let Some(v) = body.get("crypto_symbols").and_then(|v| v.as_str()) {
-        s.crypto_symbols = v
-            .split(',')
-            .map(|item| item.trim().to_string())
-            .filter(|item| !item.is_empty())
-            .collect();
-    }
-    if let Some(v) = body.get("crypto_cache_ttl_min").and_then(|v| v.as_u64()) {
-        s.crypto_cache_ttl_min = v as u32;
-    }
-    if let Some(v) = body.get("stock_symbols").and_then(|v| v.as_str()) {
-        s.stock_symbols = v
-            .split(',')
-            .map(|item| item.trim().to_string())
-            .filter(|item| !item.is_empty())
-            .collect();
-    }
-    if let Some(v) = body.get("stock_cache_ttl_min").and_then(|v| v.as_u64()) {
-        s.stock_cache_ttl_min = v as u32;
-    }
-
-    // Standby / Night mode
-    if let Some(v) = body.get("night_mode_enabled").and_then(|v| v.as_bool()) {
-        s.standby_enabled = v;
-    }
-    if let Some(v) = body.get("turn_off_at").and_then(|v| v.as_str()) {
-        s.standby_turn_off = v.to_string();
-    }
-    if let Some(v) = body.get("wake_up_at").and_then(|v| v.as_str()) {
-        s.standby_wake_up = v.to_string();
-    }
-    if let Some(v) = body.get("matrix_brightness_night").and_then(|v| v.as_u64()) {
-        s.standby_night_brightness = v as u32;
-    }
-
-    // MQTT settings
-    if let Some(v) = body.get("mqtt_enable").and_then(|v| v.as_bool()) {
-        s.mqtt_enabled = v;
-    }
-    if let Some(v) = body.get("mqtt_broker").and_then(|v| v.as_str()) {
-        s.mqtt_broker = v.to_string();
-    }
-    if let Some(v) = body.get("mqtt_port").and_then(|v| v.as_u64()) {
-        s.mqtt_port = v as u16;
-    }
-    if let Some(v) = body.get("mqtt_user").and_then(|v| v.as_str()) {
-        s.mqtt_user = v.to_string();
-    }
-    if let Some(v) = body.get("mqtt_pass").and_then(|v| v.as_str()) {
-        s.mqtt_pass = v.to_string();
-    }
-
-    // API settings
+    // Top-level (non-nested) settings sent directly by the web UI.
     if let Some(v) = body.get("api_auth_enabled").and_then(|v| v.as_bool()) {
         s.api_auth_enabled = v;
     }
     if let Some(v) = body.get("api_token").and_then(|v| v.as_str()) {
         s.api_token = v.to_string();
     }
-
-    let needs_restart = old_s.matrix_slowdown != s.matrix_slowdown
-        || old_s.matrix_rows != s.matrix_rows
-        || old_s.matrix_cols != s.matrix_cols
-        || old_s.matrix_chain != s.matrix_chain
-        || old_s.matrix_parallel != s.matrix_parallel
-        || old_s.matrix_mapping != s.matrix_mapping
-        || old_s.matrix_rgb_sequence != s.matrix_rgb_sequence
-        || old_s.matrix_pwm_bits != s.matrix_pwm_bits
-        || old_s.matrix_pwm_lsb_nanoseconds != s.matrix_pwm_lsb_nanoseconds
-        || old_s.matrix_disable_hardware_pulsing != s.matrix_disable_hardware_pulsing
-        || old_s.mqtt_enabled != s.mqtt_enabled
-        || old_s.mqtt_broker != s.mqtt_broker
-        || old_s.mqtt_port != s.mqtt_port
-        || old_s.mqtt_user != s.mqtt_user
-        || old_s.mqtt_pass != s.mqtt_pass;
-
+    if let Some(v) = body.get("lang").and_then(|v| v.as_str()) {
+        s.system.lang = v.to_string();
+    }
+    // Fighter overlay toggle/interval (media page). Handled as top-level keys so
+    // the UI can patch them without replacing the whole `system` object.
+    if let Some(v) = body.get("idle_fighter_enabled").and_then(|v| v.as_bool()) {
+        s.system.idle_fighter_enabled = v;
+    }
+    if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
+        s.system.idle_fighter_interval = (v.max(1)) as u32;
+    }
+    if let Some(v) = body.get("night_mode_enabled").and_then(|v| v.as_bool()) {
+        s.system.night_mode_enabled = v;
+    }
+    if let Some(v) = body.get("turn_off_at").and_then(|v| v.as_str()) {
+        s.system.turn_off_at = v.to_string();
+    }
+    if let Some(v) = body.get("wake_up_at").and_then(|v| v.as_str()) {
+        s.system.wake_up_at = v.to_string();
+    }
+    if let Some(v) = body.get("night_brightness").and_then(|v| v.as_u64()) {
+        s.system.night_brightness = (v.min(100)) as u32;
+    }
+    // Live daytime brightness (0-100), applied immediately without a restart.
+    if let Some(v) = body
+        .get("brightness_limit")
+        .or_else(|| body.get("brightness"))
+        .and_then(|v| v.as_u64())
+    {
+        let clamped = v.min(100) as u32;
+        data.config
+            .matrix_brightness
+            .store(clamped, Ordering::Relaxed);
+        // Persist it too, so the saved brightness survives a restart instead of
+        // reverting to the default when the config is reloaded from disk.
+        s.system.day_brightness = clamped;
+    }
+    // Hardware-affecting settings only take effect after a full restart of the
+    // render loop, so flag it when matrix params or the Wi-Fi radio state change.
+    let new_matrix = serde_json::to_value(&s.matrix).ok();
+    let needs_reload = prev_matrix != new_matrix || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
-
-    data.config
-        .reset_rotation
-        .store(true, std::sync::atomic::Ordering::Relaxed);
-
-    if needs_restart {
-        data.config
-            .reload_flag
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+    if needs_reload {
+        data.config.reload_flag.store(true, Ordering::Relaxed);
     }
-
-    HttpResponse::Ok().json(json!({"status": "success"}))
+    HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
-#[post("/api/clock")]
-async fn post_clock(
-    data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Some(theme) = body.get("clock_theme").and_then(|v| v.as_i64()) {
-        let mut s = data.config.settings.write();
-        s.time_theme = theme as i32;
-        drop(s);
-        data.config.save();
+#[get("/api/instances")]
+async fn get_instances(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
     }
-    HttpResponse::Ok().json(json!({"status": "success"}))
+    let s = data.config.settings.read();
+    HttpResponse::Ok().json(&s.instances)
 }
 
-#[post("/api/message")]
-async fn post_message(
+#[post("/api/instances")]
+async fn post_instances(
+    req: HttpRequest,
     data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
+    body: web::Json<EngineInstance>,
 ) -> impl Responder {
-    *data.config.message_payload.lock() = Some(body.into_inner());
-    *data.config.force_engine.lock() = Some("message".to_string());
-    HttpResponse::Ok().json(json!({"status": "success"}))
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let new_inst = body.into_inner();
+    // Reject instances referencing an engine that isn't registered in the
+    // auto-discovery registry: they would silently never render.
+    if EngineRegistry::get_descriptor(&new_inst.engine_id).is_none() {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": format!("Unknown engine_id '{}'", new_inst.engine_id)
+        }));
+    }
+    let mut s = data.config.settings.write();
+    if let Some(existing) = s
+        .instances
+        .iter_mut()
+        .find(|i| i.instance_id == new_inst.instance_id)
+    {
+        *existing = new_inst;
+    } else {
+        s.instances.push(new_inst);
+    }
+    // Self-heal at write time: inject defaults, clamp/fallback out-of-range values.
+    ConfigSanitizer::sanitize_instances(&mut s);
+    drop(s);
+    data.config.save();
+    // Make the runtime pick up the new/edited instance immediately.
+    data.config.reset_rotation.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
-#[get("/api/playlists")]
-async fn get_playlists() -> impl Responder {
-    let result = actix_web::web::block(|| {
-        let mut playlists = serde_json::Map::new();
-        let gifs_dir = std::path::Path::new("gifs");
-        if let Ok(entries) = std::fs::read_dir(gifs_dir) {
-            for entry in entries.flatten() {
-                if entry.path().is_dir() {
-                    let path_str = entry.file_name().to_string_lossy().to_string();
-                    let mut count = 0;
-                    if let Ok(files) = std::fs::read_dir(entry.path()) {
-                        count = files
-                            .flatten()
-                            .filter(|f| {
-                                let name =
-                                    f.file_name().to_string_lossy().to_string().to_lowercase();
-                                name.ends_with(".gif") && !name.starts_with("._")
-                            })
-                            .count();
-                    }
-                    playlists.insert(
-                        path_str.clone(),
-                        json!({
-                            "path": format!("gifs/{}", path_str),
-                            "count": count
-                        }),
-                    );
-                }
+#[delete("/api/instances/{id}")]
+async fn delete_instance(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    path: web::Path<String>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let mut s = data.config.settings.write();
+    s.instances.retain(|i| i.instance_id != *path);
+    // Drop any rotation entries that referenced the removed instance so the
+    // render loop never points at a dangling instance_id.
+    s.rotation.retain(|r| r.instance_id != *path);
+    drop(s);
+    data.config.save();
+    data.config.reset_rotation.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
+#[get("/api/rotation")]
+async fn get_rotation(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let s = data.config.settings.read();
+    HttpResponse::Ok().json(&s.rotation)
+}
+
+#[post("/api/rotation")]
+async fn post_rotation(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<Vec<RotationEntry>>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let mut s = data.config.settings.write();
+    s.rotation = body.into_inner();
+    drop(s);
+    data.config.save();
+    data.config.reset_rotation.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
+#[get("/api/engines")]
+async fn get_engines(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    HttpResponse::Ok().json(crate::core::registry::EngineRegistry::get_all_descriptors())
+}
+
+/// Runs a privileged power command, trying several candidates so it works
+/// whether or not `sudo` is needed and regardless of the systemd PATH. Logs the
+/// outcome instead of silently swallowing failures (the previous `.spawn().ok()`
+/// hid the reason reboot/shutdown appeared to do nothing).
+fn run_power_command(candidates: &[&[&str]]) -> bool {
+    for cand in candidates {
+        let (bin, args) = cand.split_first().expect("non-empty command");
+        match std::process::Command::new(bin).args(args).spawn() {
+            Ok(_) => {
+                tracing::info!("Power command dispatched: {} {:?}", bin, args);
+                return true;
+            }
+            Err(e) => {
+                tracing::warn!("Power command '{}' failed: {}", bin, e);
             }
         }
-        playlists
-    })
-    .await;
-
-    match result {
-        Ok(playlists) => HttpResponse::Ok().json(playlists),
-        Err(_) => HttpResponse::InternalServerError().finish(),
     }
+    tracing::error!("All power command candidates failed");
+    false
 }
 
-#[get("/api/playlists/selected")]
-async fn get_selected_playlists(data: web::Data<AppState>) -> impl Responder {
-    let s = data.config.settings.read();
-    HttpResponse::Ok().json(json!({
-        "playlists": s.selected_gifs
-    }))
-}
-
-#[post("/api/playlists/save")]
-async fn save_selected_playlists(
-    data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Some(arr) = body.get("playlists").and_then(|v| v.as_array()) {
-        let selected: Vec<String> = arr
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        let mut s = data.config.settings.write();
-        s.selected_gifs = selected;
-        drop(s);
-        data.config.save();
+#[post("/api/system/restart")]
+async fn post_restart(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
     }
-    HttpResponse::Ok().json(json!({"status": "success"}))
+    // Gracefully stop the render loop; the process then exits and systemd
+    // (Restart=always) brings the app back in a couple of seconds. This applies
+    // hardware-level settings without a full OS reboot.
+    tracing::info!("Application restart requested via API.");
+    data.config.reload_flag.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "restarting"}))
 }
 
-#[post("/api/playlists/play")]
-async fn play_selected_playlists(
-    data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Some(arr) = body.get("playlists").and_then(|v| v.as_array()) {
-        let selected: Vec<String> = arr
-            .iter()
-            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-            .collect();
-        let mut s = data.config.settings.write();
-        s.selected_gifs = selected;
-        drop(s);
-        data.config.save();
-        *data.config.force_engine.lock() = Some("gifs".to_string());
+#[get("/api/action/reboot")]
+async fn reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
     }
-    HttpResponse::Ok().json(json!({"status": "success"}))
-}
-
-#[get("/api/system_info")]
-async fn api_system_info() -> impl Responder {
-    let mut sys = System::new();
-    sys.refresh_cpu_all();
-    sys.refresh_memory();
-
-    let cpu_load = sys.global_cpu_usage();
-    let ram_used = sys.used_memory() / (1024 * 1024);
-    let ram_total = sys.total_memory() / (1024 * 1024);
-
-    let temp = sysinfo::Components::new_with_refreshed_list()
-        .iter()
-        .next()
-        .map(|c| c.temperature())
-        .unwrap_or(42.0);
-
-    HttpResponse::Ok().json(json!({
-        "cpu_load": cpu_load,
-        "ram_used_mb": ram_used,
-        "ram_total_mb": ram_total,
-        "ram_percent": (ram_used as f32 / ram_total as f32 * 100.0) as u32,
-        "disk_free_gb": 10.5,
-        "disk_total_gb": 16.0,
-        "disk_percent": 35,
-        "temperature_c": temp,
-    }))
+    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
 #[post("/api/system/reboot")]
-async fn api_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+async fn post_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg("sleep 1 && sudo /sbin/reboot")
-        .spawn()
-        .ok();
-    HttpResponse::Ok().json(json!({"status": "success", "message": "Rebooting..."}))
+    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "rebooting"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
 #[post("/api/system/shutdown")]
-async fn api_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+async fn post_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg("sleep 1 && sudo /sbin/shutdown -h now")
-        .spawn()
-        .ok();
-    HttpResponse::Ok().json(json!({"status": "success", "message": "Shutting down..."}))
+    let ok = run_power_command(&[
+        &["systemctl", "poweroff"],
+        &["shutdown", "-h", "now"],
+        &["sudo", "shutdown", "-h", "now"],
+    ]);
+    if ok {
+        HttpResponse::Ok().json(json!({"status": "shutting_down"}))
+    } else {
+        HttpResponse::InternalServerError().json(json!({"status": "error"}))
+    }
 }
 
-#[post("/api/system/restart_app")]
-async fn api_restart_app(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+#[post("/api/system/power")]
+async fn post_power(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    // `state = true` means the panel should be ON.
+    let state = body.get("state").and_then(|v| v.as_bool()).unwrap_or(true);
+    data.config.matrix_power.store(state, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok", "power": state}))
+}
+
+#[get("/api/stats")]
+async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
 
-    // Set the reload flag to true, triggering a safe matrix drop and process exec in app.rs
-    data.config
-        .reload_flag
-        .store(true, std::sync::atomic::Ordering::Relaxed);
+    // Gather CPU/memory/disk/temperature off the async reactor thread.
+    let stats = web::block(|| {
+        let mut sys = System::new_all();
+        // Two samples spaced by the minimum interval for a meaningful CPU load.
+        sys.refresh_cpu_all();
+        std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
+        sys.refresh_cpu_all();
+        sys.refresh_memory();
 
-    HttpResponse::Ok().json(json!({"status": "success", "message": "Restarting application..."}))
+        let cpu_load = sys.global_cpu_usage();
+        let ram_used_mb = (sys.used_memory() / (1024 * 1024)) as u64;
+        let ram_total_mb = (sys.total_memory() / (1024 * 1024)) as u64;
+
+        // RPi exposes the SoC temperature via the thermal sysfs entry.
+        let temperature_c = std::fs::read_to_string("/sys/class/thermal/thermal_zone0/temp")
+            .ok()
+            .and_then(|s| s.trim().parse::<f32>().ok())
+            .map(|milli| milli / 1000.0)
+            .unwrap_or(0.0);
+
+        let disks = sysinfo::Disks::new_with_refreshed_list();
+        let disk_free_gb = disks
+            .list()
+            .iter()
+            .find(|d| d.mount_point() == std::path::Path::new("/"))
+            .or_else(|| disks.list().first())
+            .map(|d| d.available_space() as f64 / (1024.0 * 1024.0 * 1024.0))
+            .unwrap_or(0.0);
+
+        (
+            cpu_load,
+            ram_used_mb,
+            ram_total_mb,
+            temperature_c,
+            disk_free_gb,
+        )
+    })
+    .await
+    .unwrap_or((0.0, 0, 0, 0.0, 0.0));
+
+    HttpResponse::Ok().json(json!({
+        "version": crate::core::build_info::VERSION,
+        "arch": crate::core::build_info::ARCH,
+        "uptime": sysinfo::System::uptime(),
+        "cpu_load": stats.0,
+        "ram_used_mb": stats.1,
+        "ram_total_mb": stats.2,
+        "memory_used": stats.1,
+        "memory_total": stats.2,
+        "temperature_c": stats.3,
+        "disk_free_gb": (stats.4 * 10.0).round() / 10.0
+    }))
 }
 
 #[post("/api/wifi")]
-async fn api_wifi(
+async fn post_wifi(
     req: HttpRequest,
     data: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
@@ -563,191 +416,312 @@ async fn api_wifi(
         return e;
     }
     let ssid = body.get("ssid").and_then(|v| v.as_str()).unwrap_or("");
-    let pass = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
-    if ssid.is_empty() || pass.is_empty() {
+    let password = body.get("password").and_then(|v| v.as_str()).unwrap_or("");
+    if ssid.is_empty() {
         return HttpResponse::BadRequest()
-            .json(json!({"status": "error", "message": "Missing ssid or password"}));
+            .json(json!({"status": "error", "message": "SSID is required"}));
     }
-
-    // We DO NOT run nmcli live here because the LED Matrix hardware PWM/PCM
-    // interferes with the Wi-Fi chip and causes scans to fail (EMI/Hardware conflict).
-    // Instead, we save the credentials, set configured to false, unblock wifi, and restart the app/system.
-    // The app will connect to Wi-Fi at boot before initializing the LED Matrix.
-
-    let mut ws = data.config.settings.write();
-    ws.wifi_ssid = ssid.to_string();
-    ws.wifi_pass = pass.to_string();
-    ws.wifi_configured = false; // Trigger nmcli on next boot
-    drop(ws);
+    {
+        let mut s = data.config.settings.write();
+        s.wifi.ssid = ssid.to_string();
+        s.wifi.password = password.to_string();
+        // Force the startup routine to (re)apply the NetworkManager profile.
+        s.wifi.configured = false;
+    }
     data.config.save();
-
-    // Unblock Wi-Fi and set default country code to avoid rfkill block
-    let _ = std::process::Command::new("sudo")
-        .arg("rfkill")
-        .arg("unblock")
-        .arg("wifi")
-        .status();
-
-    let _ = std::process::Command::new("sudo")
-        .arg("raspi-config")
-        .arg("nonint")
-        .arg("do_wifi_country")
-        .arg("FR")
-        .status();
-
-    // Trigger a full system reboot instead of just an app restart.
-    // The PWM/PCM hardware lock can crash the Wi-Fi chip until a full reboot.
-    std::process::Command::new("sudo")
-        .arg("/sbin/reboot")
-        .spawn()
-        .ok();
-
-    HttpResponse::Ok().json(json!({
-        "status": "success",
-        "message": "Wi-Fi credentials saved! Rebooting Raspberry Pi to apply and connect..."
-    }))
-}
-
-#[post("/api/mqtt/install")]
-async fn api_mqtt_install(
-    req: HttpRequest,
-    data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) {
-        return e;
-    }
-    let target_ip = body.get("ip").and_then(|v| v.as_str()).unwrap_or("");
-    if target_ip.is_empty() {
-        return HttpResponse::BadRequest()
-            .json(json!({"status": "error", "message": "No IP provided"}));
-    }
-    let user = body
-        .get("user")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let pass = body
-        .get("pass")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    let matrix_ip = std::net::UdpSocket::bind("0.0.0.0:0")
-        .and_then(|s| {
-            s.connect("10.255.255.255:1")?;
-            s.local_addr()
-        })
-        .map(|addr| addr.ip().to_string())
-        .unwrap_or_else(|_| "127.0.0.1".to_string());
-
-    match crate::core::ssh_installer::install_sync_script(target_ip, &matrix_ip, user, pass) {
-        Ok(msg) => HttpResponse::Ok().json(json!({"status": "success", "message": msg})),
-        Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
-    }
-}
-
-#[post("/api/mqtt/logs")]
-async fn api_mqtt_logs(
-    req: HttpRequest,
-    data: web::Data<AppState>,
-    body: web::Json<serde_json::Value>,
-) -> impl Responder {
-    if let Err(e) = check_auth(&req, &data.config) {
-        return e;
-    }
-    let target_ip = body.get("ip").and_then(|v| v.as_str()).unwrap_or("");
-    if target_ip.is_empty() {
-        return HttpResponse::BadRequest()
-            .json(json!({"status": "error", "message": "No IP provided"}));
-    }
-    let user = body
-        .get("user")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let pass = body
-        .get("pass")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-
-    match crate::core::ssh_installer::fetch_sync_logs(target_ip, user, pass) {
-        Ok(logs) => HttpResponse::Ok().json(json!({"status": "success", "logs": logs})),
-        Err(msg) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
-    }
+    // Restart so the boot Wi-Fi provisioning block re-runs with the new profile.
+    data.config.reload_flag.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
 #[post("/api/marquee")]
-async fn api_marquee(
-    mut payload: actix_multipart::Multipart,
+async fn post_marquee(
+    req: HttpRequest,
     data: web::Data<AppState>,
+    mut payload: Multipart,
 ) -> impl Responder {
-    use futures_util::stream::StreamExt;
-    let mut image_data = Vec::new();
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let mut bytes = Vec::new();
     while let Some(item) = payload.next().await {
-        if let Ok(mut field) = item {
-            if field.name() == Some("image") {
-                while let Some(chunk) = field.next().await {
-                    if let Ok(bytes) = chunk {
-                        image_data.extend_from_slice(&bytes);
-                    }
+        let mut field = match item {
+            Ok(f) => f,
+            Err(e) => {
+                return HttpResponse::BadRequest()
+                    .json(json!({"status": "error", "message": format!("Upload error: {}", e)}))
+            }
+        };
+        while let Some(chunk) = field.next().await {
+            match chunk {
+                Ok(d) => bytes.extend_from_slice(&d),
+                Err(e) => {
+                    return HttpResponse::BadRequest()
+                        .json(json!({"status": "error", "message": format!("Chunk error: {}", e)}))
                 }
-                break;
             }
         }
     }
-
-    if image_data.is_empty() {
-        return HttpResponse::BadRequest()
-            .json(json!({"status": "error", "message": "No image provided"}));
-    }
-
-    match image::load_from_memory(&image_data) {
+    match image::load_from_memory(&bytes) {
         Ok(img) => {
             *data.config.image_obj.lock() = Some(img.to_rgb8());
             *data.config.force_engine.lock() = Some("marquee".to_string());
-            HttpResponse::Ok().json(
-                json!({"status": "success", "message": "Marquee image received and displayed"}),
-            )
+            HttpResponse::Ok().json(json!({"status": "ok"}))
         }
         Err(e) => HttpResponse::BadRequest()
             .json(json!({"status": "error", "message": format!("Invalid image: {}", e)})),
     }
 }
 
-#[get("/api/sprites/playlists")]
-async fn api_sprites_playlists() -> impl Responder {
-    HttpResponse::Ok().json(json!({}))
-}
-
-#[get("/api/sprites/playlists/selected")]
-async fn api_sprites_playlists_selected() -> impl Responder {
-    HttpResponse::Ok().json(json!({"playlists": []}))
-}
-
-#[post("/api/sprites/playlists/save")]
-async fn api_sprites_playlists_save() -> impl Responder {
-    HttpResponse::Ok().json(json!({"status": "success"}))
-}
-
-#[post("/api/system/power")]
-async fn api_power(
+#[post("/api/mqtt/install")]
+async fn post_mqtt_install(
+    req: HttpRequest,
     data: web::Data<AppState>,
     body: web::Json<serde_json::Value>,
 ) -> impl Responder {
-    if let Some(state) = body.get("state").and_then(|v| v.as_bool()) {
-        data.config
-            .matrix_power
-            .store(state, std::sync::atomic::Ordering::Relaxed);
-        data.config
-            .reload_flag
-            .store(true, std::sync::atomic::Ordering::Relaxed);
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
     }
-    let p = data
-        .config
-        .matrix_power
-        .load(std::sync::atomic::Ordering::Relaxed);
-    HttpResponse::Ok().json(json!({"status": "success", "matrix_power": p}))
+    let ip = body
+        .get("ip")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if ip.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "Console IP is required"}));
+    }
+    let user = body
+        .get("user")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let pass = body
+        .get("pass")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let matrix_ip = get_local_ip();
+
+    let res = web::block(move || {
+        crate::core::ssh_installer::install_sync_script(&ip, &matrix_ip, user, pass)
+    })
+    .await;
+
+    match res {
+        Ok(Ok(log)) => HttpResponse::Ok().json(json!({"status": "ok", "log": log})),
+        Ok(Err(msg)) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": e.to_string()})),
+    }
 }
 
-use rust_embed::RustEmbed;
+#[post("/api/mqtt/logs")]
+async fn post_mqtt_logs(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let ip = body
+        .get("ip")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if ip.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "Console IP is required"}));
+    }
+    let user = body
+        .get("user")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let pass = body
+        .get("pass")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    let res =
+        web::block(move || crate::core::ssh_installer::fetch_sync_logs(&ip, user, pass)).await;
+
+    match res {
+        Ok(Ok(logs)) => HttpResponse::Ok().json(json!({"status": "ok", "logs": logs})),
+        Ok(Err(msg)) => HttpResponse::BadRequest().json(json!({"status": "error", "message": msg})),
+        Err(e) => HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": e.to_string()})),
+    }
+}
+
+#[get("/api/fonts")]
+async fn get_fonts(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut fonts = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("fonts") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_file() {
+                    if let Some(ext) = entry.path().extension() {
+                        if ext == "ttf" || ext == "bdf" {
+                            if let Some(name) = entry.file_name().to_str() {
+                                fonts.push(json!({"value": name, "label": name}));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    HttpResponse::Ok().json(fonts)
+}
+
+#[get("/api/playlists")]
+async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut playlists = Vec::new();
+    if let Ok(entries) = std::fs::read_dir("gifs") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        playlists.push(json!({"value": name, "label": name}));
+                    }
+                }
+            }
+        }
+    }
+    HttpResponse::Ok().json(playlists)
+}
+
+#[get("/api/themes")]
+async fn get_themes(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    // Built automatically from the single theme source of truth: adding a new
+    // ThemeInfo entry in core::theme makes it appear in the UI dropdown with no
+    // other change required here.
+    let themes: Vec<_> = crate::core::theme::all_themes()
+        .iter()
+        .map(|t| json!({"value": t.id.to_string(), "label": t.name}))
+        .collect();
+    HttpResponse::Ok().json(themes)
+}
+
+#[get("/api/timezones")]
+async fn get_timezones() -> impl actix_web::Responder {
+    let zones = [
+        ("Europe/Paris", "Europe/Paris (UTC+1/+2)"),
+        ("Europe/London", "Europe/London (UTC+0/+1)"),
+        ("Europe/Dublin", "Europe/Dublin (UTC+0/+1)"),
+        ("Europe/Lisbon", "Europe/Lisbon (UTC+0/+1)"),
+        ("Europe/Berlin", "Europe/Berlin (UTC+1/+2)"),
+        ("Europe/Madrid", "Europe/Madrid (UTC+1/+2)"),
+        ("Europe/Rome", "Europe/Rome (UTC+1/+2)"),
+        ("Europe/Brussels", "Europe/Brussels (UTC+1/+2)"),
+        ("Europe/Amsterdam", "Europe/Amsterdam (UTC+1/+2)"),
+        ("Europe/Zurich", "Europe/Zurich (UTC+1/+2)"),
+        ("Europe/Vienna", "Europe/Vienna (UTC+1/+2)"),
+        ("Europe/Warsaw", "Europe/Warsaw (UTC+1/+2)"),
+        ("Europe/Prague", "Europe/Prague (UTC+1/+2)"),
+        ("Europe/Stockholm", "Europe/Stockholm (UTC+1/+2)"),
+        ("Europe/Oslo", "Europe/Oslo (UTC+1/+2)"),
+        ("Europe/Copenhagen", "Europe/Copenhagen (UTC+1/+2)"),
+        ("Europe/Athens", "Europe/Athens (UTC+2/+3)"),
+        ("Europe/Helsinki", "Europe/Helsinki (UTC+2/+3)"),
+        ("Europe/Bucharest", "Europe/Bucharest (UTC+2/+3)"),
+        ("Europe/Kyiv", "Europe/Kyiv (UTC+2/+3)"),
+        ("Europe/Moscow", "Europe/Moscow (UTC+3)"),
+        ("Europe/Istanbul", "Europe/Istanbul (UTC+3)"),
+        ("Atlantic/Reykjavik", "Atlantic/Reykjavik (UTC+0)"),
+        ("Atlantic/Azores", "Atlantic/Azores (UTC-1/+0)"),
+        ("America/New_York", "America/New_York (EST/EDT, UTC-5/-4)"),
+        ("America/Detroit", "America/Detroit (EST/EDT, UTC-5/-4)"),
+        (
+            "America/Indiana/Indianapolis",
+            "America/Indiana/Indianapolis (EST/EDT, UTC-5/-4)",
+        ),
+        ("America/Montreal", "America/Montreal (EST/EDT, UTC-5/-4)"),
+        ("America/Toronto", "America/Toronto (EST/EDT, UTC-5/-4)"),
+        ("America/Chicago", "America/Chicago (CST/CDT, UTC-6/-5)"),
+        ("America/Mexico_City", "America/Mexico_City (CST, UTC-6)"),
+        ("America/Denver", "America/Denver (MST/MDT, UTC-7/-6)"),
+        ("America/Boise", "America/Boise (MST/MDT, UTC-7/-6)"),
+        ("America/Phoenix", "America/Phoenix (MST, UTC-7, no DST)"),
+        (
+            "America/Los_Angeles",
+            "America/Los_Angeles (PST/PDT, UTC-8/-7)",
+        ),
+        ("America/Vancouver", "America/Vancouver (PST/PDT, UTC-8/-7)"),
+        (
+            "America/Anchorage",
+            "America/Anchorage (AKST/AKDT, UTC-9/-8)",
+        ),
+        ("America/Halifax", "America/Halifax (AST/ADT, UTC-4/-3)"),
+        (
+            "America/St_Johns",
+            "America/St_Johns (NST/NDT, UTC-3:30/-2:30)",
+        ),
+        ("Pacific/Honolulu", "Pacific/Honolulu (HST, UTC-10)"),
+        ("America/Sao_Paulo", "America/Sao_Paulo (BRT, UTC-3)"),
+        ("America/Buenos_Aires", "America/Buenos_Aires (ART, UTC-3)"),
+        ("America/Santiago", "America/Santiago (CLT/CLST, UTC-4/-3)"),
+        ("America/Bogota", "America/Bogota (COT, UTC-5)"),
+        ("America/Lima", "America/Lima (PET, UTC-5)"),
+        ("Africa/Casablanca", "Africa/Casablanca (WEST, UTC+1)"),
+        ("Africa/Cairo", "Africa/Cairo (EET/EEST, UTC+2/+3)"),
+        ("Africa/Johannesburg", "Africa/Johannesburg (SAST, UTC+2)"),
+        ("Africa/Nairobi", "Africa/Nairobi (EAT, UTC+3)"),
+        ("Africa/Lagos", "Africa/Lagos (WAT, UTC+1)"),
+        ("Asia/Jerusalem", "Asia/Jerusalem (IST/IDT, UTC+2/+3)"),
+        ("Asia/Riyadh", "Asia/Riyadh (AST, UTC+3)"),
+        ("Asia/Dubai", "Asia/Dubai (GST, UTC+4)"),
+        ("Asia/Tehran", "Asia/Tehran (IRST, UTC+3:30)"),
+        ("Asia/Karachi", "Asia/Karachi (PKT, UTC+5)"),
+        ("Asia/Kolkata", "Asia/Kolkata (IST, UTC+5:30)"),
+        ("Asia/Dhaka", "Asia/Dhaka (BST, UTC+6)"),
+        ("Asia/Bangkok", "Asia/Bangkok (ICT, UTC+7)"),
+        ("Asia/Jakarta", "Asia/Jakarta (WIB, UTC+7)"),
+        ("Asia/Singapore", "Asia/Singapore (SGT, UTC+8)"),
+        ("Asia/Hong_Kong", "Asia/Hong_Kong (HKT, UTC+8)"),
+        ("Asia/Shanghai", "Asia/Shanghai (CST, UTC+8)"),
+        ("Asia/Taipei", "Asia/Taipei (CST, UTC+8)"),
+        ("Asia/Manila", "Asia/Manila (PST, UTC+8)"),
+        ("Asia/Tokyo", "Asia/Tokyo (JST, UTC+9)"),
+        ("Asia/Seoul", "Asia/Seoul (KST, UTC+9)"),
+        (
+            "Australia/Sydney",
+            "Australia/Sydney (AEST/AEDT, UTC+10/+11)",
+        ),
+        (
+            "Australia/Melbourne",
+            "Australia/Melbourne (AEST/AEDT, UTC+10/+11)",
+        ),
+        ("Australia/Brisbane", "Australia/Brisbane (AEST, UTC+10)"),
+        (
+            "Australia/Adelaide",
+            "Australia/Adelaide (ACST/ACDT, UTC+9:30/+10:30)",
+        ),
+        ("Australia/Perth", "Australia/Perth (AWST, UTC+8)"),
+        ("Pacific/Guam", "Pacific/Guam (ChST, UTC+10)"),
+        (
+            "Pacific/Auckland",
+            "Pacific/Auckland (NZST/NZDT, UTC+12/+13)",
+        ),
+        ("Pacific/Fiji", "Pacific/Fiji (FJT, UTC+12)"),
+        ("UTC", "UTC (Coordinated Universal Time)"),
+    ];
+    let res: Vec<serde_json::Value> = zones
+        .iter()
+        .map(|(val, lbl)| json!({"value": val, "label": lbl}))
+        .collect();
+    HttpResponse::Ok().json(res)
+}
 
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
@@ -770,46 +744,39 @@ async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder 
 }
 
 pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
-    let state = web::Data::new(AppState { config });
-    let serve_dir = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("api/www");
-    tracing::info!(
-        "Starting web server on port {}, serving files from: {:?}",
-        port,
-        serve_dir
-    );
-
+    let app_state = web::Data::new(AppState { config });
     HttpServer::new(move || {
+        let cors = actix_cors::Cors::permissive();
         App::new()
-            .app_data(state.clone())
-            .service(api_fonts)
-            .service(get_settings)
-            .service(post_settings)
-            .service(post_clock)
-            .service(post_message)
+            .wrap(cors)
+            .app_data(app_state.clone())
+            .service(get_system)
+            .service(post_system)
+            .service(get_instances)
+            .service(post_instances)
+            .service(delete_instance)
+            .service(get_rotation)
+            .service(post_rotation)
+            .service(get_engines)
+            .service(reboot)
+            .service(post_reboot)
+            .service(post_restart)
+            .service(post_shutdown)
+            .service(post_power)
+            .service(get_stats)
+            .service(get_fonts)
             .service(get_playlists)
-            .service(get_selected_playlists)
-            .service(save_selected_playlists)
-            .service(play_selected_playlists)
-            .service(api_system_info)
-            .service(api_reboot)
-            .service(api_shutdown)
-            .service(api_restart_app)
-            .service(api_sprites_playlists)
-            .service(api_sprites_playlists_selected)
-            .service(api_sprites_playlists_save)
-            .service(api_wifi)
-            .service(api_mqtt_install)
-            .service(api_mqtt_logs)
-            .service(api_marquee)
-            .service(api_power)
-            .service(get_version)
-            .service(handle_update)
+            .service(get_themes)
+            .service(get_timezones)
+            .service(post_wifi)
+            .service(post_marquee)
+            .service(post_mqtt_install)
+            .service(post_mqtt_logs)
+            .service(crate::api::ota::get_version)
+            .service(crate::api::ota::handle_update)
             .route("/", web::get().to(serve_static))
             .route("/{_:.*}", web::get().to(serve_static))
     })
-    .workers(1)
     .bind(("0.0.0.0", port))?
     .run()
     .await

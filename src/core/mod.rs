@@ -1,6 +1,13 @@
+pub mod arbiter;
+pub mod build_info;
 pub mod config;
+pub mod config_sanitizer;
 pub mod dmd_cache;
+pub mod engine_contract;
+pub mod i18n;
 pub mod matrix;
+pub mod overlay_manager;
+pub mod registry;
 pub mod rotation;
 pub mod ssh_installer;
 pub mod theme;

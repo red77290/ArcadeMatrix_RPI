@@ -273,16 +273,34 @@ impl FighterEngine {
             let dir64 = "fighters_64";
             let dir32 = "fighters_32";
 
-            let mut index = Self::load_index(dir64);
-            let mut dir = dir64;
+            // Pick the asset set that matches the panel height. A 64px (or taller)
+            // panel prefers fighters_64; anything shorter uses fighters_32. We only
+            // touch the other resolution as a last-resort fallback, so a 32px panel
+            // never logs spurious errors about the fighters_64 assets.
+            let (preferred, fallback) = if matrix_height >= 64 {
+                (dir64, dir32)
+            } else {
+                (dir32, dir64)
+            };
 
-            if index.is_empty() || matrix_height < 64 {
-                index = Self::load_index(dir32);
-                dir = dir32;
+            let mut dir = preferred;
+            let mut index = Self::load_index(preferred);
+
+            if index.is_empty() {
+                let alt = Self::load_index(fallback);
+                if !alt.is_empty() {
+                    index = alt;
+                    dir = fallback;
+                }
             }
 
             if index.is_empty() {
-                tracing::warn!("FighterEngine: No valid index.json found!");
+                tracing::warn!(
+                    "FighterEngine: No valid index.json found (looked in '{}' for a \
+                     {}px panel). Are the fighter sprite assets deployed?",
+                    preferred,
+                    matrix_height
+                );
                 return;
             }
 
@@ -297,7 +315,13 @@ impl FighterEngine {
             let idx1 = rng.gen_range(0..fighters.len());
             let (name1, meta1) = fighters[idx1].clone();
 
-            let h1 = (meta1.ground_y - meta1.head_y).max(meta1.height) as f32;
+            let h1 = if meta1.height > 0 {
+                meta1.height as f32
+            } else if (meta1.ground_y - meta1.head_y) > 5 {
+                (meta1.ground_y - meta1.head_y) as f32
+            } else {
+                32.0
+            };
 
             let valid_opponents: Vec<&(String, FighterIndexMeta)> = fighters
                 .iter()
@@ -305,10 +329,13 @@ impl FighterEngine {
                     if name == &name1 {
                         return false;
                     }
-                    let h2 = (meta.ground_y - meta.head_y).max(meta.height) as f32;
-                    if h1 <= 0.0 || h2 <= 0.0 {
-                        return true;
-                    }
+                    let h2 = if meta.height > 0 {
+                        meta.height as f32
+                    } else if (meta.ground_y - meta.head_y) > 5 {
+                        (meta.ground_y - meta.head_y) as f32
+                    } else {
+                        32.0
+                    };
                     let min_h = h1.min(h2);
                     let max_h = h1.max(h2);
                     (min_h / max_h) >= 0.80
@@ -317,13 +344,33 @@ impl FighterEngine {
 
             let (name2, meta2) = if !valid_opponents.is_empty() {
                 let idx2 = rng.gen_range(0..valid_opponents.len());
-                valid_opponents[idx2].clone()
+                (*valid_opponents[idx2]).clone()
             } else {
-                let mut idx2 = rng.gen_range(0..fighters.len());
-                while idx2 == idx1 {
-                    idx2 = rng.gen_range(0..fighters.len());
+                // Find opponent with closest height difference
+                let mut candidates: Vec<&(String, FighterIndexMeta)> =
+                    fighters.iter().filter(|(name, _)| name != &name1).collect();
+                candidates.sort_by(|(_, m_a), (_, m_b)| {
+                    let h_a = if m_a.height > 0 {
+                        m_a.height as f32
+                    } else {
+                        32.0
+                    };
+                    let h_b = if m_b.height > 0 {
+                        m_b.height as f32
+                    } else {
+                        32.0
+                    };
+                    let diff_a = (h_a - h1).abs();
+                    let diff_b = (h_b - h1).abs();
+                    diff_a
+                        .partial_cmp(&diff_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                if !candidates.is_empty() {
+                    (*candidates[0]).clone()
+                } else {
+                    fighters[0].clone()
                 }
-                fighters[idx2].clone()
             };
 
             tracing::info!(
@@ -341,12 +388,9 @@ impl FighterEngine {
             let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
 
             if let (Some(c1), Some(c2)) = (c1, c2) {
-                let c1_ground_at_0 = c1.meta.ground_y as i32 - c1.meta.head_y as i32;
-                let c2_ground_at_0 = c2.meta.ground_y as i32 - c2.meta.head_y as i32;
-                let fight_max_h = c1_ground_at_0.max(c2_ground_at_0);
-
-                let y1 = fight_max_h - c1.meta.ground_y as i32;
-                let y2 = fight_max_h - c2.meta.ground_y as i32;
+                let ground_y_screen = (c1.meta.ground_y as i32).max(c2.meta.ground_y as i32);
+                let y1 = ground_y_screen - c1.meta.ground_y as i32;
+                let y2 = ground_y_screen - c2.meta.ground_y as i32;
 
                 let mut mirrored_c2 = c2.clone();
                 for anim in mirrored_c2.anims.values_mut() {

@@ -27,17 +27,6 @@ def find_file_case_insensitive(directory, target_path):
         if not found: return None
     return curr_dir
 
-def get_def_palette(cdir):
-    def_files = glob.glob(os.path.join(cdir, "*.def"))
-    if not def_files: return None
-    with open(def_files[0], 'r', errors='ignore') as f:
-        for line in f:
-            if line.strip().lower().startswith('pal1'):
-                if '=' in line:
-                    path = line.split('=')[-1].strip().split(';')[0].strip()
-                    return find_file_case_insensitive(cdir, path)
-    return None
-
 class SFFv1Parser:
     def __init__(self, filepath):
         self.filepath = filepath
@@ -67,7 +56,8 @@ class SFFv1Parser:
                     if not self.first_palette and len(pcx_data) > 768:
                         self.first_palette = pcx_data[-768:]
                     self.images[(grp, img)] = {
-                        'x': x, 'y': y,
+                        'x': x,
+                        'y': y,
                         'data': pcx_data
                     }
 
@@ -110,34 +100,39 @@ def process_character(char_dir, out_dir):
     air_files = glob.glob(os.path.join(char_dir, "*.air"))
     if not sff_files or not air_files: return False
 
-    # We explicitly ignore .act files to fix the BGR vs RGB palette inversion issue.
-    # The script will rely entirely on the main palette embedded within the .sff file.
-    master_palette = None
-
     sff = SFFv1Parser(sff_files[0])
     air = AirParser(air_files[0])
 
+    master_palette = sff.first_palette
     if not master_palette:
-        master_palette = sff.first_palette
-        if not master_palette: return False
+        return False
 
-    required_anims = {
-        0: 'stand',
-        20: 'walk'
-    }
-    attack_anims = [200, 210, 220, 230, 240, 250, 400, 410, 420]
-    for act_id in attack_anims:
+    required_anims = {}
+    
+    # Stand (fallback to crouch 11 or first anim)
+    if 0 in air.animations: required_anims[0] = 'stand'
+    elif 11 in air.animations: required_anims[11] = 'stand'
+    elif len(air.animations) > 0: required_anims[list(air.animations.keys())[0]] = 'stand'
+    
+    # Walk (fallback to back walk 21 or run 100)
+    if 20 in air.animations: required_anims[20] = 'walk'
+    elif 21 in air.animations: required_anims[21] = 'walk'
+    elif 100 in air.animations: required_anims[100] = 'walk'
+
+    # Attack (any from 200-499)
+    for act_id in range(200, 500):
         if act_id in air.animations:
             required_anims[act_id] = 'attack'
             break
             
-    hit_anims = [5000, 5001, 5002, 5010, 5011, 5012]
-    for act_id in hit_anims:
+    # Hit (any from 5000-5099)
+    for act_id in range(5000, 5100):
         if act_id in air.animations:
             required_anims[act_id] = 'hit'
             break
             
-    win_anims = [180, 181, 182, 183]
+    # Win (180-185 are win poses, 190-195 are taunts; do NOT match 170 which is lose/defeat pose)
+    win_anims = [180, 181, 182, 183, 184, 185, 190, 191, 195]
     for act_id in win_anims:
         if act_id in air.animations:
             required_anims[act_id] = 'win'
@@ -204,7 +199,14 @@ def process_character(char_dir, out_dir):
                 global_max_x = max(global_max_x, max_x)
                 global_max_y = max(global_max_y, max_y)
                 
-                valid_frames.append({'img': img_obj, 'ox': ox, 'oy': oy, 'delay': f['delay'], 'min_y': min_y, 'max_y': max_y})
+                valid_frames.append({
+                    'img': img_obj,
+                    'ox': ox,
+                    'oy': oy,
+                    'delay': f['delay'],
+                    'min_y': min_y,
+                    'max_y': max_y
+                })
 
         if valid_frames:
             all_valid_frames[anim_name] = valid_frames
@@ -246,6 +248,8 @@ def process_character(char_dir, out_dir):
         scale = 1.0
         if walk_h > TARGET_HEIGHT:
             scale = TARGET_HEIGHT / walk_h
+        canvas_w = max(1, int(orig_w * scale))
+        canvas_h = max(1, int(orig_h * scale))
     else:
         # FULLSIZE Mode
         scale = 1.0
@@ -286,7 +290,6 @@ def process_character(char_dir, out_dir):
 
             for fr in valid_frames:
                 img_obj = fr['img']
-                # Paste coordinates so that the character's axis aligns with global origin
                 paste_x = -global_min_x - fr['ox']
                 paste_y = -global_min_y - fr['oy']
                 
@@ -308,16 +311,20 @@ def process_character(char_dir, out_dir):
                         cx = paste_x + px
                         cy = paste_y + py
                         if 0 <= cx < orig_w and 0 <= cy < orig_h:
-                            idx = indices[py * img_obj.width + px]
-                            if idx != trans_idx:
-                                if isinstance(idx, tuple):
-                                    rgba_pixels[cx, cy] = (idx[0], idx[1], idx[2], 255)
-                                else:
-                                    if idx * 3 + 2 < len(master_palette):
-                                        r = master_palette[idx*3]
-                                        g = master_palette[idx*3 + 1]
-                                        b = master_palette[idx*3 + 2]
-                                        rgba_pixels[cx, cy] = (r, g, b, 255)
+                            val = indices[py * img_obj.width + px]
+                            if isinstance(val, tuple):
+                                if len(val) >= 4:
+                                    if val[3] > 0:
+                                        rgba_pixels[cx, cy] = val
+                                elif val != (0, 255, 0) and val != (255, 0, 255):
+                                    rgba_pixels[cx, cy] = (val[0], val[1], val[2], 255)
+                            else:
+                                idx = int(val)
+                                if idx != trans_idx and idx * 3 + 2 < len(master_palette):
+                                    r = master_palette[idx*3]
+                                    g = master_palette[idx*3 + 1]
+                                    b = master_palette[idx*3 + 2]
+                                    rgba_pixels[cx, cy] = (r, g, b, 255)
                                         
                 if orig_w != canvas_w or orig_h != canvas_h:
                     rgba_canvas = rgba_canvas.resize((canvas_w, canvas_h), Image.Resampling.NEAREST)
@@ -331,8 +338,10 @@ def process_character(char_dir, out_dir):
                         if c565 == TRANSPARENT_COLOR_565: c565 = 0x0001
                         f.write(struct.pack('<H', c565))
                         
+    stand_h = int(walk_h * scale) if walk_h else canvas_h
     return {
-        'height': canvas_h,
+        'height': stand_h if stand_h > 0 else canvas_h,
+        'canvas_height': canvas_h,
         'ground_y': ground_y,
         'head_y': head_y,
         'origin_x': origin_x,
@@ -352,7 +361,7 @@ if __name__ == "__main__":
     # start_extractor.sh/.bat wrappers (which prompt the user and pass -i/-o).
     parser.add_argument("--src", "-i", dest="src", type=str, required=True, help="Source directory containing Mugen characters")
     parser.add_argument("--dest", "-o", dest="dest", type=str, default="fighters_32", help="Output directory for the generated .fgt files and index (default: ./fighters_32)")
-    parser.add_argument("--mode", type=str, choices=['SCALED', 'FULLSIZE'], default='FULLSIZE', 
+    parser.add_argument("--mode", type=str, choices=['SCALED', 'FULLSIZE'], default='SCALED', 
                         help="SCALED: Resize character to perfectly fit screen height (for standard ESP32). FULLSIZE: Extract at 1:1 original scale (for RPi or ESP32-S3 with PSRAM).")
     parser.add_argument("--scale", "--scaling", dest="scale", type=float, default=None,
                         help="Custom scaling factor (e.g. 0.5 for 50%%, 0.8, 2.0). Overrides default SCALED/FULLSIZE mode calculations when specified.")
@@ -368,14 +377,18 @@ if __name__ == "__main__":
     COMPRESS_FGT = args.compress
 
     src_dir = args.src
+    target_h = 64 if "64" in args.dest else 32
     out_dirs = [
-        (args.dest, TARGET_HEIGHT)
+        (args.dest, target_h)
     ]
     
     start_time = time.time()
     chars = [os.path.join(src_dir, d) for d in os.listdir(src_dir) if os.path.isdir(os.path.join(src_dir, d))]
     
-    print(f"Starting extraction in mode: {EXTRACT_MODE}")
+    if CUSTOM_SCALE:
+        print(f"Starting extraction in mode: {EXTRACT_MODE} with custom scale: {CUSTOM_SCALE}")
+    else:
+        print(f"Starting extraction in mode: {EXTRACT_MODE}")
     
     for out_dir, target_h in out_dirs:
         TARGET_HEIGHT = target_h

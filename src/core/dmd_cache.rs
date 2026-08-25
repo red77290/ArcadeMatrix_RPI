@@ -199,6 +199,11 @@ impl DmdCache {
             names_to_try.push(clean_name);
         }
 
+        // Distinguish "marquee doesn't exist" (normal 404, most attempts) from
+        // "can't reach GitHub at all" (network/DNS/TLS), which points at the same
+        // shared outage that breaks weather/crypto/stock.
+        let mut network_error = false;
+
         for name_variant in names_to_try {
             let safe_name = name_variant
                 .replace(' ', "%20")
@@ -233,12 +238,25 @@ impl DmdCache {
                             }
                         }
                     }
+                    Err(e) => {
+                        network_error = true;
+                        tracing::debug!("[Pixelcade] Network error fetching {}: {}", url, e);
+                    }
                     _ => continue,
                 }
             }
         }
 
-        self.negative_cache.lock().insert(key);
+        if network_error {
+            tracing::warn!(
+                "[Pixelcade] Could not reach raw.githubusercontent.com for game '{}' (network/DNS/TLS?)",
+                game
+            );
+            // Don't blacklist on a transient outage: a genuine 404 is permanent,
+            // but a network failure must be retried once connectivity returns.
+        } else {
+            self.negative_cache.lock().insert(key);
+        }
         None
     }
 
@@ -270,6 +288,8 @@ impl DmdCache {
         }
 
         let variants = get_system_name_variants_mapped(&self.system_mappings, system);
+
+        let mut network_error = false;
 
         for (folder, name_variant) in variants {
             let safe_name = name_variant
@@ -307,12 +327,25 @@ impl DmdCache {
                             }
                         }
                     }
+                    Err(e) => {
+                        network_error = true;
+                        tracing::debug!("[Pixelcade] Network error fetching {}: {}", url, e);
+                    }
                     _ => continue,
                 }
             }
         }
 
-        self.negative_cache.lock().insert(key);
+        if network_error {
+            tracing::warn!(
+                "[Pixelcade] Could not reach raw.githubusercontent.com for system '{}' (network/DNS/TLS?)",
+                system
+            );
+            // Don't blacklist on a transient outage: a genuine 404 is permanent,
+            // but a network failure must be retried once connectivity returns.
+        } else {
+            self.negative_cache.lock().insert(key);
+        }
         None
     }
 }

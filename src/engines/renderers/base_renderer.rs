@@ -223,6 +223,7 @@ impl BaseRenderer {
         let is_logo_theme = theme_id == 0 || theme_id == 1 || theme_id == 3; // Nintendo, Capcom, Sega
         let is_3d_theme = theme_id >= 4 && theme_id <= 17;
         let is_flip_theme = theme_id == 19;
+        let is_matrix_theme = theme_id == 18 || theme_id == 21;
 
         let scale = (size as i32).max(1);
         let offset = scale.max(1);
@@ -247,6 +248,12 @@ impl BaseRenderer {
                     matrix.set_pixel(px - offset, py, secondary.0, secondary.1, secondary.2);
                     matrix.set_pixel(px, py + offset, secondary.0, secondary.1, secondary.2);
                     matrix.set_pixel(px, py - offset, secondary.0, secondary.1, secondary.2);
+                } else if is_matrix_theme {
+                    // 4-way crisp black halo around text
+                    matrix.set_pixel(px + 1, py, 0, 0, 0);
+                    matrix.set_pixel(px - 1, py, 0, 0, 0);
+                    matrix.set_pixel(px, py + 1, 0, 0, 0);
+                    matrix.set_pixel(px, py - 1, 0, 0, 0);
                 } else if !is_flip_theme {
                     matrix.set_pixel(
                         px + offset,

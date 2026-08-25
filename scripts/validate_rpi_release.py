@@ -11,7 +11,7 @@ ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 REQUIRED_FILES = [
     "Cargo.toml",
     "autoInstall.sh",
-    "conf.ini",
+    "config.json",
     "README.md", "README_FR.md", "README_ES.md"
 ]
 

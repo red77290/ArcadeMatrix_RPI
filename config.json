@@ -1,0 +1,99 @@
+{
+  "matrix": {
+    "width": 64,
+    "height": 32,
+    "panel_type": "",
+    "chain_length": 1,
+    "power_limit_percent": 40,
+    "force_single_buffer": false,
+    "color_depth": 24,
+    "rgb_sequence": "RGB",
+    "limit_refresh_rate_hz": 90,
+    "driver_chip": "SHIFTREG",
+    "clk_phase": true,
+    "latch_blanking": 4,
+    "row_address_mode": 0,
+    "matrix_power": true,
+    "multiplexing": 0,
+    "slowdown": 2,
+    "pwm_bits": 11,
+    "pwm_lsb_nanoseconds": 130,
+    "disable_hardware_pulsing": false,
+    "mapping": "regular"
+  },
+  "wifi": {
+    "ssid": "",
+    "password": "",
+    "hostname": "arcadematrix",
+    "configured": false,
+    "disable_internal": false
+  },
+  "mqtt": {
+    "enabled": false,
+    "broker": "127.0.0.1",
+    "port": 1883,
+    "user": "",
+    "pass": "",
+    "device_name": "arcadematrix",
+    "topic_batocera": "batocera",
+    "topic_recalbox": "recalbox"
+  },
+  "system": {
+    "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",
+    "format_24h": true,
+    "lang": "en",
+    "night_mode_enabled": false,
+    "turn_off_at": "23:00",
+    "wake_up_at": "07:00",
+    "night_brightness": 10,
+    "day_brightness": 100,
+    "idle_fighter_enabled": true,
+    "idle_fighter_interval": 10
+  },
+  "instances": [
+    {
+      "instance_id": "default_clock",
+      "engine_id": "clock",
+      "config": {
+        "timezone": "Europe/Paris",
+        "color_1": "#FFFFFF",
+        "font": "PressStart2P.ttf",
+        "format": "%H:%M:%S",
+        "offset_y": "0",
+        "size": "2",
+        "color_2": "#FFFFFF",
+        "theme": "0",
+        "offset_x": "0"
+      }
+    },
+    {
+      "instance_id": "default_weather",
+      "engine_id": "weather",
+      "config": {
+        "offset_x": "0",
+        "api_key": "",
+        "units": "metric",
+        "offset_y": "0",
+        "city": ""
+      }
+    }
+  ],
+  "rotation": [
+    {
+      "instance_id": "default_clock",
+      "duration_sec": 60,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_weather",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    }
+  ],
+  "api_auth_enabled": false,
+  "api_token": "9101d2ff5928c93107e537aa3c07a282"
+}

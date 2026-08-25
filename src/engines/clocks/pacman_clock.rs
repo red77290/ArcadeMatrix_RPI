@@ -42,9 +42,9 @@ impl PacmanClock {
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
-        // Adapt radius and speed to matrix size (match Python)
+        // Adapt radius and speed to matrix size (smooth 2.5s transition at 30-60 FPS)
         self.radius = ((6.0 * h / 32.0) as i32).max(4);
-        self.speed = (3.0 * w / 64.0).max(1.5);
+        self.speed = (0.8 * w / 64.0).max(0.6);
 
         let now_min = minutes as i32;
 
@@ -52,7 +52,9 @@ impl PacmanClock {
             self.last_minute = now_min;
             self.old_time_str = time_str.to_string();
             self.new_time_str = time_str.to_string();
-        } else if self.last_minute != now_min && !self.transitioning {
+        } else if (self.last_minute != now_min || self.old_time_str != time_str)
+            && !self.transitioning
+        {
             self.transitioning = true;
             self.old_time_str = self.new_time_str.clone();
             self.new_time_str = time_str.to_string();

@@ -1,3 +1,4 @@
+#![allow(unused_assignments)]
 use crate::api::run_server;
 use crate::core::config::Config;
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
@@ -5,13 +6,9 @@ use crate::core::matrix::HardwareMatrix;
 use crate::core::matrix::{MatrixBackend, MockMatrix};
 use crate::core::rotation::RotationState;
 
-use crate::engines::clock::ClockEngine;
-use crate::engines::date::DateEngine;
-use crate::engines::fighter::FighterEngine;
-use crate::engines::gif::GifEngine;
-use crate::engines::marquee::MarqueeEngine;
-use crate::engines::message::{MessageEngine, MessagePayload};
-use crate::engines::weather::WeatherEngine;
+use crate::engines::message::MessagePayload;
+
+use crate::core::arbiter::{DisplayArbiter, DisplayPriority, DisplayRequest, RequestLifecycle};
 
 use std::net::UdpSocket;
 
@@ -36,12 +33,17 @@ pub struct ArcadeMatrixApp {
 
 impl ArcadeMatrixApp {
     pub fn new() -> Self {
-        let config = Arc::new(Config::new("conf.ini"));
+        let config = Arc::new(Config::new("config.json"));
         Self { config }
     }
 
     pub async fn run(&self) -> std::io::Result<()> {
-        info!("Starting ArcadeMatrix RPi v{}", env!("CARGO_PKG_VERSION"));
+        info!(
+            "Starting ArcadeMatrix RPi v{} (build {} @ {})",
+            crate::core::build_info::VERSION,
+            crate::core::build_info::GIT_COMMIT,
+            crate::core::build_info::BUILD_TIMESTAMP
+        );
 
         #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
         {
@@ -66,7 +68,7 @@ impl ArcadeMatrixApp {
             if let Ok(content) = std::fs::read_to_string(boot_config) {
                 let disable_wifi_cmd = "dtoverlay=disable-wifi";
                 let s = self.config.settings.read().clone();
-                let should_be_disabled = s.wifi_disable_internal;
+                let should_be_disabled = s.wifi.disable_internal;
                 let is_disabled = content.contains(disable_wifi_cmd);
 
                 if should_be_disabled && !is_disabled {
@@ -98,8 +100,8 @@ impl ArcadeMatrixApp {
         // 0. Setup Wi-Fi if needed
         {
             let s = self.config.settings.read().clone();
-            if !s.wifi_ssid.is_empty() && !s.wifi_configured {
-                info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi_ssid);
+            if !s.wifi.ssid.is_empty() && !s.wifi.configured {
+                info!("Attempting to configure Wi-Fi for SSID: {}", s.wifi.ssid);
 
                 std::process::Command::new("sudo")
                     .args(["raspi-config", "nonint", "do_wifi_country", "FR"])
@@ -111,7 +113,7 @@ impl ArcadeMatrixApp {
                     .ok();
                 std::thread::sleep(std::time::Duration::from_secs(2));
 
-                let safe_ssid = s.wifi_ssid.replace(" ", "_").replace("/", "_");
+                let safe_ssid = s.wifi.ssid.replace(" ", "_").replace("/", "_");
                 let nm_content = format!(
                     "[connection]\nid={safe_ssid}\ntype=wifi\nautoconnect=true\n\n\
                     [wifi]\nmode=infrastructure\nssid={ssid}\n\n\
@@ -119,8 +121,8 @@ impl ArcadeMatrixApp {
                     [ipv4]\nmethod=auto\n\n\
                     [ipv6]\naddr-gen-mode=default\nmethod=auto\n",
                     safe_ssid = safe_ssid,
-                    ssid = s.wifi_ssid,
-                    pass = s.wifi_pass
+                    ssid = s.wifi.ssid,
+                    pass = s.wifi.password
                 );
 
                 let profile_path = format!(
@@ -147,7 +149,7 @@ impl ArcadeMatrixApp {
                         if out.status.success() {
                             info!("Connected to Wi-Fi successfully!");
                             let mut ws = self.config.settings.write();
-                            ws.wifi_configured = true;
+                            ws.wifi.configured = true;
                             drop(ws);
                             self.config.save();
                         } else {
@@ -182,7 +184,7 @@ impl ArcadeMatrixApp {
             .expect("Failed to spawn API thread");
 
         // Start MQTT client background worker
-        crate::engines::network::start_mqtt_client(Arc::clone(&self.config));
+        crate::engines::frontend_sync::start_mqtt_client(Arc::clone(&self.config));
 
         // Graceful shutdown flag, shared with the render loop.
         let running = Arc::new(std::sync::atomic::AtomicBool::new(true));
@@ -277,21 +279,21 @@ impl ArcadeMatrixApp {
                 ) = {
                     let cfg = config.settings.read();
                     (
-                        cfg.matrix_rows,
-                        cfg.matrix_cols,
-                        cfg.matrix_chain,
-                        cfg.matrix_parallel,
-                        cfg.matrix_mapping.clone(),
-                        cfg.matrix_rgb_sequence.clone(),
-                        cfg.matrix_slowdown,
-                        cfg.matrix_pwm_bits,
-                        cfg.matrix_pwm_lsb_nanoseconds,
-                        cfg.matrix_disable_hardware_pulsing,
-                        cfg.matrix_brightness as u8,
-                        cfg.matrix_limit_refresh_rate_hz,
-                        cfg.matrix_driver_chip.clone(),
-                        cfg.matrix_multiplexing,
-                        cfg.matrix_row_addr_type,
+                        cfg.matrix.height,
+                        cfg.matrix.width,
+                        cfg.matrix.chain_length,
+                        1,
+                        cfg.matrix.mapping.clone(),
+                        cfg.matrix.rgb_sequence.clone(),
+                        cfg.matrix.slowdown,
+                        cfg.matrix.pwm_bits,
+                        cfg.matrix.pwm_lsb_nanoseconds,
+                        cfg.matrix.disable_hardware_pulsing,
+                        100 as u8,
+                        cfg.matrix.limit_refresh_rate_hz,
+                        cfg.matrix.driver_chip.clone(),
+                        cfg.matrix.multiplexing,
+                        cfg.matrix.row_address_mode,
                     )
                 };
 
@@ -329,7 +331,8 @@ impl ArcadeMatrixApp {
                                     attempt,
                                     e
                                 );
-                                break Box::new(MockMatrix::new(64, 32)) as Box<dyn MatrixBackend>;
+                                break Box::new(MockMatrix::new(cols * chain, rows))
+                                    as Box<dyn MatrixBackend>;
                             }
                             tracing::warn!(
                                 "Hardware matrix init failed (attempt {}/{}): {} \u{2014} previous process may still hold the GPIO, retrying in 1s",
@@ -349,11 +352,11 @@ impl ArcadeMatrixApp {
             Box::new(MockMatrix::new(
                 {
                     let cfg = config.settings.read();
-                    cfg.matrix_cols * cfg.matrix_chain
+                    cfg.matrix.width * cfg.matrix.chain_length
                 },
                 {
                     let cfg = config.settings.read();
-                    cfg.matrix_rows
+                    cfg.matrix.height
                 },
             ))
         };
@@ -361,25 +364,17 @@ impl ArcadeMatrixApp {
         let width = matrix.width();
         let height = matrix.height();
 
-        let mut clock_engine = ClockEngine::new(width, height);
-        let mut date_engine = DateEngine::new(width, height);
-        let mut weather_engine = WeatherEngine::new();
-        weather_engine.add_provider(Box::new(crate::api::OpenWeatherMapProvider));
-
-        let mut crypto_engine = crate::engines::crypto::CryptoEngine::new(width, height);
-        crypto_engine.add_provider(Box::new(crate::api::CoinGeckoProvider));
-        crypto_engine.add_provider(Box::new(crate::api::BinanceProvider));
-
-        let mut stock_engine = crate::engines::stock::StockEngine::new(width, height);
-        stock_engine.add_provider(Box::new(crate::api::YahooFinanceProvider));
-        let mut gif_engine = GifEngine::new(width, height);
-        let mut fighter_engine = FighterEngine::new(width, height);
-        let marquee_engine = MarqueeEngine::new();
-        let mut message_engine = MessageEngine::new();
-
+        let mut runtime = crate::core::registry::EngineRuntime::new();
         let mut rotation_state = RotationState::new();
+        let mut arbiter = DisplayArbiter::new();
         let mut last_frame = std::time::Instant::now();
-        let mut gifs_played = 0;
+        let gifs_played = 0;
+
+        let marquee_engine = crate::engines::marquee::MarqueeEngine::new();
+        let mut message_engine = crate::engines::message::MessageEngine::new();
+        // Transverse overlay manager: applies decorative overlays (like Fighter) additively
+        // onto base display frames following the 3-tier hierarchy.
+        let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
 
         // Display startup IP Address banner
         let startup_payload =
@@ -388,7 +383,7 @@ impl ArcadeMatrixApp {
         let start_time = std::time::Instant::now();
         while start_time.elapsed() < std::time::Duration::from_secs(4) {
             matrix.clear();
-            message_engine.render(matrix.as_mut(), &startup_payload);
+            message_engine.render_payload(matrix.as_mut(), &startup_payload);
             matrix.update();
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
@@ -425,10 +420,10 @@ impl ArcadeMatrixApp {
             let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
                 let s = config.settings.read();
                 (
-                    s.standby_enabled,
-                    s.standby_turn_off.clone(),
-                    s.standby_wake_up.clone(),
-                    s.standby_night_brightness,
+                    s.system.night_mode_enabled,
+                    s.system.turn_off_at.clone(),
+                    s.system.wake_up_at.clone(),
+                    s.system.night_brightness,
                 )
             };
 
@@ -457,8 +452,10 @@ impl ArcadeMatrixApp {
                 continue;
             }
 
-            // Handle forced engine (Game Marquee, Custom Message, etc.)
+            // --- ARBITER INTEGRATION ---
             let forced_opt = config.force_engine.lock().clone();
+
+            // 1. Submit MQTT/Message Request if active
             if let Some(ref forced_mode) = forced_opt {
                 if forced_mode == "message" {
                     has_received_mqtt = true;
@@ -467,307 +464,256 @@ impl ArcadeMatrixApp {
                         if let Ok(payload) =
                             serde_json::from_value::<MessagePayload>(payload_val.clone())
                         {
-                            let is_infinite = payload.timeout_seconds == 0;
-                            let start_time = std::time::Instant::now();
-                            let timeout =
-                                std::time::Duration::from_secs(payload.timeout_seconds as u64);
-
-                            message_engine.reset(matrix.width() as f32);
-
-                            while (is_infinite || start_time.elapsed() < timeout)
-                                && running.load(Ordering::SeqCst)
-                            {
-                                if config.reload_flag.load(Ordering::Relaxed) {
-                                    break;
-                                }
-                                let current_forced = config.force_engine.lock().clone();
-                                if current_forced.as_deref() != Some("message") {
-                                    break;
-                                }
-                                let current_payload_val = config.message_payload.lock().clone();
-                                if current_payload_val != Some(payload_val.clone()) {
-                                    break;
-                                }
-
-                                matrix.clear();
-                                let finished = message_engine.render(matrix.as_mut(), &payload);
-                                matrix.update();
-
-                                if finished && !is_infinite {
-                                    break;
-                                }
-
-                                std::thread::sleep(std::time::Duration::from_millis(33));
+                            let mut req = DisplayRequest::new(
+                                "MESSAGE",
+                                DisplayPriority::Mqtt,
+                                RequestLifecycle::OneShot,
+                            );
+                            req.preemptive = true;
+                            if payload.timeout_seconds > 0 {
+                                req.lifecycle = RequestLifecycle::Timed;
+                                req.timeout = Some(std::time::Duration::from_secs(
+                                    payload.timeout_seconds as u64,
+                                ));
                             }
-
-                            if !is_infinite {
-                                let mut f = config.force_engine.lock();
-                                if f.as_deref() == Some("message") {
-                                    *f = None;
-                                }
-                            }
-
-                            last_frame = std::time::Instant::now();
-                            rotation_state.mode_start_time = std::time::Instant::now();
-                            continue;
+                            req.instance_id = "mqtt_message".to_string();
+                            arbiter.submit_request(req);
                         }
                     }
                 } else if forced_mode == "marquee" {
                     has_received_mqtt = true;
-                    // Active Game Marquee persists as long as force_engine is Some("marquee")
+                    let mut req = DisplayRequest::new(
+                        "MARQUEE",
+                        DisplayPriority::Marquee,
+                        RequestLifecycle::UntilCancelled,
+                    );
+                    req.preemptive = true;
+                    req.instance_id = "marquee".to_string();
+                    arbiter.submit_request(req);
+                }
+            } else {
+                arbiter.cancel_request("MESSAGE");
+                arbiter.cancel_request("MARQUEE");
+            }
+
+            let mqtt_enabled = { config.settings.read().mqtt.enabled };
+            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
+                let req = DisplayRequest::new(
+                    "WAITING_MARQUEE",
+                    DisplayPriority::Marquee,
+                    RequestLifecycle::UntilCancelled,
+                );
+                arbiter.submit_request(req);
+            } else {
+                arbiter.cancel_request("WAITING_MARQUEE");
+            }
+
+            // 2. Submit Rotation Request
+            let idle_list = config.settings.read().rotation.clone();
+            if !idle_list.is_empty() {
+                let current_index = rotation_state.current_index;
+                let current_mode = &idle_list[current_index % idle_list.len()];
+                let mut req = DisplayRequest::new(
+                    "ROTATION",
+                    DisplayPriority::Rotation,
+                    RequestLifecycle::Persistent,
+                );
+                req.preemptive = false;
+                req.instance_id = current_mode.instance_id.clone();
+                arbiter.submit_request(req);
+            } else {
+                arbiter.cancel_request("ROTATION");
+            }
+
+            // 3. Evaluate Arbiter
+            let active_req = arbiter.evaluate();
+
+            if let Some(req) = active_req {
+                if req.source == "MESSAGE" {
+                    let payload_val_opt = config.message_payload.lock().clone();
+                    if let Some(payload_val) = payload_val_opt {
+                        if let Ok(payload) = serde_json::from_value::<MessagePayload>(payload_val) {
+                            matrix.clear();
+                            let finished = message_engine.render_payload(matrix.as_mut(), &payload);
+                            matrix.update();
+
+                            if finished
+                                && req.lifecycle != RequestLifecycle::UntilCancelled
+                                && req.lifecycle != RequestLifecycle::Persistent
+                            {
+                                let mut f = config.force_engine.lock();
+                                if f.as_deref() == Some("message") {
+                                    *f = None;
+                                }
+                                arbiter.cancel_request("MESSAGE");
+                            }
+
+                            last_frame = std::time::Instant::now();
+                            std::thread::sleep(std::time::Duration::from_millis(33));
+                            continue;
+                        }
+                    }
+                } else if req.source == "MARQUEE" {
                     let img_opt = config.image_obj.lock().clone();
                     if let Some(img) = img_opt {
                         matrix.clear();
-                        marquee_engine.render(matrix.as_mut(), &img);
+                        marquee_engine.render_image(matrix.as_mut(), &img);
                         matrix.update();
                         std::thread::sleep(std::time::Duration::from_millis(50));
                         last_frame = std::time::Instant::now();
-                        rotation_state.mode_start_time = std::time::Instant::now();
                         continue;
                     }
+                } else if req.source == "WAITING_MARQUEE" {
+                    if !was_mqtt_waiting {
+                        message_engine.reset_state(matrix.width() as f32, matrix.height() as f32);
+                        was_mqtt_waiting = true;
+                    }
+                    let msg_payload = crate::engines::message::MessagePayload::new(
+                        "WAITING FOR MARQUEE".to_string(),
+                        "#ffffff",
+                        2,
+                        "rtl",
+                        5,
+                    );
+                    matrix.clear();
+                    message_engine.render_payload(matrix.as_mut(), &msg_payload);
+                    matrix.update();
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                    last_frame = std::time::Instant::now();
+                    continue;
                 }
-            }
-
-            // Check if MQTT mode is enabled and no game marquee is active:
-            // Display "WAITING FOR MARQUEE" banner ONLY AT BOOT before any MQTT event has been received
-            let mqtt_enabled = { config.settings.read().mqtt_enabled };
-            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
-                if !was_mqtt_waiting {
-                    message_engine.reset(matrix.width() as f32);
-                    was_mqtt_waiting = true;
-                }
-                let msg_payload = crate::engines::message::MessagePayload::new(
-                    "WAITING FOR MARQUEE".to_string(),
-                    "#ffffff",
-                    2,
-                    "rtl",
-                    5,
-                );
-                matrix.clear();
-                message_engine.render(matrix.as_mut(), &msg_payload);
-                matrix.update();
-                std::thread::sleep(std::time::Duration::from_millis(50));
-                last_frame = std::time::Instant::now();
-                rotation_state.mode_start_time = std::time::Instant::now();
-                continue;
-            } else {
-                was_mqtt_waiting = false;
             }
 
             // Rotation sequence execution
-            let (idle_list, clock_dur, date_dur, weather_dur) = {
-                let s = config.settings.read();
-                (
-                    s.idle_rotation.clone(),
-                    s.idle_clock_duration_sec,
-                    s.idle_date_duration_sec,
-                    s.idle_weather_duration_sec,
-                )
-            };
+            let idle_list = config.settings.read().rotation.clone();
+            let mut realtime_cadence = false;
 
             if !idle_list.is_empty() {
                 let current_index = rotation_state.current_index;
                 let current_mode = &idle_list[current_index % idle_list.len()];
                 let mode_just_changed = current_index != last_index;
 
+                // Find engine_id for this instance
+                let engine_id = config
+                    .settings
+                    .read()
+                    .instances
+                    .iter()
+                    .find(|i| i.instance_id == current_mode.instance_id)
+                    .map(|i| i.engine_id.clone())
+                    .unwrap_or_else(|| current_mode.instance_id.clone()); // fallback to instance_id if not found
+
                 matrix.clear();
-                let mut should_update = true;
-                match current_mode.as_str() {
-                    "clock" => {
-                        clock_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(clock_dur as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "date" => {
-                        date_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(date_dur as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "weather" => {
-                        weather_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(weather_dur as u64)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "crypto" => {
-                        crypto_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "stocks" | "stock" => {
-                        stock_engine.render(matrix.as_mut(), &config);
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "gifs" => {
-                        let gifs_count = config.settings.read().idle_gifs_count as u32;
+                let empty_map = std::collections::HashMap::new();
+                let settings = config.settings.read();
+                let inst_config = settings
+                    .instances
+                    .iter()
+                    .find(|i| i.instance_id == current_mode.instance_id)
+                    .map(|inst| &inst.config)
+                    .unwrap_or(&empty_map);
+
+                let engine_config = inst_config;
+
+                // Whether the active engine needs a high frame rate. Derived from the
+                // engine descriptor's `realtime` capability dynamically.
+                let mut current_realtime =
+                    crate::core::registry::EngineRegistry::get_descriptor(&engine_id)
+                        .map(|d| d.capabilities.realtime)
+                        .unwrap_or(false);
+
+                {
+                    let mut ctx = crate::core::engine_contract::EngineContext {
+                        matrix: matrix.as_mut(),
+                        config: &config,
+                    };
+
+                    // get_instance handles initialization internally exactly once!
+                    if let Some(engine) = runtime.get_instance(
+                        &current_mode.instance_id,
+                        &engine_id,
+                        &mut ctx,
+                        engine_config,
+                    ) {
+                        // For self-paced engines (e.g. gifs) the rotation entry's
+                        // numeric value is a playback budget (number of GIFs),
+                        // not a duration in seconds. Feed it before activation.
+                        engine.set_rotation_budget(current_mode.duration_sec);
 
                         if mode_just_changed {
-                            gifs_played = 0;
-                            let selected = config.settings.read().selected_gifs.clone();
-                            if !gif_engine.play_random_playlist_gif(&selected) {
-                                gifs_played = gifs_count; // Force advance if failed
-                            }
+                            engine.activate();
                         }
 
-                        let dt = last_frame.elapsed();
-                        let sprites_on = config.settings.read().idle_fighter_enabled;
-                        let frame_changed = gif_engine.render_next_frame(matrix.as_mut(), dt);
-                        if sprites_on {
-                            // Fighter overlay animates every iteration: the gif image
-                            // must be present on the freshly-cleared canvas.
-                            if !frame_changed {
-                                gif_engine.redraw_current(matrix.as_mut());
-                            }
+                        engine.update(&mut ctx);
+                        engine.render(&mut ctx);
+
+                        // Let the engine raise the cadence based on its live
+                        // state (e.g. an animated clock theme), not just the
+                        // static descriptor capability. Without this, animated
+                        // clocks fall back to the 1fps static cadence.
+                        current_realtime = current_realtime || engine.is_realtime();
+
+                        // Polymorphic 3-tier overlay resolution
+                        if engine.allows_overlay() {
+                            overlay_manager.configure(&current_mode.overlays, &settings.system);
                         } else {
-                            // Skip the (memory-bus heavy) canvas swap when the gif
-                            // frame is unchanged: prevents DDR/SDIO DMA starvation
-                            // that was dropping Wi-Fi packets during playback.
-                            should_update = frame_changed;
+                            overlay_manager.configure(
+                                &crate::core::config::OverlayConfig::default(),
+                                &settings.system,
+                            );
                         }
 
-                        if gif_engine.has_finished_loops(1) || gif_engine.is_empty() {
-                            gifs_played += 1;
-                            if gifs_played >= gifs_count {
-                                gifs_played = 0;
-                                let next_mode_opt = rotation_state.next_mode(&idle_list);
-                                if next_mode_opt == Some("gifs") {
-                                    let selected = config.settings.read().selected_gifs.clone();
-                                    if !gif_engine.play_random_playlist_gif(&selected) {
-                                        gifs_played = gifs_count; // Force advance if failed
-                                    }
-                                }
-                            } else {
-                                let selected = config.settings.read().selected_gifs.clone();
-                                if !gif_engine.play_random_playlist_gif(&selected) {
-                                    gifs_played = gifs_count; // Force advance if failed
-                                }
-                            }
+                        // Advance on intrinsic completion, or on the duration
+                        // timer for time-based engines only. Self-paced engines
+                        // drive the advance solely through is_finished().
+                        let duration_elapsed = !engine.self_paced()
+                            && rotation_state.mode_start_time.elapsed()
+                                >= std::time::Duration::from_secs(current_mode.duration_sec as u64);
+                        if engine.is_finished() || duration_elapsed {
+                            rotation_state.next_mode(&idle_list);
                         }
-                    }
-                    "network" => {
-                        let ip = get_local_ip();
-                        let payload = crate::engines::message::MessagePayload::new(
-                            format!("IP: {}", ip),
-                            "#00ffc8",
-                            1,
-                            "left",
-                            10,
+                    } else {
+                        // Fallback if engine fails to load
+                        current_realtime = false;
+                        overlay_manager.configure(
+                            &crate::core::config::OverlayConfig::default(),
+                            &settings.system,
                         );
-
-                        let _ = message_engine.render(matrix.as_mut(), &payload);
                         if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(10)
+                            >= std::time::Duration::from_secs(current_mode.duration_sec as u64)
                         {
                             rotation_state.next_mode(&idle_list);
                         }
-                    }
-                    "message" => {
-                        let payload_val_opt = config.message_payload.lock().clone();
-                        if let Some(payload_val) = payload_val_opt {
-                            if let Ok(payload) = serde_json::from_value::<
-                                crate::engines::message::MessagePayload,
-                            >(payload_val.clone())
-                            {
-                                matrix.clear();
-                                let finished = message_engine.render(matrix.as_mut(), &payload);
-                                if finished
-                                    || rotation_state.mode_start_time.elapsed()
-                                        >= std::time::Duration::from_secs(
-                                            payload.timeout_seconds as u64,
-                                        )
-                                {
-                                    rotation_state.next_mode(&idle_list);
-                                }
-                            }
-                        } else {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    "marquee" => {
-                        let img_opt = config.image_obj.lock().clone();
-                        if let Some(img) = img_opt {
-                            marquee_engine.render(matrix.as_mut(), &img);
-                        }
-                        if rotation_state.mode_start_time.elapsed()
-                            >= std::time::Duration::from_secs(30)
-                        {
-                            rotation_state.next_mode(&idle_list);
-                        }
-                    }
-                    _ => {
-                        clock_engine.render(matrix.as_mut(), &config);
                     }
                 }
+
+                // --- Transverse overlay pass (additive, drawn on top of the base rotation frame) ---
+                overlay_manager.composite(matrix.as_mut());
+                current_realtime = current_realtime || overlay_manager.is_active();
+
                 last_index = current_index;
-
-                // Composite fighter overlay (strictly disabled during GIF rotation)
-                let settings = config.settings.read();
-                let fighter_enabled =
-                    settings.idle_fighter_enabled && current_mode.as_str() != "gifs";
-                if fighter_enabled {
-                    fighter_engine.set_interval(settings.idle_fighter_interval);
-                    fighter_engine.composite(matrix.as_mut());
-                } else if fighter_engine.is_active() {
-                    fighter_engine.stop();
-                    matrix.clear();
-                    should_update = true;
-                }
-                if should_update {
-                    matrix.update();
-                }
+                realtime_cadence = current_realtime;
+                matrix.update();
             } else {
-                clock_engine.render(matrix.as_mut(), &config);
-                let settings = config.settings.read();
-                let fighter_enabled = settings.idle_fighter_enabled;
-                if fighter_enabled {
-                    fighter_engine.set_interval(settings.idle_fighter_interval);
-                    fighter_engine.composite(matrix.as_mut());
-                } else if fighter_engine.is_active() {
-                    fighter_engine.stop();
-                    matrix.clear();
+                let dict = std::collections::HashMap::new();
+                let mut ctx = crate::core::engine_contract::EngineContext {
+                    matrix: matrix.as_mut(),
+                    config: &config,
+                };
+                if let Some(engine) =
+                    runtime.get_instance("fallback_clock", "clock", &mut ctx, &dict)
+                {
+                    engine.update(&mut ctx);
+                    engine.render(&mut ctx);
                 }
+                realtime_cadence = false;
                 matrix.update();
             }
 
-            // Adaptive sleep: match Python timing exactly
-            // - Fast/animated themes: 33ms (~30fps)
-            // - Static themes (clock, date, weather): 1000ms like Python (time.sleep(1))
-            // This gives the CPU and Wi-Fi IRQs plenty of breathing room.
-            let current_mode_str = idle_list
-                .get(rotation_state.current_index % idle_list.len().max(1))
-                .map(|s| s.as_str())
-                .unwrap_or("");
-            let is_animated = matches!(current_mode_str, "gifs" | "network" | "message");
-
-            let theme = if current_mode_str == "date" {
-                config.settings.read().date_theme
-            } else {
-                config.settings.read().time_theme
-            };
-
-            let fast_theme = matches!(theme, 18 | 19 | 21 | 22 | 23 | 26 | 27 | 28 | 29);
-            let sprite_active = config.settings.read().idle_fighter_enabled;
-
-            let sleep_ms = if is_animated || fast_theme || sprite_active {
-                40 // ~25fps, same as Python fast mode (time.sleep(0.04))
-            } else {
-                1000 // 1s for static modes, exactly like Python (time.sleep(1))
-            };
+            // Adaptive sleep: realtime engines (gif, scrolling text, spotify) run at
+            // ~25fps; static engines (clock, date, weather) refresh once per second to
+            // leave the CPU and Wi-Fi IRQs plenty of breathing room.
+            let sleep_ms = if realtime_cadence { 40 } else { 1000 };
             last_frame = std::time::Instant::now();
             std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }

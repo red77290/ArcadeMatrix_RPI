@@ -39,11 +39,53 @@ Si estás añadiendo una función completamente nueva (como recuperar precios bu
 * **Lenguaje**: el repositorio principal usa Rust para Raspberry Pi.
 * **Tipado**: aprovecha al máximo el tipado estático fuerte de Rust y sus Traits para aclarar los contratos Engine/Renderer.
 * **Pruebas**: todas las rutas de la API y la lógica de configuración Core deben estar cubiertas por `cargo test`.
-* **Independencia del hardware**: no supongas que la matriz es exactamente 64x32. Usa siempre `self.config.matrix_width` y `self.config.matrix_height`.
+* **Independencia del hardware**: no supongas que la matriz es exactamente 64x32. Lee el tamaño del panel desde `MatrixConfig` (`matrix.width` / `matrix.height`) y declara las resoluciones que soportas mediante las `Capabilities` del descriptor (`supports_128x32` / `supports_256x64`).
+
+## La arquitectura de motores (Registry / Descriptor / Factory)
+
+El Core es **agnóstico respecto a los motores**: nunca nombra directamente a
+`Clock`, `Weather` o `Spotify`. Cada motor es un plugin autodescrito que se
+descubre en tiempo de ejecución:
+
+```
+Engine
+ ├── Descriptor  (metadatos + Capabilities + Requirements)
+ ├── ConfigSchema (campos, tipos, valores por defecto, min/max, opciones, options_endpoint)
+ ├── Factory     (construcción perezosa, creado una sola vez y cacheado)
+ └── Lifecycle   (initialize → activate → update/render → deactivate)
+```
+
+- Los motores se configuran como **instancias genéricas** (`instance_id` +
+  `engine_id` + un `config` como mapa de cadenas), no como tipos hardcodeados.
+- La interfaz web se genera desde `GET /api/engines`: un motor nuevo aparece
+  automáticamente en la UI en cuanto se declara su `ConfigSchema`, sin tocar el
+  frontend.
+- Los cambios de configuración llegan a un motor en ejecución en vivo mediante
+  `on_config_changed()`; la configuración se autorrepara (se inyectan valores
+  por defecto, los valores fuera de rango se acotan o se reinician) antes de
+  persistirse.
+
+La guía completa y de referencia está en
+[`docs/DEVELOPER_ES.md`](docs/DEVELOPER_ES.md).
+
+## Añadir un nuevo motor
+
+1. Crea `src/engines/my_engine.rs` implementando el contrato `Engine`
+   (`initialize` / `activate` / `update` / `render` / `deactivate`, más
+   `is_finished` y `on_config_changed` según haga falta).
+2. Proporciona un `EngineDescriptor`: metadatos, `Capabilities` (pon
+   `realtime: true` solo si debe actualizarse en cada frame), `Requirements` y
+   un `ConfigSchema`.
+3. Regístralo en el registro mediante la entrada factory
+   `#[distributed_slice(ENGINES)]` para que el autodescubrimiento y la UI lo
+   detecten.
+4. Añade cobertura en `tests/` (ver `tests/test_registry.rs` y
+   `tests/test_sanitizer.rs`).
 
 ## Añadir un nuevo Renderer
 
-*Nota: El proceso exacto se está actualizando actualmente para la arquitectura de Rust.*
+Si solo necesitas un nuevo *aspecto visual* para datos existentes (p. ej. una
+nueva esfera de reloj), añade un **Renderer** en lugar de un motor:
 1. Crea un archivo nuevo en `src/engines/renderers/my_custom_renderer.rs`.
 2. Implementa el trait `Renderer`.
 3. Regístralo en `src/engines/renderers/mod.rs`.

@@ -46,7 +46,7 @@ impl SlotMachineClock {
             self.last_minute = now_min;
             self.current_time = time_str.to_string();
             self.target_time = time_str.to_string();
-        } else if self.last_minute != now_min && !self.spinning {
+        } else if (self.last_minute != now_min || self.current_time != time_str) && !self.spinning {
             self.spinning = true;
             self.spin_speed = 15.0;
             self.target_time = time_str.to_string();

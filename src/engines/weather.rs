@@ -19,6 +19,7 @@ pub struct WeatherEngine {
     api_key: String,
     city: String,
     lang: String,
+    last_lang: String,
     units: String,
     offset_x: i32,
     offset_y: i32,
@@ -38,6 +39,7 @@ impl WeatherEngine {
             api_key: "".to_string(),
             city: "".to_string(),
             lang: "en".to_string(),
+            last_lang: "en".to_string(),
             units: "metric".to_string(),
             offset_x: 0,
             offset_y: 0,
@@ -115,13 +117,27 @@ impl Engine for WeatherEngine {
             return;
         }
 
+        let sys_lang = context.config.settings.read().system.lang.clone();
+        let active_lang = if !sys_lang.is_empty() {
+            sys_lang
+        } else {
+            "fr".to_string()
+        };
+
+        if self.last_lang != active_lang {
+            self.last_lang = active_lang.clone();
+            self.last_fetch = None;
+            self.forecasts.clear();
+            self.panorama = None;
+        }
+
         let should_fetch = self
             .last_fetch
             .map(|t| t.elapsed() > Duration::from_secs(1800))
             .unwrap_or(true);
 
         if should_fetch {
-            self.fetch_forecast(&self.api_key.clone(), &self.city.clone());
+            self.fetch_forecast(&self.api_key.clone(), &self.city.clone(), &active_lang);
         }
 
         if self.forecasts.is_empty() {
@@ -606,13 +622,12 @@ impl WeatherEngine {
         }
     }
 
-    fn fetch_forecast(&mut self, api_key: &str, city: &str) {
+    fn fetch_forecast(&mut self, api_key: &str, city: &str, lang: &str) {
         self.last_fetch = Some(Instant::now());
         self.panorama = None; // Invalidate panorama cache
 
         for provider in &self.providers {
-            if let Some(forecasts) = provider.fetch_forecast(api_key, city, &self.lang, &self.units)
-            {
+            if let Some(forecasts) = provider.fetch_forecast(api_key, city, lang, &self.units) {
                 self.forecasts = forecasts;
                 return;
             }
@@ -671,30 +686,6 @@ fn register_weather_engine() -> EngineDescriptor {
                         crate::core::engine_contract::ConfigOption {
                             label: "Fahrenheit (°F)",
                             value: "imperial",
-                        },
-                    ]),
-                    validation_policy:
-                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
-                    ..Default::default()
-                },
-                crate::core::engine_contract::ConfigField {
-                    id: "lang",
-                    field_type: crate::core::engine_contract::ConfigType::Options,
-                    label: "Language",
-                    description: "Language for the day labels. Only these are localized.",
-                    default_value: "en",
-                    options: Some(vec![
-                        crate::core::engine_contract::ConfigOption {
-                            label: "English",
-                            value: "en",
-                        },
-                        crate::core::engine_contract::ConfigOption {
-                            label: "Français",
-                            value: "fr",
-                        },
-                        crate::core::engine_contract::ConfigOption {
-                            label: "Español",
-                            value: "es",
                         },
                     ]),
                     validation_policy:

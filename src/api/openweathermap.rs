@@ -32,87 +32,12 @@ struct ForecastApiResponse {
     list: Vec<ForecastEntry>,
 }
 
+use crate::core::i18n::{self, Lang};
+
 fn translate_condition(main: &str, desc: &str, lang: &str) -> String {
-    let m = main.to_lowercase();
-    let d = desc.to_lowercase();
-    let l = lang.to_lowercase();
-
-    if l == "fr" {
-        if m.contains("clear") {
-            return "Soleil".to_string();
-        }
-        if m.contains("cloud") {
-            if d.contains("couvert") || d.contains("overcast") {
-                return "Couvert".to_string();
-            }
-            if d.contains("part") || d.contains("peu") || d.contains("scat") {
-                return "Eclaircies".to_string();
-            }
-            return "Nuageux".to_string();
-        }
-        if m.contains("rain") || m.contains("drizzle") {
-            return "Pluie".to_string();
-        }
-        if m.contains("thunder") {
-            return "Orage".to_string();
-        }
-        if m.contains("snow") {
-            return "Neige".to_string();
-        }
-        if m.contains("mist") || m.contains("fog") || m.contains("haze") {
-            return "Brume".to_string();
-        }
-        if !desc.is_empty() {
-            let mut c = desc.chars();
-            return match c.next() {
-                None => String::new(),
-                Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
-            };
-        }
-        return "Meteo".to_string();
-    } else if l == "es" {
-        if m.contains("clear") {
-            return "Soleado".to_string();
-        }
-        if m.contains("cloud") {
-            return "Nublado".to_string();
-        }
-        if m.contains("rain") || m.contains("drizzle") {
-            return "Lluvia".to_string();
-        }
-        if m.contains("thunder") {
-            return "Tormenta".to_string();
-        }
-        if m.contains("snow") {
-            return "Nieve".to_string();
-        }
-        if m.contains("mist") || m.contains("fog") {
-            return "Niebla".to_string();
-        }
-    }
-
-    if m.contains("clear") {
-        return "Clear".to_string();
-    }
-    if m.contains("cloud") {
-        return "Clouds".to_string();
-    }
-    if m.contains("rain") {
-        return "Rain".to_string();
-    }
-    if m.contains("drizzle") {
-        return "Drizzle".to_string();
-    }
-    if m.contains("thunder") {
-        return "Thunder".to_string();
-    }
-    if m.contains("snow") {
-        return "Snow".to_string();
-    }
-    if m.contains("mist") || m.contains("fog") {
-        return "Fog".to_string();
-    }
-    main.to_string()
+    let l = Lang::from_code(lang);
+    let combined = format!("{} {}", main, desc);
+    i18n::weather_condition(l, &combined).to_string()
 }
 
 impl WeatherProvider for OpenWeatherMapProvider {
@@ -222,24 +147,12 @@ impl OpenWeatherMapProvider {
     ) -> Option<Vec<DayForecast>> {
         if let Ok(data) = serde_json::from_value::<ForecastApiResponse>(json.clone()) {
             let indices = [0, 8, 16];
-            let mut labels = Vec::new();
-
-            if lang.eq_ignore_ascii_case("fr") {
-                labels.push("AUJ.");
-                labels.push("DEMN");
-                let fr_days = ["DIM", "LUN", "MAR", "MER", "JEU", "VEN", "SAM"];
-                labels.push(fr_days[((current_wday + 2) % 7) as usize]);
-            } else if lang.eq_ignore_ascii_case("es") {
-                labels.push("HOY");
-                labels.push("MANA");
-                let es_days = ["DOM", "LUN", "MAR", "MIE", "JUE", "VIE", "SAB"];
-                labels.push(es_days[((current_wday + 2) % 7) as usize]);
-            } else {
-                labels.push("TODAY");
-                labels.push("TMRW");
-                let en_days = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
-                labels.push(en_days[((current_wday + 2) % 7) as usize]);
-            }
+            let l = Lang::from_code(lang);
+            let labels = vec![
+                i18n::weather_day_label(l, current_wday as usize, true, false),
+                i18n::weather_day_label(l, ((current_wday + 1) % 7) as usize, false, true),
+                i18n::weather_day_label(l, ((current_wday + 2) % 7) as usize, false, false),
+            ];
 
             let unit_sym = if units.eq_ignore_ascii_case("imperial")
                 || units.eq_ignore_ascii_case("fahrenheit")
@@ -338,7 +251,7 @@ mod tests {
         assert_eq!(forecasts[0].temp_max, "29°C");
         assert_eq!(forecasts[0].condition, "Clear");
         assert_eq!(forecasts[0].icon, "01d");
-        assert_eq!(forecasts[1].label, "TMRW");
+        assert_eq!(forecasts[1].label, "TOM.");
         assert_eq!(forecasts[1].temp, "30°C");
         assert_eq!(forecasts[1].temp_min, "25°C");
         assert_eq!(forecasts[1].temp_max, "35°C");

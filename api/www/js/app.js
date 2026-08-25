@@ -1,5 +1,5 @@
 import { API } from './api.js';
-import { setLanguage } from './i18n.js';
+import { setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
 import './components/toast.js';
 import { initDynamicEngines } from './dynamic_engines.js';
 
@@ -69,11 +69,29 @@ function initNavigation() {
 
   const langSelect = document.getElementById('lang-selector');
   if (langSelect) {
+    langSelect.innerHTML = '';
+    SUPPORTED_LANGUAGES.forEach(l => {
+      const opt = document.createElement('option');
+      opt.value = l.code;
+      opt.textContent = l.label;
+      langSelect.appendChild(opt);
+    });
+
+    const savedLang = localStorage.getItem('lang');
     const defaultLang = navigator.language.split('-')[0];
-    const initialLang = ['en', 'fr', 'es'].includes(defaultLang) ? defaultLang : 'en';
+    const initialLang = savedLang || (SUPPORTED_LANGUAGES.some(l => l.code === defaultLang) ? defaultLang : 'fr');
     langSelect.value = initialLang;
     setLanguage(initialLang);
-    langSelect.addEventListener('change', (e) => setLanguage(e.target.value));
+
+    langSelect.addEventListener('change', async (e) => {
+      const selected = e.target.value;
+      setLanguage(selected);
+      try {
+        await API.post('/api/system', { lang: selected });
+      } catch (err) {
+        console.warn('Failed to sync lang to backend:', err);
+      }
+    });
   }
 }
 
@@ -463,6 +481,12 @@ async function initSettings() {
 
     const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
     const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+
+    if (sys.lang) {
+      const ls = document.getElementById('lang-selector');
+      if (ls) ls.value = sys.lang;
+      setLanguage(sys.lang);
+    }
 
     // Dashboard brightness (0-100) is the live daytime brightness (day_brightness).
     const sliderBright = document.getElementById('slider-brightness');

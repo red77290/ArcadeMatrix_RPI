@@ -55,13 +55,13 @@
       "instance_id": "default_clock",
       "engine_id": "clock",
       "config": {
-        "offset_y": "0",
-        "format": "%H:%M:%S",
+        "timezone": "Europe/Paris",
         "color_1": "#FFFFFF",
+        "font": "PressStart2P.ttf",
+        "format": "%H:%M:%S",
+        "offset_y": "0",
         "size": "2",
         "color_2": "#FFFFFF",
-        "font": "PressStart2P.ttf",
-        "timezone": "Europe/Paris",
         "theme": "0",
         "offset_x": "0"
       }
@@ -70,12 +70,11 @@
       "instance_id": "default_weather",
       "engine_id": "weather",
       "config": {
-        "city": "",
-        "lang": "en",
-        "api_key": "",
         "offset_x": "0",
+        "api_key": "",
+        "units": "metric",
         "offset_y": "0",
-        "units": "metric"
+        "city": ""
       }
     }
   ],
@@ -83,12 +82,16 @@
     {
       "instance_id": "default_clock",
       "duration_sec": 60,
-      "fighter_overlay": true
+      "overlays": {
+        "fighter": true
+      }
     },
     {
       "instance_id": "default_weather",
       "duration_sec": 15,
-      "fighter_overlay": true
+      "overlays": {
+        "fighter": true
+      }
     }
   ],
   "api_auth_enabled": false,

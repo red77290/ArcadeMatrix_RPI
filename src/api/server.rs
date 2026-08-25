@@ -105,6 +105,9 @@ async fn post_system(
     if let Some(v) = body.get("api_token").and_then(|v| v.as_str()) {
         s.api_token = v.to_string();
     }
+    if let Some(v) = body.get("lang").and_then(|v| v.as_str()) {
+        s.system.lang = v.to_string();
+    }
     // Fighter overlay toggle/interval (media page). Handled as top-level keys so
     // the UI can patch them without replacing the whole `system` object.
     if let Some(v) = body.get("idle_fighter_enabled").and_then(|v| v.as_bool()) {

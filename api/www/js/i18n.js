@@ -97,7 +97,14 @@ export const translations = {
   }
 };
 
+export const SUPPORTED_LANGUAGES = [
+  { code: 'fr', label: 'Français' },
+  { code: 'en', label: 'English' },
+  { code: 'es', label: 'Español' }
+];
+
 export function setLanguage(lang) {
+  localStorage.setItem('lang', lang);
   const dict = translations[lang] || translations.en;
   
   // Text content translation

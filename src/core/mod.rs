@@ -4,6 +4,7 @@ pub mod config;
 pub mod config_sanitizer;
 pub mod dmd_cache;
 pub mod engine_contract;
+pub mod i18n;
 pub mod matrix;
 pub mod overlay_manager;
 pub mod registry;

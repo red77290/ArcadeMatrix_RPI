@@ -225,6 +225,116 @@ function initOta() {
     btnUpdate.disabled = false;
   }
 
+  // --- 1. Online Automatic OTA (GitHub Releases) ---
+  const btnCheck = document.getElementById('btn-ota-check');
+  const btnAutoInstall = document.getElementById('btn-ota-auto-install');
+  const onlineCard = document.getElementById('ota-online-card');
+  const onlineBadge = document.getElementById('ota-online-badge');
+  const onlineTargetVer = document.getElementById('ota-online-target-ver');
+  const onlineSize = document.getElementById('ota-online-size');
+  const onlineNotes = document.getElementById('ota-online-notes');
+  const autoProgress = document.getElementById('ota-auto-progress');
+  const autoProgressText = document.getElementById('ota-auto-progress-text');
+
+  let latestDownloadUrl = null;
+  let targetVersionName = '';
+
+  if (btnCheck) {
+    btnCheck.addEventListener('click', async () => {
+      btnCheck.disabled = true;
+      btnCheck.textContent = '⏳ Checking GitHub...';
+      window.showToast('Checking GitHub for latest release...', 'info');
+
+      try {
+        const data = await API.checkOtaUpdate();
+        if (data.status === 'error') {
+          window.showToast(`❌ ${data.message}`, 'error');
+          return;
+        }
+
+        onlineCard.style.display = 'block';
+        targetVersionName = data.latest_version;
+        onlineTargetVer.textContent = `v${data.latest_version}`;
+
+        if (data.asset_size) {
+          onlineSize.textContent = `${(data.asset_size / (1024 * 1024)).toFixed(1)} MB (${data.current_arch})`;
+        } else {
+          onlineSize.textContent = data.current_arch;
+        }
+
+        if (data.release_notes) {
+          onlineNotes.textContent = data.release_notes;
+          onlineNotes.style.display = 'block';
+        } else {
+          onlineNotes.style.display = 'none';
+        }
+
+        if (data.update_available && data.download_url) {
+          latestDownloadUrl = data.download_url;
+          onlineBadge.className = 'badge badge-accent';
+          onlineBadge.textContent = 'New Update Available';
+          btnAutoInstall.style.display = 'inline-block';
+          btnAutoInstall.textContent = `⬇️ Download & Install v${data.latest_version}`;
+          window.showToast(`🎉 New update v${data.latest_version} available!`, 'success');
+        } else {
+          latestDownloadUrl = null;
+          onlineBadge.className = 'badge';
+          onlineBadge.textContent = 'Up to Date';
+          btnAutoInstall.style.display = 'none';
+          window.showToast(`✅ You are already on the latest version (v${data.current_version}).`, 'info');
+        }
+      } catch (err) {
+        window.showToast(`❌ Failed to check updates: ${err.message || err.status}`, 'error');
+      } finally {
+        btnCheck.disabled = false;
+        btnCheck.textContent = '🔍 Check for Updates';
+      }
+    });
+  }
+
+  if (btnAutoInstall) {
+    btnAutoInstall.addEventListener('click', async () => {
+      if (!confirm(`⚠️ Download and install ArcadeMatrix v${targetVersionName || ''} from GitHub? The service will automatically restart.`)) {
+        return;
+      }
+
+      btnCheck.disabled = true;
+      btnAutoInstall.disabled = true;
+      autoProgress.style.display = 'block';
+      autoProgressText.textContent = 'Downloading binary from GitHub & verifying...';
+      window.showToast('Downloading firmware from GitHub...', 'info');
+
+      try {
+        const oldVersionData = await API.getVersion().catch(() => null);
+        const oldVer = oldVersionData?.version || '';
+
+        const resp = await API.triggerAutoOta(latestDownloadUrl);
+        if (resp.status === 'error') {
+          throw new Error(resp.message || 'Auto-update failed');
+        }
+
+        autoProgressText.textContent = 'Restarting daemon...';
+        window.showToast('Firmware downloaded & replaced! Waiting for restart...', 'info');
+
+        const versionData = await API.waitForReconnect(60000, 2000, oldVer);
+        if (oldVer && versionData.version === oldVer) {
+          window.showToast(`⚠️ Device reconnected, but version is still v${versionData.version}. (Check /tmp/arcadematrix_ota.log)`, 'warning');
+        } else {
+          window.showToast(`✅ Firmware successfully updated to v${versionData.version}!`, 'success');
+        }
+        loadVersion();
+        if (onlineCard) onlineCard.style.display = 'none';
+      } catch (err) {
+        window.showToast(`❌ Automatic update failed: ${err.message || err.status}`, 'error');
+      } finally {
+        btnCheck.disabled = false;
+        btnAutoInstall.disabled = false;
+        autoProgress.style.display = 'none';
+      }
+    });
+  }
+
+  // --- 2. Manual Offline OTA File Upload ---
   btnUpdate.addEventListener('click', async () => {
     if (!selectedOtaFile) return;
 
@@ -238,6 +348,9 @@ function initOta() {
     progressText.textContent = '0%';
 
     try {
+      const oldVersionData = await API.getVersion().catch(() => null);
+      const oldVer = oldVersionData?.version || '';
+
       window.showToast('Uploading firmware binary...', 'info');
       await API.uploadFirmware(selectedOtaFile, (percent) => {
         progressFill.style.width = `${percent}%`;
@@ -245,10 +358,14 @@ function initOta() {
       });
 
       progressText.textContent = 'Restarting daemon...';
-      window.showToast('Firmware replaced! Reconnecting to device...', 'info');
+      window.showToast('Firmware uploaded! Waiting for daemon to restart...', 'info');
 
-      const versionData = await API.waitForReconnect();
-      window.showToast(`✅ Firmware updated to v${versionData.version}!`, 'success');
+      const versionData = await API.waitForReconnect(60000, 2000, oldVer);
+      if (oldVer && versionData.version === oldVer) {
+        window.showToast(`⚠️ Device reconnected, but version is still v${versionData.version}. (Check /tmp/arcadematrix_ota.log)`, 'warning');
+      } else {
+        window.showToast(`✅ Firmware successfully updated to v${versionData.version}!`, 'success');
+      }
       loadVersion();
     } catch (err) {
       window.showToast(`❌ Update failed: ${err.message || err.status}`, 'error');

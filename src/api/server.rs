@@ -773,6 +773,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
             .service(crate::api::ota::get_version)
+            .service(crate::api::ota::check_update)
+            .service(crate::api::ota::auto_update)
             .service(crate::api::ota::handle_update)
             .route("/", web::get().to(serve_static))
             .route("/{_:.*}", web::get().to(serve_static))

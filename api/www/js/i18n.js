@@ -13,6 +13,23 @@ export const translations = {
     ota_drop: "Drop firmware binary here or click to browse",
     ota_confirm: "This will replace the running firmware and restart the device. Continue?",
     
+    // Display & Rotation UX
+    add_screen_title: "Add New Screen to Display",
+    add_screen_desc: "Select any engine plugin from the library to create a new customizable screen instance on your LED Matrix.",
+    choose_engine: "Choose Engine:",
+    instance_name_id: "Instance Name (ID):",
+    create_screen_btn: "Create Screen",
+    configured_screens_title: "Configured Screens & Settings",
+    configured_screens_desc: "Click on a screen tab below to customize its visual layout, data feeds, colors, and options.",
+    no_screens_title: "No display screens configured yet",
+    no_screens_desc: "Choose an engine plugin above and click 'Create Screen' to set up your first display screen.",
+    rotation_loop_title: "Screen Rotation Loop (Matrix Playlist)",
+    rotation_loop_badge: "Auto-Cycling",
+    rotation_loop_desc: "This sequence controls which screens cycle on your LED Matrix, how long each screen stays active (seconds / GIF count), their display order, and whether the Street Fighter animation overlay is enabled.",
+    rotation_add_title: "Add Active Screen to Rotation Loop:",
+    rotation_save_btn: "Save Rotation",
+    rotation_empty: "No instances in rotation. Add one below.",
+
     // Tooltips
     tt_hw_chain: "Number of LED panels connected sequentially in a single line.",
     tt_hw_parallel: "Number of parallel chains (requires specific wiring/HAT).",
@@ -45,6 +62,23 @@ export const translations = {
     ota_drop: "Glissez le binaire ici ou cliquez pour parcourir",
     ota_confirm: "Cela va remplacer le firmware en cours et redémarrer l'appareil. Continuer ?",
     
+    // Display & Rotation UX
+    add_screen_title: "Ajouter un nouvel écran à l'affichage",
+    add_screen_desc: "Sélectionnez un plugin du catalogue pour créer un nouvel écran personnalisable sur votre matrice LED.",
+    choose_engine: "Choisir l'Engine :",
+    instance_name_id: "Nom de l'instance (ID) :",
+    create_screen_btn: "Créer l'écran",
+    configured_screens_title: "Écrans configurés & Paramètres",
+    configured_screens_desc: "Cliquez sur un onglet ci-dessous pour personnaliser sa disposition, ses sources de données et ses options.",
+    no_screens_title: "Aucun écran configuré pour le moment",
+    no_screens_desc: "Choisissez un plugin ci-dessus et cliquez sur 'Créer l'écran' pour configurer votre premier écran.",
+    rotation_loop_title: "Boucle de Rotation (Playlist Matrice)",
+    rotation_loop_badge: "Défilement Auto",
+    rotation_loop_desc: "Cette séquence contrôle quels écrans défilent sur la matrice LED, la durée d'affichage (secondes / nombre de GIFs), leur ordre et l'activation de l'overlay de combat Street Fighter.",
+    rotation_add_title: "Ajouter un écran actif à la boucle de rotation :",
+    rotation_save_btn: "Enregistrer la rotation",
+    rotation_empty: "Aucun écran dans la rotation. Ajoutez-en un ci-dessous.",
+
     // Tooltips
     tt_hw_chain: "Nombre de dalles LED chaînées à la suite sur une seule ligne.",
     tt_hw_parallel: "Nombre de chaînes parallèles (nécessite un câblage/HAT spécifique).",
@@ -77,6 +111,23 @@ export const translations = {
     ota_drop: "Arrastra el binario aquí o haz clic para buscar",
     ota_confirm: "Esto reemplazará el firmware y reiniciará el dispositivo. ¿Continuar?",
     
+    // Display & Rotation UX
+    add_screen_title: "Añadir nueva pantalla a la visualización",
+    add_screen_desc: "Selecciona un plugin del catálogo para crear una nueva pantalla personalizable en tu matriz LED.",
+    choose_engine: "Elegir Engine:",
+    instance_name_id: "Nombre de la instancia (ID):",
+    create_screen_btn: "Crear pantalla",
+    configured_screens_title: "Pantallas configuradas y Ajustes",
+    configured_screens_desc: "Haz clic en una pestaña para personalizar su diseño, fuentes de datos y opciones.",
+    no_screens_title: "Aún no hay pantallas configuradas",
+    no_screens_desc: "Elige un plugin arriba y haz clic en 'Crear pantalla' para configurar tu primera pantalla.",
+    rotation_loop_title: "Bucle de Rotación (Lista de reproducción)",
+    rotation_loop_badge: "Ciclo Automático",
+    rotation_loop_desc: "Esta secuencia controla qué pantallas rotan en tu matriz LED, el tiempo de visualización (segundos / cantidad de GIFs), su orden y la superposición de Street Fighter.",
+    rotation_add_title: "Añadir pantalla activa al bucle de rotación:",
+    rotation_save_btn: "Guardar rotación",
+    rotation_empty: "No hay pantallas en la rotación. Añade una abajo.",
+
     // Tooltips
     tt_hw_chain: "Número de paneles LED encadenados en una sola línea.",
     tt_hw_parallel: "Número de cadenas paralelas (requiere cableado/HAT específico).",
@@ -102,6 +153,12 @@ export const SUPPORTED_LANGUAGES = [
   { code: 'en', label: 'English' },
   { code: 'es', label: 'Español' }
 ];
+
+export function t(key, fallback) {
+  const lang = localStorage.getItem('lang') || 'en';
+  const dict = translations[lang] || translations.en;
+  return dict[key] !== undefined ? dict[key] : (fallback || key);
+}
 
 export function setLanguage(lang) {
   localStorage.setItem('lang', lang);

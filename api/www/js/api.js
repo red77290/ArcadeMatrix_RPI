@@ -81,13 +81,36 @@ export const API = {
     });
   },
 
-  async waitForReconnect(timeoutMs = 60000, intervalMs = 2000) {
+  async checkOtaUpdate() {
+    return this.get('/api/ota/check');
+  },
+
+  async triggerAutoOta(downloadUrl = null) {
+    return this.post('/api/ota/auto-update', { download_url: downloadUrl });
+  },
+
+  async waitForReconnect(timeoutMs = 60000, intervalMs = 2000, expectedVersion = null) {
     const start = Date.now();
+    let wentOffline = false;
+
+    // Grace period for the daemon to receive the update command and initiate shutdown
+    await new Promise(r => setTimeout(r, 2500));
+
     while (Date.now() - start < timeoutMs) {
       try {
         const res = await fetch('/api/version', { signal: AbortSignal.timeout(1500) });
-        if (res.ok) return await res.json();
-      } catch {}
+        if (res.ok) {
+          const data = await res.json();
+          // If we expected a new version, make sure it didn't just return the old un-restarted daemon
+          if (expectedVersion && data.version === expectedVersion && !wentOffline && (Date.now() - start < 8000)) {
+            await new Promise(r => setTimeout(r, intervalMs));
+            continue;
+          }
+          return data;
+        }
+      } catch {
+        wentOffline = true;
+      }
       await new Promise(r => setTimeout(r, intervalMs));
     }
     throw new Error('Device did not respond after reboot');

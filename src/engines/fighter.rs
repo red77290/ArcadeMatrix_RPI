@@ -135,7 +135,7 @@ impl FighterChar {
             false
         };
 
-        // Mandatory states
+        // Mandatory states with robust fallbacks
         for action in &["walk", "attack", "hit", "win"] {
             if !try_load(action, &[&format!("{}.fgt", action)]) {
                 // Fallbacks
@@ -147,13 +147,32 @@ impl FighterChar {
                         }
                     }
                     "attack" => {
-                        try_load("attack", &["special1.fgt", "walk.fgt"]);
+                        if !try_load(
+                            "attack",
+                            &[
+                                "special1.fgt",
+                                "super1.fgt",
+                                "special2.fgt",
+                                "super2.fgt",
+                                "stand.fgt",
+                                "walk.fgt",
+                            ],
+                        ) {
+                            tracing::warn!("Failed to load attack fallback for {}", name);
+                            return None;
+                        }
                     }
                     "hit" => {
-                        try_load("hit", &["fall.fgt", "dead.fgt", "walk.fgt"]);
+                        if !try_load("hit", &["fall.fgt", "dead.fgt", "stand.fgt", "walk.fgt"]) {
+                            tracing::warn!("Failed to load hit fallback for {}", name);
+                            return None;
+                        }
                     }
                     "win" => {
-                        try_load("win", &["walk.fgt"]);
+                        if !try_load("win", &["stand.fgt", "walk.fgt"]) {
+                            tracing::warn!("Failed to load win fallback for {}", name);
+                            return None;
+                        }
                     }
                     _ => {}
                 }

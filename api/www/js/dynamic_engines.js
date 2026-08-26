@@ -1,5 +1,5 @@
 import { API } from './api.js';
-import { translations } from './i18n.js';
+import { translations, t } from './i18n.js';
 
 export const GLOBAL_TIMEZONES = [
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
@@ -95,52 +95,113 @@ export async function initDynamicEngines() {
       enginesMap[desc.metadata.id] = desc;
     });
 
-    // Rotation manager panel (order + duration of instances in the loop).
+    // 1. Rotation manager panel (order + duration of instances in the loop).
     await renderRotationPanel(container, tabsContainer, instancesList, enginesMap);
 
-    // Add New Instance Controls
-    const addContainer = document.createElement('div');
-    addContainer.style = "display: flex; gap: 0.5rem; align-items: center; margin-left: auto;";
+    // 2. Prominent "Add New Engine Screen" Card (Unmistakable & 100% Dynamic)
+    const addCard = document.createElement('div');
+    addCard.className = 'card glass shadow';
+    addCard.style = "margin: 1.5rem 0; border: 1px solid rgba(99, 102, 241, 0.4); background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(30, 41, 59, 0.5) 100%);";
     
-    const engineSelect = document.createElement('select');
-    engineSelect.className = 'input';
-    engineSelect.style = "width: auto; padding: 0.2rem 0.5rem;";
-    descriptors.forEach(desc => {
-        const opt = document.createElement('option');
-        opt.value = desc.metadata.id;
-        opt.innerText = desc.metadata.name;
-        engineSelect.appendChild(opt);
-    });
-    
-    const addBtn = document.createElement('button');
-    addBtn.className = 'btn btn-primary';
-    addBtn.innerHTML = `➕ Add Engine`;
-    addBtn.style = "padding: 0.2rem 0.5rem;";
-    addBtn.onclick = () => {
-       const eng = engineSelect.value;
-       const inst = prompt("Enter a unique name for this instance (e.g. main_" + eng + "):", eng);
-       if (!inst) return;
-       API.post('/api/instances', { instance_id: inst, engine_id: eng, config: {} }).then(() => {
-           window.showToast('Instance created', 'success');
-           localStorage.setItem('activePage', 'display');
-           setTimeout(() => location.reload(), 500);
-       });
-    };
-    
-    addContainer.appendChild(engineSelect);
-    addContainer.appendChild(addBtn);
-    tabsContainer.appendChild(addContainer);
+    addCard.innerHTML = `
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 1rem;">
+        <div style="max-width: 480px;">
+          <h3 style="margin: 0; display: flex; align-items: center; gap: 0.5rem;" data-i18n="add_screen_title">
+            <span>➕</span> ${t('add_screen_title', 'Add New Screen to Display')}
+          </h3>
+          <p class="text-muted" style="margin: 0.35rem 0 0 0; font-size: 0.85rem;" data-i18n="add_screen_desc">
+            ${t('add_screen_desc', 'Select any engine plugin from the library to create a new customizable screen instance on your LED Matrix.')}
+          </p>
+        </div>
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+          <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--accent, #6366f1);" data-i18n="choose_engine">${t('choose_engine', 'Choose Engine:')}</label>
+            <select id="engine-select-dropdown" class="input" style="min-width: 220px; font-weight: 500; border-color: var(--accent, #6366f1);">
+              ${descriptors.map(d => {
+                const icon = (d.metadata && d.metadata.icon) ? d.metadata.icon : '🧩';
+                const name = (d.metadata && d.metadata.name) ? d.metadata.name : d.metadata.id;
+                return `<option value="${d.metadata.id}">${icon} ${name} (${d.metadata.id})</option>`;
+              }).join('')}
+            </select>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+            <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted, #888);" data-i18n="instance_name_id">${t('instance_name_id', 'Instance Name (ID):')}</label>
+            <input type="text" id="engine-instance-name-input" class="input" style="width: 140px;" placeholder="e.g. main_screen" value="${descriptors.length ? 'main_' + descriptors[0].metadata.id.toLowerCase().replace('engine', '') : ''}">
+          </div>
+          <div style="display: flex; flex-direction: column; justify-content: flex-end; align-self: flex-end;">
+            <button id="btn-create-engine-instance" class="btn btn-primary" style="padding: 0.5rem 1.1rem; font-weight: 600; white-space: nowrap; box-shadow: 0 0 10px rgba(99, 102, 241, 0.4);" data-i18n="create_screen_btn">
+              ➕ ${t('create_screen_btn', 'Create Screen')}
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
 
-    instancesList.forEach(async instance => {
+    container.insertBefore(addCard, tabsContainer);
+
+    const engineSelectEl = addCard.querySelector('#engine-select-dropdown');
+    const instanceNameInput = addCard.querySelector('#engine-instance-name-input');
+    const createBtn = addCard.querySelector('#btn-create-engine-instance');
+
+    if (engineSelectEl && instanceNameInput) {
+      engineSelectEl.addEventListener('change', () => {
+        const eng = engineSelectEl.value;
+        const cleanName = eng.toLowerCase().replace('engine', '');
+        instanceNameInput.value = `main_${cleanName}`;
+      });
+    }
+
+    if (createBtn) {
+      createBtn.addEventListener('click', () => {
+        const eng = engineSelectEl ? engineSelectEl.value : '';
+        const inst = instanceNameInput && instanceNameInput.value.trim() ? instanceNameInput.value.trim() : `main_${eng.toLowerCase()}`;
+        if (!eng || !inst) return;
+        API.post('/api/instances', { instance_id: inst, engine_id: eng, config: {} }).then(() => {
+          window.showToast(`Screen instance '${inst}' created successfully!`, 'success');
+          localStorage.setItem('activePage', 'display');
+          setTimeout(() => location.reload(), 500);
+        }).catch(err => {
+          window.showToast(`Failed to create instance: ${err.message || err.status}`, 'error');
+        });
+      });
+    }
+
+    // 3. Section Header for Configured Screens Tabs
+    const screensHeader = document.createElement('div');
+    screensHeader.style = "margin: 2rem 0 0.75rem 0; display: flex; align-items: center; justify-content: space-between;";
+    screensHeader.innerHTML = `
+      <div>
+        <h3 style="margin: 0; font-size: 1.15rem;" data-i18n="configured_screens_title">⚙️ ${t('configured_screens_title', 'Configured Screens & Settings')}</h3>
+        <p class="text-muted" style="margin: 0.2rem 0 0 0; font-size: 0.85rem;" data-i18n="configured_screens_desc">${t('configured_screens_desc', 'Click on a screen tab below to customize its visual layout, data feeds, colors, and options.')}</p>
+      </div>
+      <span class="badge" style="font-size: 0.85rem;">${instancesList.length} Active Screen${instancesList.length > 1 ? 's' : ''}</span>
+    `;
+    container.insertBefore(screensHeader, tabsContainer);
+
+    if (instancesList.length === 0) {
+      const emptyCard = document.createElement('div');
+      emptyCard.className = 'card glass shadow';
+      emptyCard.style = "text-align: center; padding: 2rem; color: var(--text-muted, #888);";
+      emptyCard.innerHTML = `
+        <div style="font-size: 2.5rem; margin-bottom: 0.5rem;">📺</div>
+        <h4 data-i18n="no_screens_title">${t('no_screens_title', 'No display screens configured yet')}</h4>
+        <p style="font-size: 0.9rem;" data-i18n="no_screens_desc">${t('no_screens_desc', 'Choose an engine plugin above and click Create Screen to set up your first display screen.')}</p>
+      `;
+      container.appendChild(emptyCard);
+    }
+
+    instancesList.forEach(async (instance, index) => {
       const engineDesc = enginesMap[instance.engine_id];
       if (!engineDesc) return;
       
+      const icon = (engineDesc.metadata && engineDesc.metadata.icon) ? engineDesc.metadata.icon : '🧩';
+      const name = (engineDesc.metadata && engineDesc.metadata.name) ? engineDesc.metadata.name : instance.engine_id;
       const tabId = `tab-dyn-${instance.instance_id.replace(/[^a-zA-Z0-9]/g, '-')}`;
       
       // 1. Create Tab Button
       const tabBtn = document.createElement('button');
-      tabBtn.className = 'tab-btn';
-      tabBtn.innerHTML = `🧩 ${engineDesc.metadata.name} (${instance.instance_id})`;
+      tabBtn.className = 'tab-btn' + (index === 0 ? ' active' : '');
+      tabBtn.innerHTML = `${icon} ${name} <span class="badge" style="font-size: 0.75rem; margin-left: 0.35rem; opacity: 0.8;">${instance.instance_id}</span>`;
       tabBtn.onclick = (e) => {
         document.querySelectorAll('#page-display .tab-btn').forEach(btn => btn.classList.remove('active'));
         e.currentTarget.classList.add('active');
@@ -150,16 +211,16 @@ export async function initDynamicEngines() {
         if (targetPane) targetPane.classList.add('active');
       };
       
-      tabsContainer.insertBefore(tabBtn, addContainer);
+      tabsContainer.appendChild(tabBtn);
       
       // 2. Create Tab Pane
       const tabPane = document.createElement('div');
       tabPane.id = tabId;
-      tabPane.className = 'tab-pane';
+      tabPane.className = 'tab-pane' + (index === 0 ? ' active' : '');
       
       const card = document.createElement('div');
       card.className = 'card glass shadow';
-      card.style.marginTop = '2rem';
+      card.style.marginTop = '1.5rem';
       
       const title = document.createElement('h3');
       title.innerText = `⚙️ ${engineDesc.metadata.name} - ${instance.instance_id}`;
@@ -434,9 +495,15 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
   card.className = 'card glass shadow';
   card.style = 'margin: 1rem 0; box-sizing: border-box; max-width: 100%; overflow: hidden;';
 
-  const title = document.createElement('h3');
-  title.innerText = '🔁 Rotation';
-  card.appendChild(title);
+  card.innerHTML = `
+    <div class="card-header-badge" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+      <h3 style="margin: 0;" data-i18n="rotation_loop_title">🔁 ${t('rotation_loop_title', 'Screen Rotation Loop (Matrix Playlist)')}</h3>
+      <span class="badge badge-accent" data-i18n="rotation_loop_badge">${t('rotation_loop_badge', 'Auto-Cycling')}</span>
+    </div>
+    <p class="text-muted" style="margin: 0 0 1rem 0; font-size: 0.85rem;" data-i18n="rotation_loop_desc">
+      ${t('rotation_loop_desc', 'This sequence controls which screens cycle on your LED Matrix, how long each screen stays active (seconds / GIF count), their display order, and whether the Street Fighter animation overlay is enabled.')}
+    </p>
+  `;
 
   const list = document.createElement('div');
   list.className = 'rotation-list';
@@ -553,7 +620,8 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
       const empty = document.createElement('p');
       empty.className = 'text-muted';
       empty.style.padding = '0.5rem 0';
-      empty.innerText = 'No instances in rotation. Add one below.';
+      empty.setAttribute('data-i18n', 'rotation_empty');
+      empty.innerText = t('rotation_empty', 'No instances in rotation. Add one below.');
       list.appendChild(empty);
     }
   }
@@ -564,7 +632,8 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
 
   const addTitle = document.createElement('span');
   addTitle.className = 'rotation-add-title';
-  addTitle.innerText = '➕ Add Instance to Rotation';
+  addTitle.setAttribute('data-i18n', 'rotation_add_title');
+  addTitle.innerText = `➕ ${t('rotation_add_title', 'Add Active Screen to Rotation Loop:')}`;
   addCard.appendChild(addTitle);
 
   const addRow = document.createElement('div');
@@ -597,7 +666,8 @@ async function renderRotationPanel(container, tabsContainer, instancesList, engi
   const saveBtn = document.createElement('button');
   saveBtn.type = 'button';
   saveBtn.className = 'btn btn-primary rotation-save-btn';
-  saveBtn.innerText = '💾 Save Rotation';
+  saveBtn.setAttribute('data-i18n', 'rotation_save_btn');
+  saveBtn.innerText = `💾 ${t('rotation_save_btn', 'Save Rotation')}`;
   saveBtn.onclick = async () => {
     const payload = entries.map(e => ({
       instance_id: e.instance_id,

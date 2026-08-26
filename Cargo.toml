@@ -58,6 +58,10 @@ chrono-tz = "0.9.0"
 rand = "0.8"
 byteorder = "1"
 
+# TLS & Cast
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+rustls-pki-types = "1"
+
 # OTA tokio
 tokio = { version = "1", features = ["fs", "process", "rt", "macros"] }
 rust-embed = "8.12.0"

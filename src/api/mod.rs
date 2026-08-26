@@ -1,10 +1,12 @@
 pub mod binance;
+pub mod cast;
 pub mod coingecko;
 pub mod crypto_provider;
 pub mod history;
 pub mod openweathermap;
 pub mod ota;
 pub mod server;
+pub mod spotify;
 pub mod stock_provider;
 pub mod weather_provider;
 pub mod yahoo_finance;

@@ -1,4 +1,4 @@
-use crate::api::spotify::{SpotifyClient, SpotifyNowPlaying};
+use crate::api::cast::{discover_cast_device, CastMediaStatus, GoogleCastClient};
 use crate::core::build_info::VERSION;
 use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
@@ -13,18 +13,17 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-pub struct SpotifyEngine {
+pub struct GoogleCastEngine {
     base_renderer: BaseRenderer,
-    client_id: String,
-    client_secret: String,
-    refresh_token: String,
+    device_ip: String,
+    device_name: String,
     show_album_art: bool,
     show_progress: bool,
     show_volume: bool,
     show_visualizer: bool,
 
     // Live state shared with background poll thread
-    now_playing: Arc<Mutex<SpotifyNowPlaying>>,
+    media_status: Arc<Mutex<CastMediaStatus>>,
     is_running: Arc<AtomicBool>,
     last_image_url: String,
     cached_cover: Option<RgbImage>,
@@ -36,18 +35,17 @@ pub struct SpotifyEngine {
     last_anim_tick: Instant,
 }
 
-impl SpotifyEngine {
+impl GoogleCastEngine {
     pub fn new() -> Self {
         Self {
             base_renderer: BaseRenderer::new(),
-            client_id: String::new(),
-            client_secret: String::new(),
-            refresh_token: String::new(),
+            device_ip: String::new(),
+            device_name: String::new(),
             show_album_art: true,
             show_progress: true,
             show_volume: true,
             show_visualizer: true,
-            now_playing: Arc::new(Mutex::new(SpotifyNowPlaying::default())),
+            media_status: Arc::new(Mutex::new(CastMediaStatus::default())),
             is_running: Arc::new(AtomicBool::new(false)),
             last_image_url: String::new(),
             cached_cover: None,
@@ -59,9 +57,8 @@ impl SpotifyEngine {
     }
 
     fn apply_config(&mut self, config: &dyn EngineConfig) {
-        self.client_id = config.get_string("client_id", "");
-        self.client_secret = config.get_string("client_secret", "");
-        self.refresh_token = config.get_string("refresh_token", "");
+        self.device_ip = config.get_string("device_ip", "");
+        self.device_name = config.get_string("device_name", "");
         self.show_album_art = config.get_bool("show_album_art", true);
         self.show_progress = config.get_bool("show_progress", true);
         self.show_volume = config.get_bool("show_volume", true);
@@ -74,23 +71,51 @@ impl SpotifyEngine {
         }
 
         self.is_running.store(true, Ordering::Relaxed);
-        let status_arc = Arc::clone(&self.now_playing);
+        let status_arc = Arc::clone(&self.media_status);
         let running_arc = Arc::clone(&self.is_running);
-        let cid = self.client_id.clone();
-        let sec = self.client_secret.clone();
-        let ref_tok = self.refresh_token.clone();
+        let ip_configured = self.device_ip.clone();
+        let name_filter = self.device_name.clone();
 
         thread::spawn(move || {
-            let mut client = SpotifyClient::new(&cid, &sec, &ref_tok);
+            let mut resolved_ip = ip_configured.clone();
+            let mut client: Option<GoogleCastClient> = None;
 
             while running_arc.load(Ordering::Relaxed) {
-                if let Ok(st) = client.get_currently_playing() {
-                    if let Ok(mut guard) = status_arc.lock() {
-                        *guard = st;
+                // If IP is not configured or connection lost, discover via mDNS
+                if resolved_ip.is_empty() {
+                    let filter = if name_filter.is_empty() {
+                        None
+                    } else {
+                        Some(name_filter.as_str())
+                    };
+                    if let Some((ip, port)) =
+                        discover_cast_device(filter, Duration::from_millis(1500))
+                    {
+                        resolved_ip = ip.clone();
+                        client = Some(GoogleCastClient::new(&ip, port));
+                    }
+                } else if client.is_none() {
+                    client = Some(GoogleCastClient::new(&resolved_ip, 8009));
+                }
+
+                if let Some(ref mut c) = client {
+                    match c.poll_status() {
+                        Ok(st) => {
+                            if let Ok(mut guard) = status_arc.lock() {
+                                *guard = st;
+                            }
+                        }
+                        Err(_) => {
+                            // If user didn't hardcode an IP, reset resolved_ip to re-discover next round
+                            if ip_configured.is_empty() {
+                                resolved_ip.clear();
+                                client = None;
+                            }
+                        }
                     }
                 }
 
-                thread::sleep(Duration::from_millis(1500));
+                thread::sleep(Duration::from_millis(1000));
             }
         });
     }
@@ -110,6 +135,7 @@ impl SpotifyEngine {
         }
 
         self.last_image_url = url.clone();
+        // Fetch and decode image
         if let Ok(resp) = reqwest::blocking::Client::builder()
             .timeout(Duration::from_millis(2000))
             .build()
@@ -136,7 +162,7 @@ impl SpotifyEngine {
     }
 }
 
-impl Engine for SpotifyEngine {
+impl Engine for GoogleCastEngine {
     fn initialize(
         &mut self,
         _ctx: &mut EngineContext,
@@ -152,7 +178,7 @@ impl Engine for SpotifyEngine {
     }
 
     fn update(&mut self, _ctx: &mut EngineContext) {
-        let (img_url, is_playing) = if let Ok(guard) = self.now_playing.lock() {
+        let (img_url, is_playing) = if let Ok(guard) = self.media_status.lock() {
             (guard.image_url.clone(), guard.is_playing)
         } else {
             (None, false)
@@ -162,7 +188,7 @@ impl Engine for SpotifyEngine {
             self.fetch_cover_art_if_needed(&img_url, 28);
         }
 
-        // Marquee scrolling tick (~40ms per pixel)
+        // Marquee scrolling tick (~35ms per pixel)
         if self.last_marquee_tick.elapsed() >= Duration::from_millis(40) {
             self.marquee_offset = self.marquee_offset.wrapping_add(1);
             self.last_marquee_tick = Instant::now();
@@ -176,10 +202,10 @@ impl Engine for SpotifyEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        let (status, has_data) = if let Ok(guard) = self.now_playing.lock() {
+        let (status, has_data) = if let Ok(guard) = self.media_status.lock() {
             (guard.clone(), guard.is_active && !guard.title.is_empty())
         } else {
-            (SpotifyNowPlaying::default(), false)
+            (CastMediaStatus::default(), false)
         };
 
         let w = ctx.matrix.width() as i32;
@@ -188,22 +214,23 @@ impl Engine for SpotifyEngine {
         let font = self.base_renderer.font();
 
         if !has_data {
+            // Idle screen when no media is casting
             BaseRenderer::draw_text_at(
                 ctx.matrix,
-                "Spotify",
+                "Google Cast",
                 &font,
                 1.0,
-                (w / 2) - 20,
+                (w / 2) - 30,
                 (h / 2) - 8,
-                (30, 215, 96),
+                (66, 133, 244),
                 (0, 0, 0),
             );
             BaseRenderer::draw_text_at(
                 ctx.matrix,
-                "No music playing",
+                "Ready to stream",
                 &font,
                 1.0,
-                (w / 2) - 34,
+                (w / 2) - 32,
                 (h / 2) + 2,
                 (140, 140, 140),
                 (0, 0, 0),
@@ -223,14 +250,14 @@ impl Engine for SpotifyEngine {
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
-                    ctx.matrix.set_pixel(img_x - 1 + bx, img_y - 1, 30, 45, 35);
+                    ctx.matrix.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
                     ctx.matrix
-                        .set_pixel(img_x - 1 + bx, img_y + img_h, 30, 45, 35);
+                        .set_pixel(img_x - 1 + bx, img_y + img_h, 40, 40, 50);
                 }
                 for by in 0..img_h + 2 {
-                    ctx.matrix.set_pixel(img_x - 1, img_y - 1 + by, 30, 45, 35);
+                    ctx.matrix.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
                     ctx.matrix
-                        .set_pixel(img_x + img_w, img_y - 1 + by, 30, 45, 35);
+                        .set_pixel(img_x + img_w, img_y - 1 + by, 40, 40, 50);
                 }
 
                 // Render pixels
@@ -266,13 +293,13 @@ impl Engine for SpotifyEngine {
             (0, 0, 0),
         );
 
-        // 3. Draw Artist / Album
+        // 3. Draw Artist / Subtitle
         let artist_display = if !status.artist.is_empty() {
             status.artist.clone()
-        } else if !status.album.is_empty() {
-            status.album.clone()
+        } else if !status.app_name.is_empty() {
+            status.app_name.clone()
         } else {
-            "Spotify".to_string()
+            "Google Nest".to_string()
         };
 
         BaseRenderer::draw_text_at(
@@ -282,7 +309,7 @@ impl Engine for SpotifyEngine {
             1.0,
             text_x,
             11,
-            (30, 215, 96),
+            (0, 230, 255),
             (0, 0, 0),
         );
 
@@ -290,10 +317,10 @@ impl Engine for SpotifyEngine {
         if self.show_visualizer && status.is_playing {
             let eq_x = w - 14;
             let bar_heights = [
-                ((self.anim_frame.wrapping_mul(4)) % 7 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(6)) % 9 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(3)) % 8 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(5)) % 6 + 2) as i32,
+                ((self.anim_frame.wrapping_mul(3)) % 7 + 2) as i32,
+                ((self.anim_frame.wrapping_mul(5)) % 9 + 2) as i32,
+                ((self.anim_frame.wrapping_mul(2)) % 8 + 2) as i32,
+                ((self.anim_frame.wrapping_mul(7)) % 6 + 2) as i32,
             ];
 
             for (i, &bh) in bar_heights.iter().enumerate() {
@@ -302,11 +329,11 @@ impl Engine for SpotifyEngine {
                     let py = 20 - by;
                     if py >= 0 {
                         let color = if by > 6 {
-                            (255, 60, 60)
+                            (255, 50, 50)
                         } else if by > 3 {
-                            (255, 220, 0)
+                            (255, 200, 0)
                         } else {
-                            (30, 215, 96)
+                            (0, 255, 100)
                         };
                         ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
                         ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
@@ -315,9 +342,10 @@ impl Engine for SpotifyEngine {
             }
         }
 
-        // 5. Draw Volume (Top-Right)
-        if self.show_volume && status.volume_percent > 0 {
-            let vol_str = format!("{}%", status.volume_percent);
+        // 5. Draw Volume & Status Badge (Top-Right)
+        if self.show_volume {
+            let vol_pct = (status.volume_level * 100.0) as u32;
+            let vol_str = format!("{}%", vol_pct);
             BaseRenderer::draw_text_at(
                 ctx.matrix,
                 &vol_str,
@@ -331,19 +359,19 @@ impl Engine for SpotifyEngine {
         }
 
         // 6. Draw Progress Bar (Bottom 2 pixels)
-        if self.show_progress && status.duration_ms > 0 {
-            let progress = (status.progress_ms as f32 / status.duration_ms as f32).clamp(0.0, 1.0);
+        if self.show_progress && status.duration_sec > 0.0 {
+            let progress = (status.current_time_sec / status.duration_sec).clamp(0.0, 1.0);
             let bar_w = ((w - 2) as f32 * progress) as i32;
 
             // Background line
             for x in 1..w - 1 {
-                ctx.matrix.set_pixel(x, h - 2, 30, 35, 30);
-                ctx.matrix.set_pixel(x, h - 1, 18, 22, 18);
+                ctx.matrix.set_pixel(x, h - 2, 35, 35, 40);
+                ctx.matrix.set_pixel(x, h - 1, 20, 20, 25);
             }
-            // Active progress fill (Spotify Green)
+            // Active progress fill (Google Blue gradient)
             for x in 1..=bar_w {
-                ctx.matrix.set_pixel(x, h - 2, 30, 215, 96);
-                ctx.matrix.set_pixel(x, h - 1, 20, 150, 65);
+                ctx.matrix.set_pixel(x, h - 2, 66, 133, 244);
+                ctx.matrix.set_pixel(x, h - 1, 33, 90, 180);
             }
         }
     }
@@ -362,11 +390,11 @@ impl Engine for SpotifyEngine {
 }
 
 #[distributed_slice(ENGINES)]
-fn register_spotify_engine() -> EngineDescriptor {
+fn register_google_cast_engine() -> EngineDescriptor {
     EngineDescriptor {
         metadata: EngineMetadata {
-            id: "spotify",
-            name: "Spotify Player",
+            id: "google_cast",
+            name: "Google Cast (Nest Audio)",
             category: "media",
             version: VERSION,
         },
@@ -383,26 +411,10 @@ fn register_spotify_engine() -> EngineDescriptor {
         schema: ConfigSchema {
             fields: vec![
                 ConfigField {
-                    id: "client_id",
+                    id: "device_ip",
                     field_type: ConfigType::String,
-                    label: "Spotify Client ID",
-                    description: "Your Spotify Developer API Client ID.",
-                    default_value: "",
-                    required: true,
-                    options: None,
-                    min_val: None,
-                    max_val: None,
-                    step: None,
-                    visible_when: None,
-                    options_endpoint: None,
-                    multiple: false,
-                    validation_policy: ValidationPolicy::Accept,
-                },
-                ConfigField {
-                    id: "client_secret",
-                    field_type: ConfigType::String,
-                    label: "Spotify Client Secret",
-                    description: "Your Spotify Developer API Client Secret.",
+                    label: "Device IP (Optional)",
+                    description: "Static IP of your Google Home / Nest Audio. Leave empty for automatic mDNS LAN discovery.",
                     default_value: "",
                     required: false,
                     options: None,
@@ -415,12 +427,12 @@ fn register_spotify_engine() -> EngineDescriptor {
                     validation_policy: ValidationPolicy::Accept,
                 },
                 ConfigField {
-                    id: "refresh_token",
+                    id: "device_name",
                     field_type: ConfigType::String,
-                    label: "Spotify Refresh Token",
-                    description: "Your OAuth2 Refresh Token (allows infinite background updates without re-logging in).",
+                    label: "Device Name Filter",
+                    description: "Filter by friendly name (e.g. 'Living Room Speaker') when auto-discovering on LAN.",
                     default_value: "",
-                    required: true,
+                    required: false,
                     options: None,
                     min_val: None,
                     max_val: None,
@@ -434,7 +446,7 @@ fn register_spotify_engine() -> EngineDescriptor {
                     id: "show_album_art",
                     field_type: ConfigType::Boolean,
                     label: "Show Album Cover",
-                    description: "Download and display Spotify album cover art on the matrix.",
+                    description: "Download and display album art cover on the left of the LED matrix.",
                     default_value: "true",
                     required: false,
                     options: None,
@@ -450,7 +462,7 @@ fn register_spotify_engine() -> EngineDescriptor {
                     id: "show_progress",
                     field_type: ConfigType::Boolean,
                     label: "Show Progress Bar",
-                    description: "Render track playback elapsed progress bar at the bottom.",
+                    description: "Render track playback elapsed time bar at the bottom.",
                     default_value: "true",
                     required: false,
                     options: None,
@@ -482,7 +494,7 @@ fn register_spotify_engine() -> EngineDescriptor {
                     id: "show_volume",
                     field_type: ConfigType::Boolean,
                     label: "Show Volume Indicator",
-                    description: "Display Spotify active playback volume percentage.",
+                    description: "Display Google Nest current volume percentage.",
                     default_value: "true",
                     required: false,
                     options: None,
@@ -496,6 +508,6 @@ fn register_spotify_engine() -> EngineDescriptor {
                 },
             ],
         },
-        factory: || Box::new(SpotifyEngine::new()),
+        factory: || Box::new(GoogleCastEngine::new()),
     }
 }

@@ -381,6 +381,8 @@ dependencies = [
  "reqwest",
  "rumqttc",
  "rust-embed",
+ "rustls 0.23.43",
+ "rustls-pki-types",
  "rusttype",
  "serde",
  "serde_json",

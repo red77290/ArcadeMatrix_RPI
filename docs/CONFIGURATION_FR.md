@@ -246,10 +246,26 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | `speed` | `int` | `50` | `10` à `200` | Millisecondes par pixel de défilement (plus bas = plus rapide ; ignoré en statique). |
 | `font` | `String` | `Default` | Dynamique | Police de caractères depuis `/fonts/`. |
 
-### Moteur : `spotify`
+### Moteur : `google_cast` (Google Home / Nest Audio)
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
-| `client_id` | `String` | `""` | Votre Client ID Spotify pour l'affichage de la pochette et du titre en cours de lecture. |
+| `device_ip` | `String` | `""` | IP statique de votre enceinte Google Home / Nest Audio. Laissez vide pour la découverte mDNS automatique sur le réseau local. |
+| `device_name` | `String` | `""` | Filtre sur le nom de l'appareil (ex. `Salon`) lors de la détection automatique sur le LAN. |
+| `show_album_art` | `bool` | `true` | Télécharge et affiche la pochette de l'album à gauche de la matrice. |
+| `show_progress` | `bool` | `true` | Affiche la barre de progression temporelle de la lecture en bas de l'écran. |
+| `show_visualizer` | `bool` | `true` | Affiche l'égaliseur de fréquences animé quand la musique est en lecture. |
+| `show_volume` | `bool` | `true` | Affiche le niveau de volume actuel de l'enceinte Google Nest. |
+
+### Moteur : `spotify` (Lecteur Officiel Spotify)
+| Champ | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Votre Client ID Spotify Developer API. |
+| `client_secret` | `String` | `""` | Votre Client Secret Spotify Developer API (optionnel pour PKCE). |
+| `refresh_token` | `String` | `""` | Votre Refresh Token OAuth2 Spotify pour la synchronisation continue de la lecture. |
+| `show_album_art` | `bool` | `true` | Télécharge et affiche la pochette d'album Spotify sur la matrice. |
+| `show_progress` | `bool` | `true` | Affiche la barre de progression temporelle du morceau en bas de l'écran. |
+| `show_visualizer` | `bool` | `true` | Affiche l'égaliseur audio animé quand la musique est en lecture. |
+| `show_volume` | `bool` | `true` | Affiche le pourcentage de volume de lecture Spotify actif. |
 
 ### Moteur : `marquee`
 | Champ | Type | Défaut | Description |

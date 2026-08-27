@@ -137,30 +137,32 @@ Le format `.fgt` est un format d'animation compact et streamable conçu pour min
 
 ## 5. Algorithme de Résolution des Palettes (`resolve_master_palette`)
 
-Pour éviter les sprites noirs ou néon générés par les palettes "dummy" des créateurs MUGEN (ou à l'inverse les fichiers `.act` déclarés corrompus/vides) :
+Pour garantir un rendu 100% fidèle sur les rips arcade (Capcom, NeoGeo, Simpsons), les captures digitalisées (Mortal Kombat, Midway) et les créations originales MUGEN :
 
 1. **Sélection du Sprite de Référence Corps :**
    * Parcourt les frames du corps (groupes clés `0`, `1`, `5`, `10`, `20`, `21`, `40`, `100`, `200`, `5000`).
    * Sélectionne la frame possédant le plus grand nombre d'indices de pixels distincts (pour une évaluation optimale).
    * Exclut systématiquement le groupe `9000` (portraits / icônes de sélection) afin d'éviter toute contamination.
 
-2. **Collecte Multi-Candidats :**
+2. **Collecte et Expansion Multi-Candidats :**
    * **Candidats `.def` :** Palettes déclarées dans `[Files]` (`pal1..pal12`), avec priorité absolue aux slots déclarés dans `pal.defaults` de l'auteur.
+   * **Expansion Modulo Bank (16, 32, 64) :** Pour les sprites rippés en banques partielles (ex: Krusty the Clown, Capcom CPS2), génération de variantes `bank16`, `bank32`, `bank64`.
+   * **Offset Shifting :** Pour les personnages digitalisés (Mortal Kombat) où la palette commence à un slot élevé (ex: 176), décalage vers le slot 0 via `shift_min`.
    * **Candidats `SFFv1` :** Palette intégrée au sprite de référence, palette de garde `(0,0)`, première palette du SFF et sous-palettes locales du SFF.
    * **Candidats `.act` :** Fichiers `.act` additionnels présents dans le dossier du personnage.
 
 3. **Fonction d'Évaluation & Filtrage (`score_palette`) :**
    * **Rejet des palettes monochromes :** Si la palette ne génère qu'une seule nuance de couleur (`u_colors <= 1`) alors que le sprite a plusieurs indices, la palette est rejetée (`score = -999.0`).
-   * **Rejet du masquage néon :** Si plus de 25% des pixels visibles sont des couleurs pures saturées de masquage (cyan/magenta/vert vif), la palette est rejetée.
+   * **Rejet des masques binaires de debug :** Si $\le 3$ couleurs dont au moins 2 coins binaires saturés purs `(0/255, 0/255, 0/255)`, la palette est rejetée.
    * **Calcul du Score :**
      $$\text{Base Score} = \text{Couleurs Uniques} \times 10$$
-     $$\text{Bonus Luminance Naturelle} = +100 \quad \text{si } 25 \le \text{Luminance Moyenne} \le 200$$
+     $$\text{Bonus Luminance Naturelle} = +100 \quad \text{si } 20 \le \text{Luminance Moyenne} \le 210$$
      $$\text{Pénalité Sous/Sur-exposition} = -30 \text{ (si } L < 15 \text{)}, \quad -80 \text{ (si } L > 225 \text{)}$$
    * **Bonus Auteur / Source :**
-     * `DEF(pal.defaults)` : **+50 pts**
+     * `DEF(pal.defaults)` : **+150 pts** (variante bank/shift : **+140 pts**)
+     * `DEF(pal1..12)` : **+100 pts** (variante bank/shift : **+90 pts**)
      * `SFF(sprite_corps)` : **+40 pts**
      * `SFF(stand)` : **+35 pts**
-     * `DEF(pal1..12)` : **+30 pts**
      * `SFF(first)` : **+30 pts**
      * `SFF(local)` : **+20 pts**
      * `ACT(dossier)` : **+10 pts**

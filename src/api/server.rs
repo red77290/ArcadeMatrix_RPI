@@ -74,8 +74,9 @@ async fn post_system(
         return e;
     }
     let mut s = data.config.settings.write();
-    // Snapshot the fields that require a hardware restart to take effect.
+    // Snapshot the fields that require a hardware/service restart to take effect.
     let prev_matrix = serde_json::to_value(&s.matrix).ok();
+    let prev_mqtt = serde_json::to_value(&s.mqtt).ok();
     let prev_disable_wifi = s.wifi.disable_internal;
     // Simplified update (normally you'd merge the fields)
     if let Some(sys) = body.get("system") {
@@ -142,10 +143,13 @@ async fn post_system(
         // reverting to the default when the config is reloaded from disk.
         s.system.day_brightness = clamped;
     }
-    // Hardware-affecting settings only take effect after a full restart of the
-    // render loop, so flag it when matrix params or the Wi-Fi radio state change.
+    // Hardware & MQTT-affecting settings only take effect after a restart of the
+    // render/network loops, so flag it when matrix params, MQTT broker, or Wi-Fi state change.
     let new_matrix = serde_json::to_value(&s.matrix).ok();
-    let needs_reload = prev_matrix != new_matrix || prev_disable_wifi != s.wifi.disable_internal;
+    let new_mqtt = serde_json::to_value(&s.mqtt).ok();
+    let needs_reload = prev_matrix != new_matrix
+        || prev_mqtt != new_mqtt
+        || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
     if needs_reload {
@@ -172,7 +176,14 @@ async fn post_instances(
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    let new_inst = body.into_inner();
+    let mut new_inst = body.into_inner();
+    if new_inst.engine_id == "sysinfo" || new_inst.engine_id == "sys_info" {
+        new_inst.engine_id = "system_info".to_string();
+    } else if new_inst.engine_id == "gif" {
+        new_inst.engine_id = "gifs".to_string();
+    } else if new_inst.engine_id == "cast" {
+        new_inst.engine_id = "google_cast".to_string();
+    }
     // Reject instances referencing an engine that isn't registered in the
     // auto-discovery registry: they would silently never render.
     if EngineRegistry::get_descriptor(&new_inst.engine_id).is_none() {
@@ -238,8 +249,12 @@ async fn post_rotation(
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
+    let mut rot = body.into_inner();
+    for entry in &mut rot {
+        entry.normalize();
+    }
     let mut s = data.config.settings.write();
-    s.rotation = body.into_inner();
+    s.rotation = rot;
     drop(s);
     data.config.save();
     data.config.reset_rotation.store(true, Ordering::Relaxed);

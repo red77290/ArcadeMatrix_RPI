@@ -339,6 +339,24 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/system/restart_app:
+    post:
+      tags: [System]
+      summary: Restart the ArcadeMatrix application (Alias to /api/system/restart)
+      responses:
+        '200':
+          description: Restarting
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: restarting
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/action/reboot:
     get:
       tags: [System]

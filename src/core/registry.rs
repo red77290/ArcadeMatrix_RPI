@@ -16,9 +16,15 @@ impl EngineRegistry {
     }
 
     pub fn get_descriptor(id: &str) -> Option<EngineDescriptor> {
+        let canonical_id = match id {
+            "sysinfo" | "sys_info" => "system_info",
+            "gif" => "gifs",
+            "cast" => "google_cast",
+            other => other,
+        };
         for engine_fn in ENGINES {
             let desc = engine_fn();
-            if desc.metadata.id == id {
+            if desc.metadata.id == canonical_id || desc.metadata.id == id {
                 return Some(desc);
             }
         }

@@ -245,15 +245,25 @@ impl Engine for SpotifyEngine {
             }
         }
 
+        let mut right_reserved = 2;
+        if self.show_visualizer && status.is_playing {
+            right_reserved += 16;
+        } else if self.show_volume && status.volume_percent > 0 {
+            right_reserved += 26;
+        }
+
         // 2. Draw Title (Marquee)
         let title_w = (status.title.len() as i32) * 6;
-        let avail_w = w - text_x - 2;
-        let title_draw_x = if title_w > avail_w && avail_w > 0 {
+        let avail_w = (w - text_x - right_reserved).max(20);
+        let title_draw_x = if title_w > avail_w {
             let overflow = title_w - avail_w + 16;
             text_x - (self.marquee_offset % overflow)
         } else {
             text_x
         };
+
+        let y_title = if h >= 64 { 8 } else { 2 };
+        let y_artist = if h >= 64 { 22 } else { 11 };
 
         BaseRenderer::draw_text_at(
             ctx.matrix,
@@ -261,12 +271,12 @@ impl Engine for SpotifyEngine {
             &font,
             1.0,
             title_draw_x,
-            2,
+            y_title,
             (255, 255, 255),
             (0, 0, 0),
         );
 
-        // 3. Draw Artist / Album
+        // 3. Draw Artist / Album (Marquee)
         let artist_display = if !status.artist.is_empty() {
             status.artist.clone()
         } else if !status.album.is_empty() {
@@ -275,13 +285,21 @@ impl Engine for SpotifyEngine {
             "Spotify".to_string()
         };
 
+        let artist_w = (artist_display.len() as i32) * 6;
+        let artist_draw_x = if artist_w > avail_w {
+            let overflow = artist_w - avail_w + 16;
+            text_x - ((self.marquee_offset / 2) % overflow)
+        } else {
+            text_x
+        };
+
         BaseRenderer::draw_text_at(
             ctx.matrix,
             &artist_display,
             &font,
             1.0,
-            text_x,
-            11,
+            artist_draw_x,
+            y_artist,
             (30, 215, 96),
             (0, 0, 0),
         );
@@ -296,10 +314,12 @@ impl Engine for SpotifyEngine {
                 ((self.anim_frame.wrapping_mul(5)) % 6 + 2) as i32,
             ];
 
+            let eq_base_y = if h >= 64 { 28 } else { 20 };
+
             for (i, &bh) in bar_heights.iter().enumerate() {
                 let bx = eq_x + (i as i32 * 3);
                 for by in 0..bh {
-                    let py = 20 - by;
+                    let py = eq_base_y - by;
                     if py >= 0 {
                         let color = if by > 6 {
                             (255, 60, 60)
@@ -313,18 +333,17 @@ impl Engine for SpotifyEngine {
                     }
                 }
             }
-        }
-
-        // 5. Draw Volume (Top-Right)
-        if self.show_volume && status.volume_percent > 0 {
+        } else if self.show_volume && status.volume_percent > 0 {
+            // 5. Draw Volume (Top-Right, right-aligned)
             let vol_str = format!("{}%", status.volume_percent);
+            let v_x = w - (vol_str.len() as i32 * 6) - 1;
             BaseRenderer::draw_text_at(
                 ctx.matrix,
                 &vol_str,
                 &font,
                 1.0,
-                w - 18,
-                2,
+                v_x,
+                y_title,
                 (180, 180, 180),
                 (0, 0, 0),
             );

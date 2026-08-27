@@ -272,15 +272,25 @@ impl Engine for GoogleCastEngine {
             }
         }
 
+        let mut right_reserved = 2;
+        if self.show_visualizer && status.is_playing {
+            right_reserved += 16;
+        } else if self.show_volume {
+            right_reserved += 26;
+        }
+
         // 2. Draw Title (Marquee)
         let title_w = (status.title.len() as i32) * 6;
-        let avail_w = w - text_x - 2;
-        let title_draw_x = if title_w > avail_w && avail_w > 0 {
+        let avail_w = (w - text_x - right_reserved).max(20);
+        let title_draw_x = if title_w > avail_w {
             let overflow = title_w - avail_w + 16;
             text_x - (self.marquee_offset % overflow)
         } else {
             text_x
         };
+
+        let y_title = if h >= 64 { 8 } else { 2 };
+        let y_artist = if h >= 64 { 22 } else { 11 };
 
         BaseRenderer::draw_text_at(
             ctx.matrix,
@@ -288,12 +298,12 @@ impl Engine for GoogleCastEngine {
             &font,
             1.0,
             title_draw_x,
-            2,
+            y_title,
             (255, 255, 255),
             (0, 0, 0),
         );
 
-        // 3. Draw Artist / Subtitle
+        // 3. Draw Artist / Subtitle (Marquee)
         let artist_display = if !status.artist.is_empty() {
             status.artist.clone()
         } else if !status.app_name.is_empty() {
@@ -302,13 +312,21 @@ impl Engine for GoogleCastEngine {
             "Google Nest".to_string()
         };
 
+        let artist_w = (artist_display.len() as i32) * 6;
+        let artist_draw_x = if artist_w > avail_w {
+            let overflow = artist_w - avail_w + 16;
+            text_x - ((self.marquee_offset / 2) % overflow)
+        } else {
+            text_x
+        };
+
         BaseRenderer::draw_text_at(
             ctx.matrix,
             &artist_display,
             &font,
             1.0,
-            text_x,
-            11,
+            artist_draw_x,
+            y_artist,
             (0, 230, 255),
             (0, 0, 0),
         );
@@ -323,10 +341,12 @@ impl Engine for GoogleCastEngine {
                 ((self.anim_frame.wrapping_mul(7)) % 6 + 2) as i32,
             ];
 
+            let eq_base_y = if h >= 64 { 28 } else { 20 };
+
             for (i, &bh) in bar_heights.iter().enumerate() {
                 let bx = eq_x + (i as i32 * 3);
                 for by in 0..bh {
-                    let py = 20 - by;
+                    let py = eq_base_y - by;
                     if py >= 0 {
                         let color = if by > 6 {
                             (255, 50, 50)
@@ -340,19 +360,18 @@ impl Engine for GoogleCastEngine {
                     }
                 }
             }
-        }
-
-        // 5. Draw Volume & Status Badge (Top-Right)
-        if self.show_volume {
+        } else if self.show_volume {
+            // 5. Draw Volume & Status Badge (Top-Right, right-aligned)
             let vol_pct = (status.volume_level * 100.0) as u32;
             let vol_str = format!("{}%", vol_pct);
+            let v_x = w - (vol_str.len() as i32 * 6) - 1;
             BaseRenderer::draw_text_at(
                 ctx.matrix,
                 &vol_str,
                 &font,
                 1.0,
-                w - 18,
-                2,
+                v_x,
+                y_title,
                 (180, 180, 180),
                 (0, 0, 0),
             );

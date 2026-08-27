@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32};
 
+use serde_json::Value;
+
 pub fn parse_symbols_string(input: &str) -> Vec<String> {
     input
         .split(',')
@@ -11,10 +13,32 @@ pub fn parse_symbols_string(input: &str) -> Vec<String> {
         .collect()
 }
 
+pub fn deserialize_string_map<'de, D>(
+    deserializer: D,
+) -> Result<std::collections::HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let map = std::collections::HashMap::<String, Value>::deserialize(deserializer)?;
+    let mut out = std::collections::HashMap::with_capacity(map.len());
+    for (k, v) in map {
+        let str_val = match v {
+            Value::String(s) => s,
+            Value::Bool(b) => b.to_string(),
+            Value::Number(n) => n.to_string(),
+            Value::Null => String::new(),
+            other => other.to_string(),
+        };
+        out.insert(k, str_val);
+    }
+    Ok(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EngineInstance {
     pub instance_id: String,
     pub engine_id: String,
+    #[serde(deserialize_with = "deserialize_string_map", default)]
     pub config: std::collections::HashMap<String, String>,
 }
 

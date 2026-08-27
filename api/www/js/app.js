@@ -5,32 +5,38 @@ import { initDynamicEngines } from './dynamic_engines.js';
 
 let selectedOtaFile = null;
 
-window.switchDisplayTab = function(tabId) {
-  // Update buttons
-  document.querySelectorAll('#page-display .tab-btn').forEach(btn => {
-    btn.classList.remove('active');
-  });
-  event.currentTarget.classList.add('active');
+window.switchTab = function(tabId) {
+  if (window.event && window.event.currentTarget) {
+    document.querySelectorAll('#page-display .tab-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    window.event.currentTarget.classList.add('active');
+  }
 
   // Update panes
   document.querySelectorAll('#page-display .tab-pane').forEach(pane => {
     pane.classList.remove('active');
   });
-  document.getElementById('tab-' + tabId).classList.add('active');
+  const pane = document.getElementById('tab-' + tabId);
+  if (pane) pane.classList.add('active');
 };
+window.switchDisplayTab = window.switchTab;
 
 window.switchSystemTab = function(tabId) {
   // Update buttons
-  document.querySelectorAll('#page-system .tab-btn').forEach(btn => {
-    btn.classList.remove('active');
-  });
-  event.currentTarget.classList.add('active');
+  if (window.event && window.event.currentTarget) {
+    document.querySelectorAll('#page-system .tab-btn').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    window.event.currentTarget.classList.add('active');
+  }
 
   // Update panes
   document.querySelectorAll('#page-system .tab-pane').forEach(pane => {
     pane.classList.remove('active');
   });
-  document.getElementById('sys-tab-' + tabId).classList.add('active');
+  const pane = document.getElementById('sys-tab-' + tabId);
+  if (pane) pane.classList.add('active');
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -55,6 +61,7 @@ export function switchPage(pageName) {
   if (pageEl) pageEl.classList.add('active');
   localStorage.setItem('activePage', pageName);
 }
+window.switchPage = switchPage;
 
 function initNavigation() {
   document.querySelectorAll('.nav-item').forEach(item => {
@@ -169,16 +176,29 @@ function initDashboard() {
     });
   }
 
-  // System Info Polling
-  setInterval(async () => {
+  // System Info Polling (10s interval)
+  const pollMetrics = async () => {
     try {
-      const info = await API.get('/api/stats');
-      document.getElementById('metric-cpu').textContent = `${info.cpu_load.toFixed(1)} %`;
-      document.getElementById('metric-temp').textContent = `${info.temperature_c.toFixed(1)} °C`;
-      document.getElementById('metric-ram').textContent = `${info.ram_used_mb} MB`;
-      document.getElementById('metric-disk').textContent = `${info.disk_free_gb} GB`;
+      const info = await API.get('/api/stats').catch(() => API.get('/api/system_info')).catch(() => null);
+      if (!info) return;
+
+      const cpuEl = document.getElementById('metric-cpu');
+      const tempEl = document.getElementById('metric-temp');
+      const ramEl = document.getElementById('metric-ram');
+      const diskEl = document.getElementById('metric-disk');
+
+      if (cpuEl && info.cpu_load !== undefined) cpuEl.textContent = `${info.cpu_load.toFixed(1)} %`;
+      if (tempEl && info.temperature_c !== undefined) tempEl.textContent = `${info.temperature_c.toFixed(1)} °C`;
+      if (ramEl) {
+        if (info.ram_used_mb !== undefined) ramEl.textContent = `${typeof info.ram_used_mb === 'number' ? info.ram_used_mb.toFixed(1) : info.ram_used_mb} MB`;
+        else if (info.free_heap !== undefined) ramEl.textContent = `${(info.free_heap / 1024).toFixed(0)} KB Free`;
+      }
+      if (diskEl && info.disk_free_gb !== undefined) diskEl.textContent = `${typeof info.disk_free_gb === 'number' ? info.disk_free_gb.toFixed(1) : info.disk_free_gb} GB`;
     } catch {}
-  }, 4000);
+  };
+
+  pollMetrics();
+  setInterval(pollMetrics, 10000);
 }
 
 function initOta() {
@@ -596,8 +616,8 @@ async function initSettings() {
     const matrix = cfg.matrix || {};
     const mqtt = cfg.mqtt || {};
 
-    const setVal = (id, v) => { const el = document.getElementById(id); if (el) el.value = v; };
-    const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+    const setVal = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.value = v; };
+    const setChk = (id, v) => { const el = document.getElementById(id); if (el && v !== undefined && v !== null) el.checked = !!v; };
 
     if (sys.lang) {
       const ls = document.getElementById('lang-selector');

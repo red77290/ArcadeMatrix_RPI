@@ -89,6 +89,10 @@ export const API = {
     return this.post('/api/ota/auto-update', { download_url: downloadUrl });
   },
 
+  async getVersion() {
+    return this.get('/api/version').catch(() => this.get('/api/stats')).catch(() => ({ version: '3.0.0' }));
+  },
+
   async waitForReconnect(timeoutMs = 60000, intervalMs = 2000, expectedVersion = null) {
     const start = Date.now();
     let wentOffline = false;

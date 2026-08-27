@@ -162,7 +162,7 @@ Description=ArcadeMatrix RPi Daemon (Rust)
 After=network.target
 
 [Service]
-ExecStartPre=$CURRENT_DIR/scripts/recovery.sh $CURRENT_DIR
+ExecStartPre=-$CURRENT_DIR/scripts/recovery.sh $CURRENT_DIR
 ExecStart=$CURRENT_DIR/arcadematrix
 WorkingDirectory=$CURRENT_DIR
 StandardOutput=inherit

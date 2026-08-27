@@ -108,7 +108,7 @@ impl FighterChar {
             for f in files {
                 let path = dir.join(f);
                 if let Some(sprite) = FighterSprite::load_fgt(&path) {
-                    tracing::info!(
+                    tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         path.display(),
                         sprite.width,
@@ -121,7 +121,7 @@ impl FighterChar {
 
                 let gz_path = dir.join(format!("{}.gz", f));
                 if let Some(sprite) = FighterSprite::load_fgt(&gz_path) {
-                    tracing::info!(
+                    tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         gz_path.display(),
                         sprite.width,

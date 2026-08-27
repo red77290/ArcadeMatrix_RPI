@@ -215,7 +215,7 @@ impl DmdCache {
 
             for ext in &[".png", ".gif"] {
                 let url = format!(
-                    "https://raw.githubusercontent.com/alinke/pixelcade/master/{}/{}{}",
+                    "https://raw.githubusercontent.com/red77290/pixelcade/master/{}/{}{}",
                     pixelcade_system, safe_name, ext
                 );
 
@@ -302,7 +302,7 @@ impl DmdCache {
 
             for ext in &[".png", ".gif"] {
                 let url = format!(
-                    "https://raw.githubusercontent.com/alinke/pixelcade/master/{}/{}{}",
+                    "https://raw.githubusercontent.com/red77290/pixelcade/master/{}/{}{}",
                     folder, safe_name, ext
                 );
 

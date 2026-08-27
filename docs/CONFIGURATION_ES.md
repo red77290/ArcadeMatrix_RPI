@@ -176,7 +176,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `clock`
 | Campo | Tipo | Por defecto | Descripción |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Índice del tema de reloj animado. |
+| `theme` | `int` | `0` | Índice del tema de reloj animado: `0` = Digital Estándar, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
 | `format` | `String` | `%H:%M:%S` | Formato de hora strftime. |
 | `font` | `String` | `PressStart2P.ttf` | Archivo de fuente de `/fonts/`. |
 | `size` | `int` | `2` | Factor de escalado de la fuente. |
@@ -200,7 +200,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `crypto`
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `BTC,ETH` | Separados por comas | Símbolos de criptomonedas a monitorear. |
+| `symbols` | `String` | `BTC,ETH` | Separados por comas | Símbolos de criptomonedas a monitorear (CoinGecko / Binance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
@@ -209,7 +209,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `stock`
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `AAPL,NVDA,TSLA` | Separados por comas | Tickers bursátiles a monitorear. |
+| `symbols` | `String` | `AAPL,NVDA,TSLA` | Separados por comas | Tickers bursátiles a monitorear (Yahoo Finance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
@@ -231,6 +231,48 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 * **Ubicaciones en Estados Unidos:** Use `Ciudad,CodigoEstado,CodigoPais` (ej. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
 * **Dónde buscar el nombre exacto:** Vaya a [openweathermap.org](https://openweathermap.org) y busque su ciudad.
 
+### Motor: `sysinfo` (Monitor de Sistema)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | `0` a `2` | Tema visual: `0` = Barras de nivel de color, `1` = Cuadrícula compacta 4 bloques, `2` = Terminal Retro. |
+| `show_cpu` | `bool` | `true` | `true`, `false` | Muestra el porcentaje de uso de CPU en tiempo real (CPU %). |
+| `show_ram` | `bool` | `true` | `true`, `false` | Muestra el porcentaje de uso de memoria RAM (RAM %). |
+| `show_temp` | `bool` | `true` | `true`, `false` | Muestra la temperatura de hardware del SoC (escala dinámica verde/ámbar/rojo). |
+| `show_uptime` | `bool` | `true` | `true`, `false` | Muestra el tiempo de actividad del sistema (Uptime) en horas/días. |
+| `temp_unit` | `Options` | `C` | `C`, `F` | Unidad de temperatura: Celsius (`C`) o Fahrenheit (`F`). |
+| `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal en píxeles. |
+| `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical en píxeles. |
+
+### Motor: `fighter` (Combate M.U.G.E.N)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `mode` | `Options` | `match` | `match`, `showcase` | Modo de combate: `match` (duelo con K.O. y victoria) o `showcase` (demostración continua). |
+| `fighter_1` | `String` | `""` | Nombre de carpeta | Luchador P1 (dejar vacío para selección aleatoria). |
+| `fighter_2` | `String` | `""` | Nombre de carpeta | Luchador P2 (dejar vacío para selección aleatoria). |
+| `show_hud` | `bool` | `true` | `true`, `false` | Muestra barras de vida retro (HP), medidores de Super y nombres de luchadores. |
+| `match_duration` | `int` | `30` | `10` a `120` | Duración máxima del asalto en segundos antes de agotar el tiempo. |
+
+### Motor: `google_cast` (Google Home / Nest Audio)
+| Campo | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `device_ip` | `String` | `""` | IP estática de su altavoz Google Home / Nest Audio. Deje en blanco para descubrimiento mDNS automático en la red local. |
+| `device_name` | `String` | `""` | Filtro por nombre del dispositivo (ej. `Salón`) durante el escaneo automático en la LAN. |
+| `show_album_art` | `bool` | `true` | Descarga y muestra la carátula del álbum en el lado izquierdo de la matriz. |
+| `show_progress` | `bool` | `true` | Muestra la barra de progreso de reproducción en la parte inferior. |
+| `show_visualizer` | `bool` | `true` | Muestra un ecualizador de frecuencias de audio animado durante la reproducción. |
+| `show_volume` | `bool` | `true` | Muestra el nivel de volumen actual del altavoz Google Nest. |
+
+### Motor: `spotify` (Reproductor Oficial Spotify)
+| Campo | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Su Client ID de Spotify Developer API. |
+| `client_secret` | `String` | `""` | Su Client Secret de Spotify Developer API (opcional para PKCE). |
+| `refresh_token` | `String` | `""` | Su Refresh Token OAuth2 de Spotify para sincronización continua de reproducción. |
+| `show_album_art` | `bool` | `true` | Descarga y muestra la carátula de álbum a todo color de Spotify. |
+| `show_progress` | `bool` | `true` | Muestra la barra de progreso temporal de la pista en la parte inferior. |
+| `show_visualizer` | `bool` | `true` | Muestra un ecualizador de audio animado durante la reproducción. |
+| `show_volume` | `bool` | `true` | Muestra el porcentaje de volumen de reproducción de Spotify activo. |
+
 ### Motor: `gifs`
 | Campo | Tipo | Predeterminado | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
@@ -245,11 +287,6 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 | `direction` | `Options` | `left` | `left`, `none` | Dirección de desplazamiento (`left` para desplazamiento hacia la izquierda, `none` para texto estático centrado). |
 | `speed` | `int` | `50` | `10` a `200` | Milisegundos por píxel de desplazamiento (menor = más rápido; ignorado en estático). |
 | `font` | `String` | `Default` | Dinámico | Archivo de fuente desde `/fonts/`. |
-
-### Motor: `spotify`
-| Campo | Tipo | Predeterminado | Descripción |
-| :--- | :--- | :--- | :--- |
-| `client_id` | `String` | `""` | Su Client ID de Spotify API para mostrar la carátula del álbum y los metadatos de "Now Playing". |
 
 ### Motor: `marquee`
 | Campo | Tipo | Predeterminado | Descripción |

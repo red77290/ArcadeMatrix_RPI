@@ -134,41 +134,36 @@ El formato `.fgt` es un formato de animación compacto y secuencial diseñado pa
 | `0x0C` | `2 * num_frames` | uint16 LE[] | Tabla de retrasos de cada cuadro (en ticks) |
 | `0x0C + (2*N)` | `N * W * H * 2` | uint16 LE[] | Flujo continuo de píxeles RGB565 para cada cuadro |
 
-> **Nota sobre compresión:** La opción `--compress` genera archivos `.fgt.gz` mediante gzip estándar, óptimos para almacenamiento en Raspberry Pi o tarjetas SD.
-
----
+> **Nota sobre compresión:** La opción `--compress` genera archivos `.fgt.gz` mediante gzip
 
 ## 5. Algoritmo de Resolución de Paletas (`resolve_master_palette`)
 
-Para garantizar una representación 100% fiel en rips arcade (Capcom, NeoGeo, Simpsons), digitalizaciones (Mortal Kombat, Midway) y creaciones originales de MUGEN:
+Para garantizar una representación 100% fiel y sin artefactos fluorescentes/neón en todos los personajes MUGEN (rips arcade, digitalizaciones y creaciones originales):
 
 1. **Selección del Sprite de Referencia del Cuerpo:**
-   * Recorre los cuadros corporales clave (grupos `0`, `1`, `5`, `10`, `20`, `21`, `40`, `100`, `200`, `5000`).
-   * Selecciona el cuadro con el mayor número de índices de píxeles distintos (para una evaluación óptima).
+   * Prioriza los cuadros corporales clave (grupos `0`, `1`, `5`, `10`, `20`, `21`, `40`, `100`, `200`, `5000`).
+   * Busca con prioridad la postura canónica de guardia `(0,0)`, y evalúa el cuadro con el mayor número de índices de píxeles distintos.
    * Excluye sistemáticamente el grupo `9000` (retratos / iconos de selección) para evitar contaminación.
 
-2. **Recolección y Expansión Multi-Candidatos:**
-   * **Candidatos `.def`:** Paletas declaradas en `[Files]` (`pal1..pal12`), con máxima prioridad a los slots de `pal.defaults`.
-   * **Expansión Modulo Bank (16, 32, 64):** Para sprites indexados en bancos parciales (ej: Krusty the Clown, Capcom CPS2), generación de variantes `bank16`, `bank32`, `bank64`.
-   * **Offset Shifting:** Para personajes digitalizados (Mortal Kombat) donde la paleta inicia en un slot alto (ej: 176), desplazamiento al slot 0 vía `shift_min`.
-   * **Candidatos `SFFv1`:** Paleta integrada en el sprite de referencia, paleta de guardia `(0,0)`, primera paleta del SFF y subpaletas locales.
-   * **Candidatos `.act`:** Archivos `.act` adicionales presentes en la carpeta del personaje.
+2. **Jerarquía Canónica de Candidatos:**
+   * **1. Paleta Canónica SFF (`sff.stand_palette`):** Paleta integrada en el sprite `(0,0)` del archivo `.sff` validada con marcador `0x0C` y filtro anti-RLE. Prioridad absoluta (**+100 pts**).
+   * **2. Paletas Oficiales DEF (`DEF(pal.defaults)`):** Paletas declaradas en `[Info]` `pal.defaults` (**+80 pts**).
+   * **3. Paletas Estándar DEF (`DEF(pal1..12)`):** Palettes declaradas en `[Files]` (**+75 pts**).
+   * **4. Retrato Grande SFF (`SFF(9000,1)`):** Paleta del retrato oficial de cuerpo completo (**+70 pts**).
+   * **5. Primera Paleta SFF (`sff.first_palette`):** Primera paleta válida del contenedor SFF (**+60 pts**).
+   * **6. Icono Pequeño SFF (`SFF(9000,0)`):** Paleta del icono 25x25 (**+50 pts**).
+   * **7. Archivos `.act` Adicionales:** Paletas presentes en la carpeta (**+30 pts**).
 
-3. **Función de Evaluación y Filtrado (`score_palette`):**
-   * **Rechazo de paletas monocromáticas:** Si la paleta genera un solo tono (`u_colors <= 1`) cuando el sprite tiene múltiples índices, se rechaza (`score = -999.0`).
-   * **Rechazo de máscaras binarias de debug:** Si $\le 3$ colores con al menos 2 esquinas binarias saturadas puras `(0/255, 0/255, 0/255)`, se rechaza.
-   * **Cálculo de Puntuación:**
-     $$\text{Puntuación Base} = \text{Colores Únicos} \times 10$$
-     $$\text{Bono Luminancia Natural} = +100 \quad \text{si } 20 \le \text{Luminancia Media} \le 210$$
-     $$\text{Penalización Sub/Sobre-exposición} = -30 \text{ (si } L < 15 \text{)}, \quad -80 \text{ (si } L > 225 \text{)}$$
-   * **Bonos de Autor / Origen:**
-     * `DEF(pal.defaults)`: **+150 pts** (variante bank/shift: **+140 pts**)
-     * `DEF(pal1..12)`: **+100 pts** (variante bank/shift: **+90 pts**)
-     * `SFF(sprite_cuerpo)`: **+40 pts**
-     * `SFF(stand)`: **+35 pts**
-     * `SFF(first)`: **+30 pts**
-     * `SFF(local)`: **+20 pts**
-     * `ACT(carpeta)`: **+10 pts**
+3. **Función de Evaluación y Filtrado Anti-Fluorescente (`score_palette`):**
+   * **Filtro Anti-RLE (`is_rle_garbage`):** Rechazo inmediato de falsas paletas PCX compuestas por datos comprimidos de imagen (> 35% bytes $\ge 192$ y > 25% bytes $\le 15$).
+   * **Rechazo de paletas monocromáticas / vacías:** Si la paleta genera un solo tono (`u_colors <= 1`) cuando el sprite tiene múltiples índices, puntuación = **-9999**.
+   * **Rechazo de máscaras neón / croma residuales:** Si más del 5% de los píxeles del cuerpo usan colores primarios puros neón (magenta puro `255,0,255`, cian puro `0,255,255`, verde puro `0,255,0`), la paleta es rechazada.
+   * **Rechazo de paletas desplazadas / mayoritariamente negras:** Si más del 60% de los píxeles de un sprite complejo se asignan a negro puro `(0,0,0)`, la paleta es rechazada.
+   * **Fórmula de Puntuación de Cobertura:**
+     $$\text{Coverage Ratio} = \min\left(1.0, \frac{\text{Colores Únicos}}{\text{Índices Únicos}}\right)$$
+     $$\text{Puntuación Base} = \text{Coverage Ratio} \times 100 + \min(\text{Colores Únicos}, \text{Índices Únicos}) \times 2$$
+     $$\text{Bono Luminancia} = +30 \quad \text{si } 15 \le \text{Luminancia Media} \le 215$$
+     $$\text{Penalización Sub/Sobre-exposición} = -50 \quad \text{si } L < 10 \text{ o } L > 240$$
 
 ---
 

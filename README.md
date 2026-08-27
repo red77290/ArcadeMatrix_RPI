@@ -35,12 +35,16 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 * 🔄 **Over-The-Air (OTA) Firmware Update**: Update the single standalone Rust binary directly from the Web UI without re-flashing your SD Card image! *(Failsafe Recovery: If an OTA update ever breaks your system, plug your SD card into a PC and drop a valid firmware named `arcadematrix_recovery.bin` at the root of either the `bootfs` partition or the `DATA` partition. It will automatically install on the next boot!)*
 * 🚀 **Rust Native Performance**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
-* **Dynamically Loadable Fonts (`.ttf`)**: No more hardcoded font files! Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
-* **Unlimited Clock/Date Sizes & Offsets**: You are no longer restricted to Size 1, 2, or 3. You can set the size to any number, and position the text freely on massive matrix panels (e.g. 256x64).
-* **Massive Clock Selection**: Enjoy a variety of animated clocks including the classic Arcade, Binary, Cyberpunk, Flip, Word, and the brand new **Pac-Man**, **Tetris**, **SlotMachine**, and **Versus (Mugen)** clocks!
-* 📈 **Real-Time Crypto & Stock Tickers**: Live price quotes & 24h % badges from CoinGecko, Binance, and Yahoo Finance with configurable TTL cache.
+* 🎵 **Spotify Live Now Playing (`spotify`)**: Real-time display of current Spotify playback with full-color album artwork, animated track/artist marquee, progress bar, and animated audio equalizer.
+* 📡 **Google Cast & Nest (`google_cast`)**: Automatic mDNS discovery of Google Home / Nest Audio speakers on your LAN with real-time media title, artist, album art, and volume metadata.
+* 🖥️ **System Monitor (`sysinfo`)**: Real-time monitoring of CPU usage (%), RAM (%), SoC temperature (°C/°F), and system Uptime with colored gauges and customizable visual themes.
+* 🥊 **M.U.G.E.N Fighter Engine (`fighter`)**: Authentic retro fighting game sprites (Street Fighter, KOF, DBZ, Marvel...) decoded in RGB565 with zero stutter, playable standalone or as an overlay over your clocks.
+* 📈 **Real-Time Crypto & Stock Tickers (`crypto`, `stock`)**: Live price quotes, 24h % badges, and historical sparkline charts from CoinGecko, Binance, and Yahoo Finance with smart caching.
+* 🌦️ **Dynamic Weather (`weather`)**: Live weather conditions, current temperature, multi-day forecasts, and animated retro icons powered by OpenWeatherMap.
+* ⏰ **Massive Animated Clock Selection (`clock`)**: Interactive clocks including Arcade, Binary, Cyberpunk, Flip, Word, as well as **Pac-Man**, **Tetris**, **SlotMachine**, **Pong**, and **Versus (Mugen)** clocks!
+* **Dynamically Loadable Fonts (`.ttf`)**: Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
 * **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
-* **Custom Smooth Gradients**: In addition to classic Publisher themes (Nintendo, Capcom, Sega...), you can now choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
+* **Custom Smooth Gradients**: In addition to classic Publisher themes, choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
 * **Dynamic Image Playlists (GIF/PNG/JPG)**: Read actual `.gif` and `.png` files dynamically straight from the filesystem without SD card fragmentation issues.
 
 ---

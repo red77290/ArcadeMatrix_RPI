@@ -98,9 +98,17 @@ impl FighterSprite {
             return None;
         }
 
-        let mut frames = Vec::with_capacity(frames_to_load);
+        // 1. Read all frame delays (frame_count * 2 bytes)
         let mut delays = Vec::with_capacity(frames_to_load);
+        for i in 0..frame_count {
+            let delay = reader.read_u16::<LittleEndian>().ok()?;
+            if i < frames_to_load {
+                delays.push(delay);
+            }
+        }
 
+        // 2. Read frame pixel buffers
+        let mut frames = Vec::with_capacity(frames_to_load);
         for i in 0..frame_count {
             if i < frames_to_load {
                 let mut img = RgbImage::new(width, height);
@@ -113,12 +121,10 @@ impl FighterSprite {
                     let y = (p as u32) / width;
                     img.put_pixel(x, y, Rgb([r, g, b]));
                 }
-                let delay = reader.read_u16::<LittleEndian>().ok()?;
                 frames.push(img);
-                delays.push(delay);
             } else {
                 // Discard frames beyond frames_to_load without allocating memory
-                let skip_bytes = (pixel_count * 2 + 2) as u64;
+                let skip_bytes = (pixel_count * 2) as u64;
                 let mut skipped = 0u64;
                 while skipped < skip_bytes {
                     let chunk = (skip_bytes - skipped).min(65536);

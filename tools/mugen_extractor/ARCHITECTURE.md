@@ -140,34 +140,32 @@ The `.fgt` format is a compact, streamable binary animation format engineered fo
 
 ## 5. Palette Resolution Algorithm (`resolve_master_palette`)
 
-To ensure 100% authentic color rendering across arcade rips (Capcom, NeoGeo, Simpsons), digitized captures (Mortal Kombat, Midway), and original MUGEN creations:
+To ensure 100% authentic color rendering and eliminate fluorescent/neon artifacts across all MUGEN characters (arcade rips, digitized captures, and original creations):
 
 1. **Body Reference Sprite Selection:**
-   * Iterates through key body animation groups (`0`, `1`, `5`, `10`, `20`, `21`, `40`, `100`, `200`, `5000`).
-   * Selects the frame with the maximum count of distinct pixel indices for optimal evaluation.
-   * Excludes group `9000` (portraits / select icons) to avoid contamination.
+   * Prioritizes key body animation groups (`0`, `1`, `5`, `10`, `20`, `21`, `40`, `100`, `200`, `5000`).
+   * Prioritizes canonical stance frame `(0,0)`, then evaluates the frame with the maximum count of distinct pixel indices.
+   * Systematically excludes group `9000` (portraits / select icons) to avoid contamination.
 
-2. **Multi-Candidate Collection & Expansion:**
-   * **`.def` Candidates:** Palettes declared in `[Files]` (`pal1..pal12`), with highest priority to author's `pal.defaults`.
-   * **Modulo Bank Expansion (16, 32, 64):** For partial bank rips (e.g. Krusty the Clown, Capcom CPS2), generates repeated `bank16`, `bank32`, `bank64` variants.
-   * **Offset Shifting:** For digitized characters (Mortal Kombat) where palettes start at high slots (e.g. 176), shifts to slot 0 via `shift_min`.
-   * **`SFFv1` Candidates:** Reference sprite palette, stance palette `(0,0)`, first SFF palette, and local sub-palettes.
-   * **`.act` Candidates:** Extra `.act` files found in character folder.
+2. **Canonical Candidate Hierarchy:**
+   * **1. Canonical SFF Palette (`sff.stand_palette`):** Embedded palette in sprite `(0,0)` of the `.sff` file validated by `0x0C` marker and anti-RLE check. Absolute priority (**+100 pts**).
+   * **2. Official DEF Palettes (`DEF(pal.defaults)`):** Palettes declared in `[Info]` `pal.defaults` (**+80 pts**).
+   * **3. Standard DEF Palettes (`DEF(pal1..12)`):** Palettes declared in `[Files]` (**+75 pts**).
+   * **4. SFF Big Portrait (`SFF(9000,1)`):** Palette of official full-size character portrait (**+70 pts**).
+   * **5. SFF First Palette (`sff.first_palette`):** First valid palette in the SFF container (**+60 pts**).
+   * **6. SFF Small Portrait (`SFF(9000,0)`):** Palette of 25x25 select icon (**+50 pts**).
+   * **7. Additional `.act` Files:** Extra palettes in character folder (**+30 pts**).
 
-3. **Evaluation & Scoring Function (`score_palette`):**
-   * **Monochrome Rejection:** If palette renders a single color (`u_colors <= 1`) while sprite has multiple indices, reject (`score = -999.0`).
-   * **Pure Binary Debug Mask Rejection:** If $\le 3$ colors with at least 2 saturated binary corners `(0/255, 0/255, 0/255)`, reject.
-   * **Score Formula:**
-     $$\text{Base Score} = \text{Unique Colors} \times 10$$
-     $$\text{Natural Luminance Bonus} = +100 \quad \text{if } 20 \le \text{Mean Luminance} \le 210$$
-     $$\text{Over/Under-exposure Penalty} = -30 \text{ (if } L < 15 \text{)}, \quad -80 \text{ (if } L > 225 \text{)}$$
-   * **Source & Author Bonuses:**
-     * `DEF(pal.defaults)`: **+150 pts** (bank/shift variants: **+140 pts**)
-     * `DEF(pal1..12)`: **+100 pts** (bank/shift variants: **+90 pts**)
-     * `SFF(body_sprite)`: **+40 pts**
-     * `SFF(stand)`: **+35 pts**
-     * `SFF(first)`: **+30 pts**
-     * `SFF(local)`: **+20 pts**
+3. **Anti-Fluorescent Evaluation & Scoring Function (`score_palette`):**
+   * **Anti-RLE Filter (`is_rle_garbage`):** Immediate rejection of fake PCX palettes consisting of compressed image data (> 35% bytes $\ge 192$ and > 25% bytes $\le 15$).
+   * **Monochrome / Empty Palette Rejection:** If the palette produces only a single color shade (`u_colors <= 1`) while the sprite has multiple indices, score = **-9999**.
+   * **Residual Neon / Chroma Mask Rejection:** If more than 5% of body pixels resolve to pure primary neon colors (pure magenta `255,0,255`, pure cyan `0,255,255`, pure green `0,255,0`), the palette is rejected.
+   * **Shifted / Mostly-Black Palette Rejection:** If more than 60% of pixels in a non-trivial sprite map to pure black `(0,0,0)`, the palette is rejected.
+   * **Coverage Score Formula:**
+     $$\text{Coverage Ratio} = \min\left(1.0, \frac{\text{Unique Colors}}{\text{Unique Indices}}\right)$$
+     $$\text{Base Score} = \text{Coverage Ratio} \times 100 + \min(\text{Unique Colors}, \text{Unique Indices}) \times 2$$
+     $$\text{Luminance Bonus} = +30 \quad \text{if } 15 \le \text{Mean Luminance} \le 215$$
+     $$\text{Over/Under-exposure Penalty} = -50 \quad \text{if } L < 10 \text{ or } L > 240$$
      * `ACT(folder)`: **+10 pts**
 
 ---

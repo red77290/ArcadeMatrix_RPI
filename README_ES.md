@@ -27,21 +27,21 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!
 3. Abre el archivo `config.json` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela.
-5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esa IP para acceder a la interfaz Web!
+5. La matriz se encenderá de inmediato y **mostrará la dirección IP**## 🌟 Funciones (exclusivas de RPi vs ESP32)
 
----
-
-## 🌟 Funciones (exclusivas de RPi vs ESP32)
-
-* 🔄 **Actualización de Firmware OTA (Over-The-Air)**: ¡Actualiza el binario nativo de Rust directamente desde la interfaz web sin tener que volver a flashear la imagen de tu tarjeta SD! *(Recuperación Failsafe: Si una actualización OTA rompe tu sistema, conecta tu tarjeta SD a un PC y suelta un firmware válido llamado `arcadematrix_recovery.bin` en la raíz de la partición `bootfs` O en la partición `DATA`. ¡Se instalará automáticamente en el próximo arranque!)*
-* **Fuentes cargables dinámicamente (`.ttf`)**: ¡se acabaron los archivos de fuente hardcodeados! Deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
-* **Tamaños y desplazamientos de reloj/fecha ilimitados**: ya no estás restringido a los tamaños 1, 2 o 3. Puedes establecer cualquier tamaño y colocar el texto libremente en paneles de matriz enormes (p. ej. 256x64).
-* **Selección masiva de relojes**: disfruta de una variedad de relojes animados, incluidos los clásicos Arcade, Binary, Cyberpunk, Flip, Word, y los nuevos relojes **Pac-Man**, **Tetris**, **SlotMachine** y **Versus (Mugen)**.
-* 📈 **Tickers de Criptomonedas y Bolsa en tiempo real**: cotizaciones en vivo y distintivos % 24h de CoinGecko, Binance y Yahoo Finance con caché configurable.
-* **Lluvia digital Matrix real (Katakana)**: un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
-* **Gradientes suaves personalizados**: además de los temas clásicos Publisher (Nintendo, Capcom, Sega...), ahora puedes elegir un tema **Custom Color / Gradient** y seleccionar dos colores para generar un gradiente dinámico.
-* **Playlists de imágenes dinámicas (GIF/PNG/JPG)**: lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.
-* **Potencia de Rust**: todo el motor, la API y el frontend se sirven con Rust (`image-rs` para dibujar, `Actix-web` para la API), lo que permite modificarlo mucho más rápido.
+* 🔄 **Actualización de Firmware OTA (Over-The-Air)** : ¡Actualiza el binario nativo de Rust directamente desde la interfaz web sin tener que volver a flashear la imagen de tu tarjeta SD! *(Recuperación Failsafe: Si una actualización OTA rompe tu sistema, conecta tu tarjeta SD a un PC y suelta un firmware válido llamado `arcadematrix_recovery.bin` en la raíz de la partición `bootfs` O en la partición `DATA`. ¡Se instalará automáticamente en el próximo arranque!)*
+* 🚀 **Rendimiento Nativo en Rust** : motor multiproceso de alto rendimiento basado en Actix-web y procesamiento gráfico en Rust puro con 0% de uso de CPU en reposo.
+* 🎵 **Spotify Now Playing (`spotify`)** : visualización en vivo de la reproducción actual con portada de álbum a todo color, marquesina animada de artista/canción, barra de progreso y ecualizador de audio animado.
+* 📡 **Google Cast & Nest (`google_cast`)** : descubrimiento mDNS automático de altavoces Google Home / Nest Audio en tu red local y visualización en tiempo real de medios y volumen.
+* 🖥️ **Monitor de Sistema (`sysinfo`)** : monitorización en tiempo real de CPU (%), RAM (%), temperatura SoC (°C/°F) y Uptime con indicadores gráficos y temas visuales configurables.
+* 🥊 **Motor de Combate M.U.G.E.N (`fighter`)** : auténticos combates de sprites retro (Street Fighter, KOF, DBZ, Marvel...) extraídos en RGB565 sin lag, reproducibles en modo independiente o como overlay sobre los relojes.
+* 📈 **Tickers y Gráficos de Criptomonedas / Bolsa (`crypto`, `stock`)** : cotizaciones en vivo, porcentajes 24h y gráficos sparkline históricos desde CoinGecko, Binance y Yahoo Finance con caché inteligente.
+* 🌦️ **Meteorología Dinámica (`weather`)** : previsión meteorológica en tiempo real, temperatura, pronósticos para los próximos días e iconos animados retro con OpenWeatherMap.
+* ⏰ **Selección Masiva de Relojes Animados (`clock`)** : relojes interactivos que incluyen Arcade, Binary, Cyberpunk, Flip, Word, así como los nuevos relojes **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** y **Versus (Mugen)**.
+* **Fuentes cargables dinámicamente (`.ttf`)** : deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
+* **Lluvia digital Matrix real (Katakana)** : un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
+* **Gradientes suaves personalizados** : además de los temas clásicos Publisher, elige un tema **Custom Color / Gradient** y selecciona dos colores para generar un gradiente dinámico.
+* **Playlists de imágenes dinámicas (GIF/PNG/JPG)** : lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.e sirven con Rust (`image-rs` para dibujar, `Actix-web` para la API), lo que permite modificarlo mucho más rápido.
 
 ---
 

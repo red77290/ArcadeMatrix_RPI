@@ -5,7 +5,9 @@ import io
 import time
 import logging
 import json
-from PIL import Image
+from PIL import Image, ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 
 TRANSPARENT_COLOR_565 = 0x0000
 
@@ -215,6 +217,19 @@ class CnsParser:
                                 if anim_id not in self.state_anims[current_state]:
                                     self.state_anims[current_state].append(anim_id)
 
+def is_rle_garbage(pal_bytes):
+    """
+    Detect if a 768-byte candidate buffer is actually compressed PCX RLE image data
+    rather than a real 256-color palette.
+    """
+    if not pal_bytes or len(pal_bytes) < 768:
+        return True
+    c_high = sum(1 for b in pal_bytes[:768] if b >= 192)
+    c_low = sum(1 for b in pal_bytes[:768] if b <= 15)
+    if (c_high / 768.0) > 0.35 and (c_low / 768.0) > 0.25:
+        return True
+    return False
+
 class SFFv1Parser:
     def __init__(self, filepath):
         self.filepath = filepath
@@ -244,16 +259,18 @@ class SFFv1Parser:
                 
                 if data_length > 0:
                     pcx_data = f.read(data_length)
-                    if len(pcx_data) > 768:
+                    # A PCX 256-color palette MUST have the 0x0C (12) marker at offset -769 and not be RLE garbage
+                    if len(pcx_data) > 769 and pcx_data[-769] == 12:
                         pal = pcx_data[-768:]
-                        if not self.first_palette:
-                            self.first_palette = pal
-                        if grp == 0 and img == 0 and not self.stand_palette:
-                            self.stand_palette = pal
-                        # Collect candidate palettes from key sprite groups
-                        if (grp in (0, 20) or grp >= 7000) and pal not in seen_pals:
-                            seen_pals.add(pal)
-                            self.candidate_palettes.append((f"SFF({grp},{img})", pal))
+                        if not is_rle_garbage(pal):
+                            if not self.first_palette and grp < 9000:
+                                self.first_palette = pal
+                            if grp == 0 and not self.stand_palette:
+                                self.stand_palette = pal
+                            # Master character palettes come from stance (grp 0), portraits (grp 9000 img 0/1) or first valid sprite
+                            if (grp == 0 or (grp == 9000 and img in (0, 1)) or not self.candidate_palettes) and pal not in seen_pals:
+                                seen_pals.add(pal)
+                                self.candidate_palettes.append((f"SFF({grp},{img})", pal))
 
                     self.images[(grp, img)] = {
                         'x': x,
@@ -308,55 +325,75 @@ class AirParser:
                             })
                     except: pass
 
-def score_palette(pal_bytes, indices, trans_idx):
+def score_palette(pal_bytes, indices, trans_idx=0):
     """
     Score how well a 768-byte palette renders a sprite given its pixel indices.
     Returns a float score. Higher = better palette.
     """
     if not pal_bytes or len(pal_bytes) < 768:
-        return -999.0
+        return -9999.0
     
-    # In MUGEN, index 0 is always the transparent key. Also include trans_idx if known.
+    if not indices or isinstance(indices[0], (tuple, list)):
+        return 100.0
+        
+    if is_rle_garbage(pal_bytes):
+        return -9999.0
+    
     trans_set = {0}
     if trans_idx is not None:
         trans_set.add(trans_idx)
         
     used_indices = [idx for idx in indices if idx not in trans_set]
     if not used_indices:
-        return -999.0
-    
+        return -9999.0
+        
+    unique_indices = set(used_indices)
     colors = set()
     total_lum = 0.0
-    pure_binary_corners = 0
+    neon_count = 0
+    black_count = 0
     total = len(used_indices)
     
     for idx in used_indices:
+        if not isinstance(idx, int):
+            continue
         if idx * 3 + 2 < len(pal_bytes):
             r, g, b = pal_bytes[idx * 3], pal_bytes[idx * 3 + 1], pal_bytes[idx * 3 + 2]
             colors.add((r, g, b))
-            lum = 0.299 * r + 0.587 * g + 0.114 * b
-            total_lum += lum
-            
-            # Pure binary corners (only 0 or 255 in all channels, e.g. (255,0,255), (0,255,255))
-            if (r in (0, 255) and g in (0, 255) and b in (0, 255)) and (r > 0 or g > 0 or b > 0):
-                pure_binary_corners += 1
+            total_lum += (0.299 * r + 0.587 * g + 0.114 * b)
+            # Pure black
+            if r == 0 and g == 0 and b == 0:
+                black_count += 1
+            # Pure neon / chroma key masks (e.g. magenta, cyan, pure green)
+            if (r > 240 and g < 20 and b > 240) or (r < 20 and g > 240 and b > 240) or (r < 20 and g > 240 and b < 20):
+                neon_count += 1
                 
     u_colors = len(colors)
-    if u_colors <= 1 and len(set(used_indices)) > 1:
-        return -999.0  # Solid monochrome / broken palette
+    if u_colors <= 1 and len(unique_indices) > 1:
+        return -9999.0  # Solid monochrome / broken empty palette
         
-    # Reject dummy debug / placeholder masks (<= 3 shades with saturated binary corners)
-    if u_colors <= 3 and pure_binary_corners >= 2 and len(set(used_indices)) >= 6:
-        return -999.0
+    neon_ratio = neon_count / total
+    black_ratio = black_count / total
+    
+    # Reject palettes with excessive pure neon chroma masks (> 5% of body pixels)
+    if neon_ratio > 0.05:
+        return -9999.0
         
-    avg_lum = total_lum / max(total, 1)
-    score = u_colors * 10.0
-    if 20 <= avg_lum <= 210:
-        score += 100.0
-    elif avg_lum < 15:
-        score -= 30.0
-    elif avg_lum > 225:
-        score -= 80.0
+    # Reject palettes where > 60% of body pixels map to pure black while indices are non-zero (broken/empty ACT)
+    if black_ratio > 0.60 and len(unique_indices) >= 5:
+        return -9999.0
+        
+    avg_lum = total_lum / total
+    
+    # Coverage score: how many unique sprite indices map to distinct non-neon colors
+    coverage = min(1.0, u_colors / max(len(unique_indices), 1))
+    
+    score = coverage * 100.0 + min(u_colors, len(unique_indices)) * 2.0
+    
+    if 15 <= avg_lum <= 215:
+        score += 30.0
+    elif avg_lum < 10 or avg_lum > 240:
+        score -= 50.0
         
     return score
 
@@ -364,151 +401,125 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
     """
     Resolve the best palette for a character using an intelligent multi-candidate scoring system.
     
-    Candidates:
-      1. Official .act palettes from .def (prioritizing pal.defaults) + bank wrapping & offset shifts
-      2. SFF embedded palettes from body sprites (0, 1, 5, 20, 21, 40, 100, 200, 5000)
-      3. SFF stand_palette & first_palette
-      4. Additional .act palettes in character folder
+    Candidates (in priority order):
+      1. SFF Stand Palette (group 0 with 0x0C marker) - Canonical author-built palette
+      2. SFF First Palette - Base sprite palette in SFF
+      3. SFF Valid Embedded Palettes from candidate sprites
+      4. Official .act palettes from DEF (pal.defaults and pal1..pal12)
+      5. Character folder .act palettes
     """
     char_name = os.path.basename(char_dir)
     
-    # Find the best body sprite to use as scoring reference (highest unique indices)
+    # Priority order for reference sprite: (0,0), then other (0,x), (5,x), (10,x), (20,x), then any < 9000
+    candidate_keys = []
+    if (0, 0) in sff.images:
+        candidate_keys.append((0, 0))
+    for k in sorted(sff.images.keys()):
+        if k[0] in (0, 1, 5, 10, 20, 21, 40, 100, 200, 5000) and k not in candidate_keys:
+            candidate_keys.append(k)
+    for k in sorted(sff.images.keys()):
+        if k[0] < 9000 and k not in candidate_keys:
+            candidate_keys.append(k)
+            
     best_indices = []
     best_key = None
     max_unique = 0
     
-    for k, info in sff.images.items():
-        if k[0] >= 9000:
-            continue  # Skip portrait/select icons
-        if k[0] in (0, 1, 5, 10, 20, 21, 40, 100, 200, 5000) or best_key is None:
-            try:
-                im = Image.open(io.BytesIO(info['data']))
-                ind = list(im.get_flattened_data()) if hasattr(im, 'get_flattened_data') else list(im.getdata())
-                u = len(set(ind) - {ind[0] if ind else 0})
-                if u > max_unique:
-                    max_unique = u
-                    best_key = k
-                    best_indices = ind
-            except:
-                pass
-                
-    if not best_indices and sff.images:
-        for k, info in sff.images.items():
-            try:
-                im = Image.open(io.BytesIO(info['data']))
-                best_indices = list(im.get_flattened_data()) if hasattr(im, 'get_flattened_data') else list(im.getdata())
+    for k in candidate_keys:
+        info = sff.images[k]
+        try:
+            im = Image.open(io.BytesIO(info['data']))
+            im.load()
+            ind = list(im.get_flattened_data()) if hasattr(im, 'get_flattened_data') else list(im.getdata())
+            # If sprite is truecolor tuples, return SFF palette directly
+            if ind and isinstance(ind[0], (tuple, list)):
+                return sff.stand_palette or sff.first_palette or (b'\x00' * 768)
+            u = len(set(ind) - {0})
+            if u > max_unique:
+                max_unique = u
                 best_key = k
-                break
-            except:
-                pass
-                
+                best_indices = ind
+                if u >= 10:  # Sufficient complexity body sprite
+                    break
+        except:
+            pass
+            
     if not best_indices:
-        return sff.first_palette or sff.stand_palette
+        return sff.stand_palette or sff.first_palette or (b'\x00' * 768)
         
-    # If the sprite is direct truecolor (RGB/RGBA tuples), no palette mapping needed
-    if best_indices and isinstance(best_indices[0], (tuple, list)):
-        return sff.first_palette or sff.stand_palette or (b'\x00' * 768)
-        
-    trans_idx = best_indices[0] if best_indices else 0
     candidates = []
     seen = set()
     
     def add_cand(name, p_bytes, bonus):
         if not p_bytes or len(p_bytes) < 768:
             return
-        if p_bytes not in seen:
-            seen.add(p_bytes)
-            candidates.append((name, p_bytes, bonus))
+        p_slice = bytes(p_bytes[:768])
+        if p_slice not in seen:
+            seen.add(p_slice)
+            candidates.append((name, p_slice, bonus))
             
-        non_z = [i for i in range(256) if p_bytes[i*3]>0 or p_bytes[i*3+1]>0 or p_bytes[i*3+2]>0]
-        if not non_z:
-            return
-        min_s, max_s = min(non_z), max(non_z)
+    # 1. SFF Canonical Stand Palette (group 0 with 0x0C marker) -> TOP PRIORITY (+100)
+    if sff.stand_palette:
+        add_cand("SFF(stand)", sff.stand_palette, 100.0)
         
-        # Bank expansion for 16/32/64-color palettes (e.g. Simpsons, Capcom/NeoGeo rippers)
-        for b_sz in (16, 32, 64):
-            exp = bytearray(768)
-            for i in range(256):
-                b = i % b_sz
-                exp[i*3] = p_bytes[b*3]
-                exp[i*3+1] = p_bytes[b*3+1]
-                exp[i*3+2] = p_bytes[b*3+2]
-            exp_b = bytes(exp)
-            if exp_b not in seen:
-                seen.add(exp_b)
-                candidates.append((f"{name}:bank{b_sz}", exp_b, bonus - 10.0))
-                
-        # Offset shift for MK digitized characters where palette is saved at offset >= 16
-        if min_s >= 16:
-            exp_shift = bytearray(768)
-            for i in range(256):
-                src = (i + min_s) % 256
-                exp_shift[i*3] = p_bytes[src*3]
-                exp_shift[i*3+1] = p_bytes[src*3+1]
-                exp_shift[i*3+2] = p_bytes[src*3+2]
-            exp_b = bytes(exp_shift)
-            if exp_b not in seen:
-                seen.add(exp_b)
-                candidates.append((f"{name}:shift_{min_s}", exp_b, bonus - 10.0))
-
-    # 1. Official palettes from DEF file (prioritizing pal.defaults)
+    # 2. DEF Official Palettes (pal.defaults +80, other slots +75)
     if def_parser and def_parser.palettes:
         for slot in def_parser.pal_defaults:
-            if slot in def_parser.palettes:
-                p = def_parser.palettes[slot]
+            if slot in def_parser.palettes and os.path.exists(def_parser.palettes[slot]):
                 try:
-                    with open(p, 'rb') as f:
+                    with open(def_parser.palettes[slot], 'rb') as f:
                         d = f.read(768)
-                        if len(d) == 768:
-                            add_cand(f"DEF(pal{slot}:default)", d, 150.0)
+                    if len(d) == 768:
+                        add_cand(f"DEF(pal{slot}:default)", d, 80.0)
                 except:
                     pass
         for slot in sorted(def_parser.palettes.keys()):
             p = def_parser.palettes[slot]
-            try:
-                with open(p, 'rb') as f:
-                    d = f.read(768)
+            if os.path.exists(p):
+                try:
+                    with open(p, 'rb') as f:
+                        d = f.read(768)
                     if len(d) == 768:
-                        add_cand(f"DEF(pal{slot})", d, 100.0)
-            except:
-                pass
-
-    # 2. SFF embedded palette in reference body sprite
-    if best_key and best_key in sff.images and len(sff.images[best_key]['data']) > 768:
-        add_cand(f"SFF({best_key[0]},{best_key[1]})", sff.images[best_key]['data'][-768:], 40.0)
-
-    if sff.stand_palette:
-        add_cand("SFF(stand)", sff.stand_palette, 35.0)
-
+                        add_cand(f"DEF(pal{slot})", d, 75.0)
+                except:
+                    pass
+                    
+    # 3. SFF Big Portrait (9000,1) (+70)
+    for cname, pdata in sff.candidate_palettes:
+        if "9000,1" in cname:
+            add_cand(cname, pdata, 70.0)
+            
+    # 4. SFF First Palette (+60)
     if sff.first_palette:
-        add_cand("SFF(first)", sff.first_palette, 30.0)
+        add_cand("SFF(first)", sff.first_palette, 60.0)
         
-    for (g, i), info in sff.images.items():
-        if g < 9000 and len(info['data']) > 768:
-            add_cand(f"SFF({g},{i})", info['data'][-768:], 20.0)
-
-    # 3. Any additional .act files in character folder
+    # 5. SFF Small Portrait (9000,0) and other valid SFF sprites (+50)
+    for cname, pdata in sff.candidate_palettes:
+        if "9000,1" not in cname:
+            add_cand(cname, pdata, 50.0)
+            
+    # 6. Additional .act in char folder (+30)
     for af in glob.glob(os.path.join(char_dir, "*.act")) + glob.glob(os.path.join(char_dir, "*.ACT")):
         try:
             with open(af, "rb") as f:
                 d = f.read(768)
-                if len(d) == 768:
-                    add_cand(f"ACT({os.path.basename(af)})", d, 10.0)
+            if len(d) == 768:
+                add_cand(f"ACT({os.path.basename(af)})", d, 30.0)
         except:
             pass
             
     if not candidates:
-        return sff.first_palette or sff.stand_palette
+        return sff.stand_palette or sff.first_palette or (b'\x00' * 768)
         
     best_cand = None
-    best_score = -99999.0
+    best_score = -999999.0
     best_name = ""
     for name, pal, bonus in candidates:
-        sc = score_palette(pal, best_indices, trans_idx)
-        if sc > -500.0:  # Valid non-broken palette
-            sc += bonus
-            if sc > best_score:
-                best_score = sc
+        sc = score_palette(pal, best_indices, trans_idx=0)
+        if sc > -5000.0:
+            total_score = sc + bonus
+            if total_score > best_score:
+                best_score = total_score
                 best_cand = pal
                 best_name = name
                 
@@ -516,7 +527,8 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
         logging.info(f"{char_name}: palette={best_name} (score={best_score:.1f})")
         return best_cand
         
-    return sff.first_palette or sff.stand_palette
+    return sff.stand_palette or sff.first_palette or (b'\x00' * 768)
+
 
 def process_character(char_dir, out_dir, target_height=None, extract_mode=None, custom_scale=None, compress_fgt=None):
     if target_height is None:
@@ -890,10 +902,6 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                 except:
                     indices = [0] * (img_obj.width * img_obj.height)
                 
-                trans_indices = {0}
-                if indices:
-                    trans_indices.add(indices[0])
-                
                 rgba_canvas = Image.new('RGBA', (orig_w, orig_h), (0,0,0,0))
                 rgba_pixels = rgba_canvas.load()
                 
@@ -911,7 +919,7 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                                     rgba_pixels[cx, cy] = (val[0], val[1], val[2], 255)
                             else:
                                 idx = int(val)
-                                if idx not in trans_indices and idx * 3 + 2 < len(master_palette):
+                                if idx != 0 and idx * 3 + 2 < len(master_palette):
                                     r = master_palette[idx*3]
                                     g = master_palette[idx*3 + 1]
                                     b = master_palette[idx*3 + 2]

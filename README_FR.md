@@ -33,15 +33,19 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ## 🌟 Fonctionnalités (exclusivités RPi vs ESP32)
 
-* 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, branchez votre carte SD sur un PC et déposez un firmware valide nommé `arcadematrix_recovery.bin` à la racine de la partition `bootfs` OU de la partition `DATA`. Il s'installera automatiquement au prochain démarrage !)*
+* 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, branchez votre carte SD sur un PC et déposez un firmware valide nommé `arcadematrix_recovery.bin` à la racine de la partition `bootfs` OU de la partition `DATA`. Il s'installera automatiquement au prochain démarrage !)*
 * 🚀 **Performances Rust natives** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
-* **Polices chargeables dynamiquement (`.ttf`)** : fini les fichiers de police codés en dur ! Déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
-* **Tailles et décalages d'horloge/date illimités** : vous n'êtes plus limité aux tailles 1, 2 ou 3. Vous pouvez définir n'importe quelle taille et positionner librement le texte sur d'immenses panneaux matriciels (ex. 256x64).
-* **Sélection massive d'horloges** : profitez d'une variété d'horloges animées comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les toutes nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine** et **Versus (Mugen)** !
-* 📈 **Tickers Crypto & Bourse en temps réel** : cotations en direct et badges % sur 24h depuis CoinGecko, Binance et Yahoo Finance avec cache configurable.
+* 🎵 **Spotify Now Playing (`spotify`)** : affichage en direct du morceau en cours de lecture avec pochette d'album en couleur, défilement artiste/titre, barre de progression et égaliseur audio animé.
+* 📡 **Google Cast & Nest (`google_cast`)** : découverte automatique mDNS de vos enceintes Google Home / Nest Audio et affichage en direct des médias et flux audio diffusés.
+* 🖥️ **Moniteur Système (`sysinfo`)** : surveillance en direct de l'utilisation CPU (%), RAM (%), température SoC (°C/°F) et Uptime avec jauges colorées et thèmes visuels.
+* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques (Street Fighter, KOF, DBZ, Marvel...) extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay discret sur vos horloges.
+* 📈 **Tickers & Graphiques Crypto / Bourse (`crypto`, `stock`)** : cotations en direct, variations % sur 24h et courbes sparklines historiques depuis CoinGecko, Binance et Yahoo Finance avec cache intelligent.
+* 🌦️ **Météo dynamique (`weather`)** : météo en direct, température actuelle, prévisions multi-jours et icônes rétro animées via OpenWeatherMap.
+* ⏰ **Sélection massive d'horloges animées (`clock`)** : horloges interactives comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** et **Versus (Mugen)** !
+* **Polices chargeables dynamiquement (`.ttf`)** : déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
 * **Véritable pluie numérique Matrix (Katakana)** : un effet Matrix entièrement personnalisé, ultra fluide et authentique (`DotGothic16`) avec des Katakana demi-largeur qui tombent et un texte en espace négatif d'« LED éteintes » qui perce la pluie.
-* **Dégradés fluides personnalisés** : en plus des thèmes classiques Publisher (Nintendo, Capcom, Sega...), vous pouvez désormais choisir un thème **Custom Color / Gradient** et sélectionner deux couleurs pour générer un dégradé dynamique.
-* **Playlists d'images dynamiques (GIF/PNG/JPG)** : lisez de vrais fichiers `.gif` et `.png` dynamiquement directement depuis le système de fichiers, sans problèmes de fragmentation de carte SD.
+* **Dégradés fluides personnalisés** : thèmes dynamiques personnalisables avec dégradés bicolores en temps réel.
+* **Playlists d'images dynamiques (GIF/PNG/JPG)** : lecture fluide des fichiers `.gif` et `.png` dynamiquement depuis le système de fichiers.
 
 ---
 

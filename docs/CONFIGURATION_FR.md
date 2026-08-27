@@ -176,7 +176,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `clock`
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Index du thème d'horloge animé. |
+| `theme` | `int` | `0` | Index du thème d'horloge : `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
 | `format` | `String` | `%H:%M:%S` | Format d'heure strftime. |
 | `font` | `String` | `PressStart2P.ttf` | Fichier de police depuis `/fonts/`. |
 | `size` | `int` | `2` | Facteur de mise à l'échelle de la police. |
@@ -200,7 +200,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `crypto`
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `BTC,ETH` | Séparés par virgule | Symboles cryptos à surveiller. |
+| `symbols` | `String` | `BTC,ETH` | Séparés par virgule | Symboles cryptos à surveiller (CoinGecko / Binance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
 | `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |
@@ -209,7 +209,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `stock`
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `AAPL,NVDA,TSLA` | Séparés par virgule | Tickers boursiers à surveiller. |
+| `symbols` | `String` | `AAPL,NVDA,TSLA` | Séparés par virgule | Tickers boursiers à surveiller (Yahoo Finance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
 | `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |
@@ -231,20 +231,26 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 * **Emplacements aux États-Unis :** Utilisez `Ville,CodeEtat,CodePays` (ex. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
 * **Où trouver le nom exact :** Rendez-vous sur [openweathermap.org](https://openweathermap.org) et recherchez votre ville.
 
-### Moteur : `gifs`
+### Moteur : `sysinfo` (Moniteur Système)
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `playlists` | `String` (Multi) | `""` | Options depuis `/api/playlists` | Dossiers / Playlists de GIFs actives à faire défiler (séparées par virgule). |
+| `theme` | `int` | `0` | `0` à `2` | Thème visuel : `0` = Jauges horizontales colorées, `1` = Grille compacte 4 blocs, `2` = Terminal Retro. |
+| `show_cpu` | `bool` | `true` | `true`, `false` | Affiche l'utilisation instantanée du processeur (CPU %). |
+| `show_ram` | `bool` | `true` | `true`, `false` | Affiche l'utilisation de la mémoire vive (RAM %). |
+| `show_temp` | `bool` | `true` | `true`, `false` | Affiche la température matérielle du SoC (vert/orange/rouge dynamique). |
+| `show_uptime` | `bool` | `true` | `true`, `false` | Affiche le temps d'activité (Uptime) en heures/jours. |
+| `temp_unit` | `Options` | `C` | `C`, `F` | Unité de température : Celsius (`C`) ou Fahrenheit (`F`). |
+| `offset_x` | `int` | `0` | `-64` à `64` | Décalage horizontal en pixels. |
+| `offset_y` | `int` | `0` | `-32` à `32` | Décalage vertical en pixels. |
 
-### Moteur : `message`
+### Moteur : `fighter` (Combat M.U.G.E.N)
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `text` | `String` | `Hello` | Texte | Texte du message ou de la bannière à afficher. |
-| `color` | `String` | `#ffffff` | Couleur Hex | Couleur du texte au format `#RRGGBB`. |
-| `size` | `int` | `1` | `1` à `4` | Multiplicateur d'échelle de la police. |
-| `direction` | `Options` | `left` | `left`, `none` | Sens de défilement (`left` pour défilement vers la gauche, `none` pour texte statique centré). |
-| `speed` | `int` | `50` | `10` à `200` | Millisecondes par pixel de défilement (plus bas = plus rapide ; ignoré en statique). |
-| `font` | `String` | `Default` | Dynamique | Police de caractères depuis `/fonts/`. |
+| `mode` | `Options` | `match` | `match`, `showcase` | Mode de combat : `match` (duel complet avec K.O. et victoire) ou `showcase` (démonstration continue de coups). |
+| `fighter_1` | `String` | `""` | Nom du dossier | Combattant P1 (laisser vide pour sélection aléatoire dans la liste). |
+| `fighter_2` | `String` | `""` | Nom du dossier | Combattant P2 (laisser vide pour sélection aléatoire dans la liste). |
+| `show_hud` | `bool` | `true` | `true`, `false` | Affiche les barres de vie rétro (HP), les jauges de Super et les noms des combattants. |
+| `match_duration` | `int` | `30` | `10` à `120` | Durée maximale d'un round en secondes avant time-out. |
 
 ### Moteur : `google_cast` (Google Home / Nest Audio)
 | Champ | Type | Défaut | Description |
@@ -266,6 +272,21 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | `show_progress` | `bool` | `true` | Affiche la barre de progression temporelle du morceau en bas de l'écran. |
 | `show_visualizer` | `bool` | `true` | Affiche l'égaliseur audio animé quand la musique est en lecture. |
 | `show_volume` | `bool` | `true` | Affiche le pourcentage de volume de lecture Spotify actif. |
+
+### Moteur : `gifs`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `playlists` | `String` (Multi) | `""` | Options depuis `/api/playlists` | Dossiers / Playlists de GIFs actives à faire défiler (séparées par virgule). |
+
+### Moteur : `message`
+| Champ | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `text` | `String` | `Hello` | Texte | Texte du message ou de la bannière à afficher. |
+| `color` | `String` | `#ffffff` | Couleur Hex | Couleur du texte au format `#RRGGBB`. |
+| `size` | `int` | `1` | `1` à `4` | Multiplicateur d'échelle de la police. |
+| `direction` | `Options` | `left` | `left`, `none` | Sens de défilement (`left` pour défilement vers la gauche, `none` pour texte statique centré). |
+| `speed` | `int` | `50` | `10` à `200` | Millisecondes par pixel de défilement (plus bas = plus rapide ; ignoré en statique). |
+| `font` | `String` | `Default` | Dynamique | Police de caractères depuis `/fonts/`. |
 
 ### Moteur : `marquee`
 | Champ | Type | Défaut | Description |

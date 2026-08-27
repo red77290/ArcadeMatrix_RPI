@@ -176,7 +176,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `clock`
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Animated clock theme index. |
+| `theme` | `int` | `0` | Animated clock theme index: `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
 | `format` | `String` | `%H:%M:%S` | strftime time format. |
 | `font` | `String` | `PressStart2P.ttf` | Font file from `/fonts/`. |
 | `size` | `int` | `2` | Font scaling factor. |
@@ -200,7 +200,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `crypto`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `BTC,ETH` | Comma-separated | Crypto symbols to monitor. |
+| `symbols` | `String` | `BTC,ETH` | Comma-separated | Crypto symbols to monitor (CoinGecko / Binance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
@@ -209,7 +209,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `stock`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
-| `symbols` | `String` | `AAPL,NVDA,TSLA` | Comma-separated | Stock ticker symbols to monitor. |
+| `symbols` | `String` | `AAPL,NVDA,TSLA` | Comma-separated | Stock ticker symbols to monitor (Yahoo Finance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
@@ -231,6 +231,48 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 * **United States Locations:** Use `City,StateCode,CountryCode` (e.g. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`). Specifying only the city or omitting the country may return an incorrect city with the same name.
 * **Where to Look:** Go to [openweathermap.org](https://openweathermap.org), search for your city. The top search result header and URL show the exact `City,State,Country` string recognized by the API.
 
+### Engine: `sysinfo` (System Monitor)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `theme` | `int` | `0` | `0` to `2` | Visual theme: `0` = Color Gauge Bars, `1` = Compact 4-Block Grid, `2` = Retro Terminal. |
+| `show_cpu` | `bool` | `true` | `true`, `false` | Display real-time CPU usage percentage (CPU %). |
+| `show_ram` | `bool` | `true` | `true`, `false` | Display real-time RAM usage percentage (RAM %). |
+| `show_temp` | `bool` | `true` | `true`, `false` | Display hardware SoC temperature (dynamic green/amber/red color scale). |
+| `show_uptime` | `bool` | `true` | `true`, `false` | Display system Uptime in hours/days. |
+| `temp_unit` | `Options` | `C` | `C`, `F` | Temperature unit: Celsius (`C`) or Fahrenheit (`F`). |
+| `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel offset. |
+| `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel offset. |
+
+### Engine: `fighter` (M.U.G.E.N Combat)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `mode` | `Options` | `match` | `match`, `showcase` | Battle mode: `match` (full battle with K.O. & victory) or `showcase` (continuous demonstration). |
+| `fighter_1` | `String` | `""` | Character folder name | P1 Fighter (leave blank for random selection). |
+| `fighter_2` | `String` | `""` | Character folder name | P2 Fighter (leave blank for random selection). |
+| `show_hud` | `bool` | `true` | `true`, `false` | Display retro HP health bars, Super gauges, and fighter names. |
+| `match_duration` | `int` | `30` | `10` to `120` | Maximum round duration in seconds before timeout. |
+
+### Engine: `google_cast` (Google Home / Nest Audio)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `device_ip` | `String` | `""` | Static IP of your Google Home / Nest Audio speaker. Leave blank for automatic mDNS local discovery. |
+| `device_name` | `String` | `""` | Device name filter (e.g. `Living Room`) when automatically scanning your LAN. |
+| `show_album_art` | `bool` | `true` | Downloads and displays album artwork on the left of the LED matrix. |
+| `show_progress` | `bool` | `true` | Displays real-time playback progress bar at the bottom. |
+| `show_visualizer` | `bool` | `true` | Displays animated audio frequency equalizer during playback. |
+| `show_volume` | `bool` | `true` | Displays current Google Nest speaker volume level. |
+
+### Engine: `spotify` (Spotify Official Player)
+| Field | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `client_id` | `String` | `""` | Your Spotify Developer API Client ID. |
+| `client_secret` | `String` | `""` | Your Spotify Developer API Client Secret (optional for PKCE). |
+| `refresh_token` | `String` | `""` | Your Spotify OAuth2 Refresh Token for seamless ongoing playback sync. |
+| `show_album_art` | `bool` | `true` | Downloads and displays full-color Spotify album artwork. |
+| `show_progress` | `bool` | `true` | Displays track playback time progress bar at the bottom. |
+| `show_visualizer` | `bool` | `true` | Displays animated audio equalizer during playback. |
+| `show_volume` | `bool` | `true` | Displays active Spotify volume percentage. |
+
 ### Engine: `gifs`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -245,11 +287,6 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | `direction` | `Options` | `left` | `left`, `none` | Scroll direction (`left` for leftward scrolling, `none` for centered static text). |
 | `speed` | `int` | `50` | `10` to `200` | Milliseconds per scroll step (lower is faster; ignored when static). |
 | `font` | `String` | `Default` | Dynamic | Font file from `/fonts/`. |
-
-### Engine: `spotify`
-| Field | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `client_id` | `String` | `""` | Your Spotify API Client ID for the "Now Playing" album art and metadata display. |
 
 ### Engine: `marquee`
 | Field | Type | Default | Description |

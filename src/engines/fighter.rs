@@ -40,12 +40,7 @@ pub struct FighterSprite {
 }
 
 impl FighterSprite {
-    pub fn load_fgt<P: AsRef<Path>>(
-        path: P,
-        max_w: u32,
-        max_h: u32,
-        max_frames: usize,
-    ) -> Option<Self> {
+    pub fn load_fgt<P: AsRef<Path>>(path: P, max_frames: usize) -> Option<Self> {
         let file = File::open(path.as_ref()).ok()?;
         let is_gz = path.as_ref().extension().and_then(|e| e.to_str()) == Some("gz");
 
@@ -68,14 +63,12 @@ impl FighterSprite {
         let frame_count = reader.read_u16::<LittleEndian>().ok()? as usize;
         let _trans = reader.read_u16::<LittleEndian>().ok()?; // Transparent color (unused in this loop)
 
-        // 1. Frame dimension guard (based on matrix configuration with chaining)
-        if width > max_w || height > max_h || width == 0 || height == 0 {
+        // 1. Sanity check against corrupted file headers
+        if width == 0 || height == 0 || width > 1024 || height > 1024 {
             tracing::warn!(
-                "FGT frame dimensions too large: {}x{} exceeds max allowed {}x{} for {}",
+                "FGT invalid frame dimensions: {}x{} in {}",
                 width,
                 height,
-                max_w,
-                max_h,
                 path.as_ref().display()
             );
             return None;
@@ -171,25 +164,17 @@ pub struct FighterChar {
 }
 
 impl FighterChar {
-    pub fn load_char<P: AsRef<Path>>(
-        dir: P,
-        meta: FighterIndexMeta,
-        matrix_w: u32,
-        matrix_h: u32,
-    ) -> Option<Self> {
+    pub fn load_char<P: AsRef<Path>>(dir: P, meta: FighterIndexMeta) -> Option<Self> {
         let dir = dir.as_ref();
         let name = dir.file_name()?.to_str()?.to_string();
-
-        let max_w = (matrix_w * 2).max(128);
-        let max_h = (matrix_h * 2).max(64);
-        let max_frames = 30;
+        let max_frames = 40;
 
         let mut anims = HashMap::new();
 
         let mut try_load = |state: &str, files: &[&str]| {
             for f in files {
                 let path = dir.join(f);
-                if let Some(sprite) = FighterSprite::load_fgt(&path, max_w, max_h, max_frames) {
+                if let Some(sprite) = FighterSprite::load_fgt(&path, max_frames) {
                     tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         path.display(),
@@ -202,7 +187,7 @@ impl FighterChar {
                 }
 
                 let gz_path = dir.join(format!("{}.gz", f));
-                if let Some(sprite) = FighterSprite::load_fgt(&gz_path, max_w, max_h, max_frames) {
+                if let Some(sprite) = FighterSprite::load_fgt(&gz_path, max_frames) {
                     tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         gz_path.display(),
@@ -483,7 +468,7 @@ impl FighterEngine {
             };
 
             tracing::info!(
-                "FighterEngine: Fight: {} (H:{}) vs {} (H:{})",
+                "🥊 FighterEngine: Match -> [P1: {}] (H:{}) vs [P2: {}] (H:{})",
                 name1,
                 meta1.height,
                 name2,
@@ -493,8 +478,8 @@ impl FighterEngine {
             let char1_dir = Path::new(dir).join(&name1);
             let char2_dir = Path::new(dir).join(&name2);
 
-            let c1 = FighterChar::load_char(&char1_dir, meta1.clone(), matrix_width, matrix_height);
-            let c2 = FighterChar::load_char(&char2_dir, meta2.clone(), matrix_width, matrix_height);
+            let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
+            let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
 
             if let (Some(c1), Some(c2)) = (c1, c2) {
                 // Place P1 at 1 pixel from the top of the screen

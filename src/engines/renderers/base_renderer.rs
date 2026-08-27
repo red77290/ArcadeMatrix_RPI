@@ -324,4 +324,56 @@ impl BaseRenderer {
             }
         }
     }
+
+    pub fn draw_text_clipped(
+        matrix: &mut dyn MatrixBackend,
+        text: &str,
+        font: &ArcadeFont<'_>,
+        size: f32,
+        x: i32,
+        y: i32,
+        clip_min_x: i32,
+        clip_max_x: i32,
+        primary: (u8, u8, u8),
+        secondary: (u8, u8, u8),
+    ) {
+        let (pixels_by_char, _, _) = font.get_pixel_map(text, size);
+        let offset = (size as i32).max(1);
+
+        if secondary != (0, 0, 0) && secondary != primary {
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = x + gx;
+                    let py = y + gy;
+                    for i in 1..=offset {
+                        let pts = [
+                            (px - i, py),
+                            (px + i, py),
+                            (px, py - i),
+                            (px, py + i),
+                            (px + i, py + i),
+                            (px - i, py - i),
+                            (px + i, py - i),
+                            (px - i, py + i),
+                        ];
+                        for (cx, cy) in pts {
+                            if cx >= clip_min_x && cx < clip_max_x {
+                                matrix.set_pixel(cx, cy, secondary.0, secondary.1, secondary.2);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                let px = x + gx;
+                let py = y + gy;
+                if px >= clip_min_x && px < clip_max_x {
+                    matrix.set_pixel(px, py, primary.0, primary.1, primary.2);
+                }
+            }
+        }
+    }
 }

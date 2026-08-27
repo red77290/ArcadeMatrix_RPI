@@ -4,7 +4,9 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
+use crate::core::matrix::MatrixBackend;
 use crate::core::registry::ENGINES;
+use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, Rgb, RgbImage};
 use linkme::distributed_slice;
@@ -177,7 +179,7 @@ impl Engine for GoogleCastEngine {
         self.start_background_worker();
     }
 
-    fn update(&mut self, _ctx: &mut EngineContext) {
+    fn update(&mut self, ctx: &mut EngineContext) {
         let (img_url, is_playing) = if let Ok(guard) = self.media_status.lock() {
             (guard.image_url.clone(), guard.is_playing)
         } else {
@@ -185,17 +187,18 @@ impl Engine for GoogleCastEngine {
         };
 
         if self.show_album_art {
-            self.fetch_cover_art_if_needed(&img_url, 28);
+            let target_size = if ctx.matrix.height() >= 64 { 52 } else { 24 };
+            self.fetch_cover_art_if_needed(&img_url, target_size);
         }
 
         // Marquee scrolling tick (~35ms per pixel)
-        if self.last_marquee_tick.elapsed() >= Duration::from_millis(40) {
+        if self.last_marquee_tick.elapsed() >= Duration::from_millis(35) {
             self.marquee_offset = self.marquee_offset.wrapping_add(1);
             self.last_marquee_tick = Instant::now();
         }
 
-        // Animation visualizer tick (~80ms)
-        if is_playing && self.last_anim_tick.elapsed() >= Duration::from_millis(80) {
+        // Animation visualizer tick (~70ms)
+        if is_playing && self.last_anim_tick.elapsed() >= Duration::from_millis(70) {
             self.anim_frame = (self.anim_frame + 1) % 1000;
             self.last_anim_tick = Instant::now();
         }
@@ -215,24 +218,94 @@ impl Engine for GoogleCastEngine {
 
         if !has_data {
             // Idle screen when no media is casting
-            BaseRenderer::draw_text_at(
+            let title = "Google Cast";
+            let subtitle = if !self.device_name.is_empty() {
+                format!("Ready to stream • {}", self.device_name)
+            } else {
+                "Ready to stream".to_string()
+            };
+
+            let (_, title_w, _) = font.get_pixel_map(title, 1.0);
+            let y_idle_title = if h >= 64 { (h / 2) - 10 } else { 4 };
+            let y_idle_sub = if h >= 64 { (h / 2) + 4 } else { 16 };
+
+            // Title: Center if fits, else marquee
+            if title_w <= w - 4 {
+                let x_title = (w - title_w) / 2;
+                BaseRenderer::draw_text_clipped(
+                    ctx.matrix,
+                    title,
+                    &font,
+                    1.0,
+                    x_title,
+                    y_idle_title,
+                    2,
+                    w - 2,
+                    (66, 133, 244),
+                    (0, 0, 0),
+                );
+            } else {
+                let avail = w - 4;
+                let overflow = title_w - avail + 12;
+                let pause_start = 30;
+                let pause_end = 20;
+                let cycle = (pause_start + overflow + pause_end).max(1);
+                let phase = self.marquee_offset.rem_euclid(cycle);
+                let dx = if phase < pause_start {
+                    0
+                } else if phase < pause_start + overflow {
+                    phase - pause_start
+                } else {
+                    overflow
+                };
+                BaseRenderer::draw_text_clipped(
+                    ctx.matrix,
+                    title,
+                    &font,
+                    1.0,
+                    2 - dx,
+                    y_idle_title,
+                    2,
+                    w - 2,
+                    (66, 133, 244),
+                    (0, 0, 0),
+                );
+            }
+
+            // Subtitle: Marquee scroll with pause or center if fits
+            let (_, sub_w, _) = font.get_pixel_map(&subtitle, 1.0);
+            let clip_min_x = 2;
+            let clip_max_x = w - 2;
+            let avail_w = clip_max_x - clip_min_x;
+
+            let sub_draw_x = if sub_w <= avail_w {
+                (w - sub_w) / 2
+            } else {
+                let overflow = sub_w - avail_w + 14;
+                let pause_start = 35;
+                let pause_end = 20;
+                let cycle = (pause_start + overflow + pause_end).max(1);
+                let phase = (self.marquee_offset / 2).rem_euclid(cycle);
+                let dx = if phase < pause_start {
+                    0
+                } else if phase < pause_start + overflow {
+                    phase - pause_start
+                } else {
+                    overflow
+                };
+                clip_min_x - dx
+            };
+
+            BaseRenderer::draw_text_clipped(
                 ctx.matrix,
-                "Google Cast",
+                &subtitle,
                 &font,
                 1.0,
-                (w / 2) - 30,
-                (h / 2) - 8,
-                (66, 133, 244),
-                (0, 0, 0),
-            );
-            BaseRenderer::draw_text_at(
-                ctx.matrix,
-                "Ready to stream",
-                &font,
-                1.0,
-                (w / 2) - 32,
-                (h / 2) + 2,
-                (140, 140, 140),
+                sub_draw_x,
+                y_idle_sub,
+                clip_min_x,
+                clip_max_x,
+                (160, 160, 175),
                 (0, 0, 0),
             );
             return;
@@ -246,7 +319,11 @@ impl Engine for GoogleCastEngine {
                 let img_w = cover.width() as i32;
                 let img_h = cover.height() as i32;
                 let img_x = 1;
-                let img_y = (h - 4 - img_h) / 2;
+                let img_y = if h >= 64 {
+                    (h - 4 - img_h) / 2
+                } else {
+                    ((h - 3 - img_h) / 2).max(1)
+                };
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
@@ -272,38 +349,82 @@ impl Engine for GoogleCastEngine {
             }
         }
 
-        let mut right_reserved = 2;
-        if self.show_visualizer && status.is_playing {
-            right_reserved += 16;
-        } else if self.show_volume {
-            right_reserved += 26;
-        }
+        // 2. Right Reserved Zone (Visualizer / Volume)
+        let has_art = self.show_album_art && self.cached_cover.is_some();
+        let is_compact_screen = w <= 64;
 
-        // 2. Draw Title (Marquee)
-        let title_w = (status.title.len() as i32) * 6;
-        let avail_w = (w - text_x - right_reserved).max(20);
-        let title_draw_x = if title_w > avail_w {
-            let overflow = title_w - avail_w + 16;
-            text_x - (self.marquee_offset % overflow)
+        let right_reserved = if self.show_visualizer && status.is_playing {
+            if is_compact_screen && has_art {
+                8 // Compact 3-bar visualizer (width 6px + 2px margin)
+            } else {
+                15 // Standard 4-bar visualizer (width 12px + 3px margin)
+            }
+        } else if self.show_volume {
+            24
         } else {
-            text_x
+            2
         };
 
-        let y_title = if h >= 64 { 8 } else { 2 };
-        let y_artist = if h >= 64 { 22 } else { 11 };
+        // Strict Viewport for Text
+        let clip_min_x = text_x;
+        let clip_max_x = w - right_reserved;
+        let avail_w = (clip_max_x - clip_min_x).max(16);
 
-        BaseRenderer::draw_text_at(
+        // 3. Smooth Marquee with Pause at Start & End
+        let render_marquee = |matrix: &mut dyn MatrixBackend,
+                              text: &str,
+                              font: &ArcadeFont<'_>,
+                              y: i32,
+                              color: (u8, u8, u8),
+                              offset: i32| {
+            let (_, text_w, _) = font.get_pixel_map(text, 1.0);
+            let draw_x = if text_w <= avail_w {
+                clip_min_x
+            } else {
+                let overflow = text_w - avail_w + 12;
+                let pause_start = 35; // ~1.2s initial pause
+                let pause_end = 20; // ~0.7s pause at end
+                let cycle = (pause_start + overflow + pause_end).max(1);
+                let phase = offset.rem_euclid(cycle);
+
+                let dx = if phase < pause_start {
+                    0
+                } else if phase < pause_start + overflow {
+                    phase - pause_start
+                } else {
+                    overflow
+                };
+                clip_min_x - dx
+            };
+
+            BaseRenderer::draw_text_clipped(
+                matrix,
+                text,
+                font,
+                1.0,
+                draw_x,
+                y,
+                clip_min_x,
+                clip_max_x,
+                color,
+                (0, 0, 0),
+            );
+        };
+
+        let y_title = if h >= 64 { 8 } else { 3 };
+        let y_artist = if h >= 64 { 22 } else { 13 };
+
+        // Draw Title
+        render_marquee(
             ctx.matrix,
             &status.title,
             &font,
-            1.0,
-            title_draw_x,
             y_title,
             (255, 255, 255),
-            (0, 0, 0),
+            self.marquee_offset,
         );
 
-        // 3. Draw Artist / Subtitle (Marquee)
+        // Draw Artist / Subtitle
         let artist_display = if !status.artist.is_empty() {
             status.artist.clone()
         } else if !status.app_name.is_empty() {
@@ -312,56 +433,73 @@ impl Engine for GoogleCastEngine {
             "Google Nest".to_string()
         };
 
-        let artist_w = (artist_display.len() as i32) * 6;
-        let artist_draw_x = if artist_w > avail_w {
-            let overflow = artist_w - avail_w + 16;
-            text_x - ((self.marquee_offset / 2) % overflow)
-        } else {
-            text_x
-        };
-
-        BaseRenderer::draw_text_at(
+        render_marquee(
             ctx.matrix,
             &artist_display,
             &font,
-            1.0,
-            artist_draw_x,
             y_artist,
-            (0, 230, 255),
-            (0, 0, 0),
+            (66, 180, 255), // Google Blue / Cyan tint
+            self.marquee_offset / 2,
         );
 
-        // 4. Draw Animated Equalizer Visualizer on the right if space permits
+        // 4. Draw Beat Visualizer on the right with dynamic colors
         if self.show_visualizer && status.is_playing {
-            let eq_x = w - 14;
-            let bar_heights = [
-                ((self.anim_frame.wrapping_mul(3)) % 7 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(5)) % 9 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(2)) % 8 + 2) as i32,
-                ((self.anim_frame.wrapping_mul(7)) % 6 + 2) as i32,
-            ];
+            let eq_base_y = if h >= 64 { 44 } else { 21 };
 
-            let eq_base_y = if h >= 64 { 28 } else { 20 };
+            if is_compact_screen && has_art {
+                // 3 ultra-crisp compact bars (2px wide each, 1px gap)
+                let eq_x = w - 7;
+                let bar_heights = [
+                    ((self.anim_frame.wrapping_mul(3)) % 7 + 2) as i32,
+                    ((self.anim_frame.wrapping_mul(5)) % 9 + 3) as i32,
+                    ((self.anim_frame.wrapping_mul(2)) % 6 + 2) as i32,
+                ];
 
-            for (i, &bh) in bar_heights.iter().enumerate() {
-                let bx = eq_x + (i as i32 * 3);
-                for by in 0..bh {
-                    let py = eq_base_y - by;
-                    if py >= 0 {
-                        let color = if by > 6 {
-                            (255, 50, 50)
-                        } else if by > 3 {
-                            (255, 200, 0)
-                        } else {
-                            (0, 255, 100)
-                        };
-                        ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
-                        ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
+                for (i, &bh) in bar_heights.iter().enumerate() {
+                    let bx = eq_x + (i as i32 * 2);
+                    for by in 0..bh {
+                        let py = eq_base_y - by;
+                        if py >= 0 {
+                            let color = if by > 6 {
+                                (255, 60, 60)
+                            } else if by > 3 {
+                                (255, 200, 0)
+                            } else {
+                                (0, 255, 120)
+                            };
+                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
+                        }
+                    }
+                }
+            } else {
+                // 4 wide bars (2px wide + 1px spacing)
+                let eq_x = w - 13;
+                let bar_heights = [
+                    ((self.anim_frame.wrapping_mul(3)) % 8 + 2) as i32,
+                    ((self.anim_frame.wrapping_mul(5)) % 11 + 3) as i32,
+                    ((self.anim_frame.wrapping_mul(2)) % 9 + 2) as i32,
+                    ((self.anim_frame.wrapping_mul(7)) % 7 + 2) as i32,
+                ];
+
+                for (i, &bh) in bar_heights.iter().enumerate() {
+                    let bx = eq_x + (i as i32 * 3);
+                    for by in 0..bh {
+                        let py = eq_base_y - by;
+                        if py >= 0 {
+                            let color = if by > 7 {
+                                (255, 50, 50)
+                            } else if by > 4 {
+                                (255, 190, 0)
+                            } else {
+                                (0, 240, 110)
+                            };
+                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
+                        }
                     }
                 }
             }
         } else if self.show_volume {
-            // 5. Draw Volume & Status Badge (Top-Right, right-aligned)
             let vol_pct = (status.volume_level * 100.0) as u32;
             let vol_str = format!("{}%", vol_pct);
             let v_x = w - (vol_str.len() as i32 * 6) - 1;
@@ -377,7 +515,7 @@ impl Engine for GoogleCastEngine {
             );
         }
 
-        // 6. Draw Progress Bar (Bottom 2 pixels)
+        // 5. Draw Progress Bar (Bottom 2 pixels)
         if self.show_progress && status.duration_sec > 0.0 {
             let progress = (status.current_time_sec / status.duration_sec).clamp(0.0, 1.0);
             let bar_w = ((w - 2) as f32 * progress) as i32;

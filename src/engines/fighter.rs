@@ -11,6 +11,26 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+fn get_available_memory_bytes() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+            for line in content.lines() {
+                if line.starts_with("MemAvailable:") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    if parts.len() >= 2 {
+                        if let Ok(kb) = parts[1].parse::<u64>() {
+                            return kb * 1024;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Fallback default: 256 MB
+    256 * 1024 * 1024
+}
+
 #[derive(Clone)]
 pub struct FighterSprite {
     pub width: u32,
@@ -20,7 +40,12 @@ pub struct FighterSprite {
 }
 
 impl FighterSprite {
-    pub fn load_fgt<P: AsRef<Path>>(path: P) -> Option<Self> {
+    pub fn load_fgt<P: AsRef<Path>>(
+        path: P,
+        max_w: u32,
+        max_h: u32,
+        max_frames: usize,
+    ) -> Option<Self> {
         let file = File::open(path.as_ref()).ok()?;
         let is_gz = path.as_ref().extension().and_then(|e| e.to_str()) == Some("gz");
 
@@ -43,27 +68,75 @@ impl FighterSprite {
         let frame_count = reader.read_u16::<LittleEndian>().ok()? as usize;
         let _trans = reader.read_u16::<LittleEndian>().ok()?; // Transparent color (unused in this loop)
 
-        let mut frames = Vec::new();
-        let mut delays = Vec::new();
+        // 1. Frame dimension guard (based on matrix configuration with chaining)
+        if width > max_w || height > max_h || width == 0 || height == 0 {
+            tracing::warn!(
+                "FGT frame dimensions too large: {}x{} exceeds max allowed {}x{} for {}",
+                width,
+                height,
+                max_w,
+                max_h,
+                path.as_ref().display()
+            );
+            return None;
+        }
+
+        let frames_to_load = frame_count.min(max_frames);
         let pixel_count = (width * height) as usize;
+        let frame_size = pixel_count * 3; // 3 bytes per pixel in RgbImage
+        let total_projected_bytes = (frames_to_load * frame_size) as u64;
 
-        for _ in 0..frame_count {
-            let mut img = RgbImage::new(width, height);
-            for i in 0..pixel_count {
-                let bgr565 = reader.read_u16::<LittleEndian>().ok()?;
-                let r = (((bgr565 >> 11) & 0x1F) as u32 * 255 / 31) as u8;
-                let g = (((bgr565 >> 5) & 0x3F) as u32 * 255 / 63) as u8;
-                let b = ((bgr565 & 0x1F) as u32 * 255 / 31) as u8;
-                let x = (i as u32) % width;
-                let y = (i as u32) / width;
-                img.put_pixel(x, y, Rgb([r, g, b]));
+        // 2. RAM guard (proportional to available system RAM, similar to ESP32 PSRAM headroom)
+        let avail_mem = get_available_memory_bytes();
+        let safety_headroom = 64 * 1024 * 1024; // 64 MB OS/Display safety reserve
+        let max_anim_bytes = 20 * 1024 * 1024; // 20 MB max per single animation file
+
+        if total_projected_bytes > max_anim_bytes
+            || avail_mem <= safety_headroom
+            || total_projected_bytes > (avail_mem - safety_headroom)
+        {
+            tracing::warn!(
+                "FGT animation too large ({} bytes, available RAM: {} bytes, headroom: {} bytes) for {}. Skipping.",
+                total_projected_bytes,
+                avail_mem,
+                safety_headroom,
+                path.as_ref().display()
+            );
+            return None;
+        }
+
+        let mut frames = Vec::with_capacity(frames_to_load);
+        let mut delays = Vec::with_capacity(frames_to_load);
+
+        for i in 0..frame_count {
+            if i < frames_to_load {
+                let mut img = RgbImage::new(width, height);
+                for p in 0..pixel_count {
+                    let bgr565 = reader.read_u16::<LittleEndian>().ok()?;
+                    let r = (((bgr565 >> 11) & 0x1F) as u32 * 255 / 31) as u8;
+                    let g = (((bgr565 >> 5) & 0x3F) as u32 * 255 / 63) as u8;
+                    let b = ((bgr565 & 0x1F) as u32 * 255 / 31) as u8;
+                    let x = (p as u32) % width;
+                    let y = (p as u32) / width;
+                    img.put_pixel(x, y, Rgb([r, g, b]));
+                }
+                let delay = reader.read_u16::<LittleEndian>().ok()?;
+                frames.push(img);
+                delays.push(delay);
+            } else {
+                // Discard frames beyond frames_to_load without allocating memory
+                let skip_bytes = (pixel_count * 2 + 2) as u64;
+                let mut skipped = 0u64;
+                while skipped < skip_bytes {
+                    let chunk = (skip_bytes - skipped).min(65536);
+                    let mut buf = [0u8; 65536];
+                    let r = reader.read(&mut buf[..chunk as usize]).ok()?;
+                    if r == 0 {
+                        break;
+                    }
+                    skipped += r as u64;
+                }
             }
-
-            // Read 2-byte delay at the end of each frame
-            let delay = reader.read_u16::<LittleEndian>().ok()?;
-
-            frames.push(img);
-            delays.push(delay);
         }
 
         Some(Self {
@@ -98,16 +171,25 @@ pub struct FighterChar {
 }
 
 impl FighterChar {
-    pub fn load_char<P: AsRef<Path>>(dir: P, meta: FighterIndexMeta) -> Option<Self> {
+    pub fn load_char<P: AsRef<Path>>(
+        dir: P,
+        meta: FighterIndexMeta,
+        matrix_w: u32,
+        matrix_h: u32,
+    ) -> Option<Self> {
         let dir = dir.as_ref();
         let name = dir.file_name()?.to_str()?.to_string();
+
+        let max_w = (matrix_w * 2).max(128);
+        let max_h = (matrix_h * 2).max(64);
+        let max_frames = 30;
 
         let mut anims = HashMap::new();
 
         let mut try_load = |state: &str, files: &[&str]| {
             for f in files {
                 let path = dir.join(f);
-                if let Some(sprite) = FighterSprite::load_fgt(&path) {
+                if let Some(sprite) = FighterSprite::load_fgt(&path, max_w, max_h, max_frames) {
                     tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         path.display(),
@@ -120,7 +202,7 @@ impl FighterChar {
                 }
 
                 let gz_path = dir.join(format!("{}.gz", f));
-                if let Some(sprite) = FighterSprite::load_fgt(&gz_path) {
+                if let Some(sprite) = FighterSprite::load_fgt(&gz_path, max_w, max_h, max_frames) {
                     tracing::debug!(
                         "FGT loaded {}: {}x{}, {} frames",
                         gz_path.display(),
@@ -411,8 +493,8 @@ impl FighterEngine {
             let char1_dir = Path::new(dir).join(&name1);
             let char2_dir = Path::new(dir).join(&name2);
 
-            let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
-            let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
+            let c1 = FighterChar::load_char(&char1_dir, meta1.clone(), matrix_width, matrix_height);
+            let c2 = FighterChar::load_char(&char2_dir, meta2.clone(), matrix_width, matrix_height);
 
             if let (Some(c1), Some(c2)) = (c1, c2) {
                 // Place P1 at 1 pixel from the top of the screen
@@ -447,6 +529,7 @@ impl FighterEngine {
                     dead: false,
                     dir: 1.0,
                 };
+
                 let p2 = Player {
                     character: mirrored_c2,
                     x: matrix_width as f32,
@@ -457,9 +540,14 @@ impl FighterEngine {
                     dead: false,
                     dir: -1.0,
                 };
+
                 let _ = tx.send((p1, p2));
             } else {
-                tracing::warn!("FighterEngine: Failed to load random pair");
+                tracing::warn!(
+                    "FighterEngine: Skipping fight between {} and {} (failed safety limits or missing sprites)",
+                    name1,
+                    name2
+                );
             }
         });
     }
@@ -660,9 +748,16 @@ impl FighterEngine {
 
             let w = frame.width() as i32;
             let h = frame.height() as i32;
+            let mat_w = matrix.width() as i32;
+            let mat_h = matrix.height() as i32;
 
-            for y in 0..h {
-                for x in 0..w {
+            let y_min = (0 - start_y).max(0);
+            let y_max = (mat_h - start_y).min(h);
+            let x_min = (0 - start_x).max(0);
+            let x_max = (mat_w - start_x).min(w);
+
+            for y in y_min..y_max {
+                for x in x_min..x_max {
                     let px = frame.get_pixel(x as u32, y as u32);
                     if px[0] > 0 || px[1] > 0 || px[2] > 0 {
                         matrix.set_pixel(start_x + x, start_y + y, px[0], px[1], px[2]);

@@ -744,6 +744,9 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                 })
 
         if valid_frames:
+            # Cap maximum frames per animation to 30 frames to avoid memory overload
+            if len(valid_frames) > 30:
+                valid_frames = valid_frames[:30]
             all_valid_frames[anim_name] = valid_frames
             if anim_name in ['stand', 'walk'] and walk_h is None:
                 # Compute local max_y and min_y to determine the base scale
@@ -830,6 +833,15 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
             
     canvas_w = max(1, int(orig_w * scale))
     canvas_h = max(1, int(orig_h * scale))
+
+    # Cap maximum canvas dimensions to prevent runaway RAM consumption on embedded systems & RPi
+    MAX_CANVAS_W = 256
+    MAX_CANVAS_H = 128
+    if canvas_w > MAX_CANVAS_W or canvas_h > MAX_CANVAS_H:
+        downscale = min(MAX_CANVAS_W / canvas_w, MAX_CANVAS_H / canvas_h)
+        scale *= downscale
+        canvas_w = max(1, int(orig_w * scale))
+        canvas_h = max(1, int(orig_h * scale))
         
     ground_y = int(-global_min_y * scale)
     origin_x = int(-global_min_x * scale)

@@ -273,7 +273,7 @@ impl Engine for SpotifyEngine {
         let clip_max_x = w - right_reserved;
         let avail_w = (clip_max_x - clip_min_x).max(16);
 
-        // 3. Smooth Marquee with Pause at Start & End
+        // 3. Continuous Circular (Seamless Looping) Marquee
         let render_marquee = |matrix: &mut dyn MatrixBackend,
                               text: &str,
                               font: &ArcadeFont<'_>,
@@ -281,37 +281,56 @@ impl Engine for SpotifyEngine {
                               color: (u8, u8, u8),
                               offset: i32| {
             let (_, text_w, _) = font.get_pixel_map(text, 1.0);
-            let draw_x = if text_w <= avail_w {
-                clip_min_x
+            if text_w <= avail_w {
+                BaseRenderer::draw_text_clipped(
+                    matrix,
+                    text,
+                    font,
+                    1.0,
+                    clip_min_x,
+                    y,
+                    clip_min_x,
+                    clip_max_x,
+                    color,
+                    (0, 0, 0),
+                );
             } else {
-                let overflow = text_w - avail_w + 12;
-                let pause_start = 35; // ~1.2s initial pause
-                let pause_end = 20; // ~0.7s pause at end
-                let cycle = (pause_start + overflow + pause_end).max(1);
-                let phase = offset.rem_euclid(cycle);
+                let gap = 20; // 20px seamless spacing between loop repetitions
+                let total_w = text_w + gap;
+                let dx = offset.rem_euclid(total_w);
 
-                let dx = if phase < pause_start {
-                    0
-                } else if phase < pause_start + overflow {
-                    phase - pause_start
-                } else {
-                    overflow
-                };
-                clip_min_x - dx
-            };
+                // Draw primary text instance
+                let draw_x1 = clip_min_x - dx;
+                BaseRenderer::draw_text_clipped(
+                    matrix,
+                    text,
+                    font,
+                    1.0,
+                    draw_x1,
+                    y,
+                    clip_min_x,
+                    clip_max_x,
+                    color,
+                    (0, 0, 0),
+                );
 
-            BaseRenderer::draw_text_clipped(
-                matrix,
-                text,
-                font,
-                1.0,
-                draw_x,
-                y,
-                clip_min_x,
-                clip_max_x,
-                color,
-                (0, 0, 0),
-            );
+                // Draw trailing secondary instance for circular looping
+                let draw_x2 = draw_x1 + total_w;
+                if draw_x2 < clip_max_x {
+                    BaseRenderer::draw_text_clipped(
+                        matrix,
+                        text,
+                        font,
+                        1.0,
+                        draw_x2,
+                        y,
+                        clip_min_x,
+                        clip_max_x,
+                        color,
+                        (0, 0, 0),
+                    );
+                }
+            }
         };
 
         let y_title = if h >= 64 { 8 } else { 3 };

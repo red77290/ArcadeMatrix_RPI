@@ -272,69 +272,94 @@ impl Engine for GoogleCastEngine {
                     (0, 0, 0),
                 );
             } else {
-                let avail = w - 4;
-                let overflow = title_w - avail + 12;
-                let pause_start = 30;
-                let pause_end = 20;
-                let cycle = (pause_start + overflow + pause_end).max(1);
-                let phase = self.marquee_offset.rem_euclid(cycle);
-                let dx = if phase < pause_start {
-                    0
-                } else if phase < pause_start + overflow {
-                    phase - pause_start
-                } else {
-                    overflow
-                };
+                let gap = 20;
+                let total_w = title_w + gap;
+                let dx = self.marquee_offset.rem_euclid(total_w);
+                let draw_x1 = 2 - dx;
                 BaseRenderer::draw_text_clipped(
                     ctx.matrix,
                     title,
                     &font,
                     1.0,
-                    2 - dx,
+                    draw_x1,
                     y_idle_title,
                     2,
                     w - 2,
                     (66, 133, 244),
                     (0, 0, 0),
                 );
+                let draw_x2 = draw_x1 + total_w;
+                if draw_x2 < w - 2 {
+                    BaseRenderer::draw_text_clipped(
+                        ctx.matrix,
+                        title,
+                        &font,
+                        1.0,
+                        draw_x2,
+                        y_idle_title,
+                        2,
+                        w - 2,
+                        (66, 133, 244),
+                        (0, 0, 0),
+                    );
+                }
             }
 
-            // Subtitle: Marquee scroll with pause or center if fits
+            // Subtitle: Circular marquee scroll or center if fits
             let (_, sub_w, _) = font.get_pixel_map(&subtitle, 1.0);
             let clip_min_x = 2;
             let clip_max_x = w - 2;
             let avail_w = clip_max_x - clip_min_x;
 
-            let sub_draw_x = if sub_w <= avail_w {
-                (w - sub_w) / 2
+            if sub_w <= avail_w {
+                let sub_draw_x = (w - sub_w) / 2;
+                BaseRenderer::draw_text_clipped(
+                    ctx.matrix,
+                    &subtitle,
+                    &font,
+                    1.0,
+                    sub_draw_x,
+                    y_idle_sub,
+                    clip_min_x,
+                    clip_max_x,
+                    (160, 170, 185),
+                    (0, 0, 0),
+                );
             } else {
-                let overflow = sub_w - avail_w + 14;
-                let pause_start = 35;
-                let pause_end = 20;
-                let cycle = (pause_start + overflow + pause_end).max(1);
-                let phase = (self.marquee_offset / 2).rem_euclid(cycle);
-                let dx = if phase < pause_start {
-                    0
-                } else if phase < pause_start + overflow {
-                    phase - pause_start
-                } else {
-                    overflow
-                };
-                clip_min_x - dx
-            };
+                let gap = 20;
+                let total_w = sub_w + gap;
+                let dx = self.marquee_offset.rem_euclid(total_w);
 
-            BaseRenderer::draw_text_clipped(
-                ctx.matrix,
-                &subtitle,
-                &font,
-                1.0,
-                sub_draw_x,
-                y_idle_sub,
-                clip_min_x,
-                clip_max_x,
-                (160, 160, 175),
-                (0, 0, 0),
-            );
+                let draw_x1 = clip_min_x - dx;
+                BaseRenderer::draw_text_clipped(
+                    ctx.matrix,
+                    &subtitle,
+                    &font,
+                    1.0,
+                    draw_x1,
+                    y_idle_sub,
+                    clip_min_x,
+                    clip_max_x,
+                    (160, 170, 185),
+                    (0, 0, 0),
+                );
+
+                let draw_x2 = draw_x1 + total_w;
+                if draw_x2 < clip_max_x {
+                    BaseRenderer::draw_text_clipped(
+                        ctx.matrix,
+                        &subtitle,
+                        &font,
+                        1.0,
+                        draw_x2,
+                        y_idle_sub,
+                        clip_min_x,
+                        clip_max_x,
+                        (160, 170, 185),
+                        (0, 0, 0),
+                    );
+                }
+            }
             return;
         }
 
@@ -345,12 +370,8 @@ impl Engine for GoogleCastEngine {
             if let Some(ref cover) = self.cached_cover {
                 let img_w = cover.width() as i32;
                 let img_h = cover.height() as i32;
-                let img_x = 1;
-                let img_y = if h >= 64 {
-                    (h - 4 - img_h) / 2
-                } else {
-                    ((h - 3 - img_h) / 2).max(1)
-                };
+                let img_x = 2;
+                let img_y = if h >= 64 { (h - img_h) / 2 } else { 4 };
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
@@ -397,7 +418,7 @@ impl Engine for GoogleCastEngine {
         let clip_max_x = w - right_reserved;
         let avail_w = (clip_max_x - clip_min_x).max(16);
 
-        // 3. Smooth Marquee with Pause at Start & End
+        // 3. Continuous Circular (Seamless Looping) Marquee
         let render_marquee = |matrix: &mut dyn MatrixBackend,
                               text: &str,
                               font: &ArcadeFont<'_>,
@@ -405,37 +426,56 @@ impl Engine for GoogleCastEngine {
                               color: (u8, u8, u8),
                               offset: i32| {
             let (_, text_w, _) = font.get_pixel_map(text, 1.0);
-            let draw_x = if text_w <= avail_w {
-                clip_min_x
+            if text_w <= avail_w {
+                BaseRenderer::draw_text_clipped(
+                    matrix,
+                    text,
+                    font,
+                    1.0,
+                    clip_min_x,
+                    y,
+                    clip_min_x,
+                    clip_max_x,
+                    color,
+                    (0, 0, 0),
+                );
             } else {
-                let overflow = text_w - avail_w + 12;
-                let pause_start = 35; // ~1.2s initial pause
-                let pause_end = 20; // ~0.7s pause at end
-                let cycle = (pause_start + overflow + pause_end).max(1);
-                let phase = offset.rem_euclid(cycle);
+                let gap = 20; // 20px seamless spacing between loop repetitions
+                let total_w = text_w + gap;
+                let dx = offset.rem_euclid(total_w);
 
-                let dx = if phase < pause_start {
-                    0
-                } else if phase < pause_start + overflow {
-                    phase - pause_start
-                } else {
-                    overflow
-                };
-                clip_min_x - dx
-            };
+                // Draw primary text instance
+                let draw_x1 = clip_min_x - dx;
+                BaseRenderer::draw_text_clipped(
+                    matrix,
+                    text,
+                    font,
+                    1.0,
+                    draw_x1,
+                    y,
+                    clip_min_x,
+                    clip_max_x,
+                    color,
+                    (0, 0, 0),
+                );
 
-            BaseRenderer::draw_text_clipped(
-                matrix,
-                text,
-                font,
-                1.0,
-                draw_x,
-                y,
-                clip_min_x,
-                clip_max_x,
-                color,
-                (0, 0, 0),
-            );
+                // Draw trailing secondary instance for circular looping
+                let draw_x2 = draw_x1 + total_w;
+                if draw_x2 < clip_max_x {
+                    BaseRenderer::draw_text_clipped(
+                        matrix,
+                        text,
+                        font,
+                        1.0,
+                        draw_x2,
+                        y,
+                        clip_min_x,
+                        clip_max_x,
+                        color,
+                        (0, 0, 0),
+                    );
+                }
+            }
         };
 
         let y_title = if h >= 64 { 8 } else { 3 };

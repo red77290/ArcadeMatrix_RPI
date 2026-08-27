@@ -27,6 +27,194 @@ def find_file_case_insensitive(directory, target_path):
         if not found: return None
     return curr_dir
 
+class DefParser:
+    """
+    Parser for MUGEN character .def definition files.
+    Extracts the official .sff sprite file, .air animation file, .cns/.st state files,
+    pal.defaults, and all pal1..pal12 color palettes.
+    """
+    def __init__(self, char_dir):
+        self.char_dir = char_dir
+        self.name = os.path.basename(char_dir)
+        self.display_name = ""
+        self.author = ""
+        self.pal_defaults = []
+        self.sff_file = None
+        self.air_file = None
+        self.cns_files = []
+        self.palettes = {}  # slot_int (1..12) -> absolute_path
+        self.def_path = None
+        self.parse()
+
+    def parse(self):
+        char_name = os.path.basename(self.char_dir)
+        candidate_defs = glob.glob(os.path.join(self.char_dir, "*.def")) + glob.glob(os.path.join(self.char_dir, "*.DEF"))
+        if not candidate_defs:
+            return
+
+        def score_def(p):
+            base = os.path.splitext(os.path.basename(p))[0].lower()
+            if base == char_name.lower(): return 0
+            if any(k in base for k in ['intro', 'select', 'menu', 'opt', 'cursor', 'stage']): return 99
+            return 10
+
+        candidate_defs.sort(key=score_def)
+        self.def_path = candidate_defs[0]
+
+        try:
+            with open(self.def_path, 'r', errors='ignore') as f:
+                lines = f.readlines()
+        except:
+            return
+
+        current_section = None
+        for line in lines:
+            line = line.split(';')[0].strip()
+            if not line: continue
+            
+            if line.startswith('[') and line.endswith(']'):
+                current_section = line[1:-1].strip().lower()
+                continue
+
+            if '=' in line:
+                k, v = [x.strip() for x in line.split('=', 1)]
+                k = k.lower()
+                v = v.split(';')[0].strip().replace('"', '').replace("'", "")
+                
+                if current_section == 'info':
+                    if k == 'name': self.name = v
+                    elif k == 'displayname': self.display_name = v
+                    elif k == 'author': self.author = v
+                    elif k == 'pal.defaults':
+                        try:
+                            self.pal_defaults = [int(p.strip()) for p in v.split(',') if p.strip().isdigit()]
+                        except: pass
+                elif current_section == 'files':
+                    if k in ('sprite', 'sff'):
+                        p = find_file_case_insensitive(self.char_dir, v)
+                        if p and os.path.isfile(p): self.sff_file = p
+                    elif k in ('anim', 'air'):
+                        p = find_file_case_insensitive(self.char_dir, v)
+                        if p and os.path.isfile(p): self.air_file = p
+                    elif k == 'cns' or k.startswith('st'):
+                        p = find_file_case_insensitive(self.char_dir, v)
+                        if p and os.path.isfile(p) and p not in self.cns_files:
+                            self.cns_files.append(p)
+                    elif k.startswith('pal'):
+                        slot_str = k[3:].strip()
+                        if slot_str.isdigit():
+                            p = find_file_case_insensitive(self.char_dir, v)
+                            if p and os.path.isfile(p):
+                                self.palettes[int(slot_str)] = p
+
+class CnsParser:
+    """
+    Parser for MUGEN .cns and .st state files.
+    Extracts physical dimensions ([Size] head.pos, xscale, yscale)
+    and state animation mappings ([Statedef <id>] anim = ... and ChangeAnim).
+    """
+    def __init__(self, cns_paths):
+        self.cns_paths = cns_paths if isinstance(cns_paths, list) else [cns_paths]
+        self.xscale = 1.0
+        self.yscale = 1.0
+        self.head_pos = None  # (x, y) e.g. (-5, -90)
+        self.mid_pos = None
+        self.height = None
+        self.state_anims = {}   # state_id -> list of primary character anim_ids
+        self.state_explods = {} # state_id -> list of explod/FX anim_ids
+        self.parse()
+
+    def parse(self):
+        for path in self.cns_paths:
+            if not path or not os.path.isfile(path):
+                continue
+            try:
+                with open(path, 'r', errors='ignore') as f:
+                    lines = f.readlines()
+            except:
+                continue
+
+            current_section = ""
+            current_state = None
+            current_state_type = None
+
+            for line in lines:
+                line = line.split(';')[0].strip()
+                if not line:
+                    continue
+
+                if line.startswith('[') and line.endswith(']'):
+                    sec = line[1:-1].strip()
+                    current_section = sec.lower()
+                    
+                    if current_section.startswith('statedef'):
+                        parts = current_section.split()
+                        if len(parts) >= 2:
+                            num_str = parts[1].split(',')[0].strip()
+                            if num_str.lstrip('-').isdigit():
+                                current_state = int(num_str)
+                                current_state_type = 'statedef'
+                                if current_state not in self.state_anims:
+                                    self.state_anims[current_state] = []
+                            else:
+                                current_state = None
+                        else:
+                            current_state = None
+                    elif current_section.startswith('state '):
+                        current_state_type = 'state'
+                    else:
+                        current_state = None
+                        current_state_type = None
+                    continue
+
+                if '=' in line:
+                    k, v = [x.strip() for x in line.split('=', 1)]
+                    k = k.lower()
+                    v = v.split(';')[0].strip().replace('"', '').replace("'", "")
+
+                    if current_section == 'size':
+                        if k == 'xscale':
+                            try: self.xscale = float(v)
+                            except: pass
+                        elif k == 'yscale':
+                            try: self.yscale = float(v)
+                            except: pass
+                        elif k == 'height':
+                            try: self.height = int(float(v))
+                            except: pass
+                        elif k == 'head.pos':
+                            try:
+                                coords = [int(float(c.strip())) for c in v.split(',') if c.strip().lstrip('-').isdigit()]
+                                if len(coords) >= 2:
+                                    self.head_pos = (coords[0], coords[1])
+                            except: pass
+                        elif k == 'mid.pos':
+                            try:
+                                coords = [int(float(c.strip())) for c in v.split(',') if c.strip().lstrip('-').isdigit()]
+                                if len(coords) >= 2:
+                                    self.mid_pos = (coords[0], coords[1])
+                            except: pass
+
+                    elif current_state is not None:
+                        if k == 'type':
+                            current_state_type = v.lower()
+                        elif k == 'anim':
+                            if v.lstrip('-').isdigit():
+                                anim_id = int(v)
+                                if current_state_type in ('explod', 'helper'):
+                                    if current_state not in self.state_explods:
+                                        self.state_explods[current_state] = []
+                                    if anim_id not in self.state_explods[current_state]:
+                                        self.state_explods[current_state].append(anim_id)
+                                else:
+                                    if anim_id not in self.state_anims[current_state]:
+                                        self.state_anims[current_state].append(anim_id)
+                        elif k == 'value' and current_state_type == 'changeanim':
+                            if v.lstrip('-').isdigit():
+                                anim_id = int(v)
+                                if anim_id not in self.state_anims[current_state]:
+                                    self.state_anims[current_state].append(anim_id)
+
 class SFFv1Parser:
     def __init__(self, filepath):
         self.filepath = filepath
@@ -95,185 +283,208 @@ class AirParser:
                     self.animations[current_action] = []
                 except: pass
             elif current_action is not None and ',' in line:
-                parts = line.split(',')
+                parts = [p.strip() for p in line.split(',')]
                 if len(parts) >= 5:
                     try:
-                        grp = int(parts[0].strip())
-                        img = int(parts[1].strip())
-                        delay = int(parts[4].strip())
+                        grp = int(parts[0])
+                        img = int(parts[1])
+                        air_ox = int(parts[2]) if parts[2] else 0
+                        air_oy = int(parts[3]) if parts[3] else 0
+                        delay = int(parts[4])
                         if delay == -1: delay = 10
+                        
+                        flip = parts[5].upper() if len(parts) > 5 and parts[5] else ""
+                        blend = parts[6].upper() if len(parts) > 6 and parts[6] else ""
+                        
                         if delay > 0:
-                            self.animations[current_action].append({'grp': grp, 'img': img, 'delay': delay})
+                            self.animations[current_action].append({
+                                'grp': grp,
+                                'img': img,
+                                'ox': air_ox,
+                                'oy': air_oy,
+                                'delay': delay,
+                                'flip': flip,
+                                'blend': blend
+                            })
                     except: pass
 
 def score_palette(pal_bytes, indices, trans_idx):
     """
     Score how well a 768-byte palette renders a sprite given its pixel indices.
-    
     Returns a float score. Higher = better palette.
-    
-    Scoring formula: unique_colors × (1 - penalty_black) × (1 - penalty_neon)
-      - unique_colors: distinct RGB triples for visible (non-transparent) indices
-      - penalty_black: max(0, black_ratio - 0.15) — tolerates ~15% black for outlines
-      - penalty_neon:  tolerates up to 15% saturated accents (eyes, gems, bandanas)
-                       and heavily penalizes dummy rainbow masking palettes (>15% neon).
     """
     if not pal_bytes or len(pal_bytes) < 768:
-        return 0.0
+        return -999.0
     
-    used_indices = set(idx for idx in indices if isinstance(idx, int) and idx != trans_idx)
+    used_indices = [idx for idx in indices if idx != trans_idx]
     if not used_indices:
-        return 0.0
+        return -999.0
     
     colors = set()
-    black_count = 0
+    total_lum = 0.0
     neon_count = 0
-    total = 0
+    total = len(used_indices)
+    
     for idx in used_indices:
         if idx * 3 + 2 < len(pal_bytes):
             r, g, b = pal_bytes[idx * 3], pal_bytes[idx * 3 + 1], pal_bytes[idx * 3 + 2]
             colors.add((r, g, b))
-            total += 1
-            if r < 5 and g < 5 and b < 5:
-                black_count += 1
+            total_lum += (0.299 * r + 0.587 * g + 0.114 * b)
             # Detect pure saturated primary/secondary masking colors
-            max_c = max(r, g, b)
-            min_c = min(r, g, b)
-            if max_c > 160 and min_c < 20:
-                if (r > 160 and g < 20 and b < 20) or (g > 160 and r < 20 and b < 20) or (b > 160 and r < 20 and b < 20):
-                    neon_count += 1
-                elif (r > 160 and b > 160 and g < 20) or (r > 160 and g > 160 and b < 20) or (g > 160 and b > 160 and r < 20):
-                    neon_count += 1
-    
-    black_ratio = black_count / max(total, 1)
+            if (r > 160 and g < 20 and b < 20) or (g > 160 and r < 20 and b < 20) or (b > 160 and r < 20 and b < 20):
+                neon_count += 1
+            elif (r > 160 and b > 160 and g < 20) or (r > 160 and g > 160 and b < 20) or (g > 160 and b > 160 and r < 20):
+                neon_count += 1
+                
+    u_colors = len(colors)
+    if u_colors <= 1 and len(set(used_indices)) > 1:
+        return -999.0  # Solid monochrome / broken palette
+        
+    avg_lum = total_lum / max(total, 1)
     neon_ratio = neon_count / max(total, 1)
-    unique = len(colors)
-    score = unique * (1.0 - max(0.0, black_ratio - 0.15)) * (1.0 - max(0.0, neon_ratio - 0.15) * 3)
-    return max(0.0, score)
+    if neon_ratio > 0.25:
+        return -999.0  # Dummy rainbow/neon mask palette
+        
+    score = u_colors * 10.0
+    if 25 <= avg_lum <= 200:
+        score += 100.0
+    elif avg_lum < 15:
+        score -= 30.0
+    elif avg_lum > 225:
+        score -= 80.0
+        
+    return score
 
-def load_all_act_palettes(char_dir):
+def resolve_master_palette(char_dir, sff, def_parser=None):
     """
-    Load all available .act palettes from the .def file and character directory.
+    Resolve the best palette for a character using an intelligent scoring system.
+    
+    Candidates:
+      1. Official .act palettes from .def (prioritizing pal.defaults)
+      2. SFF embedded palettes from body sprites (0, 1, 5, 20, 21, 40, 100, 200, 5000)
+      3. SFF stand_palette & first_palette
+      4. Additional .act palettes in character folder
     """
-    pals = []
+    char_name = os.path.basename(char_dir)
+    
+    # Find the best body sprite to use as scoring reference (highest unique indices)
+    best_indices = []
+    best_key = None
+    max_unique = 0
+    
+    for k, info in sff.images.items():
+        if k[0] >= 9000:
+            continue  # Skip portrait/select icons
+        if k[0] in (0, 1, 5, 10, 20, 21, 40, 100, 200, 5000) or best_key is None:
+            try:
+                im = Image.open(io.BytesIO(info['data']))
+                ind = list(im.get_flattened_data()) if hasattr(im, 'get_flattened_data') else list(im.getdata())
+                u = len(set(ind) - {ind[0] if ind else 0})
+                if u > max_unique:
+                    max_unique = u
+                    best_key = k
+                    best_indices = ind
+            except:
+                pass
+                
+    if not best_indices and sff.images:
+        for k, info in sff.images.items():
+            try:
+                im = Image.open(io.BytesIO(info['data']))
+                best_indices = list(im.get_flattened_data()) if hasattr(im, 'get_flattened_data') else list(im.getdata())
+                best_key = k
+                break
+            except:
+                pass
+                
+    if not best_indices:
+        return sff.first_palette or sff.stand_palette
+        
+    # If the sprite is direct truecolor (RGB/RGBA tuples), no palette mapping needed
+    if best_indices and isinstance(best_indices[0], (tuple, list)):
+        return sff.first_palette or sff.stand_palette or (b'\x00' * 768)
+        
+    trans_idx = best_indices[0] if best_indices else 0
+    candidates = []
     seen = set()
     
-    # 1. From .def file
-    def_files = glob.glob(os.path.join(char_dir, "*.def"))
-    if def_files:
-        try:
-            with open(def_files[0], "r", errors="ignore") as f:
-                lines = f.readlines()
-            for line in lines:
-                lc = line.split(";")[0].strip()
-                if "=" in lc:
-                    k, v = lc.split("=", 1)
-                    k = k.strip().lower()
-                    v = v.strip().split(";")[0].strip().replace('"', '').replace("'", "")
-                    if k.startswith("pal") and not k.startswith("pal.defaults"):
-                        act_path = find_file_case_insensitive(char_dir, v)
-                        if act_path and os.path.isfile(act_path):
-                            with open(act_path, "rb") as af:
-                                d = af.read(768)
-                                if len(d) == 768 and d not in seen:
-                                    seen.add(d)
-                                    pals.append((f"ACT({k}:{v})", d))
-        except:
-            pass
-            
-    # 2. Any additional .act files in the directory
+    # 1. Official palettes from DEF file (prioritizing pal.defaults)
+    if def_parser and def_parser.palettes:
+        for slot in def_parser.pal_defaults:
+            if slot in def_parser.palettes:
+                p = def_parser.palettes[slot]
+                try:
+                    with open(p, 'rb') as f:
+                        d = f.read(768)
+                        if len(d) == 768 and d not in seen:
+                            seen.add(d)
+                            candidates.append((f"DEF(pal{slot}:default)", d, 50.0))
+                except:
+                    pass
+        for slot in sorted(def_parser.palettes.keys()):
+            p = def_parser.palettes[slot]
+            try:
+                with open(p, 'rb') as f:
+                    d = f.read(768)
+                    if len(d) == 768 and d not in seen:
+                        seen.add(d)
+                        candidates.append((f"DEF(pal{slot})", d, 30.0))
+            except:
+                pass
+
+    # 2. SFF embedded palette in reference body sprite
+    if best_key and best_key in sff.images and len(sff.images[best_key]['data']) > 768:
+        d = sff.images[best_key]['data'][-768:]
+        if d not in seen:
+            seen.add(d)
+            candidates.append((f"SFF({best_key[0]},{best_key[1]})", d, 40.0))
+
+    if sff.stand_palette and sff.stand_palette not in seen:
+        seen.add(sff.stand_palette)
+        candidates.append(("SFF(stand)", sff.stand_palette, 35.0))
+
+    if sff.first_palette and sff.first_palette not in seen:
+        seen.add(sff.first_palette)
+        candidates.append(("SFF(first)", sff.first_palette, 30.0))
+        
+    for (g, i), info in sff.images.items():
+        if g < 9000 and len(info['data']) > 768:
+            d = info['data'][-768:]
+            if d not in seen:
+                seen.add(d)
+                candidates.append((f"SFF({g},{i})", d, 20.0))
+
+    # 3. Any additional .act files in character folder
     for af in glob.glob(os.path.join(char_dir, "*.act")) + glob.glob(os.path.join(char_dir, "*.ACT")):
         try:
             with open(af, "rb") as f:
                 d = f.read(768)
                 if len(d) == 768 and d not in seen:
                     seen.add(d)
-                    pals.append((f"ACT({os.path.basename(af)})", d))
+                    candidates.append((f"ACT({os.path.basename(af)})", d, 10.0))
         except:
             pass
             
-    return pals
-
-def resolve_master_palette(char_dir, sff):
-    """
-    Resolve the best palette for a character using an intelligent scoring system.
-    
-    Candidates:
-      1. SFF first_palette & stand_palette
-      2. SFF candidate palettes from key groups (0, 20, 7000..9999)
-      3. All .act palettes from .def and character folder
-    
-    Each candidate is scored against the stand sprite's pixel indices.
-    The palette with the highest coverage score wins.
-    """
-    char_name = os.path.basename(char_dir)
-    
-    # Find the stand sprite to use as scoring reference
-    test_key = None
-    for k in [(0, 0), (0, 1), (20, 0)]:
-        if k in sff.images:
-            test_key = k
-            break
-    if not test_key and sff.images:
-        test_key = list(sff.images.keys())[0]
-    
-    if not test_key:
-        return sff.first_palette or sff.stand_palette
-    
-    # Extract pixel indices from the test sprite
-    try:
-        img_obj = Image.open(io.BytesIO(sff.images[test_key]['data']))
-        if hasattr(img_obj, 'get_flattened_data'):
-            indices = list(img_obj.get_flattened_data())
-        else:
-            indices = list(img_obj.getdata())
-    except:
-        return sff.first_palette or sff.stand_palette
-    
-    # If the sprite is direct truecolor (RGB/RGBA tuples), no palette mapping needed
-    if indices and isinstance(indices[0], (tuple, list)):
-        return sff.first_palette or sff.stand_palette or (b'\x00' * 768)
-    
-    trans_idx = indices[0] if indices else 0
-    
-    # Collect candidates
-    candidates = []
-    seen = set()
-    
-    if sff.first_palette and sff.first_palette not in seen:
-        seen.add(sff.first_palette)
-        candidates.append(("SFF(first)", sff.first_palette))
-        
-    if sff.stand_palette and sff.stand_palette not in seen:
-        seen.add(sff.stand_palette)
-        candidates.append(("SFF(stand)", sff.stand_palette))
-        
-    for name, pal in sff.candidate_palettes:
-        if pal not in seen:
-            seen.add(pal)
-            candidates.append((name, pal))
-            
-    for name, pal in load_all_act_palettes(char_dir):
-        if pal not in seen:
-            seen.add(pal)
-            candidates.append((name, pal))
-    
     if not candidates:
-        return None
-    
-    # Score each candidate
-    best_score = -1
-    best_pal = None
+        return sff.first_palette or sff.stand_palette
+        
+    best_cand = None
+    best_score = -99999.0
     best_name = ""
-    for name, pal in candidates:
-        s = score_palette(pal, indices, trans_idx)
-        if s > best_score:
-            best_score = s
-            best_pal = pal
-            best_name = name
-    
-    logging.info(f"{char_name}: palette={best_name} (score={best_score:.1f})")
-    return best_pal
+    for name, pal, bonus in candidates:
+        sc = score_palette(pal, best_indices, trans_idx)
+        if sc > -500.0:  # Valid non-broken palette
+            sc += bonus
+            if sc > best_score:
+                best_score = sc
+                best_cand = pal
+                best_name = name
+                
+    if best_cand:
+        logging.info(f"{char_name}: palette={best_name} (score={best_score:.1f})")
+        return best_cand
+        
+    return sff.first_palette or sff.stand_palette
 
 def process_character(char_dir, out_dir, target_height=None, extract_mode=None, custom_scale=None, compress_fgt=None):
     if target_height is None:
@@ -286,72 +497,164 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
         compress_fgt = globals().get('COMPRESS_FGT', False)
 
     char_name = os.path.basename(char_dir)
-    sff_files = glob.glob(os.path.join(char_dir, "*.sff"))
-    air_files = glob.glob(os.path.join(char_dir, "*.air"))
-    if not sff_files or not air_files: return False
+    def_parser = DefParser(char_dir)
 
-    sff = SFFv1Parser(sff_files[0])
-    air = AirParser(air_files[0])
+    # 1. Official SFF Sprite File
+    sff_path = def_parser.sff_file
+    if not sff_path or not os.path.isfile(sff_path):
+        sff_files = glob.glob(os.path.join(char_dir, "*.sff")) + glob.glob(os.path.join(char_dir, "*.SFF"))
+        if not sff_files: return False
+        sff_path = sff_files[0]
 
-    master_palette = resolve_master_palette(char_dir, sff)
+    # 2. Official AIR Animation File
+    air_path = def_parser.air_file
+    if not air_path or not os.path.isfile(air_path):
+        air_files = glob.glob(os.path.join(char_dir, "*.air")) + glob.glob(os.path.join(char_dir, "*.AIR"))
+        if not air_files: return False
+        air_path = air_files[0]
+
+    # 3. Official CNS / ST State Files
+    cns_paths = def_parser.cns_files
+    if not cns_paths:
+        cns_paths = glob.glob(os.path.join(char_dir, "*.cns")) + glob.glob(os.path.join(char_dir, "*.st"))
+    cns = CnsParser(cns_paths)
+
+    sff = SFFv1Parser(sff_path)
+    air = AirParser(air_path)
+
+    master_palette = resolve_master_palette(char_dir, sff, def_parser)
     if not master_palette:
         return False
 
     required_anims = {}
     
-    # 1. Stand (0, 5, 10, 11, 20 or first available animation)
-    for act_id in [0, 5, 10, 11, 20]:
-        if act_id in air.animations:
-            required_anims[act_id] = 'stand'
+    # 1. Stand (Primary: CNS State 0 -> Heuristic: 0, 5, 10, 11, 20 -> First available)
+    stand_anim_id = None
+    for a_id in cns.state_anims.get(0, []):
+        if a_id in air.animations and len(air.animations[a_id]) > 0:
+            stand_anim_id = a_id
             break
-    if 'stand' not in required_anims.values() and air.animations:
-        required_anims[list(air.animations.keys())[0]] = 'stand'
+    if stand_anim_id is None:
+        for act_id in [0, 5, 10, 11, 20]:
+            if act_id in air.animations and len(air.animations[act_id]) > 0:
+                stand_anim_id = act_id
+                break
+    if stand_anim_id is None and air.animations:
+        stand_anim_id = list(air.animations.keys())[0]
+    if stand_anim_id is not None:
+        required_anims[stand_anim_id] = 'stand'
     
-    # 2. Walk (20, 21, 100, 105, 106, 110, 115, 120, 40)
-    for act_id in [20, 21, 100, 105, 106, 110, 115, 120, 40]:
-        if act_id in air.animations and act_id not in required_anims:
-            required_anims[act_id] = 'walk'
-            break
+    # 2. Walk (Primary: CNS State 20/21 -> Heuristic: 20, 21, 100, 105, 106, 110, 115, 120, 40)
+    walk_anim_id = None
+    for st_id in [20, 21]:
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                walk_anim_id = a_id
+                break
+        if walk_anim_id is not None: break
+    if walk_anim_id is None:
+        for act_id in [20, 21, 100, 105, 106, 110, 115, 120, 40]:
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                walk_anim_id = act_id
+                break
+    if walk_anim_id is not None:
+        required_anims[walk_anim_id] = 'walk'
 
-    # 3. Attack (any normal, air, or command attack from 200 to 999)
-    for act_id in range(200, 1000):
-        if act_id in air.animations and act_id not in required_anims:
-            required_anims[act_id] = 'attack'
-            break
+    # 3. Attack (Primary: CNS States 200..999 -> Heuristic: range 200..999)
+    attack_anim_id = None
+    for st_id in range(200, 1000):
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                attack_anim_id = a_id
+                break
+        if attack_anim_id is not None: break
+    if attack_anim_id is None:
+        for act_id in range(200, 1000):
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                attack_anim_id = act_id
+                break
+    if attack_anim_id is not None:
+        required_anims[attack_anim_id] = 'attack'
             
-    # 4. Hit (any hit/damage reaction from 5000 to 5299)
-    for act_id in range(5000, 5300):
-        if act_id in air.animations and act_id not in required_anims:
-            required_anims[act_id] = 'hit'
-            break
+    # 4. Hit (Primary: CNS States 5000, 5001, 5002, 5010, 5020 -> Heuristic: range 5000..5299)
+    hit_anim_id = None
+    for st_id in [5000, 5001, 5002, 5010, 5020]:
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                hit_anim_id = a_id
+                break
+        if hit_anim_id is not None: break
+    if hit_anim_id is None:
+        for act_id in range(5000, 5300):
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                hit_anim_id = act_id
+                break
+    if hit_anim_id is not None:
+        required_anims[hit_anim_id] = 'hit'
             
-    # 5. Fall (5030, 5050, 5070, 5080, 5100, 5110, 5120, 5150)
-    for act_id in [5030, 5050, 5070, 5080, 5100, 5110, 5120, 5150]:
-        if act_id in air.animations and act_id not in required_anims:
-            required_anims[act_id] = 'fall'
-            break
+    # 5. Fall (Primary: CNS States 5030, 5050, 5070, 5080, 5100, 5110 -> Heuristic: 5030..5150)
+    fall_anim_id = None
+    for st_id in [5030, 5050, 5070, 5080, 5100, 5110, 5120, 5150]:
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                fall_anim_id = a_id
+                break
+        if fall_anim_id is not None: break
+    if fall_anim_id is None:
+        for act_id in [5030, 5050, 5070, 5080, 5100, 5110, 5120, 5150]:
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                fall_anim_id = act_id
+                break
+    if fall_anim_id is not None:
+        required_anims[fall_anim_id] = 'fall'
 
-    # 6. Win (180-189 win poses, 190-199 taunts, 170-179)
-    for act_id in list(range(180, 200)) + list(range(170, 180)):
-        if act_id in air.animations and act_id not in required_anims:
-            required_anims[act_id] = 'win'
-            break
+    # 6. Win (Primary: CNS States 180..189, 190..199, 170..179 -> Heuristic: 180..199, 170..179)
+    win_anim_id = None
+    for st_id in list(range(180, 200)) + list(range(170, 180)):
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                win_anim_id = a_id
+                break
+        if win_anim_id is not None: break
+    if win_anim_id is None:
+        for act_id in list(range(180, 200)) + list(range(170, 180)):
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                win_anim_id = act_id
+                break
+    if win_anim_id is not None:
+        required_anims[win_anim_id] = 'win'
 
-    # 7. Specials (1000-2999)
+    # 7. Specials (Primary: CNS States 1000..2999 -> Heuristic: 1000..2999)
     special_count = 0
-    for act_id in range(1000, 3000):
-        if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
-            special_count += 1
-            required_anims[act_id] = f'special{special_count}'
-            if special_count >= 3: break
+    for st_id in range(1000, 3000):
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                special_count += 1
+                required_anims[a_id] = f'special{special_count}'
+                if special_count >= 3: break
+        if special_count >= 3: break
+    if special_count < 3:
+        for act_id in range(1000, 3000):
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                special_count += 1
+                required_anims[act_id] = f'special{special_count}'
+                if special_count >= 3: break
 
-    # 8. Supers (3000-4999)
+    # 8. Supers (Primary: CNS States 3000..4999 -> Heuristic: 3000..4999)
     super_count = 0
-    for act_id in range(3000, 5000):
-        if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
-            super_count += 1
-            required_anims[act_id] = f'super{super_count}'
-            if super_count >= 3: break
+    for st_id in range(3000, 5000):
+        for a_id in cns.state_anims.get(st_id, []):
+            if a_id in air.animations and a_id not in required_anims and len(air.animations[a_id]) > 0:
+                super_count += 1
+                required_anims[a_id] = f'super{super_count}'
+                if super_count >= 3: break
+        if super_count >= 3: break
+    if super_count < 3:
+        for act_id in range(3000, 5000):
+            if act_id in air.animations and act_id not in required_anims and len(air.animations[act_id]) > 0:
+                super_count += 1
+                required_anims[act_id] = f'super{super_count}'
+                if super_count >= 3: break
 
     # Pass 1: Collect valid frames, calculate global bounding box and base scale
     all_valid_frames = {}
@@ -371,6 +674,15 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                 try:
                     img_obj = Image.open(io.BytesIO(img_info['data']))
                     
+                    # Apply flip if specified in .air
+                    flip = f.get('flip', '')
+                    if 'H' in flip and 'V' in flip:
+                        img_obj = img_obj.transpose(Image.Transpose.ROTATE_180)
+                    elif 'H' in flip:
+                        img_obj = img_obj.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+                    elif 'V' in flip:
+                        img_obj = img_obj.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
                     # Detect broken palettes (solid silhouettes with <= 2 colors including transparency)
                     colors = img_obj.convert('RGB').getcolors(256)
                     if colors is not None and len(colors) <= 2:
@@ -474,7 +786,7 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
     orig_h = global_max_y - global_min_y
     
     if orig_w <= 0 or orig_h <= 0: return False
-    
+
     if custom_scale is not None and float(custom_scale) > 0:
         scale = float(custom_scale)
     elif extract_mode == 'SCALED':

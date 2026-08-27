@@ -1,6 +1,6 @@
 # ArcadeMatrix MUGEN Sprite Extractor
 
-🇬🇧 [English](README.md) | 🇫🇷 Français | 🇪🇸 [Español](README_ES.md)
+🇬🇧 [English](README.md) | 🇫🇷 Français | 🇪🇸 [Español](README_ES.md) | 🛠️ [Architecture & Guide Développeur](ARCHITECTURE.md)
 
 Ce script Python (`mugen_extractor.py`) a été conçu sur mesure pour extraire, optimiser et convertir des personnages issus du moteur de jeu de combat **MUGEN**, afin de les rendre compatibles avec les moteurs `FighterEngine` d'ArcadeMatrix (versions ESP32 en C++ et Raspberry Pi en Python).
 

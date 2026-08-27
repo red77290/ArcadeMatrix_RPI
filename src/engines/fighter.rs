@@ -355,9 +355,8 @@ impl FighterEngine {
                     } else {
                         32.0
                     };
-                    let min_h = h1.min(h2);
-                    let max_h = h1.max(h2);
-                    (min_h / max_h) >= 0.80
+                    // P2 must be same height or up to 20% smaller (never taller than P1)
+                    h2 <= h1 && (h2 / h1) >= 0.80
                 })
                 .collect();
 
@@ -365,7 +364,7 @@ impl FighterEngine {
                 let idx2 = rng.gen_range(0..valid_opponents.len());
                 (*valid_opponents[idx2]).clone()
             } else {
-                // Find opponent with closest height difference
+                // Find opponent smaller than or closest to P1
                 let mut candidates: Vec<&(String, FighterIndexMeta)> =
                     fighters.iter().filter(|(name, _)| name != &name1).collect();
                 candidates.sort_by(|(_, m_a), (_, m_b)| {
@@ -379,10 +378,19 @@ impl FighterEngine {
                     } else {
                         32.0
                     };
-                    let diff_a = (h_a - h1).abs();
-                    let diff_b = (h_b - h1).abs();
-                    diff_a
-                        .partial_cmp(&diff_b)
+                    // Prioritize candidates <= h1, closest to h1
+                    let score_a = if h_a <= h1 {
+                        h1 - h_a
+                    } else {
+                        (h_a - h1) + 1000.0
+                    };
+                    let score_b = if h_b <= h1 {
+                        h1 - h_b
+                    } else {
+                        (h_b - h1) + 1000.0
+                    };
+                    score_a
+                        .partial_cmp(&score_b)
                         .unwrap_or(std::cmp::Ordering::Equal)
                 });
                 if !candidates.is_empty() {
@@ -407,8 +415,11 @@ impl FighterEngine {
             let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
 
             if let (Some(c1), Some(c2)) = (c1, c2) {
-                let ground_y_screen = (c1.meta.ground_y as i32).max(c2.meta.ground_y as i32);
-                let y1 = ground_y_screen - c1.meta.ground_y as i32;
+                // Place P1 at 1 pixel from the top of the screen
+                let y1 = 1 - c1.meta.head_y as i32;
+                // Align ground line to P1's physical feet
+                let ground_y_screen = y1 + c1.meta.ground_y as i32;
+                // Place P2 on the exact same ground line
                 let y2 = ground_y_screen - c2.meta.ground_y as i32;
 
                 let mut mirrored_c2 = c2.clone();

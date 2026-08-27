@@ -2,7 +2,6 @@ use actix_multipart::Multipart;
 use actix_web::{get, post, web, HttpResponse, Responder};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 use tokio::process::Command;
 use tracing::info;
 
@@ -259,7 +258,10 @@ pub async fn check_update() -> impl Responder {
 }
 
 #[post("/api/ota/auto-update")]
-pub async fn auto_update(body: Option<web::Json<AutoUpdateRequest>>) -> impl Responder {
+pub async fn auto_update(
+    body: Option<web::Json<AutoUpdateRequest>>,
+    data: web::Data<crate::api::server::AppState>,
+) -> impl Responder {
     let client = reqwest::Client::builder()
         .user_agent("ArcadeMatrix-RPi-OTA")
         .timeout(std::time::Duration::from_secs(120))
@@ -393,137 +395,27 @@ pub async fn auto_update(body: Option<web::Json<AutoUpdateRequest>>) -> impl Res
         }
     }
 
-    let binary_path = std::env::current_exe()
-        .and_then(|p| p.canonicalize().or(Ok(p)))
-        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
-    let temp_path = std::path::PathBuf::from("/tmp/arcadematrix_update");
-
-    if let Err(e) = fs::write(&temp_path, &firmware_bytes).await {
+    if let Err(e) = apply_binary_update(&firmware_bytes) {
         return HttpResponse::InternalServerError().json(serde_json::json!({
             "status": "error",
-            "message": format!("Failed to write temporary binary: {}", e)
+            "message": format!("Failed to apply binary update: {}", e)
         }));
     }
 
-    let _ = Command::new("chmod")
-        .args(["+x"])
-        .arg(&temp_path)
-        .status()
-        .await;
-
-    let target_bin = binary_path.display().to_string();
-    let script_content = format!(
-        r#"#!/bin/bash
-LOG_FILE="/tmp/arcadematrix_ota.log"
-exec > "$LOG_FILE" 2>&1
-echo "[$(date)] --- ArcadeMatrix Auto-OTA Starting ---"
-echo "Target binary: {target_bin}"
-
-sleep 1.5
-
-if command -v systemctl &>/dev/null && systemctl is-active --quiet arcadematrix.service; then
-    echo "Stopping arcadematrix.service..."
-    systemctl stop arcadematrix.service
-elif command -v systemctl &>/dev/null && systemctl is-active --quiet arcadematrix; then
-    echo "Stopping arcadematrix unit..."
-    systemctl stop arcadematrix
-fi
-
-CURRENT_PID=$$
-for pid in $(pgrep -f "{target_bin}" 2>/dev/null); do
-    if [ "$pid" != "$CURRENT_PID" ]; then
-        echo "Terminating process $pid..."
-        kill -15 "$pid" 2>/dev/null || true
-    fi
-done
-sleep 1
-
-for pid in $(pgrep -f "{target_bin}" 2>/dev/null); do
-    if [ "$pid" != "$CURRENT_PID" ]; then
-        echo "Force killing process $pid..."
-        kill -9 "$pid" 2>/dev/null || true
-    fi
-done
-
-if [ -f "/tmp/arcadematrix_update" ]; then
-    echo "Copying new binary over {target_bin}..."
-    cp -f /tmp/arcadematrix_update "{target_bin}"
-    chmod +x "{target_bin}"
-    rm -f /tmp/arcadematrix_update
-    echo "Binary replaced successfully."
-else
-    echo "ERROR: /tmp/arcadematrix_update not found!"
-    exit 1
-fi
-
-if command -v systemctl &>/dev/null && systemctl list-unit-files | grep -q "^arcadematrix.service"; then
-    echo "Starting arcadematrix.service..."
-    systemctl start arcadematrix.service
-elif [ -x "{target_bin}" ]; then
-    echo "Relaunching daemon in background..."
-    nohup "{target_bin}" >/dev/null 2>&1 &
-fi
-
-echo "[$(date)] --- Auto-OTA Finished Successfully ---"
-"#
-    );
-
-    let script_path = std::path::PathBuf::from("/tmp/update_am.sh");
-    if let Err(e) = fs::write(&script_path, script_content).await {
-        return HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to write updater script: {}", e)
-        }));
-    }
-
-    let _ = Command::new("chmod")
-        .args(["+x"])
-        .arg(&script_path)
-        .status()
-        .await;
-
-    let unit_id = format!(
-        "arcadematrix-ota-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-    );
-
-    info!("Firmware auto-update staged. Executing background updater script...");
-
-    tokio::spawn(async move {
-        let mut ran = false;
-        if let Ok(mut child) = Command::new("systemd-run")
-            .args([
-                &format!("--unit={}", unit_id),
-                "--collect",
-                "--remain-after-exit=no",
-                "/tmp/update_am.sh",
-            ])
-            .spawn()
-        {
-            if let Ok(status) = child.wait().await {
-                if status.success() {
-                    ran = true;
-                }
-            }
-        }
-
-        if !ran {
-            let _ = Command::new("nohup").args(["/tmp/update_am.sh"]).spawn();
-        }
-    });
+    schedule_service_restart(std::sync::Arc::clone(&data.config));
 
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
-        "message": "Firmware downloaded and verified. Service restarting in 2 seconds...",
+        "message": "Firmware downloaded and installed. Service restarting in 2 seconds...",
         "old_version": crate::core::build_info::VERSION
     }))
 }
 
 #[post("/api/update")]
-pub async fn handle_update(mut payload: Multipart) -> impl Responder {
+pub async fn handle_update(
+    mut payload: Multipart,
+    data: web::Data<crate::api::server::AppState>,
+) -> impl Responder {
     let mut firmware_bytes = Vec::new();
 
     while let Some(item) = payload.next().await {
@@ -560,138 +452,105 @@ pub async fn handle_update(mut payload: Multipart) -> impl Responder {
         }
     }
 
+    if let Err(e) = apply_binary_update(&firmware_bytes) {
+        return HttpResponse::InternalServerError().json(serde_json::json!({
+            "status": "error",
+            "message": format!("Failed to apply binary update: {}", e)
+        }));
+    }
+
+    schedule_service_restart(std::sync::Arc::clone(&data.config));
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "message": "Firmware updated and installed. Service restarting in 2 seconds...",
+        "old_version": crate::core::build_info::VERSION
+    }))
+}
+
+fn apply_binary_update(firmware_bytes: &[u8]) -> Result<std::path::PathBuf, String> {
     let binary_path = std::env::current_exe()
         .and_then(|p| p.canonicalize().or(Ok(p)))
-        .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/arcadematrix"));
-    let temp_path = std::path::PathBuf::from("/tmp/arcadematrix_update");
+        .map_err(|e| format!("Failed to locate current executable path: {}", e))?;
 
-    if let Err(e) = fs::write(&temp_path, &firmware_bytes).await {
-        return HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to write temporary binary: {}", e)
-        }));
+    // 1. Stage in /tmp/arcadematrix_update (world-writable 1777, guaranteed to succeed regardless of UID)
+    let tmp_staging = std::path::PathBuf::from("/tmp/arcadematrix_update");
+    let _ = std::fs::remove_file(&tmp_staging);
+
+    std::fs::write(&tmp_staging, firmware_bytes)
+        .map_err(|e| format!("Failed to write to /tmp/arcadematrix_update: {}", e))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp_staging, std::fs::Permissions::from_mode(0o755));
     }
 
-    let _ = Command::new("chmod")
-        .args(["+x"])
-        .arg(&temp_path)
-        .status()
-        .await;
+    // 2. Try direct local atomic replacement in case we have write permissions on the directory
+    let temp_path = binary_path.with_extension("tmp_ota");
+    let backup_path = binary_path.with_extension("old_ota");
 
-    let target_bin = binary_path.display().to_string();
-    let script_content = format!(
-        r#"#!/bin/bash
-LOG_FILE="/tmp/arcadematrix_ota.log"
-exec > "$LOG_FILE" 2>&1
-echo "[$(date)] --- ArcadeMatrix OTA Update Starting ---"
-echo "Target binary: {target_bin}"
+    let _ = std::fs::remove_file(&temp_path);
+    let _ = std::fs::remove_file(&backup_path);
 
-# Wait 1.5s for Actix to flush HTTP 200 response
-sleep 1.5
+    if std::fs::write(&temp_path, firmware_bytes).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&temp_path, std::fs::Permissions::from_mode(0o755));
+        }
 
-# Step 1: Stop systemd service if running
-if command -v systemctl &>/dev/null && systemctl is-active --quiet arcadematrix.service; then
-    echo "Stopping arcadematrix.service..."
-    systemctl stop arcadematrix.service
-elif command -v systemctl &>/dev/null && systemctl is-active --quiet arcadematrix; then
-    echo "Stopping arcadematrix unit..."
-    systemctl stop arcadematrix
-fi
-
-# Step 2: Ensure any lingering process holding the binary is stopped
-CURRENT_PID=$$
-for pid in $(pgrep -f "{target_bin}" 2>/dev/null); do
-    if [ "$pid" != "$CURRENT_PID" ]; then
-        echo "Terminating process $pid..."
-        kill -15 "$pid" 2>/dev/null || true
-    fi
-done
-sleep 1
-
-for pid in $(pgrep -f "{target_bin}" 2>/dev/null); do
-    if [ "$pid" != "$CURRENT_PID" ]; then
-        echo "Force killing process $pid..."
-        kill -9 "$pid" 2>/dev/null || true
-    fi
-done
-
-# Step 3: Replace binary
-if [ -f "/tmp/arcadematrix_update" ]; then
-    echo "Copying new binary over {target_bin}..."
-    cp -f /tmp/arcadematrix_update "{target_bin}"
-    chmod +x "{target_bin}"
-    rm -f /tmp/arcadematrix_update
-    echo "Binary replaced successfully."
-else
-    echo "ERROR: /tmp/arcadematrix_update not found!"
-    exit 1
-fi
-
-# Step 4: Restart systemd service or relaunch daemon
-if command -v systemctl &>/dev/null && systemctl list-unit-files | grep -q "^arcadematrix.service"; then
-    echo "Starting arcadematrix.service..."
-    systemctl start arcadematrix.service
-elif [ -x "{target_bin}" ]; then
-    echo "Relaunching daemon in background..."
-    nohup "{target_bin}" >/dev/null 2>&1 &
-fi
-
-echo "[$(date)] --- OTA Update Finished Successfully ---"
-"#
-    );
-
-    let script_path = std::path::PathBuf::from("/tmp/update_am.sh");
-    if let Err(e) = fs::write(&script_path, script_content).await {
-        return HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": format!("Failed to write updater script: {}", e)
-        }));
+        if std::fs::rename(&binary_path, &backup_path).is_ok() {
+            if std::fs::rename(&temp_path, &binary_path).is_ok() {
+                let _ = std::fs::remove_file(&backup_path);
+                let _ = std::fs::remove_file(&tmp_staging);
+                info!("Direct atomic replacement succeeded at {:?}", binary_path);
+                return Ok(binary_path);
+            } else {
+                let _ = std::fs::rename(&backup_path, &binary_path);
+            }
+        }
+        let _ = std::fs::remove_file(&temp_path);
     }
 
-    let _ = Command::new("chmod")
-        .args(["+x"])
-        .arg(&script_path)
-        .status()
-        .await;
-
-    let unit_id = format!(
-        "arcadematrix-ota-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
+    // If direct local replacement wasn't permitted (e.g. dropped privileges),
+    // the binary is safely staged at /tmp/arcadematrix_update and recovery.sh
+    // (running as root via ExecStartPre) will atomically install it upon service restart.
+    info!(
+        "Staged firmware at {:?} for root installer during restart",
+        tmp_staging
     );
+    Ok(binary_path)
+}
 
-    info!("Firmware update staged. Executing background updater script...");
-
+fn schedule_service_restart(config: std::sync::Arc<crate::core::config::Config>) {
     tokio::spawn(async move {
-        let mut ran = false;
-        if let Ok(mut child) = Command::new("systemd-run")
-            .args([
-                &format!("--unit={}", unit_id),
-                "--collect",
-                "--remain-after-exit=no",
-                "/tmp/update_am.sh",
-            ])
+        // Wait 1.5s so Actix has time to send HTTP 200 response to client
+        tokio::time::sleep(tokio::time::Duration::from_millis(1500)).await;
+
+        info!("OTA: Triggering application restart...");
+
+        // Method 1: Ask systemctl to restart the service cleanly
+        let mut restarted = false;
+        if let Ok(mut child) = Command::new("systemctl")
+            .args(["restart", "arcadematrix.service"])
             .spawn()
         {
             if let Ok(status) = child.wait().await {
                 if status.success() {
-                    ran = true;
+                    restarted = true;
                 }
             }
         }
 
-        if !ran {
-            let _ = Command::new("nohup").args(["/tmp/update_am.sh"]).spawn();
+        // Method 2: If systemctl wasn't used or failed, signal graceful exit so systemd
+        // (Restart=always) or the runner immediately relaunches the new binary
+        if !restarted {
+            config
+                .reload_flag
+                .store(true, std::sync::atomic::Ordering::Relaxed);
         }
     });
-
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "success",
-        "message": "Firmware updated successfully. Service restarting in 2 seconds...",
-        "old_version": crate::core::build_info::VERSION
-    }))
 }
 
 pub fn validate_firmware(firmware_bytes: &[u8], current_target: &str) -> Result<(), String> {

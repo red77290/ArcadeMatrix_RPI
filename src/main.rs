@@ -70,6 +70,18 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // 2. Fix directory & binary permissions early while running as root (before hzeller drops privileges)
+    if let Ok(exe_path) = std::env::current_exe() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&exe_path, std::fs::Permissions::from_mode(0o777));
+            if let Some(exe_dir) = exe_path.parent() {
+                let _ = std::fs::set_permissions(exe_dir, std::fs::Permissions::from_mode(0o777));
+            }
+        }
+    }
+
     let subscriber = FmtSubscriber::builder()
         .with_max_level(tracing::Level::INFO)
         .with_ansi(false)

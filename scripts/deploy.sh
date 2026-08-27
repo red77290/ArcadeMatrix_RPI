@@ -38,7 +38,7 @@ echo "      ArcadeMatrix Smart Deploy to Raspberry Pi"
 echo "=========================================================="
 echo "[Info] Connecting to ${PI_USER}@${PI_IP} to detect OS architecture..."
 
-REMOTE_ARCH=$(sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "uname -m")
+REMOTE_ARCH=$(sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "uname -m" | tr -d '\r\n')
 
 if [ "$REMOTE_ARCH" = "aarch64" ]; then
     echo "[OK] Detected 64-bit OS (aarch64) on Raspberry Pi."
@@ -74,7 +74,7 @@ if [ ! -f "$BIN_PATH" ]; then
     exit 1
 fi
 
-CHECK_SERVICE=$(sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi")
+CHECK_SERVICE=$(sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "if systemctl list-unit-files | grep -q arcadematrix.service; then echo 'installed'; else echo 'missing'; fi" | tr -d '\r\n')
 
 if [ "$CHECK_SERVICE" = "missing" ]; then
     echo "[Warning] Service not found, running full autoInstall.sh setup first..."
@@ -86,13 +86,44 @@ sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "e
 
 TARGET_DIR="/home/${PI_USER}/ArcadeMatrix_RPi"
 
-echo "[Step 3] Uploading correct binary to $TARGET_DIR..."
+echo "[Step 3] Uploading binary to $TARGET_DIR..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "mkdir -p $TARGET_DIR"
 sshpass -p "${PI_PASS}" scp -o StrictHostKeyChecking=no "$BIN_PATH" "${PI_USER}@${PI_IP}:$TARGET_DIR/arcadematrix_temp"
 
-echo "[Step 4] Moving binary and starting service..."
+if [ -d "scripts" ]; then
+    echo "[Info] Syncing scripts/..."
+    sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "mkdir -p $TARGET_DIR/scripts"
+    sshpass -p "${PI_PASS}" scp -r -o StrictHostKeyChecking=no scripts/* "${PI_USER}@${PI_IP}:$TARGET_DIR/scripts/" 2>/dev/null || true
+fi
+
+echo "[Step 4] Moving binary and configuring permissions..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S mv $TARGET_DIR/arcadematrix_temp $TARGET_DIR/arcadematrix"
-sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod +x $TARGET_DIR/arcadematrix"
+sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod -R a+rwX $TARGET_DIR 2>/dev/null || true"
+sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S chmod +x $TARGET_DIR/arcadematrix $TARGET_DIR/scripts/*.sh 2>/dev/null || true"
+
+# Ensure systemd service file is up to date with ExecStartPre recovery script
+SERVICE_FILE="/etc/systemd/system/arcadematrix.service"
+sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S bash -c 'cat > $SERVICE_FILE <<EOF
+[Unit]
+Description=ArcadeMatrix RPi Daemon (Rust)
+After=network.target
+
+[Service]
+ExecStartPre=-$TARGET_DIR/scripts/recovery.sh $TARGET_DIR
+ExecStart=$TARGET_DIR/arcadematrix
+WorkingDirectory=$TARGET_DIR
+StandardOutput=inherit
+StandardError=inherit
+Restart=always
+RestartSec=3
+TimeoutStopSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+'"
 
 echo "[Step 4.5] Verifying config.json persistence on the DATA partition..."
 # On correctly-provisioned images config.json is a symlink into the writable,
@@ -105,7 +136,7 @@ echo "[Step 4.5] Verifying config.json persistence on the DATA partition..."
 # persistent data/config.json (settings are preserved).
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S bash -c 'cd $TARGET_DIR || exit 0; mkdir -p data; T=\$(readlink -f config.json 2>/dev/null); D=\$(readlink -f data/config.json 2>/dev/null); if [ -L config.json ] && [ x\$T = x\$D ] && [ -f config.json ]; then echo config.json already persisted in data - no changes; else echo Repairing config.json persistence...; if [ -f config.json ] && [ ! -L config.json ]; then [ -f data/config.json ] || cp -f config.json data/config.json; fi; [ -f data/config.json ] || echo {} > data/config.json; rm -f config.json; ln -s data/config.json config.json; if [ -L conf.ini ]; then rm -f conf.ini; fi; chown -h ${PI_USER}:${PI_USER} config.json 2>/dev/null || true; chown ${PI_USER}:${PI_USER} data/config.json 2>/dev/null || true; echo config.json now points to data/config.json; fi'" || echo "[Warning] Config persistence check skipped."
 
-echo "[OK] Service installed, restarting..."
+echo "[Step 5] Restarting arcadematrix service..."
 sshpass -p "${PI_PASS}" ssh -o StrictHostKeyChecking=no "${PI_USER}@${PI_IP}" "echo '${PI_PASS}' | sudo -S systemctl restart arcadematrix.service"
 
 echo "[Success] Deployment successful!"

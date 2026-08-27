@@ -9,6 +9,27 @@ if [ -z "$PROJ_DIR" ]; then
     exit 0
 fi
 
+# 0. Check if an OTA update was staged in /tmp/arcadematrix_update
+if [ -f "/tmp/arcadematrix_update" ]; then
+    echo "====================================================="
+    echo "🚀 [OTA] Staged firmware update detected at /tmp/arcadematrix_update"
+    echo "🚀 [OTA] Installing updated binary with root privileges..."
+    
+    if [ -f "$PROJ_DIR/arcadematrix" ]; then
+        mv -f "$PROJ_DIR/arcadematrix" "$PROJ_DIR/arcadematrix.old" 2>/dev/null || true
+    fi
+    
+    mv -f "/tmp/arcadematrix_update" "$PROJ_DIR/arcadematrix"
+    chmod +x "$PROJ_DIR/arcadematrix"
+    
+    PROJ_OWNER=$(stat -c '%U:%G' "$PROJ_DIR" 2>/dev/null || echo "pi:pi")
+    chown "$PROJ_OWNER" "$PROJ_DIR/arcadematrix" 2>/dev/null || true
+    
+    rm -f "$PROJ_DIR/arcadematrix.old" 2>/dev/null || true
+    echo "✅ [OTA] Firmware updated successfully."
+    echo "====================================================="
+fi
+
 # Define possible mount points for recovery files
 # 1. /boot/firmware (Bookworm bootfs, visible on Windows/Mac)
 # 2. /boot (Legacy bootfs, visible on Windows/Mac)

@@ -17,8 +17,8 @@ use std::time::{Duration, Instant};
 
 pub struct GoogleCastEngine {
     base_renderer: BaseRenderer,
-    device_ip: String,
-    device_name: String,
+    config_ip: Arc<Mutex<String>>,
+    config_name: Arc<Mutex<String>>,
     show_album_art: bool,
     show_progress: bool,
     show_volume: bool,
@@ -41,8 +41,8 @@ impl GoogleCastEngine {
     pub fn new() -> Self {
         Self {
             base_renderer: BaseRenderer::new(),
-            device_ip: String::new(),
-            device_name: String::new(),
+            config_ip: Arc::new(Mutex::new(String::new())),
+            config_name: Arc::new(Mutex::new(String::new())),
             show_album_art: true,
             show_progress: true,
             show_volume: true,
@@ -59,8 +59,14 @@ impl GoogleCastEngine {
     }
 
     fn apply_config(&mut self, config: &dyn EngineConfig) {
-        self.device_ip = config.get_string("device_ip", "");
-        self.device_name = config.get_string("device_name", "");
+        let ip = config.get_string("device_ip", "");
+        let name = config.get_string("device_name", "");
+        if let Ok(mut g) = self.config_ip.lock() {
+            *g = ip;
+        }
+        if let Ok(mut g) = self.config_name.lock() {
+            *g = name;
+        }
         self.show_album_art = config.get_bool("show_album_art", true);
         self.show_progress = config.get_bool("show_progress", true);
         self.show_volume = config.get_bool("show_volume", true);
@@ -75,14 +81,30 @@ impl GoogleCastEngine {
         self.is_running.store(true, Ordering::Relaxed);
         let status_arc = Arc::clone(&self.media_status);
         let running_arc = Arc::clone(&self.is_running);
-        let ip_configured = self.device_ip.clone();
-        let name_filter = self.device_name.clone();
+        let ip_arc = Arc::clone(&self.config_ip);
+        let name_arc = Arc::clone(&self.config_name);
 
         thread::spawn(move || {
-            let mut resolved_ip = ip_configured.clone();
+            let mut resolved_ip = String::new();
+            let mut last_configured_ip = String::new();
+            let mut last_configured_name = String::new();
             let mut client: Option<GoogleCastClient> = None;
 
             while running_arc.load(Ordering::Relaxed) {
+                let (ip_configured, name_filter) = {
+                    let ip = ip_arc.lock().map(|g| g.clone()).unwrap_or_default();
+                    let name = name_arc.lock().map(|g| g.clone()).unwrap_or_default();
+                    (ip, name)
+                };
+
+                // If configuration changed dynamically, reset client
+                if ip_configured != last_configured_ip || name_filter != last_configured_name {
+                    last_configured_ip = ip_configured.clone();
+                    last_configured_name = name_filter.clone();
+                    resolved_ip = ip_configured.clone();
+                    client = None;
+                }
+
                 // If IP is not configured or connection lost, discover via mDNS
                 if resolved_ip.is_empty() {
                     let filter = if name_filter.is_empty() {
@@ -219,8 +241,13 @@ impl Engine for GoogleCastEngine {
         if !has_data {
             // Idle screen when no media is casting
             let title = "Google Cast";
-            let subtitle = if !self.device_name.is_empty() {
-                format!("Ready to stream • {}", self.device_name)
+            let name_guard = self
+                .config_name
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            let subtitle = if !name_guard.is_empty() {
+                format!("Ready to stream • {}", name_guard)
             } else {
                 "Ready to stream".to_string()
             };

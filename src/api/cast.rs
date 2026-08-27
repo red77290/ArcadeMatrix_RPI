@@ -255,10 +255,10 @@ impl GoogleCastClient {
         .map_err(|e| format!("TCP connect failed: {}", e))?;
 
         stream
-            .set_read_timeout(Some(Duration::from_millis(2000)))
+            .set_read_timeout(Some(Duration::from_millis(500)))
             .ok();
         stream
-            .set_write_timeout(Some(Duration::from_millis(2000)))
+            .set_write_timeout(Some(Duration::from_millis(500)))
             .ok();
 
         // Wrap with rustls client config ignoring self-signed cast certs
@@ -304,7 +304,7 @@ impl GoogleCastClient {
         let mut app_name = String::new();
 
         // Read receiver status responses
-        for _ in 0..6 {
+        for _ in 0..4 {
             if let Ok(msg) = self.recv_msg(&mut tls_stream) {
                 if msg.namespace == NS_HEARTBEAT && msg.payload_utf8.contains("PING") {
                     let _ = self.send_msg(
@@ -328,7 +328,41 @@ impl GoogleCastClient {
                             .pointer("/status/applications")
                             .and_then(|a| a.as_array())
                         {
-                            if let Some(app) = apps.first() {
+                            // Prioritize non-idle media apps with transportId or media namespace
+                            let media_app = apps
+                                .iter()
+                                .find(|app| {
+                                    let is_idle = app
+                                        .get("isIdleScreen")
+                                        .and_then(|i| i.as_bool())
+                                        .unwrap_or(false);
+                                    let app_id =
+                                        app.get("appId").and_then(|a| a.as_str()).unwrap_or("");
+                                    let has_media_ns = app
+                                        .get("namespaces")
+                                        .and_then(|ns| ns.as_array())
+                                        .map_or(false, |list| {
+                                            list.iter().any(|item| {
+                                                item.get("name").and_then(|n| n.as_str())
+                                                    == Some(NS_MEDIA)
+                                            })
+                                        });
+                                    !is_idle
+                                        && app_id != "E8C28D3C"
+                                        && (has_media_ns || app.get("transportId").is_some())
+                                })
+                                .or_else(|| {
+                                    apps.iter().find(|app| {
+                                        let is_idle = app
+                                            .get("isIdleScreen")
+                                            .and_then(|i| i.as_bool())
+                                            .unwrap_or(false);
+                                        !is_idle && app.get("transportId").is_some()
+                                    })
+                                })
+                                .or_else(|| apps.first());
+
+                            if let Some(app) = media_app {
                                 app_name = app
                                     .get("displayName")
                                     .and_then(|d| d.as_str())
@@ -340,8 +374,12 @@ impl GoogleCastClient {
                                 }
                             }
                         }
+                        // Got RECEIVER_STATUS, proceed directly without waiting for socket timeout
+                        break;
                     }
                 }
+            } else {
+                break;
             }
         }
 
@@ -399,17 +437,22 @@ impl GoogleCastClient {
                                         if let Some(meta) = media.get("metadata") {
                                             status.title = meta
                                                 .get("title")
+                                                .or_else(|| meta.get("songName"))
+                                                .or_else(|| media.pointer("/customData/title"))
                                                 .and_then(|t| t.as_str())
                                                 .unwrap_or("")
                                                 .to_string();
                                             status.artist = meta
                                                 .get("artist")
                                                 .or_else(|| meta.get("subtitle"))
+                                                .or_else(|| meta.get("artistName"))
+                                                .or_else(|| meta.get("albumArtist"))
                                                 .and_then(|a| a.as_str())
                                                 .unwrap_or("")
                                                 .to_string();
                                             status.album = meta
                                                 .get("albumName")
+                                                .or_else(|| meta.get("albumTitle"))
                                                 .and_then(|a| a.as_str())
                                                 .unwrap_or("")
                                                 .to_string();
@@ -431,7 +474,18 @@ impl GoogleCastClient {
                                 }
                             }
                         }
+                        break;
                     }
+                } else {
+                    break;
+                }
+            }
+
+            // If app is active and has a transportId, mark active even if metadata title was empty
+            if !status.is_active && !status.app_name.is_empty() {
+                status.is_active = true;
+                if status.title.is_empty() {
+                    status.title = status.app_name.clone();
                 }
             }
         }

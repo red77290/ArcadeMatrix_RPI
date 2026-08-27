@@ -316,7 +316,12 @@ def score_palette(pal_bytes, indices, trans_idx):
     if not pal_bytes or len(pal_bytes) < 768:
         return -999.0
     
-    used_indices = [idx for idx in indices if idx != trans_idx]
+    # In MUGEN, index 0 is always the transparent key. Also include trans_idx if known.
+    trans_set = {0}
+    if trans_idx is not None:
+        trans_set.add(trans_idx)
+        
+    used_indices = [idx for idx in indices if idx not in trans_set]
     if not used_indices:
         return -999.0
     
@@ -885,7 +890,9 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                 except:
                     indices = [0] * (img_obj.width * img_obj.height)
                 
-                trans_idx = indices[0] if indices else 0
+                trans_indices = {0}
+                if indices:
+                    trans_indices.add(indices[0])
                 
                 rgba_canvas = Image.new('RGBA', (orig_w, orig_h), (0,0,0,0))
                 rgba_pixels = rgba_canvas.load()
@@ -900,15 +907,17 @@ def process_character(char_dir, out_dir, target_height=None, extract_mode=None, 
                                 if len(val) >= 4:
                                     if val[3] > 0:
                                         rgba_pixels[cx, cy] = val
-                                elif val != (0, 255, 0) and val != (255, 0, 255):
+                                elif val != (0, 255, 0) and val != (255, 0, 255) and val != (0, 255, 255):
                                     rgba_pixels[cx, cy] = (val[0], val[1], val[2], 255)
                             else:
                                 idx = int(val)
-                                if idx != trans_idx and idx * 3 + 2 < len(master_palette):
+                                if idx not in trans_indices and idx * 3 + 2 < len(master_palette):
                                     r = master_palette[idx*3]
                                     g = master_palette[idx*3 + 1]
                                     b = master_palette[idx*3 + 2]
-                                    rgba_pixels[cx, cy] = (r, g, b, 255)
+                                    # Filter out debug chroma key backgrounds if any
+                                    if (r, g, b) not in [(255, 0, 255), (0, 255, 255), (0, 255, 0)]:
+                                        rgba_pixels[cx, cy] = (r, g, b, 255)
                                         
                 if orig_w != canvas_w or orig_h != canvas_h:
                     rgba_canvas = rgba_canvas.resize((canvas_w, canvas_h), Image.Resampling.NEAREST)

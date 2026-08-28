@@ -224,9 +224,25 @@ def is_rle_garbage(pal_bytes):
     """
     if not pal_bytes or len(pal_bytes) < 768:
         return True
+
+    # Check if this is a real palette with unused entries filled with standard padding:
+    # Magenta (255,0,255), White (255,255,255), Black (0,0,0), Cyan (0,255,255), Yellow (255,255,0)
+    triplets = [pal_bytes[i:i+3] for i in range(0, 768, 3)]
+    magenta_count = sum(1 for t in triplets if t == b'\xff\x00\xff')
+    white_count = sum(1 for t in triplets if t == b'\xff\xff\xff')
+    black_count = sum(1 for t in triplets if t == b'\x00\x00\x00')
+    cyan_count = sum(1 for t in triplets if t == b'\x00\xff\xff')
+    yellow_count = sum(1 for t in triplets if t == b'\xff\xff\x00')
+
+    # If more than 30 entries are identical clean fill triplets, this is structured palette padding, NOT RLE data!
+    if magenta_count > 30 or white_count > 30 or black_count > 50 or cyan_count > 30 or yellow_count > 30:
+        return False
+
     c_high = sum(1 for b in pal_bytes[:768] if b >= 192)
     c_low = sum(1 for b in pal_bytes[:768] if b <= 15)
-    if (c_high / 768.0) > 0.35 and (c_low / 768.0) > 0.25:
+
+    # True RLE data consists of alternating non-uniform high and low bytes
+    if (c_high / 768.0) > 0.40 and (c_low / 768.0) > 0.30:
         return True
     return False
 
@@ -364,8 +380,11 @@ def score_palette(pal_bytes, indices, trans_idx=0):
             # Pure black
             if r == 0 and g == 0 and b == 0:
                 black_count += 1
-            # Pure neon / chroma key masks (e.g. magenta, cyan, pure green)
-            if (r > 240 and g < 20 and b > 240) or (r < 20 and g > 240 and b > 240) or (r < 20 and g > 240 and b < 20):
+            # Pure neon / chroma key masks (e.g. pure magenta, pure green, screaming cyan/yellow)
+            if (r >= 190 and g <= 15 and b >= 190) or \
+               (r <= 15 and g >= 190 and b <= 15) or \
+               (r <= 15 and g >= 235 and b >= 235) or \
+               (r >= 235 and g >= 235 and b <= 15):
                 neon_count += 1
                 
     u_colors = len(colors)
@@ -375,8 +394,8 @@ def score_palette(pal_bytes, indices, trans_idx=0):
     neon_ratio = neon_count / total
     black_ratio = black_count / total
     
-    # Reject palettes with excessive pure neon chroma masks (> 5% of body pixels)
-    if neon_ratio > 0.05:
+    # Reject palettes with excessive pure neon chroma masks (> 3% of body pixels)
+    if neon_ratio > 0.03:
         return -9999.0
         
     # Reject palettes where > 60% of body pixels map to pure black while indices are non-zero (broken/empty ACT)
@@ -385,10 +404,9 @@ def score_palette(pal_bytes, indices, trans_idx=0):
         
     avg_lum = total_lum / total
     
-    # Coverage score: how many unique sprite indices map to distinct non-neon colors
+    # Coverage score normalized to 0..100 scale so author weights remain authoritative
     coverage = min(1.0, u_colors / max(len(unique_indices), 1))
-    
-    score = coverage * 100.0 + min(u_colors, len(unique_indices)) * 2.0
+    score = coverage * 100.0
     
     if 15 <= avg_lum <= 215:
         score += 30.0
@@ -402,11 +420,14 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
     Resolve the best palette for a character using an intelligent multi-candidate scoring system.
     
     Candidates (in priority order):
-      1. SFF Stand Palette (group 0 with 0x0C marker) - Canonical author-built palette
-      2. SFF First Palette - Base sprite palette in SFF
-      3. SFF Valid Embedded Palettes from candidate sprites
-      4. Official .act palettes from DEF (pal.defaults and pal1..pal12)
-      5. Character folder .act palettes
+      1. SFF Stand Palette (group 0 with 0x0C marker) - Canonical author-built palette (+100)
+      2. DEF pal1 / 1P official palette (+85)
+      3. DEF pal.defaults (+80)
+      4. Other DEF pal slots (+75)
+      5. SFF Big Portrait (9000,1) (+70)
+      6. SFF First Palette - Base sprite palette in SFF (+60)
+      7. SFF Small Portrait (9000,0) and valid embedded sprites (+50)
+      8. Character folder .act palettes (+30)
     """
     char_name = os.path.basename(char_dir)
     
@@ -462,10 +483,18 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
     if sff.stand_palette:
         add_cand("SFF(stand)", sff.stand_palette, 100.0)
         
-    # 2. DEF Official Palettes (pal.defaults +80, other slots +75)
+    # 2. DEF Official Palettes (pal1: +85, pal.defaults: +80, other slots: +75)
     if def_parser and def_parser.palettes:
+        if 1 in def_parser.palettes and os.path.exists(def_parser.palettes[1]):
+            try:
+                with open(def_parser.palettes[1], 'rb') as f:
+                    d = f.read(768)
+                if len(d) == 768:
+                    add_cand(f"DEF(pal1: {os.path.basename(def_parser.palettes[1])})", d, 85.0)
+            except:
+                pass
         for slot in def_parser.pal_defaults:
-            if slot in def_parser.palettes and os.path.exists(def_parser.palettes[slot]):
+            if slot != 1 and slot in def_parser.palettes and os.path.exists(def_parser.palettes[slot]):
                 try:
                     with open(def_parser.palettes[slot], 'rb') as f:
                         d = f.read(768)
@@ -474,15 +503,16 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
                 except:
                     pass
         for slot in sorted(def_parser.palettes.keys()):
-            p = def_parser.palettes[slot]
-            if os.path.exists(p):
-                try:
-                    with open(p, 'rb') as f:
-                        d = f.read(768)
-                    if len(d) == 768:
-                        add_cand(f"DEF(pal{slot})", d, 75.0)
-                except:
-                    pass
+            if slot != 1 and slot not in def_parser.pal_defaults:
+                p = def_parser.palettes[slot]
+                if os.path.exists(p):
+                    try:
+                        with open(p, 'rb') as f:
+                            d = f.read(768)
+                        if len(d) == 768:
+                            add_cand(f"DEF(pal{slot})", d, 75.0)
+                    except:
+                        pass
                     
     # 3. SFF Big Portrait (9000,1) (+70)
     for cname, pdata in sff.candidate_palettes:
@@ -1010,9 +1040,12 @@ if __name__ == "__main__":
     total_cpus = os.cpu_count() or 2
     print(f"Parallel Processing: using {workers} worker processes ({total_cpus} CPUs / 2)")
     
-    start_time = time.time()
-    chars = [os.path.join(src_dir, d) for d in sorted(os.listdir(src_dir)) if os.path.isdir(os.path.join(src_dir, d))]
+    if glob.glob(os.path.join(src_dir, "*.def")) or glob.glob(os.path.join(src_dir, "*.DEF")):
+        chars = [src_dir]
+    else:
+        chars = [os.path.join(src_dir, d) for d in sorted(os.listdir(src_dir)) if os.path.isdir(os.path.join(src_dir, d))]
     
+    start_time = time.time()
     if CUSTOM_SCALE:
         print(f"Starting extraction in mode: {EXTRACT_MODE} with custom scale: {CUSTOM_SCALE}")
     else:

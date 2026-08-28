@@ -358,6 +358,11 @@ def score_palette(pal_bytes, indices, trans_idx=0):
     trans_set = {0}
     if trans_idx is not None:
         trans_set.add(trans_idx)
+    # If index 255 is a pure chroma key background mask, treat as transparent
+    if len(pal_bytes) >= 768:
+        r255, g255, b255 = pal_bytes[765], pal_bytes[766], pal_bytes[767]
+        if (r255, g255, b255) in [(255, 0, 255), (0, 255, 255), (0, 255, 0)]:
+            trans_set.add(255)
         
     used_indices = [idx for idx in indices if idx not in trans_set]
     if not used_indices:
@@ -398,8 +403,8 @@ def score_palette(pal_bytes, indices, trans_idx=0):
     if neon_ratio > 0.03:
         return -9999.0
         
-    # Reject palettes where > 60% of body pixels map to pure black while indices are non-zero (broken/empty ACT)
-    if black_ratio > 0.60 and len(unique_indices) >= 5:
+    # Reject palettes where > 80% of body pixels map to pure black or monochrome empty ACT
+    if (black_ratio > 0.85 or (black_ratio > 0.70 and u_colors <= 3)) and len(unique_indices) >= 5:
         return -9999.0
         
     avg_lum = total_lum / total

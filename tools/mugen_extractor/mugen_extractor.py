@@ -344,13 +344,13 @@ class AirParser:
 def score_palette(pal_bytes, indices, trans_idx=0):
     """
     Score how well a 768-byte palette renders a sprite given its pixel indices.
-    Returns a float score. Higher = better palette.
+    Returns a float score in [0..50] for valid palettes, or -9999.0 if rejected.
     """
     if not pal_bytes or len(pal_bytes) < 768:
         return -9999.0
     
     if not indices or isinstance(indices[0], (tuple, list)):
-        return 100.0
+        return 50.0
         
     if is_rle_garbage(pal_bytes):
         return -9999.0
@@ -388,7 +388,7 @@ def score_palette(pal_bytes, indices, trans_idx=0):
                 neon_count += 1
                 
     u_colors = len(colors)
-    if u_colors <= 1 and len(unique_indices) > 1:
+    if u_colors <= 2 and len(unique_indices) > 2:
         return -9999.0  # Solid monochrome / broken empty palette
         
     neon_ratio = neon_count / total
@@ -404,30 +404,30 @@ def score_palette(pal_bytes, indices, trans_idx=0):
         
     avg_lum = total_lum / total
     
-    # Coverage score normalized to 0..100 scale so author weights remain authoritative
+    # Quality score bounded in [0..50]
     coverage = min(1.0, u_colors / max(len(unique_indices), 1))
-    score = coverage * 100.0
+    score = coverage * 40.0
     
     if 15 <= avg_lum <= 215:
-        score += 30.0
+        score += 10.0
     elif avg_lum < 10 or avg_lum > 240:
-        score -= 50.0
+        score -= 20.0
         
     return score
 
 def resolve_master_palette(char_dir, sff, def_parser=None):
     """
-    Resolve the best palette for a character using an intelligent multi-candidate scoring system.
+    Resolve the best palette for a character using the Unified MUGEN Palette Theorem & Reciprocal.
     
-    Candidates (in priority order):
-      1. SFF Stand Palette (group 0 with 0x0C marker) - Canonical author-built palette (+100)
-      2. DEF pal1 / 1P official palette (+85)
-      3. DEF pal.defaults (+80)
-      4. Other DEF pal slots (+75)
-      5. SFF Big Portrait (9000,1) (+70)
-      6. SFF First Palette - Base sprite palette in SFF (+60)
-      7. SFF Small Portrait (9000,0) and valid embedded sprites (+50)
-      8. Character folder .act palettes (+30)
+    Authority Hierarchy:
+      1. DEF pal1 / 1P official palette (+150)
+      2. SFF Stand Palette (group 0 with 0x0C marker) - Canonical internal sprite palette (+120)
+      3. DEF pal.defaults (+110)
+      4. Other DEF pal slots (+100)
+      5. SFF First Palette (+80)
+      6. SFF Big Portrait (9000,1) (+40 - fallback only)
+      7. SFF Small Portrait (9000,0) and other sprites (+20)
+      8. Character folder .act palettes (+10)
     """
     char_name = os.path.basename(char_dir)
     
@@ -479,18 +479,14 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
             seen.add(p_slice)
             candidates.append((name, p_slice, bonus))
             
-    # 1. SFF Canonical Stand Palette (group 0 with 0x0C marker) -> TOP PRIORITY (+100)
-    if sff.stand_palette:
-        add_cand("SFF(stand)", sff.stand_palette, 100.0)
-        
-    # 2. DEF Official Palettes (pal1: +85, pal.defaults: +80, other slots: +75)
+    # 1. DEF Official Palettes (pal1: +150, pal.defaults: +110, other slots: +100)
     if def_parser and def_parser.palettes:
         if 1 in def_parser.palettes and os.path.exists(def_parser.palettes[1]):
             try:
                 with open(def_parser.palettes[1], 'rb') as f:
                     d = f.read(768)
                 if len(d) == 768:
-                    add_cand(f"DEF(pal1: {os.path.basename(def_parser.palettes[1])})", d, 85.0)
+                    add_cand(f"DEF(pal1: {os.path.basename(def_parser.palettes[1])})", d, 150.0)
             except:
                 pass
         for slot in def_parser.pal_defaults:
@@ -499,7 +495,7 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
                     with open(def_parser.palettes[slot], 'rb') as f:
                         d = f.read(768)
                     if len(d) == 768:
-                        add_cand(f"DEF(pal{slot}:default)", d, 80.0)
+                        add_cand(f"DEF(pal{slot}:default)", d, 110.0)
                 except:
                     pass
         for slot in sorted(def_parser.palettes.keys()):
@@ -510,31 +506,35 @@ def resolve_master_palette(char_dir, sff, def_parser=None):
                         with open(p, 'rb') as f:
                             d = f.read(768)
                         if len(d) == 768:
-                            add_cand(f"DEF(pal{slot})", d, 75.0)
+                            add_cand(f"DEF(pal{slot})", d, 100.0)
                     except:
                         pass
+                        
+    # 2. SFF Canonical Stand Palette (group 0 with 0x0C marker) (+120)
+    if sff.stand_palette:
+        add_cand("SFF(stand)", sff.stand_palette, 120.0)
                     
-    # 3. SFF Big Portrait (9000,1) (+70)
+    # 3. SFF First Palette (+80)
+    if sff.first_palette:
+        add_cand("SFF(first)", sff.first_palette, 80.0)
+        
+    # 4. SFF Big Portrait (9000,1) (+40 - fallback only)
     for cname, pdata in sff.candidate_palettes:
         if "9000,1" in cname:
-            add_cand(cname, pdata, 70.0)
+            add_cand(cname, pdata, 40.0)
             
-    # 4. SFF First Palette (+60)
-    if sff.first_palette:
-        add_cand("SFF(first)", sff.first_palette, 60.0)
-        
-    # 5. SFF Small Portrait (9000,0) and other valid SFF sprites (+50)
+    # 5. SFF Small Portrait (9000,0) and other valid SFF sprites (+20)
     for cname, pdata in sff.candidate_palettes:
         if "9000,1" not in cname:
-            add_cand(cname, pdata, 50.0)
+            add_cand(cname, pdata, 20.0)
             
-    # 6. Additional .act in char folder (+30)
+    # 6. Additional .act in char folder (+10)
     for af in glob.glob(os.path.join(char_dir, "*.act")) + glob.glob(os.path.join(char_dir, "*.ACT")):
         try:
             with open(af, "rb") as f:
                 d = f.read(768)
             if len(d) == 768:
-                add_cand(f"ACT({os.path.basename(af)})", d, 30.0)
+                add_cand(f"ACT({os.path.basename(af)})", d, 10.0)
         except:
             pass
             

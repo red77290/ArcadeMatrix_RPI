@@ -5,6 +5,7 @@ import io
 import time
 import logging
 import json
+import colorsys
 from PIL import Image, ImageFile
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -375,6 +376,11 @@ def score_palette(pal_bytes, indices, trans_idx=0):
     black_count = 0
     total = len(used_indices)
     
+    skin_pixel_count = 0
+    neutral_pixel_count = 0
+    blue_purple_count = 0
+    green_count = 0
+    
     for idx in used_indices:
         if not isinstance(idx, int):
             continue
@@ -392,6 +398,21 @@ def score_palette(pal_bytes, indices, trans_idx=0):
                (r >= 235 and g >= 235 and b <= 15):
                 neon_count += 1
                 
+            # Classify neutral vs chromatic pixels
+            if (r < 25 and g < 25 and b < 25) or (r > 230 and g > 230 and b > 230) or (abs(r-g)<15 and abs(g-b)<15 and abs(r-b)<15):
+                neutral_pixel_count += 1
+            else:
+                h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+                if s > 0.15 and v > 0.15:
+                    hue_deg = h * 360.0
+                    # Warm skin / flesh tone range (10° to 45°, R > G > B)
+                    if 10.0 <= hue_deg <= 45.0 and r > g >= b:
+                        skin_pixel_count += 1
+                    elif 180.0 <= hue_deg <= 320.0:
+                        blue_purple_count += 1
+                    elif 70.0 <= hue_deg <= 165.0:
+                        green_count += 1
+                
     u_colors = len(colors)
     if u_colors <= 2 and len(unique_indices) > 2:
         return -9999.0  # Solid monochrome / broken empty palette
@@ -407,14 +428,20 @@ def score_palette(pal_bytes, indices, trans_idx=0):
     if (black_ratio > 0.85 or (black_ratio > 0.70 and u_colors <= 3)) and len(unique_indices) >= 5:
         return -9999.0
         
+    non_neutral = total - neutral_pixel_count
+    # Monochromatic wash filter: If > 80% of chromatic pixels are a single blue/purple/green wash with zero skin tones
+    if non_neutral > 0 and skin_pixel_count == 0 and u_colors >= 6:
+        if (blue_purple_count / non_neutral) > 0.80 or (green_count / non_neutral) > 0.80:
+            return -9999.0
+        
     avg_lum = total_lum / total
     
     # Quality score bounded in [0..50]
     coverage = min(1.0, u_colors / max(len(unique_indices), 1))
-    score = coverage * 40.0
+    score = coverage * 35.0
     
     if 15 <= avg_lum <= 215:
-        score += 10.0
+        score += 15.0
     elif avg_lum < 10 or avg_lum > 240:
         score -= 20.0
         

@@ -381,8 +381,8 @@ impl ArcadeMatrixApp {
         let active_ip = crate::core::splash::SplashScreen::run(
             matrix.as_mut(),
             &running,
-            std::time::Duration::from_millis(4500),
-            std::time::Duration::from_secs(10),
+            std::time::Duration::from_millis(5500),
+            std::time::Duration::from_secs(12),
         );
         info!("ArcadeMatrix RPi Active IP after splash: {}", active_ip);
 

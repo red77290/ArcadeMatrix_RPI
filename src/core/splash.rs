@@ -150,14 +150,29 @@ pub struct SplashScreen {
     is_connected: bool,
 }
 
-/// Checks local IP address non-blockingly
+/// Checks local IP address non-blockingly via UDP routing socket and Linux network tools
 pub fn resolve_local_ip() -> String {
+    // 1. Direct UDP route inspection (instantaneous across all OSes)
     if let Ok(socket) = UdpSocket::bind("0.0.0.0:0") {
         if socket.connect("8.8.8.8:80").is_ok() {
             if let Ok(addr) = socket.local_addr() {
                 let ip = addr.ip().to_string();
                 if ip != "127.0.0.1" && !ip.is_empty() {
                     return ip;
+                }
+            }
+        }
+    }
+    // 2. Linux / Raspberry Pi OS fallback: inspect local assigned IPv4 (works even without WAN access)
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(out) = std::process::Command::new("hostname").arg("-I").output() {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout);
+                for token in s.split_whitespace() {
+                    if token != "127.0.0.1" && token.contains('.') {
+                        return token.to_string();
+                    }
                 }
             }
         }

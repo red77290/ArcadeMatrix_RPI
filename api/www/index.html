@@ -225,38 +225,101 @@
         </header>
 
         <div class="tabs" style="margin-bottom: 1.5rem;">
-          <button class="tab-btn active" onclick="switchSystemTab('hardware')">⚙️ Hardware</button>
-          <button class="tab-btn" onclick="switchSystemTab('night')">🌙 Night Mode</button>
-          <button class="tab-btn" onclick="switchSystemTab('network')">🌐 Network</button>
-          <button class="tab-btn" onclick="switchSystemTab('mqtt')">🔄 MQTT & API</button>
-          <button class="tab-btn" onclick="switchSystemTab('ota')">🚀 Updates</button>
+          <button class="tab-btn active" onclick="switchSystemTab('hardware')" data-i18n="sys_tab_hw">⚙️ Hardware</button>
+          <button class="tab-btn" onclick="switchSystemTab('night')" data-i18n="sys_tab_night">🌙 Night Mode</button>
+          <button class="tab-btn" onclick="switchSystemTab('network')" data-i18n="sys_tab_network">🌐 Network</button>
+          <button class="tab-btn" onclick="switchSystemTab('mqtt')" data-i18n="sys_tab_mqtt">🔄 MQTT & API</button>
+          <button class="tab-btn" onclick="switchSystemTab('ota')" data-i18n="sys_tab_ota">🚀 Updates</button>
         </div>
         
         <!-- Hardware Settings -->
         <div id="sys-tab-hardware" class="tab-pane active">
+          <!-- Screen Orientation & Gyroscope Calibration Card -->
+          <div class="card glass shadow" style="margin-bottom: 1.5rem;">
+            <h3>🧭 Screen Orientation & Gyroscope</h3>
+            <p class="text-muted">Configure display rotation, baseline mounting offset, visual transition FX, or enable auto-rotation via onboard Gyroscope/IMU.</p>
+            
+            <div class="form-grid col-3" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label>Screen Rotation / Mounting Offset</label>
+                <select id="hw-screen-rotation" class="input">
+                  <option value="0">0° - Normal (Landscape)</option>
+                  <option value="1">90° - Clockwise (Cable Left / Portrait)</option>
+                  <option value="2">180° - Inverted (Cable Top / Flip)</option>
+                  <option value="3">270° - Counter-Clockwise (Cable Right / Portrait)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Gyro Auto-Rotation</label>
+                <div style="display: flex; align-items: center; height: 100%;">
+                  <label class="switch">
+                    <input type="checkbox" id="hw-gyro-autorotate" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                <button id="btn-gyro-calibrate" class="btn btn-secondary" style="width: 100%;">🎯 Set Current as Normal (0°)</button>
+              </div>
+            </div>
+
+            <!-- Transition Effects Row -->
+            <div class="form-grid col-3" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label>Rotation Transition Effect</label>
+                <select id="hw-rotation-transition" class="input">
+                  <option value="vortex">✨ Particle Vortex (Vortex de Particules)</option>
+                  <option value="glitch">⚡ Cyberpunk Glitch (Glitch Numérique)</option>
+                  <option value="slide">💫 Smooth Slide (Glissement Directionnel)</option>
+                  <option value="zoom">🌀 Tunnel Zoom (Zoom Arcade 3D)</option>
+                  <option value="matrix">🌊 Matrix Rain (Pluie Numérique)</option>
+                  <option value="random">🎲 Random (Aléatoire à chaque rotation)</option>
+                  <option value="none">None (Instant Cut)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Transition Duration (ms)</label>
+                <input type="number" id="hw-transition-duration" class="input" value="400" min="150" max="1500" step="50">
+              </div>
+              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                <button id="btn-test-transition" class="btn btn-secondary" style="width: 100%;">✨ Test Transition FX</button>
+              </div>
+            </div>
+
+            <div id="gyro-live-status" style="margin-top: 1rem; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
+              <div><strong>Sensor:</strong> <span id="gyro-sensor-name">Probing...</span></div>
+              <div><strong>Gravity Vector:</strong> <span id="gyro-gravity-val">--</span></div>
+              <div><strong>Active Rotation:</strong> <span id="gyro-active-rot">0°</span></div>
+            </div>
+          </div>
+
           <div class="card glass shadow">
             <h3>Matrix Hardware Configuration</h3>
+            
+            <!-- Matrix Geometry -->
             <div class="form-grid col-4">
               <div class="form-group">
                 <label>Rows (Height)</label>
-                <input type="number" id="hw-rows" class="input" value="32">
+                <input type="number" id="hw-rows" class="input" value="64" min="16" max="128" step="16">
               </div>
               <div class="form-group">
                 <label>Cols (Width)</label>
-                <input type="number" id="hw-cols" class="input" value="64">
+                <input type="number" id="hw-cols" class="input" value="64" min="32" max="256" step="16">
               </div>
               <div class="form-group">
-                <label>Chain Length <span class="tooltip-icon" data-i18n-tooltip="tt_hw_chain">?</span></label>
-                <input type="number" id="hw-chain" class="input" value="1">
+                <label>Chain Length <span class="tooltip-icon" data-tooltip="Nombre de panneaux chaînés en série (1 pour un panneau simple)">?</span></label>
+                <input type="number" id="hw-chain" class="input" value="1" min="1" max="8">
               </div>
               <div class="form-group">
-                <label>Parallel Chains <span class="tooltip-icon" data-i18n-tooltip="tt_hw_parallel">?</span></label>
-                <input type="number" id="hw-parallel" class="input" value="1">
+                <label>Power Limit (%) <span class="tooltip-icon" data-tooltip="Limite logicielle de consommation de courant (10% à 100%)">?</span></label>
+                <input type="number" id="hw-power-limit" class="input" value="50" min="10" max="100" step="5">
               </div>
             </div>
-            <div class="form-grid col-4" style="margin-top: 1rem;">
+
+            <!-- Driver & Signal Encoding -->
+            <div class="form-grid col-3" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Selectionne le driver materiel des panneaux LED (SHIFTREG standard, FM6124/FM6126A pour dalles P2 high-density, ICN2038S, SM16208)">?</span></label>
+                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Sélectionne le driver matériel des panneaux LED (SHIFTREG standard, FM6124/FM6126A pour dalles P2 high-density, ICN2038S, SM16208)">?</span></label>
                 <select id="hw-driver-chip" class="input">
                   <option value="SHIFTREG">Standard (SHIFTREG)</option>
                   <option value="FM6126A">FM6124 / FM6126A</option>
@@ -266,19 +329,9 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
-                <select id="hw-mapping" class="input">
-                  <option value="regular">Regular</option>
-                  <option value="regular-pi1">Regular Pi1</option>
-                  <option value="adafruit-hat">Adafruit HAT</option>
-                  <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
-                  <option value="compute-module">Compute Module</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>RGB Sequence <span class="tooltip-icon" data-i18n-tooltip="tt_hw_rgb">?</span></label>
+                <label>RGB Sequence <span class="tooltip-icon" data-tooltip="Ordre des canaux de couleur. Modifiez si les couleurs sont inversées (ex: bleu à la place du rouge)">?</span></label>
                 <select id="hw-rgb" class="input">
-                  <option value="RGB">RGB</option>
+                  <option value="RGB">RGB (Standard)</option>
                   <option value="RBG">RBG</option>
                   <option value="GRB">GRB</option>
                   <option value="GBR">GBR</option>
@@ -287,7 +340,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Default 0. Set to 1 for AB, 2 for direct, 3 for ABC, 4 for ShiftReg. Used for complex P2 panels.">?</span></label>
+                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Mode de multiplexage des lignes : 0=Direct Binaire (défaut), 1=AB 16 lignes, 2=Direct 32 lignes, 3=Direct 64 lignes, 4=Shift Register">?</span></label>
                 <select id="hw-row-addr-type" class="input">
                   <option value="0">0 - Direct Binary (Default)</option>
                   <option value="1">1 - Direct 16 Lines (AB)</option>
@@ -296,51 +349,88 @@
                   <option value="4">4 - Shift Register (ShiftReg)</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label>Multiplexing <span class="tooltip-icon" data-tooltip="Default 0. 1=Stripe, 2=Checkered. Useful for indoor panels.">?</span></label>
-                <input type="number" id="hw-multiplexing" class="input" value="0" min="0" max="17">
-              </div>
             </div>
+
+            <!-- DMA Timing & Anti-Ghosting -->
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 4=4, Pi 5=5)">?</span></label>
-                <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
+                <label>Color Depth (Bits) <span class="tooltip-icon" data-tooltip="Profondeur de couleur par canal (2 à 8 bits). 8 bits = 24-bit TrueColor">?</span></label>
+                <input type="number" id="hw-color-depth" class="input" value="8" min="2" max="8">
               </div>
               <div class="form-group">
-                <label>PWM Bits <span class="tooltip-icon" data-tooltip="Color depth (1-11)">?</span></label>
-                <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
+                <label>Latch Blanking <span class="tooltip-icon" data-tooltip="Nombre de cycles d'extinction OE pendant le verrouillage LAT (1 à 16). Augmentez pour éliminer les traînées blanches / ghosting">?</span></label>
+                <input type="number" id="hw-latch-blanking" class="input" value="4" min="1" max="16">
               </div>
               <div class="form-group">
-                <label>PWM LSB (ns) <span class="tooltip-icon" data-tooltip="LSB pulse width (130 default)">?</span></label>
-                <input type="number" id="hw-pwm-lsb" class="input" value="130" min="50" max="3000">
+                <label>Target Refresh (Hz) <span class="tooltip-icon" data-tooltip="Fréquence de rafraîchissement minimale ciblée par le moteur DMA (défaut 90 Hz ou 120 Hz)">?</span></label>
+                <input type="number" id="hw-limit-refresh" class="input" value="90" min="30" max="300" step="10">
               </div>
               <div class="form-group">
-                <label>Limit Refresh (Hz) <span class="tooltip-icon" data-tooltip="Max refresh rate in Hz (0 = unlimited)">?</span></label>
-                <input type="number" id="hw-limit-refresh" class="input" value="0" min="0" max="500">
-              </div>
-              <div class="form-group">
-                <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if audio is glitching">?</span></label>
+                <label>Invert CLK Phase <span class="tooltip-icon" data-tooltip="Inverse la phase d'horloge CLK. Recommandé actif sur ESP32-S3 pour stabiliser les pixels et éliminer le bruit">?</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
-                    <input type="checkbox" id="hw-disable-pulsing">
+                    <input type="checkbox" id="hw-clk-phase" checked>
                     <span class="slider"></span>
                   </label>
                 </div>
               </div>
             </div>
-            <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Save Hardware Settings</button>
+
+            <!-- Memory & Buffering -->
+            <div class="form-grid col-2" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label>Force Single Buffer <span class="tooltip-icon" data-tooltip="Désactive le double buffering DMA pour diviser par deux l'empreinte mémoire RAM">?</span></label>
+                <div style="display: flex; align-items: center; height: 100%;">
+                  <label class="switch">
+                    <input type="checkbox" id="hw-force-single-buffer">
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <!-- Raspberry Pi Linux Specific Options (Hidden on ESP32/ESP32-S3) -->
+            <div id="rpi-hardware-group" class="rpi-only" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--glass-border);">
+              <h4 style="color: var(--accent-info); margin-bottom: 0.75rem;">🍓 Raspberry Pi 40-Pin GPIO Options</h4>
+              <div class="form-grid col-3">
+                <div class="form-group">
+                  <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
+                  <select id="hw-mapping" class="input">
+                    <option value="regular">Regular</option>
+                    <option value="regular-pi1">Regular Pi1</option>
+                    <option value="adafruit-hat">Adafruit HAT</option>
+                    <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
+                    <option value="compute-module">Compute Module</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 4=4, Pi 5=5)">?</span></label>
+                  <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
+                </div>
+                <div class="form-group">
+                  <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if audio is glitching on Pi ALSA">?</span></label>
+                  <div style="display: flex; align-items: center; height: 100%;">
+                    <label class="switch">
+                      <input type="checkbox" id="hw-disable-pulsing">
+                      <span class="slider"></span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">💾 Save Hardware Settings</button>
           </div>
         </div>
 
         <!-- Night Mode & Standby -->
         <div id="sys-tab-night" class="tab-pane">
           <div class="card glass shadow">
-            <h3>🌙 Night Mode & Standby Schedule</h3>
-            <p class="text-muted">Automatically reduce matrix brightness or completely turn off the display at night.</p>
+            <h3 data-i18n="night_title">🌙 Night Mode & Standby Schedule</h3>
+            <p class="text-muted" data-i18n="night_desc">Automatically reduce matrix brightness or completely turn off the display at night.</p>
             
             <div class="form-grid col-3" style="margin-top: 1.5rem;">
               <div class="form-group">
-                <label>Enable Night Mode</label>
+                <label data-i18n="night_enable">Enable Night Mode</label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
                     <input type="checkbox" id="cfg-night-mode-enabled">
@@ -349,128 +439,128 @@
                 </div>
               </div>
               <div class="form-group">
-                <label>Turn Off Time (Bedtime)</label>
+                <label data-i18n="night_turn_off">Turn Off Time (Bedtime)</label>
                 <input type="time" id="cfg-turn-off-at" class="input" value="23:00">
               </div>
               <div class="form-group">
-                <label>Wake Up Time (Morning)</label>
+                <label data-i18n="night_wake_up">Wake Up Time (Morning)</label>
                 <input type="time" id="cfg-wake-up-at" class="input" value="07:00">
               </div>
             </div>
 
             <div class="form-group" style="margin-top: 1.5rem;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
-                <label style="margin: 0;">Night Brightness</label>
+                <label style="margin: 0;" data-i18n="night_brightness">Night Brightness</label>
                 <span id="night-brightness-val" class="badge" style="font-size: 1rem; font-weight: 700;">10%</span>
               </div>
               <input type="range" id="cfg-night-brightness" min="0" max="100" value="10" step="1" style="width: 100%; accent-color: var(--accent-primary);">
-              <small class="text-muted" style="display: block; margin-top: 0.5rem;">Set to 0% to completely power off the LED panel and pause DMA rendering during night hours.</small>
+              <small class="text-muted" style="display: block; margin-top: 0.5rem;" data-i18n="night_brightness_help">Set to 0% to completely power off the LED panel and pause DMA rendering during night hours.</small>
             </div>
 
-            <button id="btn-save-night" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">💾 Save Night Mode Settings</button>
+            <button id="btn-save-night" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;" data-i18n="night_save_btn">💾 Save Night Mode Settings</button>
           </div>
         </div>
 
         <!-- Network -->
         <div id="sys-tab-network" class="tab-pane">
           <div class="card glass shadow">
-            <h3>Wi-Fi Configuration</h3>
+            <h3 data-i18n="wifi_title">Wi-Fi Configuration</h3>
             <div class="form-grid">
               <div class="form-group">
-                <label>SSID (Network Name)</label>
+                <label data-i18n="wifi_ssid">SSID (Network Name)</label>
                 <input type="text" id="hw-wifi-ssid" class="input" placeholder="Your Network">
               </div>
               <div class="form-group">
-                <label>Password</label>
+                <label data-i18n="wifi_pass">Password</label>
                 <input type="password" id="hw-wifi-pass" class="input" placeholder="••••••••">
               </div>
             </div>
-            <button id="btn-save-wifi" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Connect Wi-Fi</button>
+            <button id="btn-save-wifi" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="wifi_connect_btn">Connect Wi-Fi</button>
           </div>
         </div>
 
         <!-- MQTT & API -->
         <div id="sys-tab-mqtt" class="tab-pane">
           <div class="card glass shadow" style="margin-bottom: 2rem;">
-            <h3>MQTT Integration</h3>
+            <h3 data-i18n="mqtt_title">MQTT Integration</h3>
             <div class="form-group">
-              <label>Enable MQTT</label>
+              <label data-i18n="mqtt_enable">Enable MQTT</label>
               <select id="hw-mqtt-enable" class="input">
-                <option value="0">Disabled</option>
-                <option value="1">Enabled</option>
+                <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
               </select>
             </div>
             <div class="form-grid">
               <div class="form-group">
-                <label>Broker IP</label>
+                <label data-i18n="mqtt_broker">Broker IP</label>
                 <input type="text" id="hw-mqtt-broker" class="input" placeholder="127.0.0.1">
               </div>
               <div class="form-group">
-                <label>Port</label>
+                <label data-i18n="mqtt_port">Port</label>
                 <input type="number" id="hw-mqtt-port" class="input" value="1883">
               </div>
             </div>
             <div class="form-grid" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Username</label>
+                <label data-i18n="mqtt_user">Username</label>
                 <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional">
               </div>
               <div class="form-group">
-                <label>Password</label>
+                <label data-i18n="mqtt_pass">Password</label>
                 <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
               </div>
             </div>
-            <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Save MQTT Settings</button>
+            <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="mqtt_save_btn">Save MQTT Settings</button>
             
             <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
             
-            <h4 style="margin-top: 1.5rem;">Recalbox / Batocera Sync</h4>
-            <p class="text-muted" style="font-size: 0.9em;">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
+            <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera Sync</h4>
+            <p class="text-muted" style="font-size: 0.9em;" data-i18n="recalbox_desc">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
             <div class="form-group" style="margin-top: 1rem;">
               <label class="toggle-btn" style="display:inline-flex; align-items:center; cursor:pointer;">
                 <input type="checkbox" id="hw-mqtt-custom-auth" style="margin-right:0.5rem; accent-color:var(--primary);">
-                <span>Use custom SSH credentials (Default: root / recalboxroot)</span>
+                <span data-i18n="recalbox_custom_auth">Use custom SSH credentials (Default: root / recalboxroot)</span>
               </label>
             </div>
             <div id="mqtt-custom-auth-fields" class="form-grid" style="display: none; margin-top: 0.5rem; margin-bottom: 1rem;">
               <div class="form-group">
-                <label>SSH Username</label>
+                <label data-i18n="recalbox_ssh_user">SSH Username</label>
                 <input type="text" id="hw-mqtt-ssh-user" class="input" placeholder="root" value="root">
               </div>
               <div class="form-group">
-                <label>SSH Password</label>
+                <label data-i18n="recalbox_ssh_pass">SSH Password</label>
                 <input type="password" id="hw-mqtt-ssh-pass" class="input" placeholder="recalboxroot">
               </div>
             </div>
             <div class="form-grid" style="align-items: end;">
               <div class="form-group">
-                <label>Console IP Address</label>
+                <label data-i18n="recalbox_console_ip">Console IP Address</label>
                 <input type="text" id="hw-mqtt-ip" class="input" placeholder="192.168.1.100">
               </div>
               <div class="form-group" style="display: flex; gap: 0.5rem;">
-                <button id="btn-install-mqtt" class="btn btn-warning" style="flex: 1;">Install via SSH</button>
-                <button id="btn-check-logs" class="btn btn-primary" style="flex: 1;">Check Logs</button>
+                <button id="btn-install-mqtt" class="btn btn-warning" style="flex: 1;" data-i18n="recalbox_install_btn">Install via SSH</button>
+                <button id="btn-check-logs" class="btn btn-primary" style="flex: 1;" data-i18n="recalbox_logs_btn">Check Logs</button>
               </div>
             </div>
             <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
           </div>
           
           <div class="card glass shadow">
-            <h3>API Authentication</h3>
+            <h3 data-i18n="api_auth_title">API Authentication</h3>
             <div class="form-grid">
               <div class="form-group">
-                <label>Require Auth for API</label>
+                <label data-i18n="api_auth_enable">Require Auth for API</label>
                 <select id="hw-api-auth" class="input">
-                  <option value="false">Disabled</option>
-                  <option value="true">Enabled</option>
+                  <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>API Token</label>
+                <label data-i18n="api_token">API Token</label>
                 <input type="text" id="hw-api-token" class="input" placeholder="Token for clients">
               </div>
             </div>
-            <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem; width: 100%;">Save API Auth</button>
+            <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="api_save_btn">Save API Auth</button>
           </div>
         </div>
 
@@ -479,14 +569,14 @@
           <!-- 1. Online Automatic Update (GitHub Releases) -->
           <div class="card glass shadow ota-card" style="margin-bottom: 1.5rem;">
             <div class="card-header-badge">
-              <h3>🌐 Online Update (GitHub Releases)</h3>
+              <h3 data-i18n="ota_online_title">🌐 Online Update (GitHub Releases)</h3>
               <span class="badge badge-accent">1-Click OTA</span>
             </div>
-            <p class="text-muted">Check GitHub Releases for new updates matching your Raspberry Pi architecture and update automatically.</p>
+            <p class="text-muted" data-i18n="ota_online_desc">Check GitHub Releases for new updates matching your Raspberry Pi architecture and update automatically.</p>
 
             <div class="ota-info-box" style="margin-bottom: 1rem;">
-              <div>Current Version: <strong id="ota-current-version">v3.0.0</strong></div>
-              <div>System Architecture: <strong id="ota-current-arch">aarch64</strong></div>
+              <div><span data-i18n="ota_cur_ver">Current Version:</span> <strong id="ota-current-version">v3.0.0</strong></div>
+              <div><span data-i18n="ota_sys_arch">System Architecture:</span> <strong id="ota-current-arch">aarch64</strong></div>
             </div>
 
             <div id="ota-online-card" style="display: none; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
@@ -506,10 +596,10 @@
             </div>
 
             <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
-              <button id="btn-ota-check" class="btn btn-primary" style="flex: 1;">
+              <button id="btn-ota-check" class="btn btn-primary" style="flex: 1;" data-i18n="ota_check_btn">
                 🔍 Check for Updates
               </button>
-              <button id="btn-ota-auto-install" class="btn btn-warning" style="flex: 1; display: none;">
+              <button id="btn-ota-auto-install" class="btn btn-warning" style="flex: 1; display: none;" data-i18n="ota_download_btn">
                 ⬇️ Download & Install Update
               </button>
             </div>
@@ -518,10 +608,10 @@
           <!-- 2. Manual Binary Upload (Offline) -->
           <div class="card glass shadow ota-card">
             <div class="card-header-badge">
-              <h3>📁 Manual File Upload</h3>
+              <h3 data-i18n="ota_manual_title">📁 Manual File Upload</h3>
               <span class="badge">Offline / Custom</span>
             </div>
-            <p class="text-muted">Upload a pre-compiled binary manually if your device is offline or using a custom build.</p>
+            <p class="text-muted" data-i18n="ota_manual_desc">Upload a pre-compiled binary manually if your device is offline or using a custom build.</p>
 
             <div id="ota-drop-zone" class="drop-zone">
               <div class="drop-icon">📁</div>
@@ -539,7 +629,7 @@
               <span id="ota-progress-text" class="progress-text">0%</span>
             </div>
 
-            <button id="btn-ota-update" class="btn btn-warning btn-lg" style="margin-top: 1.5rem; width: 100%;" disabled>
+            <button id="btn-ota-update" class="btn btn-warning btn-lg" style="margin-top: 1.5rem; width: 100%;" disabled data-i18n="ota_upload_btn">
               Upload & Update Firmware
             </button>
           </div>

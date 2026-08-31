@@ -270,19 +270,29 @@ async fn get_engines(req: HttpRequest, data: web::Data<AppState>) -> impl Respon
 }
 
 /// Runs a privileged power command, trying several candidates so it works
-/// whether or not `sudo` is needed and regardless of the systemd PATH. Logs the
-/// outcome instead of silently swallowing failures (the previous `.spawn().ok()`
-/// hid the reason reboot/shutdown appeared to do nothing).
+/// whether or not `sudo` is needed and regardless of the systemd PATH. Verifies
+/// command exit status and logs stderr before falling back to the next candidate.
 fn run_power_command(candidates: &[&[&str]]) -> bool {
     for cand in candidates {
         let (bin, args) = cand.split_first().expect("non-empty command");
-        match std::process::Command::new(bin).args(args).spawn() {
-            Ok(_) => {
-                tracing::info!("Power command dispatched: {} {:?}", bin, args);
-                return true;
+        match std::process::Command::new(bin).args(args).output() {
+            Ok(output) => {
+                if output.status.success() {
+                    tracing::info!("Power command executed successfully: {} {:?}", bin, args);
+                    return true;
+                } else {
+                    let err = String::from_utf8_lossy(&output.stderr);
+                    tracing::warn!(
+                        "Power command '{} {:?}' exited with status {}: {}",
+                        bin,
+                        args,
+                        output.status,
+                        err.trim()
+                    );
+                }
             }
             Err(e) => {
-                tracing::warn!("Power command '{}' failed: {}", bin, e);
+                tracing::warn!("Power command '{}' failed to start: {}", bin, e);
             }
         }
     }
@@ -308,7 +318,20 @@ async fn reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    let ok = run_power_command(&[
+        &["systemctl", "reboot"],
+        &["sudo", "systemctl", "reboot"],
+        &["/bin/systemctl", "reboot"],
+        &["/usr/bin/systemctl", "reboot"],
+        &["reboot"],
+        &["sudo", "reboot"],
+        &["/sbin/reboot"],
+        &["sudo", "/sbin/reboot"],
+        &["shutdown", "-r", "now"],
+        &["sudo", "shutdown", "-r", "now"],
+        &["/sbin/shutdown", "-r", "now"],
+        &["sudo", "/sbin/shutdown", "-r", "now"],
+    ]);
     if ok {
         HttpResponse::Ok().json(json!({"status": "rebooting"}))
     } else {
@@ -321,7 +344,20 @@ async fn post_reboot(req: HttpRequest, data: web::Data<AppState>) -> impl Respon
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    let ok = run_power_command(&[&["systemctl", "reboot"], &["reboot"], &["sudo", "reboot"]]);
+    let ok = run_power_command(&[
+        &["systemctl", "reboot"],
+        &["sudo", "systemctl", "reboot"],
+        &["/bin/systemctl", "reboot"],
+        &["/usr/bin/systemctl", "reboot"],
+        &["reboot"],
+        &["sudo", "reboot"],
+        &["/sbin/reboot"],
+        &["sudo", "/sbin/reboot"],
+        &["shutdown", "-r", "now"],
+        &["sudo", "shutdown", "-r", "now"],
+        &["/sbin/shutdown", "-r", "now"],
+        &["sudo", "/sbin/shutdown", "-r", "now"],
+    ]);
     if ok {
         HttpResponse::Ok().json(json!({"status": "rebooting"}))
     } else {
@@ -336,8 +372,17 @@ async fn post_shutdown(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     }
     let ok = run_power_command(&[
         &["systemctl", "poweroff"],
+        &["sudo", "systemctl", "poweroff"],
+        &["/bin/systemctl", "poweroff"],
+        &["/usr/bin/systemctl", "poweroff"],
+        &["poweroff"],
+        &["sudo", "poweroff"],
+        &["/sbin/poweroff"],
+        &["sudo", "/sbin/poweroff"],
         &["shutdown", "-h", "now"],
         &["sudo", "shutdown", "-h", "now"],
+        &["/sbin/shutdown", "-h", "now"],
+        &["sudo", "/sbin/shutdown", "-h", "now"],
     ]);
     if ok {
         HttpResponse::Ok().json(json!({"status": "shutting_down"}))

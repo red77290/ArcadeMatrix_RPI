@@ -49,9 +49,9 @@ impl ArcadeMatrixApp {
         {
             let sudoers_file = "/etc/sudoers.d/010_arcadematrix_daemon";
             let sudoers_content =
-                "daemon ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /sbin/shutdown, /sbin/reboot\n";
+                "ALL ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /sbin/shutdown, /usr/sbin/shutdown, /sbin/reboot, /usr/sbin/reboot, /sbin/poweroff, /usr/sbin/poweroff, /bin/systemctl, /usr/bin/systemctl\n";
             if std::fs::read_to_string(sudoers_file).unwrap_or_default() != sudoers_content {
-                info!("Granting sudo privileges to daemon user for system commands...");
+                info!("Granting sudo privileges for system power and network commands...");
                 std::fs::write(sudoers_file, sudoers_content).ok();
                 std::process::Command::new("chmod")
                     .args(["0440", sudoers_file])
@@ -376,12 +376,24 @@ impl ArcadeMatrixApp {
         // onto base display frames following the 3-tier hierarchy.
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
 
-        // Display startup IP Address banner
+        // 1. Run interactive Startup Splash Screen (Mario hammer smash & Pacman eat particles)
+        // while polling for real network IP in the background.
+        let active_ip = crate::core::splash::SplashScreen::run(
+            matrix.as_mut(),
+            &running,
+            std::time::Duration::from_millis(4500),
+            std::time::Duration::from_secs(10),
+        );
+        info!("ArcadeMatrix RPi Active IP after splash: {}", active_ip);
+
+        // 2. Display startup IP Address banner with the resolved network IP
         let startup_payload =
-            MessagePayload::new(format!("IP: {}", local_ip), "#00ffc8", 1, "left", 4);
+            MessagePayload::new(format!("IP: {}", active_ip), "#00ffc8", 1, "left", 4);
 
         let start_time = std::time::Instant::now();
-        while start_time.elapsed() < std::time::Duration::from_secs(4) {
+        while running.load(Ordering::SeqCst)
+            && start_time.elapsed() < std::time::Duration::from_secs(4)
+        {
             matrix.clear();
             message_engine.render_payload(matrix.as_mut(), &startup_payload);
             matrix.update();

@@ -9,6 +9,7 @@ pub mod matrix;
 pub mod overlay_manager;
 pub mod registry;
 pub mod rotation;
+pub mod splash;
 pub mod ssh_installer;
 pub mod theme;
 pub mod wifi;

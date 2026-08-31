@@ -219,11 +219,13 @@ export function formatOptLabel(fieldId, val, raw) {
     if (v === '%d %b %Y') return "DD Mon YYYY (24 Aug 2026)";
     if (v === '%A %d %B') return "Weekday DD Month (Monday 24 August)";
   }
-  if (fieldId === 'clock_format') {
-    if (v === '%H:%M:%S') return "24h with Seconds (HH:MM:SS)";
-    if (v === '%H:%M') return "24h (HH:MM)";
-    if (v === '%I:%M:%S %p') return "12h with Seconds (HH:MM:SS AM/PM)";
-    if (v === '%I:%M %p') return "12h (HH:MM AM/PM)";
+  if (fieldId === 'clock_format' || fieldId === 'format') {
+    if (v === '%H:%M:%S') return dict.opt_time_24s || "24h with Seconds (HH:MM:SS)";
+    if (v === '%H:%M') return dict.opt_time_24 || "24h (HH:MM)";
+    if (v === '%I:%M:%S %p') return dict.opt_time_12s_ampm || "12h with Seconds (HH:MM:SS AM/PM)";
+    if (v === '%I:%M %p') return dict.opt_time_12_ampm || "12h (HH:MM AM/PM)";
+    if (v === '%I:%M:%S') return dict.opt_time_12s || "12h with Seconds (HH:MM:SS)";
+    if (v === '%I:%M') return dict.opt_time_12 || "12h (HH:MM)";
   }
   // 8. Theme names
   if (fieldId === 'clock_theme' || fieldId === 'theme') {
@@ -464,7 +466,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
                 <span style="font-size: 0.85rem; color: var(--text-muted);">${engId === 'gifs' ? 'GIFs' : 'sec'}</span>
               </div>
               <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
-                <input type="checkbox" id="modal-check-fighter" checked>
+                <input type="checkbox" id="modal-check-fighter" ${engId === 'clock' ? 'checked' : ''}>
                 <span data-i18n="fighter_overlay_label">${t('fighter_overlay_label', '🥊 Street Fighter Overlay')}</span>
               </label>
             </div>
@@ -554,7 +556,12 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           const dur = parseInt(overlay.querySelector('#modal-input-duration').value) || 30;
           const fighter = overlay.querySelector('#modal-check-fighter').checked;
           const newEntries = Array.isArray(currentRotation) ? currentRotation.slice() : [];
-          newEntries.push({ instance_id: instId, duration_sec: dur, fighter_overlay: fighter });
+          newEntries.push({
+            instance_id: instId,
+            duration_sec: dur,
+            overlays: { fighter: fighter },
+            fighter_overlay: fighter
+          });
           await API.post('/api/rotation', newEntries);
         }
 
@@ -666,8 +673,15 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       fightLbl.title = t('fighter_tooltip', 'Show Street Fighter battle animation overlay on this screen');
       const fightCb = document.createElement('input');
       fightCb.type = 'checkbox';
-      fightCb.checked = entry.fighter_overlay !== false;
-      fightCb.onchange = () => { entry.fighter_overlay = fightCb.checked; };
+      const isFighter = (entry.overlays && typeof entry.overlays.fighter === 'boolean')
+        ? entry.overlays.fighter
+        : (entry.fighter_overlay === true);
+      fightCb.checked = isFighter;
+      fightCb.onchange = () => {
+        if (!entry.overlays) entry.overlays = {};
+        entry.overlays.fighter = fightCb.checked;
+        entry.fighter_overlay = fightCb.checked;
+      };
       fightLbl.appendChild(fightCb);
       const fightTxt = document.createElement('span');
       fightTxt.innerText = `🥊 ${t('fighter_title', 'Overlay')}`;
@@ -777,7 +791,14 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
     if (!val) return;
     if (val.startsWith('inst:')) {
       const instId = val.replace('inst:', '');
-      entries.push({ instance_id: instId, duration_sec: 30, fighter_overlay: true });
+      const inst = instancesList.find(i => i.instance_id === instId);
+      const isClock = inst && inst.engine_id === 'clock';
+      entries.push({
+        instance_id: instId,
+        duration_sec: 30,
+        overlays: { fighter: isClock },
+        fighter_overlay: isClock
+      });
       renderRows();
     } else if (val.startsWith('new:')) {
       const engId = val.replace('new:', '');
@@ -792,11 +813,17 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
   saveBtn.setAttribute('data-i18n', 'rotation_save_btn');
   saveBtn.innerText = `💾 ${t('rotation_save_btn', 'Save Rotation Playlist')}`;
   saveBtn.onclick = async () => {
-    const payload = entries.map(e => ({
-      instance_id: e.instance_id,
-      duration_sec: parseInt(e.duration_sec) || 1,
-      fighter_overlay: e.fighter_overlay !== false,
-    }));
+    const payload = entries.map(e => {
+      const active = (e.overlays && typeof e.overlays.fighter === 'boolean')
+        ? e.overlays.fighter
+        : (e.fighter_overlay === true);
+      return {
+        instance_id: e.instance_id,
+        duration_sec: parseInt(e.duration_sec) || 1,
+        overlays: { fighter: active },
+        fighter_overlay: active,
+      };
+    });
     try {
       await API.post('/api/rotation', payload);
       window.showToast('Rotation playlist saved successfully!', 'success');
@@ -1072,7 +1099,13 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             newRot = newRot.filter(r => r.instance_id !== instance.instance_id);
             window.showToast(`Removed '${info.title}' from rotation`, 'info');
           } else {
-            newRot.push({ instance_id: instance.instance_id, duration_sec: 30, fighter_overlay: true });
+            const isClock = instance.engine_id === 'clock';
+            newRot.push({
+              instance_id: instance.instance_id,
+              duration_sec: 30,
+              overlays: { fighter: isClock },
+              fighter_overlay: isClock
+            });
             window.showToast(`Added '${info.title}' to rotation`, 'success');
           }
           await API.post('/api/rotation', newRot);

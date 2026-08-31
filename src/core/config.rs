@@ -367,3 +367,36 @@ impl Config {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rotation_entry_legacy_normalization() {
+        let json = r#"{"instance_id":"clock_1","duration_sec":30,"fighter_overlay":true}"#;
+        let mut entry: RotationEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.fighter_overlay, Some(true));
+        entry.normalize();
+        assert_eq!(entry.overlays.fighter, true);
+        assert_eq!(entry.fighter_overlay, None);
+    }
+
+    #[test]
+    fn test_rotation_entry_overlays_fighter_false() {
+        let json = r#"{"instance_id":"gifs_1","duration_sec":3,"overlays":{"fighter":false}}"#;
+        let mut entry: RotationEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.overlays.fighter, false);
+        entry.normalize();
+        assert_eq!(entry.overlays.fighter, false);
+        assert_eq!(entry.fighter_overlay, None);
+    }
+
+    #[test]
+    fn test_rotation_entry_default() {
+        let entry = RotationEntry::new("clock_main", 45);
+        assert_eq!(entry.instance_id, "clock_main");
+        assert_eq!(entry.duration_sec, 45);
+        assert_eq!(entry.overlays.fighter, false);
+    }
+}

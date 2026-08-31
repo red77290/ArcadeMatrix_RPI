@@ -42,10 +42,6 @@ impl PacmanClock {
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
-        // Adapt radius and speed to matrix size (smooth 2.5s transition at 30-60 FPS)
-        self.radius = ((6.0 * h / 32.0) as i32).max(4);
-        self.speed = (0.8 * w / 64.0).max(0.6);
-
         let now_min = minutes as i32;
 
         if self.last_minute == -1 {
@@ -62,6 +58,23 @@ impl PacmanClock {
         } else if !self.transitioning {
             self.new_time_str = time_str.to_string();
         }
+
+        // Measure font height to ensure Pacman is scaled larger than the digits
+        let active_str = if self.transitioning {
+            &self.old_time_str
+        } else {
+            &self.new_time_str
+        };
+        let (pixels, _, _) = font.get_pixel_map(active_str, scale as f32);
+        let mut text_h = 0;
+        for char_pixels in &pixels {
+            for &(_, py) in char_pixels {
+                text_h = text_h.max(py + 1);
+            }
+        }
+        let target_r = ((text_h as f32 * 0.70) as i32) + 1;
+        self.radius = target_r.max(4).min((h as i32 / 2) - 1);
+        self.speed = (0.8 * w / 64.0).max(0.6);
 
         let py = (h / 2.0) as i32;
 

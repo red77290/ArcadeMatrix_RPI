@@ -3,6 +3,153 @@ use super::font::draw_text_clipped;
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
 
+type Icon8x8 = [(u8, u8, u8); 64];
+
+const C_BITCOIN: (u8, u8, u8) = (247, 147, 26); // Bitcoin Orange
+const C_ETHEREUM: (u8, u8, u8) = (98, 126, 234); // Ethereum Blue-Purple
+const C_SOLANA: (u8, u8, u8) = (20, 241, 149); // Solana Neon Green
+const C_DOGE: (u8, u8, u8) = (194, 166, 50); // Doge Gold
+const C_APPLE: (u8, u8, u8) = (225, 225, 225); // Apple Silver
+const C_NVIDIA: (u8, u8, u8) = (118, 185, 0); // Nvidia Green
+const C_TESLA: (u8, u8, u8) = (227, 25, 55); // Tesla Red
+const C_WHITE: (u8, u8, u8) = (255, 255, 255);
+const C_NONE: (u8, u8, u8) = (0, 0, 0);
+
+// Official 8x8 pixel-art bitmaps matching ESP32 firmware
+const ICON_BTC: Icon8x8 = [
+    C_NONE, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_NONE, C_NONE, C_BITCOIN,
+    C_BITCOIN, C_WHITE, C_BITCOIN, C_WHITE, C_BITCOIN, C_BITCOIN, C_NONE, C_BITCOIN, C_BITCOIN,
+    C_WHITE, C_WHITE, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_NONE, C_BITCOIN, C_BITCOIN, C_WHITE,
+    C_BITCOIN, C_WHITE, C_BITCOIN, C_BITCOIN, C_NONE, C_BITCOIN, C_BITCOIN, C_WHITE, C_WHITE,
+    C_BITCOIN, C_BITCOIN, C_BITCOIN, C_NONE, C_BITCOIN, C_BITCOIN, C_WHITE, C_BITCOIN, C_WHITE,
+    C_BITCOIN, C_BITCOIN, C_NONE, C_NONE, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_ETH: Icon8x8 = [
+    C_NONE, C_NONE, C_NONE, C_ETHEREUM, C_ETHEREUM, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+    C_ETHEREUM, C_WHITE, C_ETHEREUM, C_NONE, C_NONE, C_NONE, C_NONE, C_ETHEREUM, C_ETHEREUM,
+    C_WHITE, C_ETHEREUM, C_ETHEREUM, C_NONE, C_NONE, C_ETHEREUM, C_ETHEREUM, C_ETHEREUM, C_WHITE,
+    C_ETHEREUM, C_ETHEREUM, C_ETHEREUM, C_NONE, C_NONE, C_ETHEREUM, C_ETHEREUM, C_WHITE,
+    C_ETHEREUM, C_ETHEREUM, C_NONE, C_NONE, C_NONE, C_NONE, C_ETHEREUM, C_WHITE, C_ETHEREUM,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_ETHEREUM, C_ETHEREUM, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_SOL: Icon8x8 = [
+    C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA,
+    C_SOLANA, C_SOLANA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_SOLANA, C_SOLANA,
+    C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA,
+    C_SOLANA, C_SOLANA, C_SOLANA, C_SOLANA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_DOGE: Icon8x8 = [
+    C_NONE, C_DOGE, C_DOGE, C_DOGE, C_DOGE, C_DOGE, C_NONE, C_NONE, C_DOGE, C_DOGE, C_WHITE,
+    C_WHITE, C_DOGE, C_DOGE, C_DOGE, C_NONE, C_DOGE, C_DOGE, C_WHITE, C_DOGE, C_WHITE, C_DOGE,
+    C_DOGE, C_NONE, C_DOGE, C_DOGE, C_WHITE, C_DOGE, C_WHITE, C_DOGE, C_DOGE, C_NONE, C_DOGE,
+    C_DOGE, C_WHITE, C_DOGE, C_WHITE, C_DOGE, C_DOGE, C_NONE, C_DOGE, C_DOGE, C_WHITE, C_WHITE,
+    C_DOGE, C_DOGE, C_DOGE, C_NONE, C_NONE, C_DOGE, C_DOGE, C_DOGE, C_DOGE, C_DOGE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_AAPL: Icon8x8 = [
+    C_NONE, C_NONE, C_NONE, C_APPLE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_APPLE,
+    C_APPLE, C_APPLE, C_NONE, C_NONE, C_NONE, C_NONE, C_APPLE, C_APPLE, C_APPLE, C_APPLE, C_APPLE,
+    C_NONE, C_NONE, C_NONE, C_APPLE, C_APPLE, C_APPLE, C_APPLE, C_APPLE, C_NONE, C_NONE, C_NONE,
+    C_APPLE, C_APPLE, C_APPLE, C_APPLE, C_APPLE, C_NONE, C_NONE, C_NONE, C_APPLE, C_APPLE, C_APPLE,
+    C_APPLE, C_APPLE, C_NONE, C_NONE, C_NONE, C_NONE, C_APPLE, C_NONE, C_APPLE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_NVDA: Icon8x8 = [
+    C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NONE, C_NVIDIA, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_NVIDIA,
+    C_NVIDIA, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_WHITE, C_NVIDIA, C_NONE,
+    C_NVIDIA, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NONE, C_NVIDIA, C_NONE,
+    C_NVIDIA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NVIDIA, C_NONE, C_NVIDIA, C_NVIDIA,
+    C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NVIDIA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_TSLA: Icon8x8 = [
+    C_TESLA, C_TESLA, C_TESLA, C_TESLA, C_TESLA, C_TESLA, C_TESLA, C_NONE, C_NONE, C_NONE, C_TESLA,
+    C_TESLA, C_TESLA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_TESLA, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_TESLA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_TESLA, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_TESLA,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_TESLA, C_NONE, C_NONE, C_NONE,
+    C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE, C_NONE,
+];
+
+const ICON_MSFT: Icon8x8 = [
+    C_NONE,
+    (242, 80, 34),
+    (242, 80, 34),
+    C_NONE,
+    C_NONE,
+    (127, 186, 0),
+    (127, 186, 0),
+    C_NONE,
+    C_NONE,
+    (242, 80, 34),
+    (242, 80, 34),
+    C_NONE,
+    C_NONE,
+    (127, 186, 0),
+    (127, 186, 0),
+    C_NONE,
+    C_NONE,
+    (242, 80, 34),
+    (242, 80, 34),
+    C_NONE,
+    C_NONE,
+    (127, 186, 0),
+    (127, 186, 0),
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    C_NONE,
+    (0, 164, 239),
+    (0, 164, 239),
+    C_NONE,
+    C_NONE,
+    (255, 185, 0),
+    (255, 185, 0),
+    C_NONE,
+    C_NONE,
+    (0, 164, 239),
+    (0, 164, 239),
+    C_NONE,
+    C_NONE,
+    (255, 185, 0),
+    (255, 185, 0),
+    C_NONE,
+    C_NONE,
+    (0, 164, 239),
+    (0, 164, 239),
+    C_NONE,
+    C_NONE,
+    (255, 185, 0),
+    (255, 185, 0),
+    C_NONE,
+];
+
 pub fn draw_mini_market_icon(
     matrix: &mut dyn MatrixBackend,
     x: i32,
@@ -12,117 +159,51 @@ pub fn draw_mini_market_icon(
     min_y: i32,
     max_y: i32,
     symbol: &str,
-    theme: &DashboardTheme,
+    _theme: &DashboardTheme,
 ) {
-    let gold = (255, 180, 0);
-    let cyan = theme.primary;
-    let magenta = theme.secondary;
-    let white = theme.text;
-    let green = theme.green;
+    let icon_data: Option<&Icon8x8> = match symbol.to_uppercase().as_str() {
+        "BTC" => Some(&ICON_BTC),
+        "ETH" => Some(&ICON_ETH),
+        "SOL" => Some(&ICON_SOL),
+        "DOGE" => Some(&ICON_DOGE),
+        "AAPL" => Some(&ICON_AAPL),
+        "NVDA" => Some(&ICON_NVDA),
+        "TSLA" => Some(&ICON_TSLA),
+        "MSFT" => Some(&ICON_MSFT),
+        _ => None,
+    };
 
-    match symbol {
-        "BTC" => {
-            for py in 0..8 {
-                for px in 0..8 {
-                    if (px == 0 || px == 7) && (py == 0 || py == 7) {
-                        continue;
-                    }
-                    if px == 0 || px == 7 || py == 0 || py == 7 {
-                        draw_pixel_clipped(
-                            matrix,
-                            x + px,
-                            y + py,
-                            min_x,
-                            max_x,
-                            min_y,
-                            max_y,
-                            gold,
-                        );
-                    }
+    if let Some(icon) = icon_data {
+        for r in 0..8 {
+            for c in 0..8 {
+                let col = icon[r * 8 + c];
+                if col != C_NONE {
+                    draw_pixel_clipped(
+                        matrix,
+                        x + c as i32,
+                        y + r as i32,
+                        min_x,
+                        max_x,
+                        min_y,
+                        max_y,
+                        col,
+                    );
                 }
             }
-            draw_pixel_clipped(matrix, x + 2, y + 2, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 3, y + 2, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 2, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 2, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 2, y + 4, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 3, y + 4, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 4, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 2, y + 5, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 5, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 2, y + 6, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 3, y + 6, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 6, min_x, max_x, min_y, max_y, white);
         }
-        "ETH" => {
-            draw_pixel_clipped(matrix, x + 3, y + 1, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 4, y + 1, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 2, y + 2, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 5, y + 2, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 1, y + 3, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 6, y + 3, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 3, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 2, y + 4, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 5, y + 4, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 3, y + 5, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 4, y + 5, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 3, y + 6, min_x, max_x, min_y, max_y, cyan);
-            draw_pixel_clipped(matrix, x + 4, y + 6, min_x, max_x, min_y, max_y, cyan);
+    } else {
+        // Generic coin badge with golden border
+        let gold = (255, 180, 0);
+        for c in 0..8 {
+            draw_pixel_clipped(matrix, x + c, y, min_x, max_x, min_y, max_y, gold);
+            draw_pixel_clipped(matrix, x + c, y + 7, min_x, max_x, min_y, max_y, gold);
+            draw_pixel_clipped(matrix, x, y + c, min_x, max_x, min_y, max_y, gold);
+            draw_pixel_clipped(matrix, x + 7, y + c, min_x, max_x, min_y, max_y, gold);
         }
-        "SOL" => {
-            for px in 1..7 {
-                draw_pixel_clipped(matrix, x + px, y + 2, min_x, max_x, min_y, max_y, magenta);
-                draw_pixel_clipped(matrix, x + px, y + 4, min_x, max_x, min_y, max_y, cyan);
-                draw_pixel_clipped(matrix, x + px, y + 6, min_x, max_x, min_y, max_y, magenta);
-            }
-        }
-        "NVDA" => {
-            for py in 1..7 {
-                for px in 1..7 {
-                    if px == 1 || px == 6 || py == 1 || py == 6 {
-                        draw_pixel_clipped(
-                            matrix,
-                            x + px,
-                            y + py,
-                            min_x,
-                            max_x,
-                            min_y,
-                            max_y,
-                            green,
-                        );
-                    }
-                }
-            }
-            draw_pixel_clipped(matrix, x + 3, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 3, y + 4, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 4, min_x, max_x, min_y, max_y, white);
-        }
-        _ => {
-            for py in 0..8 {
-                for px in 0..8 {
-                    if (px == 0 || px == 7) && (py == 0 || py == 7) {
-                        continue;
-                    }
-                    if px == 0 || px == 7 || py == 0 || py == 7 {
-                        draw_pixel_clipped(
-                            matrix,
-                            x + px,
-                            y + py,
-                            min_x,
-                            max_x,
-                            min_y,
-                            max_y,
-                            gold,
-                        );
-                    }
-                }
-            }
-            draw_pixel_clipped(matrix, x + 3, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
-        }
+        draw_pixel_clipped(matrix, x + 3, y + 3, min_x, max_x, min_y, max_y, C_WHITE);
+        draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, C_WHITE);
+        draw_pixel_clipped(matrix, x + 3, y + 4, min_x, max_x, min_y, max_y, C_WHITE);
+        draw_pixel_clipped(matrix, x + 4, y + 4, min_x, max_x, min_y, max_y, C_WHITE);
     }
 }
 

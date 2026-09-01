@@ -292,7 +292,6 @@ pub struct FighterEngine {
     active: bool,
     sprite_dir: String,
     last_move: u128,
-    faceoff_start: u128,
     fight_end: u128,
     next_fight_time: u128,
     interval_sec: u32,
@@ -317,7 +316,6 @@ impl FighterEngine {
             active: false,
             sprite_dir: String::new(),
             last_move: 0,
-            faceoff_start: 0,
             fight_end: 0,
             next_fight_time: 0,
             interval_sec: 10,
@@ -340,7 +338,6 @@ impl FighterEngine {
         self.p2 = None;
         self.rx = None;
         self.loading = false;
-        self.faceoff_start = 0;
     }
 
     fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
@@ -564,7 +561,6 @@ impl FighterEngine {
                     self.loading = false;
                     self.rx = None;
                     self.last_move = now;
-                    self.faceoff_start = 0;
                     self.fight_end = 0;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -574,7 +570,6 @@ impl FighterEngine {
                     self.loading = false;
                     self.active = false;
                     self.rx = None;
-                    self.faceoff_start = 0;
                     // Wait at least 10s before trying again to avoid spamming thread spawn
                     self.next_fight_time = now + (self.interval_sec as u128 * 1000).max(10000);
                 }
@@ -599,49 +594,51 @@ impl FighterEngine {
             Self::update_anim(p2, now);
         }
 
-        // Movement & Face-off Logic
+        // Movement & Instant Engagement Logic (Continuous Arcade Momentum)
         if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
             let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
-            let engage_half = 9.0 * scale;
+            let engage_dist = if self.matrix_width >= 128 {
+                20.0 * scale
+            } else {
+                14.0 * scale
+            };
             let center_x = self.matrix_width as f32 / 2.0;
 
-            let p1_target_x = center_x - engage_half - p1.character.meta.origin_x as f32;
-            let p2_target_x = center_x + engage_half
-                - (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
+            let p1_target_x =
+                center_x - (engage_dist / 2.0) - (p1.character.meta.origin_x as f32 * scale);
+            let p2_target_x = center_x + (engage_dist / 2.0)
+                - ((p2.character.meta.width as f32 - p2.character.meta.origin_x as f32) * scale);
 
-            let elapsed = now.saturating_sub(self.last_move);
-            if elapsed >= 35 {
-                let px_move = (elapsed / 35) as f32;
-                self.last_move += (px_move as u128) * 35;
+            if (p1.state == "walk" || p1.state == "stand")
+                && (p2.state == "walk" || p2.state == "stand")
+                && !p1.dead
+                && !p2.dead
+            {
+                let elapsed = now.saturating_sub(self.last_move);
+                if elapsed >= 20 {
+                    let steps = (elapsed / 20) as f32;
+                    self.last_move += (steps as u128) * 20;
 
-                // 1. P1 walks to its target stance spot
-                if p1.state == "walk" {
-                    p1.x += px_move;
-                    if p1.x >= p1_target_x {
-                        p1.x = p1_target_x;
-                        p1.state = "stand".to_string();
-                        p1.frame_idx = 0;
-                        p1.last_f = now;
+                    if p1.x < p1_target_x {
+                        p1.x = (p1.x + steps * scale.max(1.0)).min(p1_target_x);
+                    }
+                    if p2.x > p2_target_x {
+                        p2.x = (p2.x - steps * scale.max(1.0)).max(p2_target_x);
                     }
                 }
 
-                // 2. P2 walks to its target stance spot
-                if p2.state == "walk" {
-                    p2.x -= px_move;
-                    if p2.x <= p2_target_x {
-                        p2.x = p2_target_x;
-                        p2.state = "stand".to_string();
-                        p2.frame_idx = 0;
-                        p2.last_f = now;
-                    }
-                }
-            }
+                // Check engagement distance or stance target reached
+                let p1_ready = p1.x >= p1_target_x;
+                let p2_ready = p2.x <= p2_target_x;
 
-            // 3. Central Face-off ready stance before combat
-            if p1.state == "stand" && p2.state == "stand" {
-                if self.faceoff_start == 0 {
-                    self.faceoff_start = now;
-                } else if now.saturating_sub(self.faceoff_start) >= 900 {
+                let p1_world_origin = p1.x + (p1.character.meta.origin_x as f32 * scale);
+                let p2_world_origin = p2.x
+                    + ((p2.character.meta.width as f32 - p2.character.meta.origin_x as f32)
+                        * scale);
+                let dist = p2_world_origin - p1_world_origin;
+
+                if (p1_ready && p2_ready) || (dist <= engage_dist) {
+                    // Strike triggers immediately in the momentum of the approach!
                     let mut rng = rand::thread_rng();
                     let p1_attacks = rng.gen_bool(0.5);
 
@@ -696,7 +693,6 @@ impl FighterEngine {
                     target.frame_idx = 0;
                     attacker.last_f = now;
                     target.last_f = now;
-                    self.faceoff_start = 0;
                 }
             }
 
@@ -733,8 +729,14 @@ impl FighterEngine {
         if let Some(anim) = p.character.get_sprite(&p.state) {
             let mut delay =
                 anim.delays[p.frame_idx.min(anim.delays.len().saturating_sub(1))] as u128;
-            if delay < 30 {
-                delay = 30;
+            if p.state != "stand" && p.state != "win" {
+                delay = (delay * 3) / 4; // 25% faster combat animation for snappy arcade feel
+                if delay > 70 {
+                    delay = 70;
+                }
+            }
+            if delay < 25 {
+                delay = 25;
             }
 
             if now.saturating_sub(p.last_f) > delay {

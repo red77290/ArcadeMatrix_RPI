@@ -1,5 +1,5 @@
 use super::data::{format_market_price, MarketQuote};
-use super::font::draw_text_clipped;
+use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
 use parking_lot::Mutex;
@@ -317,6 +317,16 @@ pub fn draw_mini_market_icon(
     }
 }
 
+struct FormattedMarketItem<'a> {
+    quote: &'a MarketQuote,
+    price_str: String,
+    change_str: String,
+    sym_w: i32,
+    price_w: i32,
+    change_w: i32,
+    item_w: i32,
+}
+
 pub fn render_market_ticker(
     matrix: &mut dyn MatrixBackend,
     rect: &Rect,
@@ -352,30 +362,86 @@ pub fn render_market_ticker(
     let min_y = rect.inner_min_y();
     let max_y = rect.inner_max_y();
 
-    let item_w = 88;
-    let total_w = (markets.len() as i32 * item_w).max(1);
-    let speed_px_per_sec = 20;
+    let gap_icon_sym = 3;
+    let gap_sym_price = 5;
+    let gap_price_chg = 5;
+    let margin_right = 16;
+
+    let formatted_items: Vec<FormattedMarketItem> = markets
+        .iter()
+        .map(|m| {
+            let sym_w = measure_text(&m.symbol);
+            let price_str = format_market_price(m.price);
+            let price_w = measure_text(&price_str);
+            let change_str = format!(
+                "{}{:.1}%",
+                if m.change_24h >= 0.0 { "+" } else { "" },
+                m.change_24h
+            );
+            let change_w = measure_text(&change_str);
+            let item_w = 8
+                + gap_icon_sym
+                + sym_w
+                + gap_sym_price
+                + price_w
+                + gap_price_chg
+                + change_w
+                + margin_right;
+            FormattedMarketItem {
+                quote: m,
+                price_str,
+                change_str,
+                sym_w,
+                price_w,
+                change_w,
+                item_w,
+            }
+        })
+        .collect();
+
+    let total_w = formatted_items
+        .iter()
+        .map(|it| it.item_w)
+        .sum::<i32>()
+        .max(1);
+    let speed_px_per_sec: u128 = 16;
     let scroll_offset = ((now_millis * speed_px_per_sec) / 1000) as i32 % total_w;
 
-    for (i, m) in markets.iter().enumerate() {
-        let slot_base_x = (i as i32 * item_w) - scroll_offset;
+    let icon_y = rect.y + (rect.h - 8) / 2;
+    let text_y = rect.y + (rect.h - 7) / 2;
 
-        for k in -1..3 {
-            let pos_x = rect.x + 2 + slot_base_x + (k * total_w);
-            if pos_x + item_w < min_x || pos_x >= max_x {
+    for k in -1..3 {
+        let mut cur_x = rect.x + 2 + (k * total_w) - scroll_offset;
+        for it in &formatted_items {
+            let item_x = cur_x;
+            let item_w = it.item_w;
+            cur_x += item_w;
+
+            if item_x + item_w < min_x || item_x >= max_x {
                 continue;
             }
 
-            let icon_y = rect.y + (rect.h - 8) / 2;
+            let icon_x = item_x;
+            let sym_x = icon_x + 8 + gap_icon_sym;
+            let price_x = sym_x + it.sym_w + gap_sym_price;
+            let chg_x = price_x + it.price_w + gap_price_chg;
+
             draw_mini_market_icon(
-                matrix, pos_x, icon_y, min_x, max_x, min_y, max_y, &m.symbol, theme,
+                matrix,
+                icon_x,
+                icon_y,
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+                &it.quote.symbol,
+                theme,
             );
 
-            let text_y = rect.y + (rect.h - 7) / 2;
             draw_text_clipped(
                 matrix,
-                &m.symbol,
-                pos_x + 10,
+                &it.quote.symbol,
+                sym_x,
                 text_y,
                 min_x,
                 max_x,
@@ -384,11 +450,10 @@ pub fn render_market_ticker(
                 theme.text,
             );
 
-            let p_str = format_market_price(m.price);
             draw_text_clipped(
                 matrix,
-                &p_str,
-                pos_x + 34,
+                &it.price_str,
+                price_x,
                 text_y,
                 min_x,
                 max_x,
@@ -397,20 +462,15 @@ pub fn render_market_ticker(
                 theme.primary,
             );
 
-            let trend_col = if m.change_24h >= 0.0 {
+            let trend_col = if it.quote.change_24h >= 0.0 {
                 theme.green
             } else {
                 theme.red
             };
-            let chg_str = format!(
-                "{}{:.0}%",
-                if m.change_24h >= 0.0 { "+" } else { "" },
-                m.change_24h
-            );
             draw_text_clipped(
                 matrix,
-                &chg_str,
-                pos_x + item_w - 20,
+                &it.change_str,
+                chg_x,
                 text_y,
                 min_x,
                 max_x,
@@ -418,6 +478,21 @@ pub fn render_market_ticker(
                 max_y,
                 trend_col,
             );
+
+            // Subtle dot separator between tickers
+            let dot_x = chg_x + it.change_w + 8;
+            if dot_x >= min_x && dot_x < max_x {
+                draw_pixel_clipped(
+                    matrix,
+                    dot_x,
+                    text_y + 3,
+                    min_x,
+                    max_x,
+                    min_y,
+                    max_y,
+                    theme.border,
+                );
+            }
         }
     }
 }

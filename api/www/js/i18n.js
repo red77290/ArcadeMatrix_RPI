@@ -214,6 +214,21 @@ export const translations = {
     gen_idle_fighter_enable: "Enable Idle Fighter Overlay",
     gen_idle_fighter_interval: "Interval between fights (seconds)",
     gen_btn_save: "💾 Save System Preferences",
+
+    // TATE / YOKO & Quick Presets
+    tab_yoko: "Horizontal (Landscape / YOKO)",
+    tab_tate: "Vertical (Portrait / TATE)",
+    gif_auto_switch_title: "Auto-Switching Detection:",
+    gif_auto_switch_desc: "ArcadeMatrix automatically switches: in Horizontal (Landscape / YOKO) mode, only horizontal GIF folders are played. In Vertical (Portrait / TATE) mode, only vertical GIF folders are played.",
+    gif_no_yoko: "No horizontal GIF folders found in /gifs",
+    gif_no_tate: "No vertical GIF folders found in /gifs_tate",
+    folders_count: "folders",
+    select_all_btn: "Select All",
+    clear_btn: "Clear",
+    quick_presets_label: "Quick Suggestions:",
+    modal_gif_orientation_label: "GIF Orientation Library:",
+    all_folders_opt: "All folders (Auto Horizontal / Vertical)",
+    gif_modal_help: "Selected folders or 'all' will automatically switch according to the active rotation mode.",
   },
   fr: {
     nav_dashboard: "Tableau de bord",
@@ -430,6 +445,21 @@ export const translations = {
     gen_idle_fighter_enable: "Activer l'Overlay Street Fighter",
     gen_idle_fighter_interval: "Intervalle entre les combats (secondes)",
     gen_btn_save: "💾 Enregistrer les Préférences",
+
+    // TATE / YOKO & Sélections Rapides
+    tab_yoko: "Horizontal (Paysage / YOKO)",
+    tab_tate: "Vertical (Portrait / TATE)",
+    gif_auto_switch_title: "Détection & Switch Automatique :",
+    gif_auto_switch_desc: "L'ArcadeMatrix bascule automatiquement : en affichage Horizontal (Paysage / YOKO), seuls les dossiers horizontaux sont joués. En affichage Vertical (Portrait / TATE), seuls les dossiers verticaux sont joués.",
+    gif_no_yoko: "Aucun dossier horizontal trouvé dans /gifs",
+    gif_no_tate: "Aucun dossier vertical trouvé dans /gifs_tate",
+    folders_count: "dossiers",
+    select_all_btn: "Tout cocher",
+    clear_btn: "Décocher",
+    quick_presets_label: "Suggestions rapides :",
+    modal_gif_orientation_label: "Bibliothèque d'orientation GIF :",
+    all_folders_opt: "Tous les dossiers (Auto Horizontal / Vertical)",
+    gif_modal_help: "Les dossiers choisis ou 'all' basculeront automatiquement selon l'orientation active.",
   },
   es: {
     nav_dashboard: "Panel",
@@ -646,6 +676,21 @@ export const translations = {
     gen_idle_fighter_enable: "Habilitar Superposición Street Fighter",
     gen_idle_fighter_interval: "Intervalo entre combates (segundos)",
     gen_btn_save: "💾 Guardar Preferencias del Sistema",
+
+    // TATE / YOKO & Selección Rápida
+    tab_yoko: "Horizontal (Paisaje / YOKO)",
+    tab_tate: "Vertical (Retrato / TATE)",
+    gif_auto_switch_title: "Detección y Cambio Automático:",
+    gif_auto_switch_desc: "ArcadeMatrix cambia automáticamente: en modo Horizontal (Paisaje / YOKO), solo se reproducen carpetas horizontales. En modo Vertical (Retrato / TATE), solo se reproducen carpetas verticales.",
+    gif_no_yoko: "No se encontraron carpetas horizontales en /gifs",
+    gif_no_tate: "No se encontraron carpetas verticales en /gifs_tate",
+    folders_count: "carpetas",
+    select_all_btn: "Seleccionar todo",
+    clear_btn: "Deseleccionar",
+    quick_presets_label: "Sugerencias rápidas:",
+    modal_gif_orientation_label: "Biblioteca de orientación GIF:",
+    all_folders_opt: "Todas las carpetas (Auto Horizontal / Vertical)",
+    gif_modal_help: "Las carpetas seleccionadas o 'all' cambiarán automáticamente según la orientación activa.",
   }
 };
 

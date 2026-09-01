@@ -109,6 +109,12 @@ async fn post_system(
     if let Some(v) = body.get("lang").and_then(|v| v.as_str()) {
         s.system.lang = v.to_string();
     }
+    if let Some(v) = body.get("timezone").and_then(|v| v.as_str()) {
+        s.system.timezone = v.to_string();
+    }
+    if let Some(v) = body.get("format_24h").and_then(|v| v.as_bool()) {
+        s.system.format_24h = v;
+    }
     // Fighter overlay toggle/interval (media page). Handled as top-level keys so
     // the UI can patch them without replacing the whole `system` object.
     if let Some(v) = body.get("idle_fighter_enabled").and_then(|v| v.as_bool()) {

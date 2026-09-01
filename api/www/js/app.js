@@ -1,7 +1,7 @@
 import { API } from './api.js';
 import { setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
 import './components/toast.js';
-import { initDynamicEngines } from './dynamic_engines.js';
+import { initDynamicEngines, GLOBAL_TIMEZONES } from './dynamic_engines.js';
 
 let selectedOtaFile = null;
 
@@ -658,61 +658,40 @@ async function initSettings() {
       });
     }
 
-    // Platform detection (Hide Raspberry Pi-only controls on ESP32)
-    try {
-      const hw = await API.get('/api/hardware');
-      const isPi = (hw && (hw.profile === 'RPI' || hw.platform === 'rpi'));
-      document.querySelectorAll('.rpi-only').forEach(el => {
-        el.style.display = isPi ? '' : 'none';
-      });
-    } catch (e) {
-      document.querySelectorAll('.rpi-only').forEach(el => {
-        el.style.display = 'none';
+    // Populate Timezone dropdown in General settings tab
+    const selTz = document.getElementById('sys-timezone');
+    if (selTz && selTz.options.length === 0) {
+      GLOBAL_TIMEZONES.filter(tz => tz.value !== 'system').forEach(tz => {
+        const opt = document.createElement('option');
+        opt.value = tz.value;
+        opt.textContent = tz.label;
+        selTz.appendChild(opt);
       });
     }
 
-    // Hardware (nested matrix.*)
-    setVal('hw-screen-rotation', matrix.rotation_offset ?? 0);
-    setChk('hw-gyro-autorotate', matrix.auto_rotate ?? true);
-    setVal('hw-rotation-transition', matrix.rotation_transition || 'vortex');
-    setVal('hw-transition-duration', matrix.rotation_transition_duration_ms || 400);
-    setVal('hw-rows', matrix.height || 64);
+    // General / Regional Preferences
+    setVal('sys-timezone', sys.timezone || 'CET-1CEST,M3.5.0,M10.5.0/3');
+    setVal('sys-lang', sys.lang || 'en');
+    setVal('sys-format-24h', sys.format_24h !== undefined ? String(sys.format_24h) : 'true');
+    setVal('sys-unit', sys.temp_unit || 'C');
+    setChk('sys-idle-fighter-enabled', sys.idle_fighter_enabled ?? true);
+    setVal('sys-idle-fighter-interval', sys.idle_fighter_interval || 10);
+
+    // Raspberry Pi Matrix Hardware (pure RPi HUB75 configuration)
+    setVal('hw-rows', matrix.height || 32);
     setVal('hw-cols', matrix.width || 64);
-    setVal('hw-chain', matrix.chain_length || matrix.chainLength || 1);
-    setVal('hw-power-limit', matrix.power_limit_percent ?? matrix.powerLimitPercent ?? 50);
-    setVal('hw-driver-chip', matrix.driver_chip || matrix.driverChip || 'SHIFTREG');
-    setVal('hw-row-addr-type', matrix.row_address_mode ?? matrix.rowAddressMode ?? 0);
-    setVal('hw-rgb', matrix.rgb_sequence || matrix.rgbSequence || 'RGB');
-    setVal('hw-color-depth', matrix.color_depth ?? matrix.colorDepth ?? matrix.pwm_bits ?? 8);
-    setVal('hw-latch-blanking', matrix.latch_blanking ?? matrix.latchBlanking ?? 4);
-    setChk('hw-clk-phase', matrix.clk_phase ?? matrix.clkPhase ?? true);
-    setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz ?? matrix.limitRefreshRateHz ?? 90);
-    setChk('hw-force-single-buffer', matrix.force_single_buffer ?? matrix.forceSingleBuffer ?? false);
-
-    // RPi fallback
+    setVal('hw-chain', matrix.chain_length || 1);
+    setVal('hw-parallel', 1);
+    setVal('hw-driver-chip', matrix.driver_chip || 'SHIFTREG');
     setVal('hw-mapping', matrix.mapping || 'regular');
-    setVal('hw-slowdown', matrix.slowdown || 2);
-    setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing || false);
-
-    // Live Gyro Telemetry updater if card exists
-    const gyroLive = document.getElementById('gyro-live-status');
-    if (gyroLive) {
-      const updateGyroLive = async () => {
-        try {
-          const data = await API.get('/api/gyro');
-          if (data) {
-            const sensorName = document.getElementById('gyro-sensor-name');
-            const gravVal = document.getElementById('gyro-gravity-val');
-            const actRot = document.getElementById('gyro-active-rot');
-            if (sensorName) sensorName.textContent = data.sensor || 'QMI8658 (Active)';
-            if (gravVal && data.ax !== undefined) gravVal.textContent = `X: ${data.ax.toFixed(2)}, Y: ${data.ay.toFixed(2)}, Z: ${data.az.toFixed(2)}`;
-            if (actRot && data.rotation !== undefined) actRot.textContent = `${data.rotation * 90}° (${data.orientation_label || 'Normal'})`;
-          }
-        } catch (e) {}
-      };
-      updateGyroLive();
-      setInterval(updateGyroLive, 3000);
-    }
+    setVal('hw-rgb', matrix.rgb_sequence || 'RGB');
+    setVal('hw-row-addr-type', matrix.row_address_mode ?? 0);
+    setVal('hw-multiplexing', matrix.multiplexing ?? 0);
+    setVal('hw-slowdown', matrix.slowdown ?? 2);
+    setVal('hw-pwm-bits', matrix.pwm_bits ?? 11);
+    setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds ?? 130);
+    setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz ?? 0);
+    setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing ?? false);
 
     // MQTT (nested mqtt.*)
     setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
@@ -728,70 +707,29 @@ async function initSettings() {
     console.error('Failed to load settings', e);
   }
 
-  // Handle Gyro Calibration & Rotation changes
-  const rotSelect = document.getElementById('hw-screen-rotation');
-  if (rotSelect) {
-    rotSelect.addEventListener('change', async (e) => {
-      const rot = parseInt(e.target.value) || 0;
-      try {
-        await API.post('/api/display/orientation', { manual_rotation: rot, rotation_offset: rot });
-        window.showToast(`Display rotation set to ${rot * 90}°`, 'info');
-        const aRot = document.getElementById('gyro-active-rot');
-        if (aRot) aRot.textContent = `${rot * 90}° (Mode ${rot})`;
-      } catch (err) {
-        window.showToast('Failed to apply rotation', 'error');
-      }
-    });
-  }
+  // Save General System Preferences
+  const btnSaveGeneral = document.getElementById('btn-save-general');
+  if (btnSaveGeneral) {
+    btnSaveGeneral.addEventListener('click', async () => {
+      const timezone = document.getElementById('sys-timezone')?.value || 'CET-1CEST,M3.5.0,M10.5.0/3';
+      const lang = document.getElementById('sys-lang')?.value || 'en';
+      const format24h = document.getElementById('sys-format-24h')?.value === 'true';
+      const tempUnit = document.getElementById('sys-unit')?.value || 'C';
+      const idleFighterEnabled = document.getElementById('sys-idle-fighter-enabled')?.checked ?? true;
+      const idleFighterInterval = parseInt(document.getElementById('sys-idle-fighter-interval')?.value) || 10;
 
-  const transSelect = document.getElementById('hw-rotation-transition');
-  if (transSelect) {
-    transSelect.addEventListener('change', async (e) => {
       try {
-        await API.post('/api/display/orientation', { transition_effect: e.target.value });
-        window.showToast(`Transition effect set to '${e.target.value}'`, 'info');
-      } catch (err) {
-        window.showToast('Failed to update transition effect', 'error');
-      }
-    });
-  }
-
-  const transDur = document.getElementById('hw-transition-duration');
-  if (transDur) {
-    transDur.addEventListener('change', async (e) => {
-      const dur = parseInt(e.target.value) || 400;
-      try {
-        await API.post('/api/display/orientation', { transition_duration_ms: dur });
-      } catch (err) {}
-    });
-  }
-
-  const btnTestTrans = document.getElementById('btn-test-transition');
-  if (btnTestTrans) {
-    btnTestTrans.addEventListener('click', async () => {
-      const eff = document.getElementById('hw-rotation-transition')?.value || 'vortex';
-      try {
-        await API.post('/api/display/test-transition', { effect: eff });
-        window.showToast(`✨ Testing transition effect: ${eff}`, 'info');
-      } catch (err) {
-        window.showToast('Failed to trigger transition test', 'error');
-      }
-    });
-  }
-
-  const btnCalibrate = document.getElementById('btn-gyro-calibrate');
-  if (btnCalibrate) {
-    btnCalibrate.addEventListener('click', async () => {
-      try {
-        const res = await API.post('/api/gyro/calibrate');
-        if (res && res.rotation_offset !== undefined) {
-          setVal('hw-screen-rotation', res.rotation_offset);
-          const aRot = document.getElementById('gyro-active-rot');
-          if (aRot) aRot.textContent = '0° (Calibrated)';
-        }
-        window.showToast('🎯 Current orientation calibrated as 0° Normal position!', 'success');
-      } catch (err) {
-        window.showToast('Failed to calibrate orientation', 'error');
+        await API.post('/api/system', {
+          timezone,
+          lang,
+          format_24h: format24h,
+          temp_unit: tempUnit,
+          idle_fighter_enabled: idleFighterEnabled,
+          idle_fighter_interval: idleFighterInterval
+        });
+        window.showToast('System preferences saved!', 'success');
+      } catch (e) {
+        window.showToast('Failed to save system preferences', 'error');
       }
     });
   }
@@ -819,7 +757,7 @@ async function initSettings() {
     });
   }
 
-  // Save HW settings
+  // Save Raspberry Pi Hardware settings
   const btnSaveHw = document.getElementById('btn-save-hw');
   if (btnSaveHw) {
     btnSaveHw.addEventListener('click', async () => {
@@ -827,30 +765,20 @@ async function initSettings() {
       const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
       const matrix = {
         ...base,
-        height: numOr('hw-rows', 64),
+        height: numOr('hw-rows', 32),
         width: numOr('hw-cols', 64),
         chain_length: numOr('hw-chain', 1),
-        power_limit_percent: numOr('hw-power-limit', 50),
         driver_chip: document.getElementById('hw-driver-chip')?.value || 'SHIFTREG',
-        row_address_mode: numOr('hw-row-addr-type', 0),
+        mapping: document.getElementById('hw-mapping')?.value || 'regular',
         rgb_sequence: document.getElementById('hw-rgb')?.value || 'RGB',
-        color_depth: numOr('hw-color-depth', 8),
-        latch_blanking: numOr('hw-latch-blanking', 4),
-        clk_phase: document.getElementById('hw-clk-phase')?.checked ?? true,
-        limit_refresh_rate_hz: numOr('hw-limit-refresh', 90),
-        force_single_buffer: document.getElementById('hw-force-single-buffer')?.checked ?? false,
-        rotation_offset: numOr('hw-screen-rotation', 0),
-        auto_rotate: document.getElementById('hw-gyro-autorotate')?.checked ?? true,
-        rotation_transition: document.getElementById('hw-rotation-transition')?.value || 'vortex',
-        rotation_transition_duration_ms: numOr('hw-transition-duration', 400),
+        row_address_mode: numOr('hw-row-addr-type', 0),
+        multiplexing: numOr('hw-multiplexing', 0),
+        slowdown: numOr('hw-slowdown', 2),
+        pwm_bits: numOr('hw-pwm-bits', 11),
+        pwm_lsb_nanoseconds: numOr('hw-pwm-lsb', 130),
+        limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
+        disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
       };
-
-      const isPiEl = document.querySelector('.rpi-only');
-      if (isPiEl && isPiEl.style.display !== 'none') {
-        matrix.mapping = document.getElementById('hw-mapping')?.value || 'regular';
-        matrix.slowdown = numOr('hw-slowdown', 2);
-        matrix.disable_hardware_pulsing = document.getElementById('hw-disable-pulsing')?.checked || false;
-      }
 
       try {
         await API.post('/api/system', { matrix });

@@ -67,7 +67,6 @@
         "weather_city": "Paris, FR",
         "clock_mode": "0",
         "tracked_markets": "BTC,ETH,SOL,NVDA",
-        "theme": "0",
         "show_date": "true",
         "show_weather": "true",
         "show_indoor_temp": "true"

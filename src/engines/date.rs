@@ -87,7 +87,7 @@ impl Engine for DateEngine {
 
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
-        let tz_str = if !self.timezone.is_empty() {
+        let tz_str = if !self.timezone.is_empty() && self.timezone != "system" {
             self.timezone.clone()
         } else {
             context.config.settings.read().system.timezone.clone()

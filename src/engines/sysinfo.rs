@@ -265,16 +265,21 @@ impl Engine for SysInfoEngine {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
 
-        let d_temp = if self.temp_unit.eq_ignore_ascii_case("F") {
-            temp * 1.8 + 32.0
+        let is_f = if self.temp_unit.eq_ignore_ascii_case("F") {
+            true
+        } else if self.temp_unit.eq_ignore_ascii_case("C") {
+            false
         } else {
-            temp
+            context
+                .config
+                .settings
+                .read()
+                .system
+                .temp_unit
+                .eq_ignore_ascii_case("F")
         };
-        let t_char = if self.temp_unit.eq_ignore_ascii_case("F") {
-            'F'
-        } else {
-            'C'
-        };
+        let d_temp = if is_f { temp * 1.8 + 32.0 } else { temp };
+        let t_char = if is_f { 'F' } else { 'C' };
         let t_str = format!("{:.0}{}", d_temp, t_char);
 
         let hrs = uptime / 3600;

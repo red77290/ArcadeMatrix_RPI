@@ -272,10 +272,15 @@ impl Engine for ClockEngine {
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
 
-        let tz_str = if !self.timezone.is_empty() {
+        let (sys_tz, sys_24h) = {
+            let sys = context.config.settings.read();
+            (sys.system.timezone.clone(), sys.system.format_24h)
+        };
+
+        let tz_str = if !self.timezone.is_empty() && self.timezone != "system" {
             self.timezone.clone()
         } else {
-            context.config.settings.read().system.timezone.clone()
+            sys_tz
         };
 
         let now = if let Some(tz) = parse_tz(&tz_str) {
@@ -284,11 +289,17 @@ impl Engine for ClockEngine {
             chrono::Local::now().naive_local()
         };
 
+        // If system format is 12h and format string uses %H, adapt dynamically to %I
+        let mut base_format = self.time_format.clone();
+        if !sys_24h {
+            base_format = base_format.replace("%H", "%I");
+        }
+
         // Full time string with seconds (for binary clock)
-        let time_str_full = now.format(&self.time_format).to_string();
+        let time_str_full = now.format(&base_format).to_string();
 
         // Short time string for display clocks
-        let mut format_str = self.time_format.clone();
+        let mut format_str = base_format.clone();
         if self.time_theme == 19 && !format_str.contains("%S") {
             format_str.push_str(":%S");
         }

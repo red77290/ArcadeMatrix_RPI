@@ -101,6 +101,10 @@ pub struct MatrixConfig {
     pub pwm_lsb_nanoseconds: u32,
     pub disable_hardware_pulsing: bool,
     pub mapping: String,
+    pub rotation: u32,
+    pub gyro_autorotate: bool,
+    pub transition_effect: String,
+    pub transition_duration_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +136,7 @@ pub struct SystemConfig {
     pub timezone: String,
     pub format_24h: bool,
     pub lang: String,
+    pub temp_unit: String,
     pub night_mode_enabled: bool,
     pub turn_off_at: String,
     pub wake_up_at: String,
@@ -195,6 +200,10 @@ impl Default for MatrixConfig {
             pwm_lsb_nanoseconds: 130,
             disable_hardware_pulsing: false,
             mapping: "regular".to_string(),
+            rotation: 0,
+            gyro_autorotate: false,
+            transition_effect: "vortex".to_string(),
+            transition_duration_ms: 400,
         }
     }
 }
@@ -232,6 +241,7 @@ impl Default for SystemConfig {
             timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
             format_24h: true,
             lang: "en".to_string(),
+            temp_unit: "C".to_string(),
             night_mode_enabled: false,
             turn_off_at: "23:00".to_string(),
             wake_up_at: "07:00".to_string(),

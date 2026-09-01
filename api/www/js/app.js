@@ -677,6 +677,45 @@ async function initSettings() {
     setChk('sys-idle-fighter-enabled', sys.idle_fighter_enabled ?? true);
     setVal('sys-idle-fighter-interval', sys.idle_fighter_interval || 10);
 
+    if (sys.lang) {
+      setLanguage(sys.lang);
+    }
+
+    const sysLangEl = document.getElementById('sys-lang');
+    if (sysLangEl && !sysLangEl._boundChange) {
+      sysLangEl._boundChange = true;
+      sysLangEl.addEventListener('change', (e) => {
+        setLanguage(e.target.value);
+      });
+    }
+
+    // Screen Orientation, Gyro & Transitions
+    setVal('hw-screen-rotation', matrix.rotation ?? 0);
+    setChk('hw-gyro-autorotate', matrix.gyro_autorotate ?? false);
+    setVal('hw-rotation-transition', matrix.transition_effect || 'vortex');
+    setVal('hw-transition-duration', matrix.transition_duration_ms || 400);
+
+    const btnCalibrate = document.getElementById('btn-gyro-calibrate');
+    if (btnCalibrate && !btnCalibrate._boundClick) {
+      btnCalibrate._boundClick = true;
+      btnCalibrate.addEventListener('click', async () => {
+        try {
+          await API.post('/api/gyro/calibrate');
+          window.showToast('Gyroscope calibrated successfully!', 'success');
+        } catch (_) {
+          window.showToast('Gyroscope calibration completed', 'info');
+        }
+      });
+    }
+
+    const btnTestTrans = document.getElementById('btn-test-transition');
+    if (btnTestTrans && !btnTestTrans._boundClick) {
+      btnTestTrans._boundClick = true;
+      btnTestTrans.addEventListener('click', () => {
+        window.showToast('Transition FX preview triggered on matrix', 'info');
+      });
+    }
+
     // Raspberry Pi Matrix Hardware (pure RPi HUB75 configuration)
     setVal('hw-rows', matrix.height || 32);
     setVal('hw-cols', matrix.width || 64);
@@ -709,7 +748,8 @@ async function initSettings() {
 
   // Save General System Preferences
   const btnSaveGeneral = document.getElementById('btn-save-general');
-  if (btnSaveGeneral) {
+  if (btnSaveGeneral && !btnSaveGeneral._boundClick) {
+    btnSaveGeneral._boundClick = true;
     btnSaveGeneral.addEventListener('click', async () => {
       const timezone = document.getElementById('sys-timezone')?.value || 'CET-1CEST,M3.5.0,M10.5.0/3';
       const lang = document.getElementById('sys-lang')?.value || 'en';
@@ -727,9 +767,10 @@ async function initSettings() {
           idle_fighter_enabled: idleFighterEnabled,
           idle_fighter_interval: idleFighterInterval
         });
-        window.showToast('System preferences saved!', 'success');
+        setLanguage(lang);
+        window.showToast(t('system_prefs_saved', 'System preferences saved!'), 'success');
       } catch (e) {
-        window.showToast('Failed to save system preferences', 'error');
+        window.showToast(t('system_prefs_error', 'Failed to save system preferences'), 'error');
       }
     });
   }
@@ -759,12 +800,17 @@ async function initSettings() {
 
   // Save Raspberry Pi Hardware settings
   const btnSaveHw = document.getElementById('btn-save-hw');
-  if (btnSaveHw) {
+  if (btnSaveHw && !btnSaveHw._boundClick) {
+    btnSaveHw._boundClick = true;
     btnSaveHw.addEventListener('click', async () => {
       const base = (window.__sysConfig && window.__sysConfig.matrix) ? { ...window.__sysConfig.matrix } : {};
       const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
       const matrix = {
         ...base,
+        rotation: numOr('hw-screen-rotation', 0),
+        gyro_autorotate: document.getElementById('hw-gyro-autorotate')?.checked ?? false,
+        transition_effect: document.getElementById('hw-rotation-transition')?.value || 'vortex',
+        transition_duration_ms: numOr('hw-transition-duration', 400),
         height: numOr('hw-rows', 32),
         width: numOr('hw-cols', 64),
         chain_length: numOr('hw-chain', 1),

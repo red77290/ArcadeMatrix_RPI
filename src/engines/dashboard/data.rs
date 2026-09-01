@@ -155,3 +155,24 @@ pub fn read_system_metrics() -> (f32, f32) {
     #[allow(unreachable_code)]
     (cpu, ram)
 }
+
+pub fn read_wifi_rssi() -> i32 {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = std::fs::read_to_string("/proc/net/wireless") {
+            for line in content.lines().skip(2) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 4 {
+                    if let Ok(val) = parts[3].trim_end_matches('.').parse::<i32>() {
+                        if val < 0 {
+                            return val;
+                        } else {
+                            return val - 100;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    -55
+}

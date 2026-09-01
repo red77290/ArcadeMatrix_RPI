@@ -295,6 +295,7 @@ pub fn render_digital_clock(
     show_seconds: bool,
     show_date: bool,
     is_24h: bool,
+    lang: &str,
 ) {
     if rect.w < 8 || rect.h < 8 {
         return;
@@ -354,7 +355,11 @@ pub fn render_digital_clock(
     );
 
     if show_date && rect.h >= 24 {
-        let date_str = format!("{:02}/{:02}", day, month);
+        let date_str = if lang == "en" {
+            format!("{:02}/{:02}", month, day)
+        } else {
+            format!("{:02}/{:02}", day, month)
+        };
         let dw = measure_text(&date_str);
         let dx = rect.x + (rect.w - dw) / 2;
         draw_text_clipped(

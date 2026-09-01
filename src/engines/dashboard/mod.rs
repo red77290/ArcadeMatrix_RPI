@@ -180,12 +180,24 @@ impl DashboardEngine {
             let binance = crate::api::binance::BinanceProvider;
             let yahoo = crate::api::yahoo_finance::YahooFinanceProvider;
             let mut last_fetch = Instant::now() - Duration::from_secs(3600);
+            let mut last_sys_metrics = Instant::now() - Duration::from_secs(10);
 
             while running.load(Ordering::Relaxed) {
+                // Live system metrics (CPU load, RAM usage, WiFi signal) refreshed every 2 seconds
+                if last_sys_metrics.elapsed() >= Duration::from_secs(2) {
+                    last_sys_metrics = Instant::now();
+                    let (cpu, ram) = read_system_metrics();
+                    let wifi = read_wifi_rssi();
+                    if let Ok(mut lock) = data.lock() {
+                        lock.cpu_usage = cpu;
+                        lock.ram_usage = ram;
+                        lock.wifi_rssi = wifi;
+                    }
+                }
+
+                // Web API market and weather quotes refreshed every 30 seconds
                 if last_fetch.elapsed() >= Duration::from_secs(30) {
                     last_fetch = Instant::now();
-
-                    let (cpu, ram) = read_system_metrics();
 
                     let syms: Vec<String> = markets
                         .split(',')
@@ -217,8 +229,6 @@ impl DashboardEngine {
                     let weather_info = fetch_live_weather(&city);
 
                     if let Ok(mut lock) = data.lock() {
-                        lock.cpu_usage = cpu;
-                        lock.ram_usage = ram;
                         if !updated_markets.is_empty() {
                             lock.markets = updated_markets;
                         }
@@ -229,7 +239,7 @@ impl DashboardEngine {
                         }
                     }
                 }
-                thread::sleep(Duration::from_millis(500));
+                thread::sleep(Duration::from_millis(250));
             }
         });
     }
@@ -243,6 +253,10 @@ impl Engine for DashboardEngine {
     ) -> Result<(), EngineError> {
         self.apply_config(config);
         Ok(())
+    }
+
+    fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        self.apply_config(config);
     }
 
     fn activate(&mut self) {
@@ -270,11 +284,33 @@ impl Engine for DashboardEngine {
 
         matrix.clear();
 
+        let (sys_tz, sys_24h, sys_unit, sys_lang) = {
+            let sys = ctx.config.settings.read();
+            (
+                sys.system.timezone.clone(),
+                sys.system.format_24h,
+                sys.system.temp_unit.clone(),
+                sys.system.lang.clone(),
+            )
+        };
+
+        let target_tz = if self.timezone.is_empty() || self.timezone == "system" {
+            &sys_tz
+        } else {
+            &self.timezone
+        };
+
+        let active_lang = if self.lang.is_empty() || self.lang == "system" {
+            &sys_lang
+        } else {
+            &self.lang
+        };
+
         let theme_palette = get_dashboard_theme(self.theme);
         let utc = Utc::now();
 
         let (hours, minutes, seconds, sub_second, day, month) =
-            if self.timezone.is_empty() || self.timezone == "system" {
+            if target_tz.is_empty() || target_tz == "system" {
                 let now = Local::now();
                 let sub = if self.smooth_seconds {
                     (now.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
@@ -289,7 +325,7 @@ impl Engine for DashboardEngine {
                     now.day(),
                     now.month(),
                 )
-            } else if let Some(tz) = crate::engines::clock::parse_tz(&self.timezone) {
+            } else if let Some(tz) = crate::engines::clock::parse_tz(target_tz) {
                 let localized = utc.with_timezone(&tz);
                 let sub = if self.smooth_seconds {
                     (localized.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
@@ -323,12 +359,16 @@ impl Engine for DashboardEngine {
 
         let is_24h = match self.format_24h.as_str() {
             "12h" | "12" => false,
-            _ => true,
+            "24h" | "24" => true,
+            "system" | "" => sys_24h,
+            _ => sys_24h,
         };
 
         let is_fahrenheit = match self.temp_unit.as_str() {
             "F" | "fahrenheit" => true,
-            _ => false,
+            "C" | "celsius" => false,
+            "system" | "" => sys_unit.eq_ignore_ascii_case("F"),
+            _ => sys_unit.eq_ignore_ascii_case("F"),
         };
 
         let data = self.data.lock().map(|d| d.clone()).unwrap_or_default();
@@ -366,7 +406,11 @@ impl Engine for DashboardEngine {
             }
 
             if self.show_date && cur_y < h - 30 {
-                let date_str = format!("{:02}/{:02}", day, month);
+                let date_str = if active_lang == "en" {
+                    format!("{:02}/{:02}", month, day)
+                } else {
+                    format!("{:02}/{:02}", day, month)
+                };
                 let dw = measure_text(&date_str);
                 let dx = ((w - dw) / 2 + self.offset_x).max(1);
                 draw_text_clipped(matrix, &date_str, dx, cur_y, 0, w, 0, h, theme_palette.text);
@@ -540,6 +584,7 @@ impl Engine for DashboardEngine {
                             self.show_seconds,
                             self.show_date,
                             is_24h,
+                            active_lang,
                         );
                     }
                     ClockMode::Minimal => {
@@ -555,6 +600,7 @@ impl Engine for DashboardEngine {
                             false,
                             false,
                             is_24h,
+                            active_lang,
                         );
                     }
                 }

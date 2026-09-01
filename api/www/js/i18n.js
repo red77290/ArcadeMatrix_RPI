@@ -27,6 +27,8 @@ export const translations = {
     preview_live_btn: "👁️ Preview Live",
     config_saved_live: "Configuration saved & applied live!",
     preview_success: "Screen is now displaying live on the matrix!",
+    system_prefs_saved: "System preferences saved & applied live!",
+    system_prefs_error: "Failed to save system preferences",
     screen_name_help: "Custom friendly name displayed in tabs and the rotation playlist.",
     no_config_available: "No configuration available for this engine.",
     cancel_btn: "Cancel",
@@ -257,7 +259,9 @@ export const translations = {
     save_screen_config_btn: "💾 Enregistrer la configuration de l'écran",
     preview_live_btn: "👁️ Afficher en direct (Live)",
     config_saved_live: "Configuration enregistrée et appliquée à chaud !",
-    preview_success: "Écran affiché en direct sur la matrice LED !",
+    preview_success: "L'écran est maintenant affiché en direct sur la matrice !",
+    system_prefs_saved: "Préférences système enregistrées & appliquées en direct !",
+    system_prefs_error: "Échec de l'enregistrement des préférences système",
     screen_name_help: "Nom personnalisé affiché dans les onglets et la playlist de rotation.",
     no_config_available: "Aucune configuration disponible pour ce moteur.",
     cancel_btn: "Annuler",
@@ -713,7 +717,7 @@ export function setLanguage(lang) {
   // Text content translation
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
-    if (dict[key]) {
+    if (dict[key] !== undefined) {
       el.textContent = dict[key];
     }
   });
@@ -721,9 +725,38 @@ export function setLanguage(lang) {
   // Tooltip translation
   document.querySelectorAll('[data-i18n-tooltip]').forEach(el => {
     const key = el.getAttribute('data-i18n-tooltip');
-    if (dict[key]) {
+    if (dict[key] !== undefined) {
       el.setAttribute('data-tooltip', dict[key]);
       el.setAttribute('tabindex', '0'); // For mobile focus
     }
   });
+
+  // Placeholder translation
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (dict[key] !== undefined) {
+      el.placeholder = dict[key];
+    }
+  });
+
+  // Title attribute translation
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (dict[key] !== undefined) {
+      el.title = dict[key];
+    }
+  });
+
+  // Synchronize dropdown selectors
+  const topSel = document.getElementById('lang-selector');
+  if (topSel && topSel.value !== lang) topSel.value = lang;
+  const sysSel = document.getElementById('sys-lang');
+  if (sysSel && sysSel.value !== lang) sysSel.value = lang;
+
+  // Live re-render of dynamic components (engine catalog, tabs, rotation playlist)
+  if (window.renderDynamicDisplay) {
+    try {
+      window.renderDynamicDisplay();
+    } catch (_) {}
+  }
 }

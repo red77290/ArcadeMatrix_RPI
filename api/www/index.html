@@ -292,8 +292,67 @@
 
         <!-- Hardware Settings -->
         <div id="sys-tab-hardware" class="tab-pane">
+          <!-- Screen Orientation & Gyroscope Calibration Card -->
+          <div class="card glass shadow" style="margin-bottom: 1.5rem;">
+            <h3 data-i18n="hw_gyro_title">🧭 Screen Orientation & Gyroscope</h3>
+            <p class="text-muted" data-i18n="hw_gyro_desc">Configure display rotation, baseline mounting offset, visual transition FX, or enable auto-rotation via onboard Gyroscope/IMU.</p>
+            
+            <div class="form-grid col-3" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label data-i18n="hw_screen_rotation_label">Screen Rotation / Mounting Offset</label>
+                <select id="hw-screen-rotation" class="input">
+                  <option value="0" data-i18n="hw_rot_0">0° - Normal (Landscape)</option>
+                  <option value="1" data-i18n="hw_rot_90">90° - Clockwise (Cable Left / Portrait)</option>
+                  <option value="2" data-i18n="hw_rot_180">180° - Inverted (Cable Top / Flip)</option>
+                  <option value="3" data-i18n="hw_rot_270">270° - Counter-Clockwise (Cable Right / Portrait)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="hw_gyro_autorotate_label">Gyro Auto-Rotation</label>
+                <div style="display: flex; align-items: center; height: 100%;">
+                  <label class="switch">
+                    <input type="checkbox" id="hw-gyro-autorotate" checked>
+                    <span class="slider"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                <button id="btn-gyro-calibrate" class="btn btn-secondary" style="width: 100%;" data-i18n="hw_btn_gyro_calibrate">🎯 Set Current as Normal (0°)</button>
+              </div>
+            </div>
+
+            <!-- Transition Effects Row -->
+            <div class="form-grid col-3" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label data-i18n="hw_rotation_transition_label">Rotation Transition Effect</label>
+                <select id="hw-rotation-transition" class="input">
+                  <option value="vortex" data-i18n="hw_trans_vortex">✨ Particle Vortex</option>
+                  <option value="glitch" data-i18n="hw_trans_glitch">⚡ Cyberpunk Glitch</option>
+                  <option value="slide" data-i18n="hw_trans_slide">💫 Smooth Slide</option>
+                  <option value="zoom" data-i18n="hw_trans_zoom">🌀 Tunnel Zoom</option>
+                  <option value="matrix" data-i18n="hw_trans_matrix">🌊 Matrix Rain</option>
+                  <option value="random" data-i18n="hw_trans_random">🎲 Random (Every rotation)</option>
+                  <option value="none" data-i18n="hw_trans_none">Instant Cut (None)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="hw_transition_duration_label">Transition Duration (ms)</label>
+                <input type="number" id="hw-transition-duration" class="input" value="400" min="150" max="1500" step="50">
+              </div>
+              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
+                <button id="btn-test-transition" class="btn btn-secondary" style="width: 100%;" data-i18n="hw_btn_test_transition">✨ Test Transition FX</button>
+              </div>
+            </div>
+
+            <div id="gyro-live-status" style="margin-top: 1rem; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
+              <div><strong data-i18n="hw_sensor_label">Sensor:</strong> <span id="gyro-sensor-name">Probing...</span></div>
+              <div><strong data-i18n="hw_gravity_label">Gravity Vector:</strong> <span id="gyro-gravity-val">--</span></div>
+              <div><strong data-i18n="hw_active_rot_label">Active Rotation:</strong> <span id="gyro-active-rot">0°</span></div>
+            </div>
+          </div>
+
           <div class="card glass shadow">
-            <h3>Matrix Hardware Configuration</h3>
+            <h3 data-i18n="hw_matrix_title">Matrix Hardware Configuration</h3>
             <div class="form-grid col-4">
               <div class="form-group">
                 <label>Rows (Height)</label>

@@ -197,6 +197,24 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `offset_x` | `int` | `0` | Horizontal pixel offset. |
 | `offset_y` | `int` | `0` | Vertical pixel offset. |
 
+### Engine: `dashboard` (Smart Dashboard Hub)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `clock_mode` | `Options` | `0` | `0` (Digital), `1` (Watch Dial), `2` (Minimal) | Clock rendering face and dial style. |
+| `theme` | `Options` | `0` | `0` (Cyberpunk Neon), `1` (Amber HUD), `2` (Minimalist Luxury), `3` (Matrix Phosphor) | Color palette for dashboard widgets and borders. |
+| `show_clock` | `bool` | `true` | `true`, `false` | Display primary time widget. |
+| `show_world_clock` | `bool` | `true` | `true`, `false` | Display secondary world timezones (NYC, TYO, LON...). |
+| `world_clocks` | `String` | `NYC,TYO,LON` | Airport/City codes | Comma-separated list of secondary timezone codes. |
+| `show_weather` | `bool` | `true` | `true`, `false` | Display outdoor temperature and weather forecast. |
+| `weather_city` | `String` | `Paris, FR` | Text | City location for weather forecast. |
+| `show_markets` | `bool` | `true` | `true`, `false` | Display real-time crypto and stock ticker badges. |
+| `tracked_markets` | `String` | `BTC,ETH,SOL,NVDA` | Comma-separated | Crypto and stock ticker symbols to cycle through. |
+| `show_sysinfo` | `bool` | `true` | `true`, `false` | Display CPU & RAM usage vitals. |
+| `show_date` | `bool` | `true` | `true`, `false` | Display calendar date badge. |
+| `show_seconds` | `bool` | `true` | `true`, `false` | Display second digits or sweeping tick. |
+| `offset_x` | `int` | `0` | `-64` to `64` | Horizontal pixel offset. |
+| `offset_y` | `int` | `0` | `-32` to `32` | Vertical pixel offset. |
+
 ### Engine: `crypto`
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -253,6 +271,22 @@ OpenWeatherMap uses the ISO 3166 country code (and 2-letter state code for the U
 | `fighter_2` | `String` | `""` | Character folder name | P2 Fighter (leave blank for random selection). |
 | `show_hud` | `bool` | `true` | `true`, `false` | Display retro HP health bars, Super gauges, and fighter names. |
 | `match_duration` | `int` | `30` | `10` to `120` | Maximum round duration in seconds before timeout. |
+
+### Engine: `dashboard` (Smart Dashboard Hub)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `clock_mode` | `Options` | `0` | `0` (Digital), `1` (Watch Dial), `2` (Minimal) | Display clock style |
+| `theme` | `Options` | `0` | `0` (Cyberpunk), `1` (Amber HUD), `2` (Minimalist), `3` (Matrix) | Color palette for widgets |
+| `show_clock` | `bool` | `true` | `true`, `false` | Display main clock |
+| `show_world_clock` | `bool` | `true` | `true`, `false` | Display secondary world timezones |
+| `world_clocks` | `String` | `NYC,TYO,LON` | Airport codes | Comma-separated world timezones (e.g. `NYC,TYO,LON,PAR,SFO`) |
+| `show_weather` | `bool` | `true` | `true`, `false` | Display live weather widget |
+| `weather_city` | `String` | `Paris,FR` | City string | City query for OpenWeatherMap |
+| `show_markets` | `bool` | `true` | `true`, `false` | Display rolling crypto/stock market ticker |
+| `tracked_markets` | `String` | `BTC,ETH,NVDA,AAPL` | Symbols | Comma-separated ticker symbols |
+| `show_sysinfo` | `bool` | `true` | `true`, `false` | Display CPU % / RAM % vitals |
+| `show_date` | `bool` | `true` | `true`, `false` | Display current date |
+| `show_seconds` | `bool` | `true` | `true`, `false` | Display seconds counter |
 
 ### Engine: `google_cast` (Google Home / Nest Audio)
 | Field | Type | Default | Description |

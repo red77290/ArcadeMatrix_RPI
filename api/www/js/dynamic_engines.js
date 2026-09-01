@@ -95,7 +95,36 @@ export const THEME_ID_MAP = {
   "pong": "Pong", "binary": "Binary", "slot_machine": "Slot Machine"
 };
 
-// Global in-memory cache to prevent multiple round-trips to the ESP32
+export function getEngineMeta(descOrMeta) {
+  const meta = (descOrMeta && descOrMeta.metadata) ? descOrMeta.metadata : (descOrMeta || {});
+  const id = String(meta.id || '').toLowerCase();
+  const name = meta.name || (id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'Display Engine');
+  const cat = String(meta.category || '').toLowerCase();
+  
+  let icon = meta.icon || '';
+  if (!icon) {
+    if (id === 'dashboard' || cat === 'dashboard') icon = '📊';
+    else if (id.includes('clock') || cat.includes('time')) icon = '⏰';
+    else if (id.includes('weather') || cat.includes('weather')) icon = '🌤️';
+    else if (id.includes('crypto') || cat.includes('crypto')) icon = '🪙';
+    else if (id.includes('stock') || cat.includes('stock') || cat.includes('finance')) icon = '📈';
+    else if (id.includes('gif') || cat.includes('animation') || cat.includes('media_anim')) icon = '🎞️';
+    else if (id.includes('sys') || cat.includes('system') || cat.includes('info')) icon = '🖥️';
+    else if (id.includes('date') || cat.includes('calendar')) icon = '📅';
+    else if (id.includes('spotify')) icon = '🟢';
+    else if (id.includes('cast') || id.includes('music') || cat.includes('audio')) icon = '🎵';
+    else if (id.includes('marquee')) icon = '📜';
+    else if (id.includes('msg') || id.includes('message') || cat.includes('text')) icon = '💬';
+    else if (cat.includes('game') || cat.includes('retro')) icon = '🕹️';
+    else if (cat.includes('sensor')) icon = '🌡️';
+    else icon = '🧩';
+  }
+  
+  const desc = meta.description || `${name} display engine plugin for ArcadeMatrix.`;
+  return { id, name, category: cat, icon, desc, version: meta.version || '1.0.0' };
+}
+
+// Global in-memory cache to prevent multiple round-trips
 const endpointCache = new Map();
 
 async function fetchCachedEndpoint(url) {
@@ -236,62 +265,63 @@ export function formatOptLabel(fieldId, val, raw) {
   return raw || val;
 }
 
-// --- Dynamic Screen Naming & Resolution ---
+// --- Dynamic Screen Naming & Resolution (100% Schema-Driven) ---
 export function resolveScreenInfo(instance, engineDesc) {
   const cfg = (instance && instance.config) ? instance.config : {};
-  const engId = (instance && instance.engine_id) ? instance.engine_id.toLowerCase() : '';
-  const icon = (engineDesc && engineDesc.metadata && engineDesc.metadata.icon) ? engineDesc.metadata.icon : '📺';
-  const engName = (engineDesc && engineDesc.metadata && engineDesc.metadata.name) ? engineDesc.metadata.name : (instance ? instance.engine_id : 'Screen');
+  const meta = getEngineMeta(engineDesc || { id: instance?.engine_id });
+  const icon = meta.icon;
+  const engName = meta.name;
   
   if (cfg.screen_title && String(cfg.screen_title).trim().length > 0) {
     const custom = String(cfg.screen_title).trim();
     return { icon, title: custom, subtitle: engName, full: `${icon} ${custom}`, isCustom: true };
   }
   
-  if (engId === 'clock') {
-    const themeVal = String(cfg.clock_theme !== undefined ? cfg.clock_theme : (cfg.theme || '0')).toLowerCase();
-    const tName = THEME_ID_MAP[themeVal] || (themeVal.charAt(0).toUpperCase() + themeVal.slice(1));
-    const clockLabel = t('clock_name', 'Clock');
-    return { icon, title: `${clockLabel} (${tName})`, subtitle: tName, full: `${icon} ${clockLabel} (${tName})` };
+  // Dynamically look for the most descriptive field in instance.config
+  const fields = getSchemaFields(engineDesc);
+  let bestValueLabel = '';
+  
+  if (fields && fields.length > 0) {
+    const keyFieldNames = [
+      'theme', 'clock_theme', 'style', 'mode', 'clock_mode',
+      'city', 'location', 'folder', 'playlist', 'coins', 'symbols', 'symbol',
+      'text', 'message', 'format', 'date_format'
+    ];
+    
+    let chosenField = null;
+    for (const key of keyFieldNames) {
+      const match = fields.find(f => f.id === key || f.id.toLowerCase().includes(key));
+      if (match && cfg[match.id] !== undefined && String(cfg[match.id]).trim().length > 0) {
+        chosenField = match;
+        break;
+      }
+    }
+    
+    if (!chosenField) {
+      chosenField = fields.find(f => isOptionsField(f) && cfg[f.id] !== undefined && String(cfg[f.id]).trim().length > 0);
+    }
+    
+    if (chosenField) {
+      const rawVal = String(cfg[chosenField.id]).trim();
+      if (chosenField.options) {
+        const opts = parseOptions(chosenField.options);
+        const matchOpt = opts.find(o => String(o.value) === rawVal);
+        bestValueLabel = matchOpt ? matchOpt.label : formatOptLabel(chosenField.id, rawVal);
+      } else {
+        bestValueLabel = formatOptLabel(chosenField.id, rawVal);
+      }
+      if (bestValueLabel.length > 20) {
+        bestValueLabel = bestValueLabel.substring(0, 17) + '...';
+      }
+    }
   }
-  if (engId === 'weather') {
-    const city = cfg.city || cfg.location || '';
-    const wLabel = t('weather_name', 'Weather');
-    const name = city ? `${wLabel} (${city})` : wLabel;
-    return { icon, title: name, subtitle: city || 'OpenWeatherMap', full: `${icon} ${name}` };
+  
+  if (bestValueLabel) {
+    return { icon, title: `${engName} (${bestValueLabel})`, subtitle: bestValueLabel, full: `${icon} ${engName} (${bestValueLabel})` };
   }
-  if (engId === 'gifs') {
-    const folder = cfg.folder || 'all';
-    const cleanFolder = folder.replace('/gifs/', '').replace('/gifs', 'all');
-    return { icon, title: `GIFs (${cleanFolder})`, subtitle: cleanFolder, full: `${icon} GIFs (${cleanFolder})` };
-  }
-  if (engId === 'crypto') {
-    const coins = cfg.coins || 'BTC';
-    return { icon, title: `Crypto (${coins})`, subtitle: coins, full: `${icon} Crypto (${coins})` };
-  }
-  if (engId === 'stock') {
-    const symbols = cfg.symbols || 'AAPL';
-    const sLabel = t('stock_name', 'Stock');
-    return { icon, title: `${sLabel} (${symbols})`, subtitle: symbols, full: `${icon} ${sLabel} (${symbols})` };
-  }
-  if (engId === 'google_cast') {
-    return { icon: '🎵', title: 'Google Cast (Nest)', subtitle: 'LAN Auto-Discovery', full: '🎵 Google Cast (Nest)' };
-  }
-  if (engId === 'spotify') {
-    return { icon: '🟢', title: 'Spotify Player', subtitle: 'Official API', full: '🟢 Spotify Player' };
-  }
-  if (engId === 'system_info' || engId === 'sysinfo') {
-    const sLabel = t('sysinfo_name', 'System Info');
-    const th = String(cfg.theme !== undefined ? cfg.theme : '0');
-    const thName = th === '1' ? t('theme_cyberpunk_neon', 'Cyberpunk Neon') : (th === '2' ? t('theme_compact_grid', 'Compact Grid') : t('theme_hud_bars', 'HUD Bars'));
-    return { icon: '📊', title: `${sLabel} (${thName})`, subtitle: thName, full: `📊 ${sLabel} (${thName})` };
-  }
-  if (engId === 'message') {
-    const txt = (cfg.text && cfg.text.length > 14) ? (cfg.text.substring(0, 11) + '...') : (cfg.text || 'ArcadeMatrix');
-    const mLabel = t('message_name', 'Message');
-    return { icon: '💬', title: `${mLabel} (${txt})`, subtitle: txt, full: `💬 ${mLabel} (${txt})` };
-  }
-  return { icon, title: `${engName} (${instance.instance_id})`, subtitle: instance.instance_id, full: `${icon} ${engName} (${instance.instance_id})` };
+  
+  const instId = instance?.instance_id || 'default';
+  return { icon, title: `${engName} (${instId})`, subtitle: instId, full: `${icon} ${engName} (${instId})` };
 }
 
 window.switchToScreenTab = function(instanceId) {
@@ -318,7 +348,7 @@ window.switchToScreenTab = function(instanceId) {
   }
 };
 
-// Modal for 1-Click Interactive Screen Creation
+// Modal for 1-Click Interactive Screen Creation (100% Schema-Driven)
 export function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaultAddToRotation = true) {
   const existingModal = document.getElementById('add-screen-modal-overlay');
   if (existingModal) existingModal.remove();
@@ -334,7 +364,8 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
   overlay.className = 'modal-overlay';
 
   function generateSuggestedId(engId, variant) {
-    const base = variant ? `${engId}_${variant}`.toLowerCase().replace(/[^a-z0-9]/g, '_') : `${engId}_1`.toLowerCase();
+    const cleanVariant = variant ? String(variant).toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '') : '';
+    const base = cleanVariant ? `${engId}_${cleanVariant}` : `${engId}_1`;
     let candidate = base;
     let counter = 1;
     while (instancesList.some(i => i.instance_id === candidate)) {
@@ -344,81 +375,55 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
     return candidate;
   }
 
-  function renderModalContent() {
+  async function renderModalContent() {
     currentDesc = enginesMap[currentEngineId] || descriptors[0];
     const engId = currentEngineId.toLowerCase();
-    const icon = (currentDesc.metadata && currentDesc.metadata.icon) ? currentDesc.metadata.icon : '📺';
-    const name = (currentDesc.metadata && currentDesc.metadata.name) ? currentDesc.metadata.name : currentEngineId;
+    const meta = getEngineMeta(currentDesc);
+    const icon = meta.icon;
+    const name = meta.name;
+    const fields = getSchemaFields(currentDesc);
 
-    let variantHtml = '';
-    let initialVariant = '';
-
-    if (engId === 'clock') {
-      initialVariant = 'tetris';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
-          <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="23" selected>${t('theme_tetris', '🎮 Tetris Clock')}</option>
-            <option value="21">${t('theme_matrix', '💻 Matrix Rain Clock')}</option>
-            <option value="27">${t('theme_versus', '🥊 Capcom / Versus Clock')}</option>
-            <option value="26">${t('theme_pacman', '🟡 Pac-Man Clock')}</option>
-            <option value="19">${t('theme_flip', '⏱️ Flip Clock')}</option>
-            <option value="24">${t('theme_word', '🔤 Word Clock')}</option>
-            <option value="18">${t('theme_cyberpunk', '🌆 Cyberpunk Clock')}</option>
-            <option value="22">${t('theme_pong', '🏓 Pong Clock')}</option>
-            <option value="25">${t('theme_binary', '🔢 Binary Clock')}</option>
-            <option value="28">${t('theme_slot_machine', '🎰 Slot Machine Clock')}</option>
-          </select>
-        </div>
-      `;
-    } else if (engId === 'weather') {
-      initialVariant = 'paris';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_city_label">${t('modal_city_label', 'City / Location (e.g. Paris, FR or Tokyo, JP):')}</label>
-          <input type="text" id="modal-field-variant" class="input" placeholder="Paris, FR" value="Paris, FR">
-        </div>
-      `;
-    } else if (engId === 'gifs') {
-      initialVariant = 'arcade';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_folder_label">${t('modal_gif_folder_label', 'GIF Playlist Folder:')}</label>
-          <input type="text" id="modal-field-variant" class="input" placeholder="all, /gifs/arcade, /gifs/nintendo" value="all">
-        </div>
-      `;
-    } else if (engId === 'crypto') {
-      initialVariant = 'btc';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_crypto_label">${t('modal_crypto_label', 'Crypto Symbols (comma-separated):')}</label>
-          <input type="text" id="modal-field-variant" class="input" placeholder="BTC,ETH,SOL" value="BTC,ETH">
-        </div>
-      `;
-    } else if (engId === 'stock') {
-      initialVariant = 'aapl';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_stock_label">${t('modal_stock_label', 'Stock Tickers (comma-separated):')}</label>
-          <input type="text" id="modal-field-variant" class="input" placeholder="AAPL,TSLA,NVDA" value="AAPL,TSLA">
-        </div>
-      `;
-    } else if (engId === 'system_info' || engId === 'sysinfo') {
-      initialVariant = '0';
-      variantHtml = `
-        <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
-          <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="0" selected>${t('theme_hud_bars', '📊 HUD Bars & Gauges')}</option>
-            <option value="1">${t('theme_cyberpunk_neon', '🌆 Cyberpunk Neon')}</option>
-            <option value="2">${t('theme_compact_grid', '📱 Compact Grid (2x2)')}</option>
-          </select>
-        </div>
-      `;
+    // Dynamically find primary variant field
+    let primaryField = null;
+    if (fields && fields.length > 0) {
+      primaryField = fields.find(f => isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) ||
+                     fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f));
     }
 
-    const defaultId = generateSuggestedId(engId, initialVariant);
+    let variantHtml = '';
+    let initialVariantVal = '';
+
+    if (primaryField) {
+      const fLabel = primaryField.label || primaryField.id;
+      if (primaryField.options_endpoint) {
+        variantHtml = `
+          <div class="form-group" style="margin-top: 1rem;">
+            <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+            <select id="modal-field-variant" class="input" style="font-weight: 600;"></select>
+          </div>
+        `;
+      } else if (isOptionsField(primaryField) || (primaryField.options && primaryField.options.length > 0)) {
+        const opts = parseOptions(primaryField.options);
+        initialVariantVal = primaryField.default_value || (opts.length > 0 ? opts[0].value : '');
+        const optsHtml = opts.map(o => `<option value="${o.value}" ${String(o.value) === String(initialVariantVal) ? 'selected' : ''}>${formatOptLabel(primaryField.id, o.value, o.label)}</option>`).join('');
+        variantHtml = `
+          <div class="form-group" style="margin-top: 1rem;">
+            <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+            <select id="modal-field-variant" class="input" style="font-weight: 600;">${optsHtml}</select>
+          </div>
+        `;
+      } else {
+        initialVariantVal = primaryField.default_value || '';
+        variantHtml = `
+          <div class="form-group" style="margin-top: 1rem;">
+            <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+            <input type="text" id="modal-field-variant" class="input" placeholder="${primaryField.description || primaryField.default_value || ''}" value="${initialVariantVal}">
+          </div>
+        `;
+      }
+    }
+
+    const defaultId = generateSuggestedId(engId, initialVariantVal);
 
     overlay.innerHTML = `
       <div class="modal-box glass">
@@ -434,10 +439,9 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             <label style="font-size: 0.85rem; font-weight: 600; color: var(--accent-primary);" data-i18n="choose_engine">${t('choose_engine', 'Choose Engine:')}</label>
             <select id="modal-select-engine" class="input" style="font-weight: 600; font-size: 1rem; border-color: var(--accent-primary);">
               ${descriptors.map(d => {
-                const dIcon = (d.metadata && d.metadata.icon) ? d.metadata.icon : '🧩';
-                const dName = (d.metadata && d.metadata.name) ? d.metadata.name : d.metadata.id;
+                const dMeta = getEngineMeta(d);
                 const isSel = d.metadata.id === currentEngineId ? 'selected' : '';
-                return `<option value="${d.metadata.id}" ${isSel}>${dIcon} ${dName}</option>`;
+                return `<option value="${d.metadata.id}" ${isSel}>${dMeta.icon} ${dMeta.name}</option>`;
               }).join('')}
             </select>
           </div>
@@ -461,14 +465,16 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             </label>
             <div id="modal-rotation-options" style="margin-top: 0.75rem; display: ${defaultAddToRotation ? 'flex' : 'none'}; gap: 1rem; align-items: center; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n="modal_duration_label">${t('modal_duration_label', 'Display Duration (seconds / GIFs):')}</span>
+                <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n="modal_duration_label">${t('modal_duration_label', 'Display Duration (seconds / count):')}</span>
                 <input type="number" id="modal-input-duration" class="input" style="width: 70px; padding: 0.35rem 0.5rem; text-align: center;" value="30" min="1">
-                <span style="font-size: 0.85rem; color: var(--text-muted);">${engId === 'gifs' ? 'GIFs' : 'sec'}</span>
+                <span style="font-size: 0.85rem; color: var(--text-muted);">sec</span>
               </div>
-              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
-                <input type="checkbox" id="modal-check-fighter" ${engId === 'clock' ? 'checked' : ''}>
-                <span data-i18n="fighter_overlay_label">${t('fighter_overlay_label', '🥊 Street Fighter Overlay')}</span>
-              </label>
+              ${(currentDesc.capabilities && currentDesc.capabilities.allows_overlay !== false) ? `
+                <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
+                  <input type="checkbox" id="modal-check-fighter" ${engId === 'clock' ? 'checked' : ''}>
+                  <span data-i18n="fighter_overlay_label">${t('fighter_overlay_label', '🥊 Street Fighter Overlay')}</span>
+                </label>
+              ` : ''}
             </div>
           </div>
         </div>
@@ -482,7 +488,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       </div>
     `;
 
-    // Wire up events
+    // Wire events
     overlay.querySelector('#modal-btn-close').onclick = () => overlay.remove();
     overlay.querySelector('#modal-btn-cancel').onclick = () => overlay.remove();
 
@@ -496,19 +502,26 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
     const idInput = overlay.querySelector('#modal-input-id');
     const titleInput = overlay.querySelector('#modal-input-title');
 
-    if (variantEl && idInput) {
-      variantEl.onchange = () => {
-        const val = variantEl.value;
-        idInput.value = generateSuggestedId(currentEngineId.toLowerCase(), val);
-        if (engId === 'clock') {
-          const optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
-          titleInput.value = `${t('clock_name', 'Horloge')} (${optText})`;
-        } else if (engId === 'weather') {
-          titleInput.value = `${t('weather_name', 'Météo')} (${val})`;
-        } else if (engId === 'system_info' || engId === 'sysinfo') {
-          const optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
-          titleInput.value = `${t('sysinfo_name', 'Infos Système')} (${optText})`;
+    // If options_endpoint, fetch and populate
+    if (primaryField && primaryField.options_endpoint && variantEl) {
+      fetchCachedEndpoint(primaryField.options_endpoint).then(data => {
+        const parsed = parseOptions(data);
+        variantEl.innerHTML = parsed.map(o => `<option value="${o.value}">${o.label}</option>`).join('');
+        if (parsed.length > 0) {
+          idInput.value = generateSuggestedId(engId, parsed[0].value);
         }
+      }).catch(() => {});
+    }
+
+    if (variantEl && idInput) {
+      variantEl.oninput = variantEl.onchange = () => {
+        const val = variantEl.value;
+        idInput.value = generateSuggestedId(engId, val);
+        let optText = val;
+        if (variantEl.tagName === 'SELECT' && variantEl.selectedIndex >= 0) {
+          optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
+        }
+        titleInput.value = optText ? `${name} (${optText})` : name;
       };
     }
 
@@ -520,25 +533,22 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
     const submitBtn = overlay.querySelector('#modal-btn-submit');
     submitBtn.onclick = async () => {
-      const instId = idInput.value.trim() || generateSuggestedId(currentEngineId.toLowerCase(), '');
+      const instId = idInput.value.trim() || generateSuggestedId(engId, '');
       const screenTitle = titleInput.value.trim();
       const initialConfig = {};
       if (screenTitle) initialConfig.screen_title = screenTitle;
 
-      let targetEngineId = currentEngineId;
-      if (targetEngineId === 'sysinfo') targetEngineId = 'system_info';
-      else if (targetEngineId === 'gif') targetEngineId = 'gifs';
-      else if (targetEngineId === 'cast') targetEngineId = 'google_cast';
+      // Populate default schema values
+      if (fields && fields.length > 0) {
+        fields.forEach(f => {
+          if (f.default_value !== undefined && f.default_value !== null) {
+            initialConfig[f.id] = f.default_value;
+          }
+        });
+      }
 
-      if (variantEl) {
-        if (engId === 'clock') {
-          initialConfig.clock_theme = String(variantEl.value);
-          initialConfig.theme = String(variantEl.value);
-        } else if (engId === 'weather') initialConfig.city = String(variantEl.value);
-        else if (engId === 'gifs') initialConfig.folder = String(variantEl.value);
-        else if (engId === 'crypto') initialConfig.coins = String(variantEl.value);
-        else if (engId === 'stock') initialConfig.symbols = String(variantEl.value);
-        else if (engId === 'system_info' || engId === 'sysinfo') initialConfig.theme = String(variantEl.value || '0');
+      if (primaryField && variantEl) {
+        initialConfig[primaryField.id] = String(variantEl.value);
       }
 
       submitBtn.disabled = true;
@@ -547,14 +557,15 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       try {
         await API.post('/api/instances', {
           instance_id: instId,
-          engine_id: targetEngineId,
+          engine_id: currentEngineId,
           config: initialConfig
         });
 
         if (rotCheck.checked) {
           const currentRotation = await API.get('/api/rotation').catch(() => []);
           const dur = parseInt(overlay.querySelector('#modal-input-duration').value) || 30;
-          const fighter = overlay.querySelector('#modal-check-fighter').checked;
+          const fighterEl = overlay.querySelector('#modal-check-fighter');
+          const fighter = fighterEl ? fighterEl.checked : false;
           const newEntries = Array.isArray(currentRotation) ? currentRotation.slice() : [];
           newEntries.push({
             instance_id: instId,
@@ -579,6 +590,15 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
   renderModalContent();
   document.body.appendChild(overlay);
+});
+        submitBtn.disabled = false;
+        submitBtn.innerText = t('modal_create_btn', '🚀 Create & Add Screen');
+      }
+    };
+  }
+
+  renderModalContent();
+  document.body.appendChild(overlay);
 }
 
 // 1. Render Rotation Playlist Panel
@@ -595,7 +615,14 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
 
   const isCountBased = (instId) => {
     const inst = instancesList.find(i => i.instance_id === instId);
-    return inst && inst.engine_id === 'gifs';
+    const eng = inst ? enginesMap[inst.engine_id] : null;
+    return Boolean((eng && eng.capabilities && eng.capabilities.selfPaced) || (inst && inst.engine_id === 'gifs'));
+  };
+
+  const allowsOverlay = (instId) => {
+    const inst = instancesList.find(i => i.instance_id === instId);
+    const eng = inst ? enginesMap[inst.engine_id] : null;
+    return Boolean(!eng || !eng.capabilities || eng.capabilities.allows_overlay !== false);
   };
 
   const card = document.createElement('div');
@@ -792,12 +819,12 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
     if (val.startsWith('inst:')) {
       const instId = val.replace('inst:', '');
       const inst = instancesList.find(i => i.instance_id === instId);
-      const isClock = inst && inst.engine_id === 'clock';
+      const allowOverlay = allowsOverlay(instId);
       entries.push({
         instance_id: instId,
         duration_sec: 30,
-        overlays: { fighter: isClock },
-        fighter_overlay: isClock
+        overlays: { fighter: allowOverlay },
+        fighter_overlay: allowOverlay
       });
       renderRows();
     } else if (val.startsWith('new:')) {
@@ -869,9 +896,10 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
     const eng = desc.metadata || {};
     const req = desc.requirements || {};
     const cap = desc.capabilities || {};
-    const icon = eng.icon || '🧩';
-    const name = eng.name || eng.id;
-    const descText = eng.description || 'Display engine plugin for ArcadeMatrix.';
+    const meta = getEngineMeta(desc);
+    const icon = meta.icon;
+    const name = meta.name;
+    const descText = meta.desc;
 
     const card = document.createElement('div');
     card.className = 'engine-catalog-card';
@@ -993,7 +1021,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
     wrapper.insertBefore(screensHeader, tabsAnchor);
 
     screensHeader.querySelector('#btn-header-add-screen').onclick = () => {
-      showAddScreenModal('clock', descriptors, instancesList, true);
+      showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
     };
 
     if (instancesList.length === 0) {
@@ -1007,7 +1035,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
         <button class="btn btn-primary" id="btn-empty-first-screen">➕ ${t('modal_add_title', 'Add First Screen')}</button>
       `;
       wrapper.appendChild(emptyCard);
-      emptyCard.querySelector('#btn-empty-first-screen').onclick = () => showAddScreenModal('clock', descriptors, instancesList, true);
+      emptyCard.querySelector('#btn-empty-first-screen').onclick = () => showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
       return;
     }
 
@@ -1099,12 +1127,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             newRot = newRot.filter(r => r.instance_id !== instance.instance_id);
             window.showToast(`Removed '${info.title}' from rotation`, 'info');
           } else {
-            const isClock = instance.engine_id === 'clock';
+            const allowOverlay = !engineDesc.capabilities || engineDesc.capabilities.allows_overlay !== false;
             newRot.push({
               instance_id: instance.instance_id,
               duration_sec: 30,
-              overlays: { fighter: isClock },
-              fighter_overlay: isClock
+              overlays: { fighter: allowOverlay },
+              fighter_overlay: allowOverlay
             });
             window.showToast(`Added '${info.title}' to rotation`, 'success');
           }

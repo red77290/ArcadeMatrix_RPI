@@ -1,6 +1,7 @@
 pub mod clock;
 pub mod clocks;
 pub mod crypto;
+pub mod dashboard;
 pub mod date;
 pub mod fighter;
 pub mod frontend_sync;

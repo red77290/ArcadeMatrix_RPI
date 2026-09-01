@@ -52,36 +52,108 @@
   },
   "instances": [
     {
+      "instance_id": "default_dashboard",
+      "engine_id": "dashboard",
+      "config": {
+        "show_seconds": "true",
+        "clock_mode": "0",
+        "world_clocks": "NYC,TYO,LON",
+        "show_date": "true",
+        "tracked_markets": "BTC,ETH,SOL,NVDA",
+        "weather_city": "Paris, FR",
+        "show_world_clock": "true",
+        "offset_y": "0",
+        "offset_x": "0",
+        "show_markets": "true",
+        "show_weather": "true",
+        "theme": "0",
+        "show_clock": "true",
+        "show_sysinfo": "true"
+      }
+    },
+    {
       "instance_id": "default_clock",
       "engine_id": "clock",
       "config": {
-        "timezone": "Europe/Paris",
-        "color_1": "#FFFFFF",
-        "font": "PressStart2P.ttf",
-        "format": "%H:%M:%S",
         "offset_y": "0",
-        "size": "2",
+        "timezone": "Europe/Paris",
+        "font": "PressStart2P.ttf",
         "color_2": "#FFFFFF",
+        "color_1": "#FFFFFF",
+        "format": "%H:%M:%S",
         "theme": "0",
-        "offset_x": "0"
+        "offset_x": "0",
+        "size": "2"
       }
     },
     {
       "instance_id": "default_weather",
       "engine_id": "weather",
       "config": {
-        "offset_x": "0",
-        "api_key": "",
-        "units": "metric",
         "offset_y": "0",
-        "city": ""
+        "api_key": "",
+        "offset_x": "0",
+        "city": "Paris, FR",
+        "units": "metric"
+      }
+    },
+    {
+      "instance_id": "default_crypto",
+      "engine_id": "crypto",
+      "config": {
+        "page_seconds": "5",
+        "cache_ttl_min": "1",
+        "show_chart": "true",
+        "symbols": "BTC,ETH",
+        "currency": "USD",
+        "chart_timeframe": "daily"
+      }
+    },
+    {
+      "instance_id": "default_stock",
+      "engine_id": "stock",
+      "config": {
+        "cache_ttl_min": "1",
+        "currency": "USD",
+        "symbols": "AAPL,TSLA,NVDA",
+        "chart_timeframe": "daily",
+        "show_chart": "true",
+        "page_seconds": "5"
+      }
+    },
+    {
+      "instance_id": "default_gifs",
+      "engine_id": "gifs",
+      "config": {
+        "playlists": ""
+      }
+    },
+    {
+      "instance_id": "default_sysinfo",
+      "engine_id": "system_info",
+      "config": {
+        "offset_x": "0",
+        "offset_y": "0",
+        "theme": "0",
+        "show_ram": "true",
+        "show_uptime": "true",
+        "show_temp": "true",
+        "temp_unit": "C",
+        "show_cpu": "true"
       }
     }
   ],
   "rotation": [
     {
+      "instance_id": "default_dashboard",
+      "duration_sec": 30,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
       "instance_id": "default_clock",
-      "duration_sec": 60,
+      "duration_sec": 20,
       "overlays": {
         "fighter": true
       }
@@ -89,6 +161,27 @@
     {
       "instance_id": "default_weather",
       "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_crypto",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_stock",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_gifs",
+      "duration_sec": 30,
       "overlays": {
         "fighter": true
       }

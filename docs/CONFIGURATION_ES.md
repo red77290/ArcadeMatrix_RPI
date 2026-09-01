@@ -254,6 +254,22 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 | `show_hud` | `bool` | `true` | `true`, `false` | Muestra barras de vida retro (HP), medidores de Super y nombres de luchadores. |
 | `match_duration` | `int` | `30` | `10` a `120` | Duración máxima del asalto en segundos antes de agotar el tiempo. |
 
+### Motor: `dashboard` (Smart Dashboard Hub)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `clock_mode` | `Options` | `0` | `0` (Digital), `1` (Esfera), `2` (Mínimo) | Estilo de visualización del reloj |
+| `theme` | `Options` | `0` | `0` (Cyberpunk), `1` (Amber HUD), `2` (Minimalist), `3` (Matrix) | Paleta de colores para los widgets |
+| `show_clock` | `bool` | `true` | `true`, `false` | Muestra el reloj principal |
+| `show_world_clock` | `bool` | `true` | `true`, `false` | Muestra zonas horarias mundiales secundarias |
+| `world_clocks` | `String` | `NYC,TYO,LON` | Códigos de aeropuerto | Zonas horarias separadas por comas (ej. `NYC,TYO,LON,PAR,SFO`) |
+| `show_weather` | `bool` | `true` | `true`, `false` | Muestra el widget meteorológico en vivo |
+| `weather_city` | `String` | `Paris,FR` | Ciudad | Consulta de ciudad para OpenWeatherMap |
+| `show_markets` | `bool` | `true` | `true`, `false` | Muestra el teletipo bursátil y cripto |
+| `tracked_markets` | `String` | `BTC,ETH,NVDA,AAPL` | Símbolos | Símbolos bursátiles separados por comas |
+| `show_sysinfo` | `bool` | `true` | `true`, `false` | Muestra el uso de CPU % y RAM % |
+| `show_date` | `bool` | `true` | `true`, `false` | Muestra la fecha actual |
+| `show_seconds` | `bool` | `true` | `true`, `false` | Muestra el contador de segundos |
+
 ### Motor: `google_cast` (Google Home / Nest Audio)
 | Campo | Tipo | Por defecto | Descripción |
 | :--- | :--- | :--- | :--- |

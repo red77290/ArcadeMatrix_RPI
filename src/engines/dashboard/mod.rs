@@ -421,22 +421,47 @@ impl Engine for DashboardEngine {
             }
 
             if self.show_sysinfo && cur_y < h - 10 {
-                let sys_str = if (seconds / 3) % 2 == 0 {
-                    format!("CPU:{:.0}%", data.cpu_usage)
+                let (lbl, val) = if (seconds / 3) % 2 == 0 {
+                    ("CPU", data.cpu_usage.clamp(0.0, 100.0))
                 } else {
-                    format!("RAM:{:.0}%", data.ram_usage)
+                    ("RAM", data.ram_usage.clamp(0.0, 100.0))
                 };
                 draw_text_clipped(
                     matrix,
-                    &sys_str,
+                    lbl,
                     2 + self.offset_x,
                     cur_y,
                     0,
                     w,
                     0,
                     h,
-                    theme_palette.text,
+                    theme_palette.primary,
                 );
+                let bar_x = 22 + self.offset_x;
+                let bar_w = (w - bar_x - 2).max(4);
+                let bar_y = cur_y + 2;
+                let usage_ratio = val / 100.0;
+                for px in 0..bar_w {
+                    let col_ratio = (px as f32 + 0.5) / bar_w as f32;
+                    let col = if col_ratio <= usage_ratio {
+                        if col_ratio < 0.20 {
+                            (0, 180, 255)
+                        } else if col_ratio < 0.40 {
+                            (0, 230, 80)
+                        } else if col_ratio < 0.60 {
+                            (255, 215, 0)
+                        } else if col_ratio < 0.80 {
+                            (255, 130, 0)
+                        } else {
+                            (255, 45, 45)
+                        }
+                    } else {
+                        (25, 30, 45)
+                    };
+                    for py in 0..2 {
+                        draw_pixel_clipped(matrix, bar_x + px, bar_y + py, 0, w, 0, h, col);
+                    }
+                }
                 cur_y += 10;
             }
 

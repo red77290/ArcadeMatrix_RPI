@@ -171,44 +171,61 @@ impl DashboardEngine {
         let running = self.running.clone();
         let data = self.data.clone();
         let markets = self.tracked_markets.clone();
+        let city = self.weather_city.clone();
 
         thread::spawn(move || {
+            use crate::api::crypto_provider::CryptoProvider;
+            use crate::api::stock_provider::StockProvider;
+
+            let binance = crate::api::binance::BinanceProvider;
+            let yahoo = crate::api::yahoo_finance::YahooFinanceProvider;
             let mut last_fetch = Instant::now() - Duration::from_secs(3600);
+
             while running.load(Ordering::Relaxed) {
-                if last_fetch.elapsed() >= Duration::from_secs(60) {
+                if last_fetch.elapsed() >= Duration::from_secs(30) {
                     last_fetch = Instant::now();
 
                     let (cpu, ram) = read_system_metrics();
 
+                    let syms: Vec<String> = markets
+                        .split(',')
+                        .map(|s| s.trim().to_uppercase())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+
+                    let mut updated_markets = Vec::new();
+                    for sym in &syms {
+                        if !running.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        // 1. Try Binance (Cryptos)
+                        let quote = binance
+                            .fetch_quote(sym)
+                            // 2. Try Yahoo Finance (Stocks / Alt Cryptos)
+                            .or_else(|| yahoo.fetch_quote(sym))
+                            .or_else(|| yahoo.fetch_quote(&format!("{}-USD", sym)));
+
+                        if let Some((price, change, _)) = quote {
+                            updated_markets.push(MarketQuote {
+                                symbol: sym.clone(),
+                                price: price as f32,
+                                change_24h: change as f32,
+                            });
+                        }
+                    }
+
+                    let weather_info = fetch_live_weather(&city);
+
                     if let Ok(mut lock) = data.lock() {
                         lock.cpu_usage = cpu;
                         lock.ram_usage = ram;
-
-                        let syms: Vec<String> = markets
-                            .split(',')
-                            .map(|s| s.trim().to_uppercase())
-                            .filter(|s| !s.is_empty())
-                            .collect();
-
-                        if !syms.is_empty() {
-                            let mut updated = Vec::new();
-                            for sym in syms {
-                                let (p, c) = match sym.as_str() {
-                                    "BTC" => (96200.0, 2.4),
-                                    "ETH" => (3520.0, -0.8),
-                                    "SOL" => (215.0, 6.1),
-                                    "NVDA" => (145.2, 1.9),
-                                    "AAPL" => (232.0, 0.5),
-                                    "TSLA" => (340.0, -2.3),
-                                    _ => (100.0, 0.0),
-                                };
-                                updated.push(MarketQuote {
-                                    symbol: sym,
-                                    price: p,
-                                    change_24h: c,
-                                });
-                            }
-                            lock.markets = updated;
+                        if !updated_markets.is_empty() {
+                            lock.markets = updated_markets;
+                        }
+                        if let Some((temp, code, desc)) = weather_info {
+                            lock.temp_c = temp;
+                            lock.weather_code = code;
+                            lock.weather_desc = desc;
                         }
                     }
                 }

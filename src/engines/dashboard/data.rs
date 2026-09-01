@@ -1,4 +1,4 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarketQuote {
@@ -72,6 +72,47 @@ pub fn format_market_price(price: f32) -> String {
     } else {
         format!("${:.2}", price)
     }
+}
+
+pub fn fetch_live_weather(city: &str) -> Option<(f32, i32, String)> {
+    if city.trim().is_empty() {
+        return None;
+    }
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(3))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+        .build()
+        .ok()?;
+
+    let encoded_city = city.trim().replace(' ', "+");
+    let url = format!("https://wttr.in/{}?format=j1", encoded_city);
+
+    if let Ok(res) = client.get(&url).send() {
+        if res.status().is_success() {
+            if let Ok(json) = res.json::<serde_json::Value>() {
+                if let Some(curr) = json.get("current_condition").and_then(|c| c.get(0)) {
+                    let temp_c = curr
+                        .get("temp_C")
+                        .and_then(|t| t.as_str())
+                        .and_then(|s| s.parse::<f32>().ok())?;
+                    let code = curr
+                        .get("weatherCode")
+                        .and_then(|c| c.as_str())
+                        .and_then(|s| s.parse::<i32>().ok())
+                        .unwrap_or(800);
+                    let desc = curr
+                        .get("weatherDesc")
+                        .and_then(|d| d.get(0))
+                        .and_then(|d| d.get("value"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Clear")
+                        .to_string();
+                    return Some((temp_c, code, desc));
+                }
+            }
+        }
+    }
+    None
 }
 
 pub fn read_system_metrics() -> (f32, f32) {

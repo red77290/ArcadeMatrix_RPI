@@ -647,8 +647,8 @@ impl ArcadeMatrixApp {
             realtime_cadence = realtime_cadence || overlay_manager.is_active();
             matrix.update();
 
-            // Adaptive sleep: realtime engines run at ~25fps (40ms), static at 1000ms
-            let sleep_ms = if realtime_cadence { 40 } else { 1000 };
+            // Adaptive sleep: realtime engines run at ~50fps (20ms), static at 1000ms
+            let sleep_ms = if realtime_cadence { 20 } else { 1000 };
             std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }
 

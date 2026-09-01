@@ -37,7 +37,6 @@ pub struct DashboardEngine {
     show_clock: bool,
     show_world_clock: bool,
     show_weather: bool,
-    show_indoor_temp: bool,
     show_markets: bool,
     show_sysinfo: bool,
     show_date: bool,
@@ -66,7 +65,6 @@ impl DashboardEngine {
             show_clock: true,
             show_world_clock: true,
             show_weather: true,
-            show_indoor_temp: true,
             show_markets: true,
             show_sysinfo: true,
             show_date: true,
@@ -81,8 +79,6 @@ impl DashboardEngine {
                 temp_c: 21.0,
                 weather_code: 800,
                 weather_desc: "Clear".to_string(),
-                indoor_temp_c: 22.0,
-                indoor_humidity: 45.0,
                 cpu_usage: 12.0,
                 ram_usage: 34.0,
                 wifi_rssi: -58,
@@ -137,7 +133,6 @@ impl DashboardEngine {
         self.show_clock = config.get_bool("show_clock", true);
         self.show_world_clock = config.get_bool("show_world_clock", true);
         self.show_weather = config.get_bool("show_weather", true);
-        self.show_indoor_temp = config.get_bool("show_indoor_temp", true);
         self.show_markets = config.get_bool("show_markets", true);
         self.show_sysinfo = config.get_bool("show_sysinfo", true);
         self.show_date = config.get_bool("show_date", true);
@@ -227,6 +222,10 @@ impl Engine for DashboardEngine {
         self.running.store(false, Ordering::Relaxed);
     }
 
+    fn is_realtime(&self) -> bool {
+        true
+    }
+
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn render(&mut self, ctx: &mut EngineContext) {
@@ -309,7 +308,11 @@ impl Engine for DashboardEngine {
             }
 
             if self.show_sysinfo && cur_y < h - 10 {
-                let sys_str = format!("CPU:{:.0}%", data.cpu_usage);
+                let sys_str = if (now.second() / 3) % 2 == 0 {
+                    format!("CPU:{:.0}%", data.cpu_usage)
+                } else {
+                    format!("RAM:{:.0}%", data.ram_usage)
+                };
                 draw_text_clipped(
                     matrix,
                     &sys_str,
@@ -457,7 +460,14 @@ impl Engine for DashboardEngine {
                     if self.show_sysinfo && left_to_place > 0 {
                         let slot_rect =
                             Rect::new(cur_top_x, top_y + self.offset_y, rem_w.max(10), top_h);
-                        render_sysinfo_slot(matrix, &slot_rect, data.ram_usage, data.wifi_rssi);
+                        render_sysinfo_slot(
+                            matrix,
+                            &slot_rect,
+                            data.cpu_usage,
+                            data.ram_usage,
+                            data.wifi_rssi,
+                            now.second(),
+                        );
                     }
                 }
 
@@ -477,7 +487,7 @@ impl Engine for DashboardEngine {
 }
 
 // ============================================================================
-// Registration via Distributed Slice (Clean Schema without Theme/Font)
+// Registration via Distributed Slice (Clean Schema without Theme/Font/IndoorTemp)
 // ============================================================================
 
 #[distributed_slice(crate::core::registry::ENGINES)]
@@ -489,7 +499,10 @@ fn register_dashboard_engine() -> EngineDescriptor {
             category: "info",
             version: VERSION,
         },
-        capabilities: Capabilities::default(),
+        capabilities: Capabilities {
+            realtime: true,
+            ..Default::default()
+        },
         requirements: Requirements {
             needs_network: true,
             ..Default::default()
@@ -564,15 +577,6 @@ fn register_dashboard_engine() -> EngineDescriptor {
                     description:
                         "City name for weather forecast (e.g. Paris, London, Tokyo, New York)",
                     default_value: "Paris, FR",
-                    validation_policy: ValidationPolicy::FallbackDefault,
-                    ..Default::default()
-                },
-                ConfigField {
-                    id: "show_indoor_temp",
-                    field_type: ConfigType::Boolean,
-                    label: "Show Indoor Climate",
-                    description: "Display room temperature & humidity",
-                    default_value: "true",
                     validation_policy: ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },

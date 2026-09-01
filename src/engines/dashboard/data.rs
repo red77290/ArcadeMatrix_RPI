@@ -18,8 +18,6 @@ pub struct DashboardData {
     pub temp_c: f32,
     pub weather_code: i32,
     pub weather_desc: String,
-    pub indoor_temp_c: f32,
-    pub indoor_humidity: f32,
     pub cpu_usage: f32,
     pub ram_usage: f32,
     pub wifi_rssi: i32,

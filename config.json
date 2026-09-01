@@ -68,8 +68,7 @@
         "clock_mode": "0",
         "tracked_markets": "BTC,ETH,SOL,NVDA",
         "show_date": "true",
-        "show_weather": "true",
-        "show_indoor_temp": "true"
+        "show_weather": "true"
       }
     },
     {

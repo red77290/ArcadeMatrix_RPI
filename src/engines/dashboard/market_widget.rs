@@ -162,13 +162,14 @@ pub fn render_market_ticker(
     let max_y = rect.inner_max_y();
 
     let item_w = 88;
-    let total_w = markets.len() as i32 * item_w;
-    let scroll_offset = ((now_millis * 14) / 1000) as i32 % total_w.max(1);
+    let total_w = (markets.len() as i32 * item_w).max(1);
+    let speed_px_per_sec = 20;
+    let scroll_offset = ((now_millis * speed_px_per_sec) / 1000) as i32 % total_w;
 
     for (i, m) in markets.iter().enumerate() {
         let slot_base_x = (i as i32 * item_w) - scroll_offset;
 
-        for k in 0..2 {
+        for k in -1..3 {
             let pos_x = rect.x + 2 + slot_base_x + (k * total_w);
             if pos_x + item_w < min_x || pos_x >= max_x {
                 continue;

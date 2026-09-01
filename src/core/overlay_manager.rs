@@ -1,5 +1,6 @@
 use crate::core::config::{OverlayConfig, SystemConfig};
 use crate::core::matrix::MatrixBackend;
+use crate::core::types::FighterOverride;
 use crate::engines::fighter::FighterEngine;
 
 /// Transverse composition layer applying decorative overlays additively onto base framebuffers.
@@ -27,7 +28,23 @@ impl OverlayManager {
     /// - Level 2: Master switch (system_config.idle_fighter_enabled)
     /// - Level 3: Per-rotation entry toggle (overlays.fighter)
     pub fn configure(&mut self, overlays: &OverlayConfig, system_config: &SystemConfig) {
-        let should_be_active = system_config.idle_fighter_enabled && overlays.fighter;
+        let ov = if overlays.fighter {
+            FighterOverride::Enabled
+        } else {
+            FighterOverride::Disabled
+        };
+        self.configure_with_override(ov, system_config);
+    }
+
+    /// Explicit tri-state override configuration (Unspecified, Enabled, Disabled)
+    pub fn configure_with_override(
+        &mut self,
+        fighter_override: FighterOverride,
+        system_config: &SystemConfig,
+    ) {
+        // Master switch invariant: if global switch is OFF, Fighter is NEVER active regardless of override.
+        let should_be_active =
+            system_config.idle_fighter_enabled && (fighter_override != FighterOverride::Disabled);
 
         if should_be_active {
             self.fighter

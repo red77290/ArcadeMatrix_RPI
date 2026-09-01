@@ -233,6 +233,21 @@ pub trait Engine: Send + Sync {
     fn allow_rotation(&self) -> bool {
         true
     }
+
+    /// Invoked when this session is preempted by a higher priority source.
+    /// Defaults to calling deactivate().
+    fn pause(&mut self) {
+        self.deactivate();
+    }
+
+    /// Invoked when this session resumes after preemption ends.
+    /// Defaults to calling activate().
+    fn resume(&mut self) {
+        self.activate();
+    }
+
+    /// Invoked when the matrix physical or logical geometry changes (e.g. Tate mode rotation).
+    fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {}
 }
 
 // =======================================================
@@ -247,6 +262,28 @@ pub struct EngineDescriptor {
     pub capabilities: Capabilities,
     pub requirements: Requirements,
     pub schema: ConfigSchema,
+    pub available: bool,
+    pub unavailable_reason: Option<&'static str>,
     #[serde(skip)]
     pub factory: EngineFactory,
+}
+
+impl EngineDescriptor {
+    pub fn new(
+        metadata: EngineMetadata,
+        capabilities: Capabilities,
+        requirements: Requirements,
+        schema: ConfigSchema,
+        factory: EngineFactory,
+    ) -> Self {
+        Self {
+            metadata,
+            capabilities,
+            requirements,
+            schema,
+            available: true,
+            unavailable_reason: None,
+            factory,
+        }
+    }
 }

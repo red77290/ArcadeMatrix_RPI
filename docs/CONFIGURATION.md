@@ -201,6 +201,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `BTC,ETH` | Comma-separated | Crypto symbols to monitor (CoinGecko / Binance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Currency comparison and display symbol (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
@@ -210,6 +211,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | Field | Type | Default | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Comma-separated | Stock ticker symbols to monitor (Yahoo Finance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Currency comparison and display symbol (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |

@@ -620,20 +620,122 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/ota/check:
+    get:
+      tags: [Firmware]
+      summary: Check GitHub Releases for online OTA updates
+      description: >
+        Fetches latest release from GitHub API, matching target CPU architecture
+        (aarch64/armv7) against current running binary. Returns update_available flag.
+      responses:
+        '200':
+          description: Release update check response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  current_version:
+                    type: string
+                  current_arch:
+                    type: string
+                  latest_version:
+                    type: string
+                  update_available:
+                    type: boolean
+                  release_name:
+                    type: string
+                  release_notes:
+                    type: string
+                  download_url:
+                    type: string
+                  asset_name:
+                    type: string
+                  asset_size:
+                    type: integer
+
+  /api/ota/auto-update:
+    post:
+      tags: [Firmware]
+      summary: 1-Click Online OTA Download and Installation
+      description: >
+        Downloads target release binary from GitHub, validates ELF magic & architecture,
+        atomically replaces binary at runtime and schedules service restart.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                download_url:
+                  type: string
+      responses:
+        '200':
+          description: Download complete, service restarting
+        '400':
+          description: Architecture mismatch or invalid download
+        '502':
+          description: Download network failure
+
   /api/playlists:
     get:
       tags: [Media]
       summary: List GIF playlists (dynamic option source)
-      description: Enumerates sub-folders of `gifs/` (each folder is a playlist).
+      description: Enumerates sub-folders of `gifs/` (yoko) and `gifs_tate/` (tate).
       responses:
         '200':
-          description: value/label option list
+          description: value/label option list with orientation
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/Option'
+                  type: object
+                  properties:
+                    value:
+                      type: string
+                      example: "/gifs/arcade"
+                    label:
+                      type: string
+                      example: "arcade"
+                    orientation:
+                      type: string
+                      enum: [yoko, tate]
+                      example: "yoko"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/gifs/playlists:
+    get:
+      tags: [Media]
+      summary: Detailed GIF playlists map
+      description: Returns map of horizontal (yoko) and vertical (tate) GIF playlists with file counts.
+      responses:
+        '200':
+          description: Map of yoko and tate folders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  yoko:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        count:
+                          type: integer
+                  tate:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        path:
+                          type: string
+                        count:
+                          type: integer
         '401':
           $ref: '#/components/responses/Unauthorized'
 

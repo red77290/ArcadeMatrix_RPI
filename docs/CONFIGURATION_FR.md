@@ -201,6 +201,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `BTC,ETH` | Séparés par virgule | Symboles cryptos à surveiller (CoinGecko / Binance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Devise de cotation et symbole monétaire (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
 | `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |
@@ -210,6 +211,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 | Champ | Type | Défaut | Options | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Séparés par virgule | Tickers boursiers à surveiller (Yahoo Finance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Devise de cotation et symbole monétaire (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Afficher la courbe sparkline historique. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Échelle de temps pour l'historique des cours. |
 | `page_seconds` | `int` | `5` | `3` à `30` | Secondes d'affichage par page avant alternance. |

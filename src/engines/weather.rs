@@ -783,7 +783,12 @@ fn register_weather_engine() -> EngineDescriptor {
             version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities::default(),
-        requirements: Requirements::default(),
+        requirements: Requirements {
+            needs_network: true,
+            ..Default::default()
+        },
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {

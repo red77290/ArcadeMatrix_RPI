@@ -96,6 +96,8 @@ fn register_marquee_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema { fields: vec![] },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             Box::new(MarqueeEngine::new())

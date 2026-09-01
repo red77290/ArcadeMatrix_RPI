@@ -105,25 +105,73 @@ impl GifEngine {
         }
     }
 
+    pub fn is_tate(&self) -> bool {
+        self.target_height > self.target_width
+    }
+
     pub fn play_random_playlist_gif(&mut self, selected_playlists: &[String]) -> bool {
+        let is_vertical = self.is_tate();
+        let default_roots = if is_vertical {
+            ["gifs_tate", "gifs"]
+        } else {
+            ["gifs", "gifs_tate"]
+        };
+
         let mut valid_files = Vec::new();
 
         if !selected_playlists.is_empty() {
             for p_str in selected_playlists {
-                // Sanitize the path string to handle any stray quotes or missing prefixes
-                let mut cleaned = p_str.replace("\"", "").trim().to_string();
-                if !cleaned.starts_with("gifs/") && !cleaned.starts_with("data/") {
-                    cleaned = format!("gifs/{}", cleaned);
+                let trimmed = p_str
+                    .replace('\"', "")
+                    .trim()
+                    .trim_start_matches('/')
+                    .to_string();
+
+                if trimmed.is_empty()
+                    || trimmed == "all"
+                    || trimmed == "gifs"
+                    || trimmed == "gifs_tate"
+                {
+                    let root = if trimmed == "gifs_tate" {
+                        "gifs_tate"
+                    } else if trimmed == "gifs" {
+                        "gifs"
+                    } else if is_vertical {
+                        "gifs_tate"
+                    } else {
+                        "gifs"
+                    };
+                    Self::scan_folder_recursive(root, &mut valid_files);
+                    if valid_files.is_empty() && (trimmed == "all" || trimmed.is_empty()) {
+                        let alt_root = if root == "gifs_tate" {
+                            "gifs"
+                        } else {
+                            "gifs_tate"
+                        };
+                        Self::scan_folder_recursive(alt_root, &mut valid_files);
+                    }
+                    continue;
                 }
 
-                let p = Path::new(&cleaned);
-                if p.is_dir() {
-                    if let Ok(entries) = std::fs::read_dir(p) {
-                        for entry in entries.flatten() {
-                            let fname = entry.file_name().to_string_lossy().to_string();
-                            if fname.to_lowercase().ends_with(".gif") && !fname.starts_with("._") {
-                                valid_files.push(entry.path());
-                            }
+                let mut found = false;
+                if trimmed.starts_with("gifs_tate/")
+                    || trimmed.starts_with("gifs/")
+                    || trimmed.starts_with("data/")
+                {
+                    let p = Path::new(&trimmed);
+                    if p.is_dir() {
+                        Self::scan_folder(p, &mut valid_files);
+                        found = true;
+                    }
+                }
+
+                if !found {
+                    for root in default_roots {
+                        let candidate = format!("{}/{}", root, trimmed);
+                        let p = Path::new(&candidate);
+                        if p.is_dir() {
+                            Self::scan_folder(p, &mut valid_files);
+                            break;
                         }
                     }
                 }
@@ -131,21 +179,10 @@ impl GifEngine {
         }
 
         if valid_files.is_empty() {
-            // Fallback: scan all subdirectories of /gifs/
-            if let Ok(entries) = std::fs::read_dir("gifs") {
-                for entry in entries.flatten() {
-                    if entry.path().is_dir() {
-                        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
-                            for sub in sub_entries.flatten() {
-                                let fname = sub.file_name().to_string_lossy().to_string();
-                                if fname.to_lowercase().ends_with(".gif")
-                                    && !fname.starts_with("._")
-                                {
-                                    valid_files.push(sub.path());
-                                }
-                            }
-                        }
-                    }
+            for root in default_roots {
+                Self::scan_folder_recursive(root, &mut valid_files);
+                if !valid_files.is_empty() {
+                    break;
                 }
             }
         }
@@ -155,7 +192,6 @@ impl GifEngine {
         }
 
         let mut rng = rand::thread_rng();
-        // Avoid picking exact same GIF twice if multiple available
         if valid_files.len() > 1 {
             if let Some(ref last) = self.last_played_gif {
                 valid_files.retain(|p| p != last);
@@ -167,6 +203,32 @@ impl GifEngine {
         }
 
         false
+    }
+
+    fn scan_folder(dir: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if fname.to_lowercase().ends_with(".gif") && !fname.starts_with("._") {
+                    out.push(entry.path());
+                }
+            }
+        }
+    }
+
+    fn scan_folder_recursive(root: &str, out: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    Self::scan_folder(&entry.path(), out);
+                } else {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    if fname.to_lowercase().ends_with(".gif") && !fname.starts_with("._") {
+                        out.push(entry.path());
+                    }
+                }
+            }
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -306,6 +368,11 @@ impl Engine for GifEngine {
         self.current_gif_path = None;
     }
 
+    fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        self.target_width = geometry.logical_width;
+        self.target_height = geometry.logical_height;
+    }
+
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.apply_config(config);
     }
@@ -337,6 +404,8 @@ fn register_gif_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![crate::core::engine_contract::ConfigField {
                 id: "playlists",

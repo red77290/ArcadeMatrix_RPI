@@ -214,9 +214,158 @@ impl Engine for SpotifyEngine {
             return;
         }
 
+        let is_vertical = h > w;
+
+        if is_vertical {
+            // ==========================================
+            // TATE / Portrait Mode (e.g. 32x64, 64x128)
+            // ==========================================
+            let mut cur_y = 2;
+
+            // 1. Centered Cover Art on top
+            if self.show_album_art {
+                if let Some(ref cover) = self.cached_cover {
+                    let art_size = ((w - 4) as i32).min((h as f32 * 0.35) as i32).max(16);
+                    let img_x = (w - art_size) / 2;
+                    let img_y = cur_y;
+
+                    for py in 0..cover.height() {
+                        for px in 0..cover.width() {
+                            let Rgb([r, g, b]) = *cover.get_pixel(px, py);
+                            let dx = img_x
+                                + ((px as f32 / cover.width() as f32) * art_size as f32) as i32;
+                            let dy = img_y
+                                + ((py as f32 / cover.height() as f32) * art_size as f32) as i32;
+                            if dx < w && dy < h {
+                                ctx.matrix.set_pixel(dx, dy, r, g, b);
+                            }
+                        }
+                    }
+                    cur_y += art_size + 2;
+                }
+            }
+
+            // 2. Full-width Marquee Title & Artist
+            let clip_min_x = 2;
+            let clip_max_x = w - 2;
+            let avail_w = (clip_max_x - clip_min_x).max(16);
+
+            let render_marquee = |matrix: &mut dyn MatrixBackend,
+                                  text: &str,
+                                  font: &ArcadeFont<'_>,
+                                  y: i32,
+                                  color: (u8, u8, u8),
+                                  offset: i32| {
+                let (_, text_w, _) = font.get_pixel_map(text, 1.0);
+                if text_w <= avail_w {
+                    BaseRenderer::draw_text_clipped(
+                        matrix,
+                        text,
+                        font,
+                        1.0,
+                        clip_min_x,
+                        y,
+                        clip_min_x,
+                        clip_max_x,
+                        color,
+                        (0, 0, 0),
+                    );
+                } else {
+                    let gap = 16;
+                    let total_w = text_w + gap;
+                    let dx = offset.rem_euclid(total_w);
+                    let draw_x1 = clip_min_x - dx;
+                    BaseRenderer::draw_text_clipped(
+                        matrix,
+                        text,
+                        font,
+                        1.0,
+                        draw_x1,
+                        y,
+                        clip_min_x,
+                        clip_max_x,
+                        color,
+                        (0, 0, 0),
+                    );
+                    let draw_x2 = draw_x1 + total_w;
+                    if draw_x2 < clip_max_x {
+                        BaseRenderer::draw_text_clipped(
+                            matrix,
+                            text,
+                            font,
+                            1.0,
+                            draw_x2,
+                            y,
+                            clip_min_x,
+                            clip_max_x,
+                            color,
+                            (0, 0, 0),
+                        );
+                    }
+                }
+            };
+
+            render_marquee(
+                ctx.matrix,
+                &status.title,
+                &font,
+                cur_y,
+                (255, 255, 255),
+                self.marquee_offset,
+            );
+            cur_y += 10;
+
+            let artist_display = if !status.artist.is_empty() {
+                status.artist.clone()
+            } else if !status.album.is_empty() {
+                status.album.clone()
+            } else {
+                "Spotify".to_string()
+            };
+            render_marquee(
+                ctx.matrix,
+                &artist_display,
+                &font,
+                cur_y,
+                (30, 215, 96),
+                self.marquee_offset / 2,
+            );
+
+            // 3. Progress Bar & Visualizer at Bottom
+            if self.show_progress && status.duration_ms > 0 {
+                let progress =
+                    (status.progress_ms as f32 / status.duration_ms as f32).clamp(0.0, 1.0);
+                let bar_w = ((w - 4) as f32 * progress) as i32;
+                let bar_y = h - 10;
+                for x in 2..w - 2 {
+                    ctx.matrix.set_pixel(x, bar_y, 30, 35, 30);
+                }
+                for x in 2..2 + bar_w {
+                    ctx.matrix.set_pixel(x, bar_y, 30, 215, 96);
+                }
+            }
+
+            if self.show_visualizer && status.is_playing {
+                let eq_base_y = h - 2;
+                let num_bars = (w - 4) / 3;
+                for i in 0..num_bars {
+                    let bx = 2 + (i * 3);
+                    let bh = ((self.anim_frame.wrapping_add((i as u32) * 3)) % 7 + 2) as i32;
+                    for by in 0..bh {
+                        let py = eq_base_y - by;
+                        if py >= 0 {
+                            ctx.matrix.set_pixel(bx, py, 30, 215, 96);
+                            ctx.matrix.set_pixel(bx + 1, py, 30, 215, 96);
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
         let mut text_x = 2;
 
-        // 1. Draw Cover Art if present
+        // 1. Draw Cover Art if present (Landscape Mode)
         if self.show_album_art {
             if let Some(ref cover) = self.cached_cover {
                 let img_w = cover.width() as i32;
@@ -448,9 +597,9 @@ impl Engine for SpotifyEngine {
                 ctx.matrix.set_pixel(x, h - 1, 18, 22, 18);
             }
             // Active progress fill (Spotify Green)
-            for x in 1..=bar_w {
+            for x in 1..1 + bar_w {
                 ctx.matrix.set_pixel(x, h - 2, 30, 215, 96);
-                ctx.matrix.set_pixel(x, h - 1, 20, 150, 65);
+                ctx.matrix.set_pixel(x, h - 1, 20, 160, 70);
             }
         }
     }
@@ -487,6 +636,8 @@ fn register_spotify_engine() -> EngineDescriptor {
             needs_network: true,
             ..Default::default()
         },
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 ConfigField {

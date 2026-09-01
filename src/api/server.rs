@@ -637,6 +637,20 @@ async fn get_fonts(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     HttpResponse::Ok().json(fonts)
 }
 
+fn count_gifs_in_dir(path: &std::path::Path) -> usize {
+    if let Ok(entries) = std::fs::read_dir(path) {
+        entries
+            .flatten()
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.to_lowercase().ends_with(".gif") && !name.starts_with("._")
+            })
+            .count()
+    } else {
+        0
+    }
+}
+
 #[get("/api/playlists")]
 async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
@@ -644,18 +658,95 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     }
 
     let mut playlists = Vec::new();
+    // 1. Scan horizontal / yoko folders in gifs/
     if let Ok(entries) = std::fs::read_dir("gifs") {
         for entry in entries.flatten() {
             if let Ok(file_type) = entry.file_type() {
                 if file_type.is_dir() {
                     if let Some(name) = entry.file_name().to_str() {
-                        playlists.push(json!({"value": name, "label": name}));
+                        if !name.starts_with('.') && !name.starts_with('_') {
+                            playlists.push(json!({
+                                "value": format!("/gifs/{}", name),
+                                "label": name,
+                                "orientation": "yoko"
+                            }));
+                        }
                     }
                 }
             }
         }
     }
+
+    // 2. Scan vertical / tate folders in gifs_tate/
+    if let Ok(entries) = std::fs::read_dir("gifs_tate") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') && !name.starts_with('_') {
+                            playlists.push(json!({
+                                "value": format!("/gifs_tate/{}", name),
+                                "label": name,
+                                "orientation": "tate"
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     HttpResponse::Ok().json(playlists)
+}
+
+#[get("/api/gifs/playlists")]
+async fn get_gifs_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut yoko_map = serde_json::Map::new();
+    if let Ok(entries) = std::fs::read_dir("gifs") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') && !name.starts_with('_') {
+                            let count = count_gifs_in_dir(&entry.path());
+                            yoko_map.insert(
+                                name.to_string(),
+                                json!({"path": format!("/gifs/{}", name), "count": count}),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut tate_map = serde_json::Map::new();
+    if let Ok(entries) = std::fs::read_dir("gifs_tate") {
+        for entry in entries.flatten() {
+            if let Ok(file_type) = entry.file_type() {
+                if file_type.is_dir() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        if !name.starts_with('.') && !name.starts_with('_') {
+                            let count = count_gifs_in_dir(&entry.path());
+                            tate_map.insert(
+                                name.to_string(),
+                                json!({"path": format!("/gifs_tate/{}", name), "count": count}),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(json!({
+        "yoko": yoko_map,
+        "tate": tate_map
+    }))
 }
 
 #[get("/api/themes")]
@@ -826,6 +917,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_stats)
             .service(get_fonts)
             .service(get_playlists)
+            .service(get_gifs_playlists)
             .service(get_themes)
             .service(get_timezones)
             .service(post_wifi)

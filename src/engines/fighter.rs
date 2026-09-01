@@ -209,13 +209,19 @@ impl FighterChar {
         };
 
         // Mandatory states with robust fallbacks
-        for action in &["walk", "attack", "hit", "win"] {
+        for action in &["walk", "stand", "attack", "hit", "win"] {
             if !try_load(action, &[&format!("{}.fgt", action)]) {
                 // Fallbacks
                 match *action {
                     "walk" => {
                         if !try_load("walk", &["stand.fgt"]) {
                             tracing::warn!("Failed to load walk.fgt or stand.fgt for {}", name);
+                            return None;
+                        }
+                    }
+                    "stand" => {
+                        if !try_load("stand", &["walk.fgt"]) {
+                            tracing::warn!("Failed to load stand.fgt or walk.fgt for {}", name);
                             return None;
                         }
                     }
@@ -286,6 +292,7 @@ pub struct FighterEngine {
     active: bool,
     sprite_dir: String,
     last_move: u128,
+    faceoff_start: u128,
     fight_end: u128,
     next_fight_time: u128,
     interval_sec: u32,
@@ -310,6 +317,7 @@ impl FighterEngine {
             active: false,
             sprite_dir: String::new(),
             last_move: 0,
+            faceoff_start: 0,
             fight_end: 0,
             next_fight_time: 0,
             interval_sec: 10,
@@ -332,6 +340,7 @@ impl FighterEngine {
         self.p2 = None;
         self.rx = None;
         self.loading = false;
+        self.faceoff_start = 0;
     }
 
     fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
@@ -555,6 +564,7 @@ impl FighterEngine {
                     self.loading = false;
                     self.rx = None;
                     self.last_move = now;
+                    self.faceoff_start = 0;
                     self.fight_end = 0;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -564,6 +574,7 @@ impl FighterEngine {
                     self.loading = false;
                     self.active = false;
                     self.rx = None;
+                    self.faceoff_start = 0;
                     // Wait at least 10s before trying again to avoid spamming thread spawn
                     self.next_fight_time = now + (self.interval_sec as u128 * 1000).max(10000);
                 }
@@ -588,80 +599,104 @@ impl FighterEngine {
             Self::update_anim(p2, now);
         }
 
-        // Movement & Logic
+        // Movement & Face-off Logic
         if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
-            if p1.state == "walk" && p2.state == "walk" {
-                let elapsed = now.saturating_sub(self.last_move);
-                if elapsed >= 35 {
-                    let px_move = (elapsed / 35) as f32;
+            let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
+            let engage_half = 9.0 * scale;
+            let center_x = self.matrix_width as f32 / 2.0;
+
+            let p1_target_x = center_x - engage_half - p1.character.meta.origin_x as f32;
+            let p2_target_x = center_x + engage_half
+                - (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
+
+            let elapsed = now.saturating_sub(self.last_move);
+            if elapsed >= 35 {
+                let px_move = (elapsed / 35) as f32;
+                self.last_move += (px_move as u128) * 35;
+
+                // 1. P1 walks to its target stance spot
+                if p1.state == "walk" {
                     p1.x += px_move;
-                    p2.x -= px_move;
-                    self.last_move += (px_move as u128) * 35;
-
-                    let p1_world_origin = p1.x + p1.character.meta.origin_x as f32;
-                    let p2_world_origin =
-                        p2.x + (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
-                    let dist = p2_world_origin - p1_world_origin;
-
-                    let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
-                    let engage_dist = 18.0 * scale;
-
-                    if dist <= engage_dist {
-                        let mut rng = rand::thread_rng();
-                        let p1_attacks = rng.gen_bool(0.5);
-
-                        let (attacker, target) = if p1_attacks {
-                            (&mut *p1, &mut *p2)
-                        } else {
-                            (&mut *p2, &mut *p1)
-                        };
-
-                        let mut atk_state = "attack".to_string();
-                        let mut tgt_state = "hit".to_string();
-
-                        let r: f32 = rng.gen();
-                        if attacker.character.meta.has_super && r < 0.50 {
-                            let supers: Vec<String> = attacker
-                                .character
-                                .anims
-                                .keys()
-                                .filter(|k| k.starts_with("super"))
-                                .cloned()
-                                .collect();
-                            if !supers.is_empty() {
-                                atk_state = supers[rng.gen_range(0..supers.len())].clone();
-                                tgt_state = if target.character.anims.contains_key("fall") {
-                                    "fall".to_string()
-                                } else {
-                                    "hit".to_string()
-                                };
-                            }
-                        } else if attacker.character.meta.has_special && r < 0.80 {
-                            let specials: Vec<String> = attacker
-                                .character
-                                .anims
-                                .keys()
-                                .filter(|k| k.starts_with("special"))
-                                .cloned()
-                                .collect();
-                            if !specials.is_empty() {
-                                atk_state = specials[rng.gen_range(0..specials.len())].clone();
-                                tgt_state = if target.character.anims.contains_key("fall") {
-                                    "fall".to_string()
-                                } else {
-                                    "hit".to_string()
-                                };
-                            }
-                        }
-
-                        attacker.state = atk_state;
-                        target.state = tgt_state;
-
-                        attacker.frame_idx = 0;
-                        target.frame_idx = 0;
-                        attacker.last_f = now;
-                        target.last_f = now;
+                    if p1.x >= p1_target_x {
+                        p1.x = p1_target_x;
+                        p1.state = "stand".to_string();
+                        p1.frame_idx = 0;
+                        p1.last_f = now;
                     }
+                }
+
+                // 2. P2 walks to its target stance spot
+                if p2.state == "walk" {
+                    p2.x -= px_move;
+                    if p2.x <= p2_target_x {
+                        p2.x = p2_target_x;
+                        p2.state = "stand".to_string();
+                        p2.frame_idx = 0;
+                        p2.last_f = now;
+                    }
+                }
+            }
+
+            // 3. Central Face-off ready stance before combat
+            if p1.state == "stand" && p2.state == "stand" {
+                if self.faceoff_start == 0 {
+                    self.faceoff_start = now;
+                } else if now.saturating_sub(self.faceoff_start) >= 900 {
+                    let mut rng = rand::thread_rng();
+                    let p1_attacks = rng.gen_bool(0.5);
+
+                    let (attacker, target) = if p1_attacks {
+                        (&mut *p1, &mut *p2)
+                    } else {
+                        (&mut *p2, &mut *p1)
+                    };
+
+                    let mut atk_state = "attack".to_string();
+                    let mut tgt_state = "hit".to_string();
+
+                    let r: f32 = rng.gen();
+                    if attacker.character.meta.has_super && r < 0.50 {
+                        let supers: Vec<String> = attacker
+                            .character
+                            .anims
+                            .keys()
+                            .filter(|k| k.starts_with("super"))
+                            .cloned()
+                            .collect();
+                        if !supers.is_empty() {
+                            atk_state = supers[rng.gen_range(0..supers.len())].clone();
+                            tgt_state = if target.character.anims.contains_key("fall") {
+                                "fall".to_string()
+                            } else {
+                                "hit".to_string()
+                            };
+                        }
+                    } else if attacker.character.meta.has_special && r < 0.80 {
+                        let specials: Vec<String> = attacker
+                            .character
+                            .anims
+                            .keys()
+                            .filter(|k| k.starts_with("special"))
+                            .cloned()
+                            .collect();
+                        if !specials.is_empty() {
+                            atk_state = specials[rng.gen_range(0..specials.len())].clone();
+                            tgt_state = if target.character.anims.contains_key("fall") {
+                                "fall".to_string()
+                            } else {
+                                "hit".to_string()
+                            };
+                        }
+                    }
+
+                    attacker.state = atk_state;
+                    target.state = tgt_state;
+
+                    attacker.frame_idx = 0;
+                    target.frame_idx = 0;
+                    attacker.last_f = now;
+                    target.last_f = now;
+                    self.faceoff_start = 0;
                 }
             }
 

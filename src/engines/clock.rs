@@ -454,6 +454,8 @@ fn register_clock_engine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {

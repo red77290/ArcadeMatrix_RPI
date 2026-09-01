@@ -35,6 +35,7 @@ pub struct StockEngine {
     current_page: StockPage,
     last_page_switch: Instant,
     symbols: Vec<String>,
+    currency: String,
     cache_ttl_min: u32,
     show_chart: bool,
     chart_timeframe: Timeframe,
@@ -52,6 +53,7 @@ impl StockEngine {
             current_page: StockPage::Info,
             last_page_switch: Instant::now(),
             symbols: vec![],
+            currency: "USD".to_string(),
             cache_ttl_min: 1,
             show_chart: true,
             chart_timeframe: Timeframe::Daily,
@@ -63,6 +65,15 @@ impl StockEngine {
         self.providers.push(provider);
     }
 
+    pub fn currency_symbol(&self) -> &'static str {
+        match self.currency.as_str() {
+            "EUR" => "€",
+            "GBP" => "£",
+            "JPY" => "¥",
+            _ => "$",
+        }
+    }
+
     /// Parse the instance config into engine state. Shared by `initialize()`
     /// and `on_config_changed()` so edits apply live without an app restart.
     fn apply_config(&mut self, config: &dyn EngineConfig) {
@@ -72,6 +83,14 @@ impl StockEngine {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+
+        let new_curr = config.get_string("currency", "USD").to_uppercase();
+        if self.currency != new_curr {
+            self.currency = new_curr;
+            self.cache.clear();
+            self.history_cache.clear();
+        }
+
         self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
         self.show_chart = config.get_bool("show_chart", true);
         self.chart_timeframe =
@@ -102,7 +121,7 @@ impl StockEngine {
         }
 
         for provider in &self.providers {
-            if let Some(hist) = provider.fetch_history(symbol, tf) {
+            if let Some(hist) = provider.fetch_history_currency(symbol, tf, &self.currency) {
                 self.history_cache
                     .insert((symbol.to_string(), tf), (hist.clone(), now));
                 return Some(hist);
@@ -133,7 +152,9 @@ impl StockEngine {
         let mut new_image_url = None;
 
         for provider in &self.providers {
-            if let Some((price, change, img)) = provider.fetch_quote(symbol) {
+            if let Some((price, change, img)) =
+                provider.fetch_quote_currency(symbol, &self.currency)
+            {
                 new_price = price;
                 new_change = change;
                 new_image_url = img;
@@ -304,10 +325,11 @@ impl Engine for StockEngine {
         let width = matrix.width();
         let height = matrix.height();
 
+        let sym_prefix = self.currency_symbol();
         let price_str = if !success || price <= 0.0 {
             "Loading...".to_string()
         } else {
-            format!("${:.2}", price)
+            format!("{}{:.2}", sym_prefix, price)
         };
 
         let pct_str = if !success || price <= 0.0 {
@@ -324,66 +346,262 @@ impl Engine for StockEngine {
             (255, 60, 60) // Red
         };
 
-        match self.current_page {
-            StockPage::Info => {
-                if height >= 64 {
-                    let scale = 2;
-                    let icon_x = 6;
-                    let icon_y = 6;
+        if !self.show_chart {
+            if height >= 64 {
+                let scale = 2;
+                let icon_x = 6;
+                let icon_y = 6;
 
-                    if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
-                        for y in 0..img.height() {
-                            for x in 0..img.width() {
-                                let p = img.get_pixel(x, y);
-                                if p[3] > 128 {
-                                    matrix.set_pixel(
-                                        icon_x + x as i32,
-                                        icon_y + y as i32,
-                                        p[0],
-                                        p[1],
-                                        p[2],
-                                    );
-                                }
+                if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
+                    for y in 0..img.height() {
+                        for x in 0..img.width() {
+                            let p = img.get_pixel(x, y);
+                            if p[3] > 128 {
+                                matrix.set_pixel(
+                                    icon_x + x as i32,
+                                    icon_y + y as i32,
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                );
                             }
                         }
-                    } else {
-                        let icon = match symbol.as_str() {
-                            "AAPL" => &crate::engines::icons::ICON_AAPL,
-                            "NVDA" => &crate::engines::icons::ICON_NVDA,
-                            "TSLA" => &crate::engines::icons::ICON_TSLA,
-                            _ => &crate::engines::icons::ICON_AAPL,
-                        };
-                        let icon_color = crate::engines::icons::get_stock_color(&symbol);
-                        crate::engines::icons::draw_icon(
-                            matrix, icon, icon_x, icon_y, scale, icon_color,
-                        );
                     }
-
-                    let sym_w = self.draw_plain_text(matrix, &symbol, 28, 6, (255, 255, 255), 2.0);
-
-                    let font = self.base_renderer.font();
-                    let (_, price_w, _) = font.get_pixel_map(&price_str, 2.0);
-
-                    let mut price_x = width as i32 - price_w - 6;
-                    if price_x < 28 + sym_w + 8 {
-                        price_x = 28 + sym_w + 8;
-                    }
-
-                    self.draw_plain_text(matrix, &price_str, price_x, 6, (0, 220, 255), 2.0);
-
-                    // Divider line
-                    for x in 6..(width as i32 - 6) {
-                        matrix.set_pixel(x, 28, 60, 60, 60);
-                    }
-
-                    // 24h Change
-                    let full_pct = if !success || price <= 0.0 {
-                        pct_str.clone()
-                    } else {
-                        format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str)
-                    };
-                    self.draw_plain_text(matrix, &full_pct, 6, 36, badge_color_tuple, 2.0);
                 } else {
+                    let icon = match symbol.as_str() {
+                        "AAPL" => &crate::engines::icons::ICON_AAPL,
+                        "NVDA" => &crate::engines::icons::ICON_NVDA,
+                        "TSLA" => &crate::engines::icons::ICON_TSLA,
+                        _ => &crate::engines::icons::ICON_AAPL,
+                    };
+                    let icon_color = crate::engines::icons::get_stock_color(&symbol);
+                    crate::engines::icons::draw_icon(
+                        matrix, icon, icon_x, icon_y, scale, icon_color,
+                    );
+                }
+
+                let sym_w = self.draw_plain_text(matrix, &symbol, 28, 6, (255, 255, 255), 2.0);
+
+                let font = self.base_renderer.font();
+                let (_, price_w, _) = font.get_pixel_map(&price_str, 2.0);
+
+                let mut price_x = width as i32 - price_w - 6;
+                if price_x < 28 + sym_w + 8 {
+                    price_x = 28 + sym_w + 8;
+                }
+
+                self.draw_plain_text(matrix, &price_str, price_x, 6, (0, 220, 255), 2.0);
+
+                // Divider line
+                for x in 6..(width as i32 - 6) {
+                    matrix.set_pixel(x, 28, 60, 60, 60);
+                }
+
+                // 24h Change
+                let full_pct = if !success || price <= 0.0 {
+                    pct_str.clone()
+                } else {
+                    format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str)
+                };
+                self.draw_plain_text(matrix, &full_pct, 6, 36, badge_color_tuple, 2.0);
+            } else {
+                let icon_x = 2;
+                let icon_y = ((height as i32 - 16) / 2).max(0);
+
+                if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
+                    for y in 0..img.height() {
+                        for x in 0..img.width() {
+                            let p = img.get_pixel(x, y);
+                            if p[3] > 128 {
+                                matrix.set_pixel(
+                                    icon_x + x as i32,
+                                    icon_y + y as i32,
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let icon = match symbol.as_str() {
+                        "AAPL" => &crate::engines::icons::ICON_AAPL,
+                        "NVDA" => &crate::engines::icons::ICON_NVDA,
+                        "TSLA" => &crate::engines::icons::ICON_TSLA,
+                        _ => &crate::engines::icons::ICON_AAPL,
+                    };
+
+                    let icon_color = crate::engines::icons::get_stock_color(&symbol);
+                    crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+                }
+
+                let sym_w = self.draw_plain_text(matrix, &symbol, 20, 4, (255, 255, 255), 1.0);
+
+                let price_x = 20 + sym_w + 6;
+                self.draw_plain_text(matrix, &price_str, price_x, 4, (0, 220, 255), 1.0);
+
+                self.draw_plain_text(matrix, &pct_str, 20, 18, badge_color_tuple, 1.0);
+            }
+        } else if height >= 64 {
+            let history_opt = self.fetch_history(&symbol, self.chart_timeframe);
+            let tf_label = self.chart_timeframe.label();
+
+            if width <= 64 {
+                // --- Unified Vertical (64x64, 32x64 Tate) ---
+                let icon_x = 2;
+                let icon_y = 2;
+
+                if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
+                    for y in 0..img.height() {
+                        for x in 0..img.width() {
+                            let p = img.get_pixel(x, y);
+                            if p[3] > 128 {
+                                matrix.set_pixel(
+                                    icon_x + x as i32,
+                                    icon_y + y as i32,
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let icon = match symbol.as_str() {
+                        "AAPL" => &crate::engines::icons::ICON_AAPL,
+                        "NVDA" => &crate::engines::icons::ICON_NVDA,
+                        "TSLA" => &crate::engines::icons::ICON_TSLA,
+                        _ => &crate::engines::icons::ICON_AAPL,
+                    };
+                    let icon_color = crate::engines::icons::get_stock_color(&symbol);
+                    crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+                }
+
+                let sym_w = self.draw_plain_text(matrix, &symbol, 20, 2, (255, 255, 255), 1.0);
+
+                let font = self.base_renderer.font();
+                let (_, tf_w, _) = font.get_pixel_map(tf_label, 1.0);
+                let tf_x = (width as i32 - tf_w - 2).max(20 + sym_w + 4);
+                self.draw_plain_text(matrix, tf_label, tf_x, 2, (140, 140, 140), 1.0);
+
+                self.draw_plain_text(matrix, &price_str, 20, 10, (0, 220, 255), 1.0);
+
+                let full_pct = if !success || price <= 0.0 {
+                    pct_str.clone()
+                } else {
+                    format!("{}{}", if change >= 0.0 { "^" } else { "v" }, pct_str)
+                };
+                self.draw_plain_text(matrix, &full_pct, 2, 19, badge_color_tuple, 1.0);
+
+                for x in 2..(width as i32 - 2) {
+                    matrix.set_pixel(x, 28, 50, 50, 50);
+                }
+
+                let spark_x = 2;
+                let spark_y = 30;
+                let spark_w = width.saturating_sub(4);
+                let spark_h = (height as i32 - 32).max(10) as u32;
+
+                if let Some(hist) = history_opt {
+                    let is_up =
+                        hist.points.last().unwrap_or(&0.0) >= hist.points.first().unwrap_or(&0.0);
+                    let line_color = if is_up { (0, 255, 120) } else { (255, 60, 60) };
+                    let fill_color = if is_up {
+                        Some((0, 30, 10))
+                    } else {
+                        Some((35, 10, 10))
+                    };
+                    draw_sparkline(
+                        matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color, fill_color,
+                    );
+                } else {
+                    self.draw_plain_text(
+                        matrix,
+                        "Loading...",
+                        4,
+                        spark_y + 10,
+                        (120, 120, 120),
+                        1.0,
+                    );
+                }
+            } else {
+                // --- Unified Wide (128x64, 256x64) ---
+                let icon_x = 4;
+                let icon_y = 4;
+
+                if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
+                    for y in 0..img.height() {
+                        for x in 0..img.width() {
+                            let p = img.get_pixel(x, y);
+                            if p[3] > 128 {
+                                matrix.set_pixel(
+                                    icon_x + x as i32,
+                                    icon_y + y as i32,
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let icon = match symbol.as_str() {
+                        "AAPL" => &crate::engines::icons::ICON_AAPL,
+                        "NVDA" => &crate::engines::icons::ICON_NVDA,
+                        "TSLA" => &crate::engines::icons::ICON_TSLA,
+                        _ => &crate::engines::icons::ICON_AAPL,
+                    };
+                    let icon_color = crate::engines::icons::get_stock_color(&symbol);
+                    crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+                }
+
+                self.draw_plain_text(matrix, &symbol, 24, 4, (255, 255, 255), 1.0);
+                self.draw_plain_text(matrix, tf_label, 24, 13, (140, 140, 140), 1.0);
+                self.draw_plain_text(matrix, &price_str, 4, 24, (0, 220, 255), 1.0);
+
+                let full_pct = if !success || price <= 0.0 {
+                    pct_str.clone()
+                } else {
+                    format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str)
+                };
+                self.draw_plain_text(matrix, &full_pct, 4, 35, badge_color_tuple, 1.0);
+
+                for y in 4..(height as i32 - 4) {
+                    matrix.set_pixel(62, y, 40, 40, 40);
+                }
+
+                let spark_x = 66;
+                let spark_y = 6;
+                let spark_w = width.saturating_sub(70);
+                let spark_h = (height as i32 - 12).max(10) as u32;
+
+                if let Some(hist) = history_opt {
+                    let is_up =
+                        hist.points.last().unwrap_or(&0.0) >= hist.points.first().unwrap_or(&0.0);
+                    let line_color = if is_up { (0, 255, 120) } else { (255, 60, 60) };
+                    let fill_color = if is_up {
+                        Some((0, 30, 10))
+                    } else {
+                        Some((35, 10, 10))
+                    };
+                    draw_sparkline(
+                        matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color, fill_color,
+                    );
+                } else {
+                    self.draw_plain_text(
+                        matrix,
+                        "Loading...",
+                        spark_x + 4,
+                        spark_y + 20,
+                        (120, 120, 120),
+                        1.0,
+                    );
+                }
+            }
+        } else {
+            // --- 32px height panel: Alternate between Info and Chart ---
+            match self.current_page {
+                StockPage::Info => {
                     let icon_x = 2;
                     let icon_y = ((height as i32 - 16) / 2).max(0);
 
@@ -409,6 +627,7 @@ impl Engine for StockEngine {
                             "TSLA" => &crate::engines::icons::ICON_TSLA,
                             _ => &crate::engines::icons::ICON_AAPL,
                         };
+
                         let icon_color = crate::engines::icons::get_stock_color(&symbol);
                         crate::engines::icons::draw_icon(
                             matrix, icon, icon_x, icon_y, 2, icon_color,
@@ -422,56 +641,10 @@ impl Engine for StockEngine {
 
                     self.draw_plain_text(matrix, &pct_str, 20, 18, badge_color_tuple, 1.0);
                 }
-            }
-            StockPage::Chart => {
-                let history_opt = self.fetch_history(&symbol, self.chart_timeframe);
-                let tf_label = self.chart_timeframe.label();
+                StockPage::Chart => {
+                    let history_opt = self.fetch_history(&symbol, self.chart_timeframe);
+                    let tf_label = self.chart_timeframe.label();
 
-                if height >= 64 {
-                    // Header line
-                    let header_text = format!("{} ({})", symbol, tf_label);
-                    let sym_w =
-                        self.draw_plain_text(matrix, &header_text, 6, 4, (255, 255, 255), 1.0);
-
-                    let font = self.base_renderer.font();
-                    let (_, price_w, _) = font.get_pixel_map(&price_str, 1.0);
-                    let price_x = (width as i32 - price_w - 6).max(6 + sym_w + 6);
-                    self.draw_plain_text(matrix, &price_str, price_x, 4, (0, 220, 255), 1.0);
-
-                    // Subheader with % change
-                    self.draw_plain_text(matrix, &pct_str, 6, 14, badge_color_tuple, 1.0);
-
-                    // Sparkline area
-                    let spark_x = 4;
-                    let spark_y = 25;
-                    let spark_w = width.saturating_sub(8);
-                    let spark_h = 35;
-
-                    if let Some(hist) = history_opt {
-                        let is_up = hist.points.last().unwrap_or(&0.0)
-                            >= hist.points.first().unwrap_or(&0.0);
-                        let line_color = if is_up { (0, 255, 120) } else { (255, 60, 60) };
-                        let fill_color = if is_up {
-                            Some((0, 30, 10))
-                        } else {
-                            Some((35, 10, 10))
-                        };
-                        draw_sparkline(
-                            matrix, &hist, spark_x, spark_y, spark_w, spark_h, line_color,
-                            fill_color,
-                        );
-                    } else {
-                        self.draw_plain_text(
-                            matrix,
-                            "Loading chart...",
-                            6,
-                            spark_y + 10,
-                            (120, 120, 120),
-                            1.0,
-                        );
-                    }
-                } else {
-                    // 32px height panel
                     let header_text = format!("{} {}", symbol, tf_label);
                     let sym_w =
                         self.draw_plain_text(matrix, &header_text, 2, 1, (255, 255, 255), 1.0);
@@ -526,6 +699,8 @@ fn register_stock_engine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {
@@ -583,6 +758,34 @@ fn register_stock_engine() -> EngineDescriptor {
                     min_val: Some("3"),
                     max_val: Some("30"),
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "currency",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Currency",
+                    description: "Fiat currency for quotes (USD, EUR, GBP, JPY)",
+                    default_value: "USD",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "USD ($)",
+                            value: "USD",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "EUR (€)",
+                            value: "EUR",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "GBP (£)",
+                            value: "GBP",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "JPY (¥)",
+                            value: "JPY",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

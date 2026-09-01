@@ -548,6 +548,88 @@ impl Engine for SysInfoEngine {
                         Self::draw_bitmap_string(matrix, "UPT", x2, y2, label_col);
                         Self::draw_bitmap_string(matrix, &up_str, x2 + 22, y2, (0, 190, 255));
                     }
+                } else if w < 48 || h > (w * 3) / 2 || (w <= 64 && h >= 64) {
+                    // Portrait / Tate Stacked Layout (e.g. 32x64, 32x128, 64x64, 64x128)
+                    let step_y = h / 4;
+                    let base_y = 2 + self.offset_y;
+                    let bar_h = if step_y > 16 { 5 } else { 3 };
+                    let bar_w = (w - 4).max(4);
+
+                    // Row 1: CPU
+                    if self.show_cpu {
+                        Self::draw_bitmap_string(
+                            matrix,
+                            "CPU",
+                            2 + self.offset_x,
+                            base_y,
+                            label_col,
+                        );
+                        let buf = format!("{:2.0}%", cpu);
+                        let val_x = w - (buf.len() as i32 * 6 + 2) + self.offset_x;
+                        Self::draw_bitmap_string(matrix, &buf, val_x, base_y, cpu_col);
+                        Self::draw_gauge_bar(
+                            matrix,
+                            2 + self.offset_x,
+                            base_y + 8,
+                            bar_w,
+                            bar_h,
+                            cpu,
+                            cpu_col,
+                        );
+                    }
+
+                    // Row 2: RAM
+                    if self.show_ram {
+                        let y2 = base_y + step_y;
+                        Self::draw_bitmap_string(matrix, "RAM", 2 + self.offset_x, y2, label_col);
+                        let buf = format!("{:2.0}%", ram);
+                        let val_x = w - (buf.len() as i32 * 6 + 2) + self.offset_x;
+                        Self::draw_bitmap_string(matrix, &buf, val_x, y2, ram_col);
+                        Self::draw_gauge_bar(
+                            matrix,
+                            2 + self.offset_x,
+                            y2 + 8,
+                            bar_w,
+                            bar_h,
+                            ram,
+                            ram_col,
+                        );
+                    }
+
+                    // Row 3: TEMP
+                    if self.show_temp {
+                        let y3 = base_y + step_y * 2;
+                        Self::draw_bitmap_string(matrix, "TMP", 2 + self.offset_x, y3, label_col);
+                        let val_x = w - (t_str.len() as i32 * 6 + 2) + self.offset_x;
+                        Self::draw_bitmap_string(matrix, &t_str, val_x, y3, temp_col);
+                        let temp_pct = ((temp - 20.0) * (100.0 / 60.0)).clamp(0.0, 100.0);
+                        Self::draw_gauge_bar(
+                            matrix,
+                            2 + self.offset_x,
+                            y3 + 8,
+                            bar_w,
+                            bar_h,
+                            temp_pct,
+                            temp_col,
+                        );
+                    }
+
+                    // Row 4: UPTIME
+                    if self.show_uptime {
+                        let y4 = base_y + step_y * 3;
+                        Self::draw_bitmap_string(matrix, "UPT", 2 + self.offset_x, y4, label_col);
+                        let val_x = w - (up_str.len() as i32 * 6 + 2) + self.offset_x;
+                        Self::draw_bitmap_string(matrix, &up_str, val_x, y4, (0, 190, 255));
+                        Self::draw_gauge_bar(
+                            matrix,
+                            2 + self.offset_x,
+                            y4 + 8,
+                            bar_w,
+                            bar_h,
+                            100.0,
+                            (0, 190, 255),
+                        );
+                    }
                 } else {
                     // Compact (64x32)
                     let base_x = 2 + self.offset_x;
@@ -614,6 +696,8 @@ fn register_sysinfo_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 ConfigField {

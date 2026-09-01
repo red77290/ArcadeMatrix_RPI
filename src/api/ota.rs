@@ -137,13 +137,17 @@ pub struct AutoUpdateRequest {
 
 #[get("/api/version")]
 pub async fn get_version() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({
-        "version": crate::core::build_info::VERSION,
-        "platform": "rpi",
-        "arch": crate::core::build_info::ARCH,
-        "build_date": crate::core::build_info::BUILD_TIMESTAMP,
-        "git_commit": crate::core::build_info::GIT_COMMIT,
-    }))
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+        .insert_header(("Pragma", "no-cache"))
+        .insert_header(("Expires", "0"))
+        .json(serde_json::json!({
+            "version": crate::core::build_info::VERSION,
+            "platform": "rpi",
+            "arch": crate::core::build_info::ARCH,
+            "build_date": crate::core::build_info::BUILD_TIMESTAMP,
+            "git_commit": crate::core::build_info::GIT_COMMIT,
+        }))
 }
 
 #[get("/api/ota/check")]
@@ -240,21 +244,25 @@ pub async fn check_update() -> impl Responder {
         }
     }
 
-    HttpResponse::Ok().json(CheckUpdateResponse {
-        current_version,
-        current_arch,
-        latest_version,
-        update_available,
-        release_name: latest_rel
-            .name
-            .clone()
-            .unwrap_or_else(|| latest_rel.tag_name.clone()),
-        release_notes: latest_rel.body.clone().unwrap_or_default(),
-        published_at: latest_rel.published_at.clone().unwrap_or_default(),
-        download_url: matching_asset.map(|a| a.browser_download_url.clone()),
-        asset_name: matching_asset.map(|a| a.name.clone()),
-        asset_size: matching_asset.map(|a| a.size),
-    })
+    HttpResponse::Ok()
+        .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+        .insert_header(("Pragma", "no-cache"))
+        .insert_header(("Expires", "0"))
+        .json(CheckUpdateResponse {
+            current_version,
+            current_arch,
+            latest_version,
+            update_available,
+            release_name: latest_rel
+                .name
+                .clone()
+                .unwrap_or_else(|| latest_rel.tag_name.clone()),
+            release_notes: latest_rel.body.clone().unwrap_or_default(),
+            published_at: latest_rel.published_at.clone().unwrap_or_default(),
+            download_url: matching_asset.map(|a| a.browser_download_url.clone()),
+            asset_name: matching_asset.map(|a| a.name.clone()),
+            asset_size: matching_asset.map(|a| a.size),
+        })
 }
 
 #[post("/api/ota/auto-update")]

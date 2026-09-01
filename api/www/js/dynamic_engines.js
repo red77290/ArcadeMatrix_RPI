@@ -590,15 +590,6 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
   renderModalContent();
   document.body.appendChild(overlay);
-});
-        submitBtn.disabled = false;
-        submitBtn.innerText = t('modal_create_btn', '🚀 Create & Add Screen');
-      }
-    };
-  }
-
-  renderModalContent();
-  document.body.appendChild(overlay);
 }
 
 // 1. Render Rotation Playlist Panel

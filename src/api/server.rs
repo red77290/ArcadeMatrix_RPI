@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use rust_embed::RustEmbed;
 use serde_json::json;
 use std::net::UdpSocket;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use sysinfo::System;
@@ -880,6 +881,32 @@ async fn get_timezones() -> impl actix_web::Responder {
     HttpResponse::Ok().json(res)
 }
 
+#[get("/api/hardware")]
+async fn get_hardware_compat(data: web::Data<AppState>) -> impl Responder {
+    let s = data.config.settings.read();
+    HttpResponse::Ok().json(&s.matrix)
+}
+
+#[get("/api/gyro")]
+async fn get_gyro_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({
+        "present": false,
+        "pitch": 0.0,
+        "roll": 0.0,
+        "orientation": 0
+    }))
+}
+
+#[post("/api/display/orientation")]
+async fn post_orientation_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
+#[post("/api/gyro/calibrate")]
+async fn post_gyro_calibrate_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -889,10 +916,24 @@ async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder 
     if p.is_empty() {
         p = "index.html".to_string();
     }
+
+    // Check disk first for real-time web development updates
+    let disk_path = Path::new("api/www").join(&p);
+    if disk_path.exists() && disk_path.is_file() {
+        if let Ok(bytes) = std::fs::read(&disk_path) {
+            let mime = mime_guess::from_path(&disk_path).first_or_octet_stream();
+            return actix_web::HttpResponse::Ok()
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                .content_type(mime.as_ref())
+                .body(bytes);
+        }
+    }
+
     match WebAssets::get(&p) {
         Some(content) => {
             let mime = mime_guess::from_path(&p).first_or_octet_stream();
             actix_web::HttpResponse::Ok()
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
                 .content_type(mime.as_ref())
                 .body(content.data.into_owned())
         }
@@ -909,6 +950,10 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .app_data(app_state.clone())
             .service(get_system)
             .service(post_system)
+            .service(get_hardware_compat)
+            .service(get_gyro_compat)
+            .service(post_orientation_compat)
+            .service(post_gyro_calibrate_compat)
             .service(get_instances)
             .service(post_instances)
             .service(delete_instance)

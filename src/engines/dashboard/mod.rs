@@ -21,7 +21,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig,
     EngineContext, EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use chrono::{Local, Timelike, Utc};
+use chrono::{Datelike, Local, Timelike, Utc};
 use linkme::distributed_slice;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -33,7 +33,12 @@ use std::time::{Duration, Instant};
 // ============================================================================
 
 pub struct DashboardEngine {
+    theme: i32,
     clock_mode: ClockMode,
+    format_24h: String,
+    temp_unit: String,
+    lang: String,
+    timezone: String,
     show_clock: bool,
     show_world_clock: bool,
     show_weather: bool,
@@ -61,7 +66,12 @@ impl Default for DashboardEngine {
 impl DashboardEngine {
     pub fn new() -> Self {
         Self {
+            theme: 0,
             clock_mode: ClockMode::WatchDial, // Default Analog watch face matching ESP32
+            format_24h: "system".to_string(),
+            temp_unit: "system".to_string(),
+            lang: "system".to_string(),
+            timezone: "system".to_string(),
             show_clock: true,
             show_world_clock: true,
             show_weather: true,
@@ -124,12 +134,17 @@ impl DashboardEngine {
     }
 
     fn apply_config(&mut self, config: &dyn EngineConfig) {
+        self.theme = config.get_int("theme", 0);
         let cm = config.get_string("clock_mode", "1");
         self.clock_mode = match cm.as_str() {
             "0" | "digital" => ClockMode::Digital,
             "2" | "minimal" => ClockMode::Minimal,
             _ => ClockMode::WatchDial,
         };
+        self.format_24h = config.get_string("format_24h", "system");
+        self.temp_unit = config.get_string("temp_unit", "system");
+        self.lang = config.get_string("lang", "system");
+        self.timezone = config.get_string("timezone", "system");
         self.show_clock = config.get_bool("show_clock", true);
         self.show_world_clock = config.get_bool("show_world_clock", true);
         self.show_weather = config.get_bool("show_weather", true);
@@ -238,12 +253,65 @@ impl Engine for DashboardEngine {
 
         matrix.clear();
 
-        let now = Local::now();
+        let theme_palette = get_dashboard_theme(self.theme);
         let utc = Utc::now();
-        let sub_second = if self.smooth_seconds {
-            (now.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
-        } else {
-            0.0
+
+        let (hours, minutes, seconds, sub_second, day, month) =
+            if self.timezone.is_empty() || self.timezone == "system" {
+                let now = Local::now();
+                let sub = if self.smooth_seconds {
+                    (now.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (
+                    now.hour(),
+                    now.minute(),
+                    now.second(),
+                    sub,
+                    now.day(),
+                    now.month(),
+                )
+            } else if let Some(tz) = crate::engines::clock::parse_tz(&self.timezone) {
+                let localized = utc.with_timezone(&tz);
+                let sub = if self.smooth_seconds {
+                    (localized.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (
+                    localized.hour(),
+                    localized.minute(),
+                    localized.second(),
+                    sub,
+                    localized.day(),
+                    localized.month(),
+                )
+            } else {
+                let now = Local::now();
+                let sub = if self.smooth_seconds {
+                    (now.nanosecond() as f32 / 1_000_000_000.0).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                (
+                    now.hour(),
+                    now.minute(),
+                    now.second(),
+                    sub,
+                    now.day(),
+                    now.month(),
+                )
+            };
+
+        let is_24h = match self.format_24h.as_str() {
+            "12h" | "12" => false,
+            _ => true,
+        };
+
+        let is_fahrenheit = match self.temp_unit.as_str() {
+            "F" | "fahrenheit" => true,
+            _ => false,
         };
 
         let data = self.data.lock().map(|d| d.clone()).unwrap_or_default();
@@ -255,33 +323,60 @@ impl Engine for DashboardEngine {
             // ================================================================
             // TATE / Portrait Layout (e.g. 32x64, 64x128)
             // ================================================================
-            let time_str = now.format("%H:%M").to_string();
+            let time_str = if is_24h {
+                format!("{:02}:{:02}", hours, minutes)
+            } else {
+                let h12 = if hours % 12 == 0 { 12 } else { hours % 12 };
+                format!("{:02}:{:02}", h12, minutes)
+            };
             let mut cur_y = 2 + self.offset_y;
 
             if self.show_clock {
                 let tw = measure_text(&time_str);
                 let tx = ((w - tw) / 2 + self.offset_x).max(1);
-                draw_text_clipped(matrix, &time_str, tx, cur_y, 0, w, 0, h, COLOR_PRIMARY);
+                draw_text_clipped(
+                    matrix,
+                    &time_str,
+                    tx,
+                    cur_y,
+                    0,
+                    w,
+                    0,
+                    h,
+                    theme_palette.primary,
+                );
                 cur_y += 10;
             }
 
             if self.show_date && cur_y < h - 30 {
-                let date_str = now.format("%d/%m").to_string();
+                let date_str = format!("{:02}/{:02}", day, month);
                 let dw = measure_text(&date_str);
                 let dx = ((w - dw) / 2 + self.offset_x).max(1);
-                draw_text_clipped(matrix, &date_str, dx, cur_y, 0, w, 0, h, COLOR_TEXT);
+                draw_text_clipped(matrix, &date_str, dx, cur_y, 0, w, 0, h, theme_palette.text);
                 cur_y += 10;
             }
 
             if cur_y < h - 20 {
                 for x in 2..w - 2 {
-                    matrix.set_pixel(x, cur_y, COLOR_BORDER.0, COLOR_BORDER.1, COLOR_BORDER.2);
+                    matrix.set_pixel(
+                        x,
+                        cur_y,
+                        theme_palette.border.0,
+                        theme_palette.border.1,
+                        theme_palette.border.2,
+                    );
                 }
                 cur_y += 3;
             }
 
             if self.show_weather && cur_y < h - 20 {
-                let t_str = format!("{:.0}°C", data.temp_c);
+                let temp_disp = if is_fahrenheit {
+                    data.temp_c * 1.8 + 32.0
+                } else {
+                    data.temp_c
+                };
+                let unit_suffix = if is_fahrenheit { "°F" } else { "°C" };
+                let t_str = format!("{:.0}{}", temp_disp, unit_suffix);
                 climate_widget::draw_mini_weather_icon(
                     matrix,
                     2 + self.offset_x,
@@ -291,6 +386,7 @@ impl Engine for DashboardEngine {
                     0,
                     h,
                     data.weather_code,
+                    &theme_palette,
                 );
                 let vw = measure_text(&t_str);
                 draw_text_clipped(
@@ -302,13 +398,13 @@ impl Engine for DashboardEngine {
                     w,
                     0,
                     h,
-                    COLOR_ACCENT,
+                    theme_palette.accent,
                 );
                 cur_y += 10;
             }
 
             if self.show_sysinfo && cur_y < h - 10 {
-                let sys_str = if (now.second() / 3) % 2 == 0 {
+                let sys_str = if (seconds / 3) % 2 == 0 {
                     format!("CPU:{:.0}%", data.cpu_usage)
                 } else {
                     format!("RAM:{:.0}%", data.ram_usage)
@@ -322,18 +418,18 @@ impl Engine for DashboardEngine {
                     w,
                     0,
                     h,
-                    COLOR_TEXT,
+                    theme_palette.text,
                 );
                 cur_y += 10;
             }
 
             if self.show_markets && !data.markets.is_empty() && cur_y < h - 8 {
-                let m = &data.markets[(now.second() as usize / 3) % data.markets.len()];
+                let m = &data.markets[(seconds as usize / 3) % data.markets.len()];
                 let p_str = format_market_price(m.price);
                 let m_col = if m.change_24h >= 0.0 {
-                    COLOR_GREEN
+                    theme_palette.green
                 } else {
-                    COLOR_RED
+                    theme_palette.red
                 };
                 draw_text_clipped(
                     matrix,
@@ -344,7 +440,7 @@ impl Engine for DashboardEngine {
                     w,
                     0,
                     h,
-                    COLOR_PRIMARY,
+                    theme_palette.primary,
                 );
                 let pw = measure_text(&p_str);
                 draw_text_clipped(
@@ -366,8 +462,9 @@ impl Engine for DashboardEngine {
             let has_top_widgets = self.show_world_clock || self.show_weather || self.show_sysinfo;
             let has_bot_widgets = self.show_markets;
 
+            let gap = if h >= 64 { 2 } else { 1 };
             let clock_w = (h.min(if w >= 200 { 64 } else { w / 3 })).min(w);
-            let content_x = if self.show_clock { clock_w + 2 } else { 0 };
+            let content_x = if self.show_clock { clock_w + gap } else { 0 };
             let content_w = w - content_x;
 
             // 1. Clock Placement (Occupies left column)
@@ -378,22 +475,45 @@ impl Engine for DashboardEngine {
                         render_analog_watch_dial(
                             matrix,
                             &clock_rect,
-                            &now,
+                            hours,
+                            minutes,
+                            seconds,
                             sub_second,
+                            day,
+                            &theme_palette,
                             self.show_seconds,
+                            self.show_date,
                         );
                     }
                     ClockMode::Digital => {
                         render_digital_clock(
                             matrix,
                             &clock_rect,
-                            &now,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
                             self.show_seconds,
                             self.show_date,
+                            is_24h,
                         );
                     }
                     ClockMode::Minimal => {
-                        render_digital_clock(matrix, &clock_rect, &now, false, false);
+                        render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            false,
+                            false,
+                            is_24h,
+                        );
                     }
                 }
             }
@@ -401,8 +521,8 @@ impl Engine for DashboardEngine {
             // 2. Right Content Area (Dual Row: Top Row + Bottom Row)
             if content_w > 10 {
                 let (top_y, top_h, bot_y, bot_h) = if has_top_widgets && has_bot_widgets {
-                    let th = (h / 2) - 1;
-                    let by = th + 2;
+                    let th = (h - gap) / 2;
+                    let by = th + gap;
                     let bh = h - by;
                     (0, th, by, bh)
                 } else if has_top_widgets {
@@ -418,55 +538,71 @@ impl Engine for DashboardEngine {
                         + (if self.show_sysinfo { 1 } else { 0 });
 
                     let mut cur_top_x = content_x + self.offset_x;
-                    let mut rem_w = content_w;
+                    let total_gaps = (top_count - 1).max(0) * gap;
+                    let avail_top_w = content_w - total_gaps;
+                    let mut rem_avail_w = avail_top_w;
                     let mut left_to_place = top_count;
 
                     // World Clocks Slot
                     if self.show_world_clock && !data.world_times.is_empty() && left_to_place > 0 {
                         let slot_w = if left_to_place == 1 {
-                            rem_w
-                        } else if top_count == 3 {
-                            rem_w * 34 / 100
+                            rem_avail_w
                         } else {
-                            rem_w / left_to_place
+                            avail_top_w / top_count
                         };
 
                         let slot_rect =
                             Rect::new(cur_top_x, top_y + self.offset_y, slot_w.max(10), top_h);
-                        render_world_clock_slot(matrix, &slot_rect, &data.world_times, &now, &utc);
+                        render_world_clock_slot(
+                            matrix,
+                            &slot_rect,
+                            &data.world_times,
+                            seconds,
+                            &utc,
+                            &theme_palette,
+                            is_24h,
+                        );
 
-                        cur_top_x += slot_rect.w + 2;
-                        rem_w -= slot_rect.w + 2;
+                        cur_top_x += slot_rect.w + gap;
+                        rem_avail_w -= slot_rect.w;
                         left_to_place -= 1;
                     }
 
                     // Climate / Weather Slot
                     if self.show_weather && left_to_place > 0 {
                         let slot_w = if left_to_place == 1 {
-                            rem_w
+                            rem_avail_w
                         } else {
-                            rem_w / left_to_place
+                            avail_top_w / top_count
                         };
                         let slot_rect =
                             Rect::new(cur_top_x, top_y + self.offset_y, slot_w.max(10), top_h);
-                        render_climate_slot(matrix, &slot_rect, data.temp_c, data.weather_code);
+                        render_climate_slot(
+                            matrix,
+                            &slot_rect,
+                            data.temp_c,
+                            is_fahrenheit,
+                            data.weather_code,
+                            &theme_palette,
+                        );
 
-                        cur_top_x += slot_rect.w + 2;
-                        rem_w -= slot_rect.w + 2;
+                        cur_top_x += slot_rect.w + gap;
+                        rem_avail_w -= slot_rect.w;
                         left_to_place -= 1;
                     }
 
                     // System Vitals Slot
                     if self.show_sysinfo && left_to_place > 0 {
                         let slot_rect =
-                            Rect::new(cur_top_x, top_y + self.offset_y, rem_w.max(10), top_h);
+                            Rect::new(cur_top_x, top_y + self.offset_y, rem_avail_w.max(10), top_h);
                         render_sysinfo_slot(
                             matrix,
                             &slot_rect,
                             data.cpu_usage,
                             data.ram_usage,
                             data.wifi_rssi,
-                            now.second(),
+                            seconds,
+                            &theme_palette,
                         );
                     }
                 }
@@ -479,7 +615,13 @@ impl Engine for DashboardEngine {
                         content_w,
                         bot_h,
                     );
-                    render_market_ticker(matrix, &bot_rect, &data.markets, now_ms());
+                    render_market_ticker(
+                        matrix,
+                        &bot_rect,
+                        &data.markets,
+                        now_ms(),
+                        &theme_palette,
+                    );
                 }
             }
         }
@@ -487,7 +629,7 @@ impl Engine for DashboardEngine {
 }
 
 // ============================================================================
-// Registration via Distributed Slice (Clean Schema without Theme/Font/IndoorTemp)
+// Registration via Distributed Slice (ESP32-Aligned Schema)
 // ============================================================================
 
 #[distributed_slice(crate::core::registry::ENGINES)]
@@ -512,6 +654,33 @@ fn register_dashboard_engine() -> EngineDescriptor {
         schema: ConfigSchema {
             fields: vec![
                 ConfigField {
+                    id: "theme",
+                    field_type: ConfigType::Options,
+                    label: "Color Theme",
+                    description: "Select visual color theme palette",
+                    default_value: "0",
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "Cyberpunk Neon",
+                            value: "0",
+                        },
+                        ConfigOption {
+                            label: "Amber HUD",
+                            value: "1",
+                        },
+                        ConfigOption {
+                            label: "Luxury Ice Blue",
+                            value: "2",
+                        },
+                        ConfigOption {
+                            label: "Matrix Green",
+                            value: "3",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
                     id: "clock_mode",
                     field_type: ConfigType::Options,
                     label: "Clock Style",
@@ -529,6 +698,89 @@ fn register_dashboard_engine() -> EngineDescriptor {
                         ConfigOption {
                             label: "Minimal",
                             value: "2",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "timezone",
+                    field_type: ConfigType::Options,
+                    label: "Timezone",
+                    description: "Select timezone or device system setting",
+                    default_value: "system",
+                    options_endpoint: Some("/api/timezones"),
+                    validation_policy: ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "format_24h",
+                    field_type: ConfigType::Options,
+                    label: "Time Format",
+                    description: "24-hour or 12-hour time format",
+                    default_value: "system",
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "System Setting",
+                            value: "system",
+                        },
+                        ConfigOption {
+                            label: "24 Hours (23:59)",
+                            value: "24h",
+                        },
+                        ConfigOption {
+                            label: "12 Hours (11:59 PM)",
+                            value: "12h",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "temp_unit",
+                    field_type: ConfigType::Options,
+                    label: "Temperature Unit",
+                    description: "Celsius (°C) or Fahrenheit (°F)",
+                    default_value: "system",
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "System Setting",
+                            value: "system",
+                        },
+                        ConfigOption {
+                            label: "Celsius (°C)",
+                            value: "C",
+                        },
+                        ConfigOption {
+                            label: "Fahrenheit (°F)",
+                            value: "F",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "lang",
+                    field_type: ConfigType::Options,
+                    label: "Language",
+                    description: "Language for dashboard strings and dates",
+                    default_value: "system",
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "System Setting",
+                            value: "system",
+                        },
+                        ConfigOption {
+                            label: "English",
+                            value: "en",
+                        },
+                        ConfigOption {
+                            label: "Français",
+                            value: "fr",
+                        },
+                        ConfigOption {
+                            label: "Español",
+                            value: "es",
                         },
                     ]),
                     validation_policy: ValidationPolicy::FallbackDefault,

@@ -2,14 +2,16 @@ use super::data::WorldTimeQuote;
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
+use chrono::{DateTime, Duration, Timelike, Utc};
 
 pub fn render_world_clock_slot(
     matrix: &mut dyn MatrixBackend,
     rect: &Rect,
     world_times: &[WorldTimeQuote],
-    now: &DateTime<Local>,
+    seconds: u32,
     utc: &DateTime<Utc>,
+    theme: &DashboardTheme,
+    is_24h: bool,
 ) {
     if world_times.is_empty() || rect.w < 8 || rect.h < 8 {
         return;
@@ -22,7 +24,7 @@ pub fn render_world_clock_slot(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_rect_clipped(
         matrix,
@@ -31,13 +33,22 @@ pub fn render_world_clock_slot(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_BORDER,
+        theme.border,
     );
 
-    let idx = (now.second() as usize / 3) % world_times.len();
+    let idx = (seconds as usize / 3) % world_times.len();
     let wt = &world_times[idx];
     let wt_time = *utc + Duration::hours(wt.offset_hours as i64);
-    let wt_str = format!("{}", wt_time.format("%H:%M"));
+    let wt_str = if is_24h {
+        format!("{:02}:{:02}", wt_time.hour(), wt_time.minute())
+    } else {
+        let h12 = if wt_time.hour() % 12 == 0 {
+            12
+        } else {
+            wt_time.hour() % 12
+        };
+        format!("{:02}:{:02}", h12, wt_time.minute())
+    };
 
     let label_w = measure_text(&wt.code);
     let time_w = measure_text(&wt_str);
@@ -53,7 +64,7 @@ pub fn render_world_clock_slot(
             rect.inner_max_x(),
             rect.inner_min_y(),
             rect.inner_max_y(),
-            COLOR_SECONDARY,
+            theme.secondary,
         );
         draw_text_clipped(
             matrix,
@@ -64,11 +75,11 @@ pub fn render_world_clock_slot(
             rect.inner_max_x(),
             rect.inner_min_y(),
             rect.inner_max_y(),
-            COLOR_PRIMARY,
+            theme.primary,
         );
     } else {
         // Cycle between code and time on smaller slots
-        let show_code = (now.second() % 4) < 2;
+        let show_code = (seconds % 4) < 2;
         if show_code {
             let x_cen = rect.x + (rect.w - label_w) / 2;
             draw_text_clipped(
@@ -80,7 +91,7 @@ pub fn render_world_clock_slot(
                 rect.inner_max_x(),
                 rect.inner_min_y(),
                 rect.inner_max_y(),
-                COLOR_SECONDARY,
+                theme.secondary,
             );
         } else {
             let x_cen = rect.x + (rect.w - time_w) / 2;
@@ -93,7 +104,7 @@ pub fn render_world_clock_slot(
                 rect.inner_max_x(),
                 rect.inner_min_y(),
                 rect.inner_max_y(),
-                COLOR_PRIMARY,
+                theme.primary,
             );
         }
     }

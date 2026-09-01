@@ -12,12 +12,13 @@ pub fn draw_mini_market_icon(
     min_y: i32,
     max_y: i32,
     symbol: &str,
+    theme: &DashboardTheme,
 ) {
-    let gold = COLOR_GOLD;
-    let blue = (0, 140, 255);
-    let purple = (160, 40, 255);
-    let white = COLOR_TEXT;
-    let green = COLOR_GREEN;
+    let gold = (255, 180, 0);
+    let cyan = theme.primary;
+    let magenta = theme.secondary;
+    let white = theme.text;
+    let green = theme.green;
 
     match symbol {
         "BTC" => {
@@ -44,39 +45,37 @@ pub fn draw_mini_market_icon(
             draw_pixel_clipped(matrix, x + 3, y + 2, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 4, y + 2, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 2, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 5, y + 3, min_x, max_x, min_y, max_y, white);
+            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 2, y + 4, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 3, y + 4, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 4, y + 4, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 2, y + 5, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 5, y + 5, min_x, max_x, min_y, max_y, white);
+            draw_pixel_clipped(matrix, x + 4, y + 5, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 2, y + 6, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 3, y + 6, min_x, max_x, min_y, max_y, white);
             draw_pixel_clipped(matrix, x + 4, y + 6, min_x, max_x, min_y, max_y, white);
         }
         "ETH" => {
-            draw_pixel_clipped(matrix, x + 3, y + 0, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 4, y + 0, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 2, y + 1, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 5, y + 1, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 1, y + 2, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 6, y + 2, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 0, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 7, y + 3, min_x, max_x, min_y, max_y, white);
-            draw_pixel_clipped(matrix, x + 1, y + 4, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 6, y + 4, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 2, y + 5, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 5, y + 5, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 3, y + 6, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 4, y + 6, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 3, y + 7, min_x, max_x, min_y, max_y, blue);
-            draw_pixel_clipped(matrix, x + 4, y + 7, min_x, max_x, min_y, max_y, blue);
+            draw_pixel_clipped(matrix, x + 3, y + 1, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 4, y + 1, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 2, y + 2, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 5, y + 2, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 1, y + 3, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 6, y + 3, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 3, y + 3, min_x, max_x, min_y, max_y, white);
+            draw_pixel_clipped(matrix, x + 4, y + 3, min_x, max_x, min_y, max_y, white);
+            draw_pixel_clipped(matrix, x + 2, y + 4, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 5, y + 4, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 3, y + 5, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 4, y + 5, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 3, y + 6, min_x, max_x, min_y, max_y, cyan);
+            draw_pixel_clipped(matrix, x + 4, y + 6, min_x, max_x, min_y, max_y, cyan);
         }
         "SOL" => {
             for px in 1..7 {
-                draw_pixel_clipped(matrix, x + px, y + 1, min_x, max_x, min_y, max_y, purple);
-                draw_pixel_clipped(matrix, x + px, y + 3, min_x, max_x, min_y, max_y, blue);
-                draw_pixel_clipped(matrix, x + px, y + 5, min_x, max_x, min_y, max_y, green);
+                draw_pixel_clipped(matrix, x + px, y + 2, min_x, max_x, min_y, max_y, magenta);
+                draw_pixel_clipped(matrix, x + px, y + 4, min_x, max_x, min_y, max_y, cyan);
+                draw_pixel_clipped(matrix, x + px, y + 6, min_x, max_x, min_y, max_y, magenta);
             }
         }
         "NVDA" => {
@@ -132,6 +131,7 @@ pub fn render_market_ticker(
     rect: &Rect,
     markets: &[MarketQuote],
     now_millis: u128,
+    theme: &DashboardTheme,
 ) {
     if markets.is_empty() || rect.w < 10 || rect.h < 8 {
         return;
@@ -144,7 +144,7 @@ pub fn render_market_ticker(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_rect_clipped(
         matrix,
@@ -153,7 +153,7 @@ pub fn render_market_ticker(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_BORDER,
+        theme.border,
     );
 
     let min_x = rect.inner_min_x();
@@ -176,7 +176,9 @@ pub fn render_market_ticker(
             }
 
             let icon_y = rect.y + (rect.h - 8) / 2;
-            draw_mini_market_icon(matrix, pos_x, icon_y, min_x, max_x, min_y, max_y, &m.symbol);
+            draw_mini_market_icon(
+                matrix, pos_x, icon_y, min_x, max_x, min_y, max_y, &m.symbol, theme,
+            );
 
             let text_y = rect.y + (rect.h - 7) / 2;
             draw_text_clipped(
@@ -188,7 +190,7 @@ pub fn render_market_ticker(
                 max_x,
                 min_y,
                 max_y,
-                COLOR_TEXT,
+                theme.text,
             );
 
             let p_str = format_market_price(m.price);
@@ -201,13 +203,13 @@ pub fn render_market_ticker(
                 max_x,
                 min_y,
                 max_y,
-                COLOR_PRIMARY,
+                theme.primary,
             );
 
             let trend_col = if m.change_24h >= 0.0 {
-                COLOR_GREEN
+                theme.green
             } else {
-                COLOR_RED
+                theme.red
             };
             let chg_str = format!(
                 "{}{:.0}%",

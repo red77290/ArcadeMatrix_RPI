@@ -9,6 +9,7 @@ pub fn render_sysinfo_slot(
     ram_usage: f32,
     wifi_rssi: i32,
     now_second: u32,
+    theme: &DashboardTheme,
 ) {
     if rect.w < 8 || rect.h < 8 {
         return;
@@ -21,7 +22,7 @@ pub fn render_sysinfo_slot(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_rect_clipped(
         matrix,
@@ -30,7 +31,7 @@ pub fn render_sysinfo_slot(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_BORDER,
+        theme.border,
     );
 
     let text_y = rect.y + (rect.h - 7) / 2;
@@ -50,9 +51,9 @@ pub fn render_sysinfo_slot(
     for b in 0..4 {
         let bh = (b + 1) * 2;
         let col = if b < rssi_bars {
-            COLOR_ACCENT
+            theme.accent
         } else {
-            COLOR_BORDER
+            theme.border
         };
         for h_bar in 0..bh {
             draw_pixel_clipped(
@@ -90,7 +91,7 @@ pub fn render_sysinfo_slot(
             rect.x + avail_w,
             rect.inner_min_y(),
             rect.inner_max_y(),
-            COLOR_PRIMARY,
+            theme.primary,
         );
     } else {
         // RAM Usage
@@ -111,7 +112,7 @@ pub fn render_sysinfo_slot(
             rect.x + avail_w,
             rect.inner_min_y(),
             rect.inner_max_y(),
-            COLOR_TEXT_DIM,
+            theme.text_dim,
         );
     }
 }

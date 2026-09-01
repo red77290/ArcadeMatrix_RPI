@@ -2,6 +2,7 @@ import { API } from './api.js';
 import { translations, t } from './i18n.js';
 
 export const GLOBAL_TIMEZONES = [
+  { value: "system", label: "System Default / Fuseau Système" },
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
   { value: "Europe/London", label: "Europe/London (UTC+0/+1)" },
   { value: "Europe/Dublin", label: "Europe/Dublin (UTC+0/+1)" },

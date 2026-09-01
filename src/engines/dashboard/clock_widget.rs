@@ -1,7 +1,6 @@
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
-use chrono::{DateTime, Local, Timelike};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockMode {
@@ -13,9 +12,14 @@ pub enum ClockMode {
 pub fn render_analog_watch_dial(
     matrix: &mut dyn MatrixBackend,
     rect: &Rect,
-    now: &DateTime<Local>,
+    hours: u32,
+    minutes: u32,
+    seconds: u32,
     sub_second: f32,
+    day: u32,
+    theme: &DashboardTheme,
     show_seconds: bool,
+    show_date: bool,
 ) {
     if rect.w < 14 || rect.h < 14 {
         return;
@@ -28,7 +32,7 @@ pub fn render_analog_watch_dial(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
 
     let cx = rect.x + rect.w / 2;
@@ -58,7 +62,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_BORDER,
+        theme.border,
     );
     draw_line_clipped(
         matrix,
@@ -70,7 +74,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_ACCENT,
+        theme.accent,
     );
     draw_line_clipped(
         matrix,
@@ -82,7 +86,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_ACCENT,
+        theme.accent,
     );
     draw_line_clipped(
         matrix,
@@ -94,7 +98,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_BORDER,
+        theme.border,
     );
 
     // Bottom & Right Bezel
@@ -108,7 +112,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_BORDER,
+        theme.border,
     );
     draw_line_clipped(
         matrix,
@@ -120,7 +124,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_line_clipped(
         matrix,
@@ -132,7 +136,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_line_clipped(
         matrix,
@@ -144,7 +148,7 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_BORDER,
+        theme.border,
     );
 
     // 2. 12 Hour Pips
@@ -168,9 +172,9 @@ pub fn render_analog_watch_dial(
         let y2 = cy + (r_inner * sin_a) as i32;
 
         let pip_color = if is_cardinal {
-            COLOR_PRIMARY
+            theme.primary
         } else {
-            COLOR_TEXT_DIM
+            theme.text_dim
         };
         if radius >= 14 && is_cardinal {
             draw_line_clipped(
@@ -182,13 +186,13 @@ pub fn render_analog_watch_dial(
     }
 
     // 3. Hour Hand
-    let h12 = (now.hour() % 12) as f32 + (now.minute() as f32 / 60.0);
+    let h12 = (hours % 12) as f32 + (minutes as f32 / 60.0);
     let hour_angle = (h12 / 12.0) * 2.0 * std::f32::consts::PI - (std::f32::consts::PI / 2.0);
     let hour_len = ((radius as f32) * 0.50).max(3.0);
     let hx = cx + (hour_len * hour_angle.cos()) as i32;
     let hy = cy + (hour_len * hour_angle.sin()) as i32;
     draw_line_clipped(
-        matrix, cx, cy, hx, hy, min_x, max_x, min_y, max_y, COLOR_TEXT,
+        matrix, cx, cy, hx, hy, min_x, max_x, min_y, max_y, theme.text,
     );
     draw_line_clipped(
         matrix,
@@ -200,11 +204,11 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_TEXT,
+        theme.text,
     );
 
     // 4. Minute Hand
-    let min_val = now.minute() as f32 + (now.second() as f32 / 60.0);
+    let min_val = minutes as f32 + (seconds as f32 / 60.0);
     let min_angle = (min_val / 60.0) * 2.0 * std::f32::consts::PI - (std::f32::consts::PI / 2.0);
     let min_len = ((radius as f32) * 0.78).max(4.0);
     let mx = cx + (min_len * min_angle.cos()) as i32;
@@ -219,33 +223,83 @@ pub fn render_analog_watch_dial(
         max_x,
         min_y,
         max_y,
-        COLOR_SECONDARY,
+        theme.secondary,
     );
 
     // 5. Sweeping Second Hand
     if show_seconds && radius >= 8 {
-        let sec_val = now.second() as f32 + sub_second;
+        let sec_val = seconds as f32 + sub_second;
         let sec_angle =
             (sec_val / 60.0) * 2.0 * std::f32::consts::PI - (std::f32::consts::PI / 2.0);
         let sec_len = ((radius as f32) * 0.88).max(4.0);
         let sx = cx + (sec_len * sec_angle.cos()) as i32;
         let sy = cy + (sec_len * sec_angle.sin()) as i32;
         draw_line_clipped(
-            matrix, cx, cy, sx, sy, min_x, max_x, min_y, max_y, COLOR_RED,
+            matrix, cx, cy, sx, sy, min_x, max_x, min_y, max_y, theme.red,
         );
     }
 
     // 6. Center Jewel Pivot Dot
-    draw_pixel_clipped(matrix, cx, cy, min_x, max_x, min_y, max_y, COLOR_PRIMARY);
+    draw_pixel_clipped(matrix, cx, cy, min_x, max_x, min_y, max_y, theme.primary);
+
+    // 7. Date Badge
+    if show_date && radius >= 22 {
+        let day_str = format!("{:02}", day);
+        let badge_w = 14;
+        let badge_h = 7;
+        let badge_x = cx - badge_w / 2;
+        let badge_y = cy + radius / 2 - 2;
+
+        let badge_rect = Rect::new(badge_x, badge_y, badge_w, badge_h);
+        fill_rect_clipped(
+            matrix,
+            &badge_rect,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            theme.panel_bg,
+        );
+        draw_rect_clipped(
+            matrix,
+            &badge_rect,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            theme.border,
+        );
+        draw_text_clipped(
+            matrix,
+            &day_str,
+            badge_x + 2,
+            badge_y,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            theme.primary,
+        );
+    }
 }
 
 pub fn render_digital_clock(
     matrix: &mut dyn MatrixBackend,
     rect: &Rect,
-    now: &DateTime<Local>,
+    hours: u32,
+    minutes: u32,
+    seconds: u32,
+    day: u32,
+    month: u32,
+    theme: &DashboardTheme,
     show_seconds: bool,
     show_date: bool,
+    is_24h: bool,
 ) {
+    if rect.w < 8 || rect.h < 8 {
+        return;
+    }
+
     fill_rect_clipped(
         matrix,
         rect,
@@ -253,7 +307,7 @@ pub fn render_digital_clock(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_PANEL_BG,
+        theme.panel_bg,
     );
     draw_rect_clipped(
         matrix,
@@ -262,13 +316,21 @@ pub fn render_digital_clock(
         rect.max_x(),
         rect.min_y(),
         rect.max_y(),
-        COLOR_BORDER,
+        theme.border,
     );
 
     let time_str = if show_seconds && rect.w >= 54 {
-        now.format("%H:%M:%S").to_string()
+        if is_24h {
+            format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+        } else {
+            let h12 = if hours % 12 == 0 { 12 } else { hours % 12 };
+            format!("{:02}:{:02}:{:02}", h12, minutes, seconds)
+        }
+    } else if is_24h {
+        format!("{:02}:{:02}", hours, minutes)
     } else {
-        now.format("%H:%M").to_string()
+        let h12 = if hours % 12 == 0 { 12 } else { hours % 12 };
+        format!("{:02}:{:02}", h12, minutes)
     };
 
     let tw = measure_text(&time_str);
@@ -288,11 +350,11 @@ pub fn render_digital_clock(
         rect.inner_max_x(),
         rect.inner_min_y(),
         rect.inner_max_y(),
-        COLOR_PRIMARY,
+        theme.primary,
     );
 
     if show_date && rect.h >= 24 {
-        let date_str = now.format("%d/%m").to_string();
+        let date_str = format!("{:02}/{:02}", day, month);
         let dw = measure_text(&date_str);
         let dx = rect.x + (rect.w - dw) / 2;
         draw_text_clipped(
@@ -304,7 +366,7 @@ pub fn render_digital_clock(
             rect.inner_max_x(),
             rect.inner_min_y(),
             rect.inner_max_y(),
-            COLOR_TEXT,
+            theme.text,
         );
     }
 }

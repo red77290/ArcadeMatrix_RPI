@@ -8,6 +8,7 @@ export const translations = {
     fighter_desc: "Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.",
     fighter_enabled: "Enabled",
     fighter_interval: "Interval between fights (seconds)",
+    fighter_speed: "Animation Speed",
     fighter_save: "Save Fighter Settings",
     nav_system: "System",
     ota_drop: "Drop firmware binary here or click to browse",
@@ -215,6 +216,7 @@ export const translations = {
     gen_unit_f: "Fahrenheit (°F)",
     gen_idle_fighter_enable: "Enable Idle Fighter Overlay",
     gen_idle_fighter_interval: "Interval between fights (seconds)",
+    gen_idle_fighter_speed: "Fighter Speed",
     gen_btn_save: "💾 Save System Preferences",
 
     // TATE / YOKO & Quick Presets
@@ -259,6 +261,7 @@ export const translations = {
     fighter_desc: "Sprites de combattants animés superposés sur les écrans de rotation en veille. À activer par écran depuis le panneau Rotation.",
     fighter_enabled: "Activé",
     fighter_interval: "Intervalle entre les combats (secondes)",
+    fighter_speed: "Vitesse d'Animation",
     fighter_save: "Enregistrer les paramètres Combattant",
     nav_system: "Système",
     ota_drop: "Glissez le binaire ici ou cliquez pour parcourir",
@@ -466,6 +469,7 @@ export const translations = {
     gen_unit_f: "Fahrenheit (°F)",
     gen_idle_fighter_enable: "Activer l'Overlay Street Fighter",
     gen_idle_fighter_interval: "Intervalle entre les combats (secondes)",
+    gen_idle_fighter_speed: "Vitesse Combattant",
     gen_btn_save: "💾 Enregistrer les Préférences",
 
     // TATE / YOKO & Sélections Rapides
@@ -510,6 +514,7 @@ export const translations = {
     fighter_desc: "Sprites de luchadores animados superpuestos sobre las pantallas de rotación inactivas. Actívalo por pantalla desde el panel de Rotación.",
     fighter_enabled: "Activado",
     fighter_interval: "Intervalo entre combates (segundos)",
+    fighter_speed: "Velocidad de Animación",
     fighter_save: "Guardar ajustes de Luchador",
     nav_system: "Sistema",
     ota_drop: "Arrastra el binario aquí o haz clic para buscar",
@@ -715,6 +720,7 @@ export const translations = {
     gen_unit_f: "Fahrenheit (°F)",
     gen_idle_fighter_enable: "Habilitar Superposición Street Fighter",
     gen_idle_fighter_interval: "Intervalo entre combates (segundos)",
+    gen_idle_fighter_speed: "Velocidad Luchador",
     gen_btn_save: "💾 Guardar Preferencias del Sistema",
 
     // TATE / YOKO & Selección Rápida

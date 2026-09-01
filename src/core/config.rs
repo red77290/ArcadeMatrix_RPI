@@ -148,6 +148,8 @@ pub struct SystemConfig {
     pub idle_fighter_enabled: bool,
     #[serde(default = "default_fighter_interval")]
     pub idle_fighter_interval: u32,
+    #[serde(default = "default_fighter_speed")]
+    pub idle_fighter_speed: u32,
 }
 
 fn default_fighter_enabled() -> bool {
@@ -156,6 +158,10 @@ fn default_fighter_enabled() -> bool {
 
 fn default_fighter_interval() -> u32 {
     10
+}
+
+fn default_fighter_speed() -> u32 {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -247,6 +253,7 @@ impl Default for SystemConfig {
             day_brightness: 100,
             idle_fighter_enabled: default_fighter_enabled(),
             idle_fighter_interval: default_fighter_interval(),
+            idle_fighter_speed: default_fighter_speed(),
         }
     }
 }

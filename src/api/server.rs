@@ -127,6 +127,9 @@ async fn post_system(
     if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
         s.system.idle_fighter_interval = (v.max(1)) as u32;
     }
+    if let Some(v) = body.get("idle_fighter_speed").and_then(|v| v.as_u64()) {
+        s.system.idle_fighter_speed = (v.clamp(25, 200)) as u32;
+    }
     if let Some(v) = body.get("night_mode_enabled").and_then(|v| v.as_bool()) {
         s.system.night_mode_enabled = v;
     }

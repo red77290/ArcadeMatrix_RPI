@@ -375,7 +375,6 @@ impl ArcadeMatrixApp {
 
         let mut message_sync = ProducerSyncState::INIT;
         let mut marquee_sync = ProducerSyncState::INIT;
-        let mut waiting_marquee_sync = ProducerSyncState::INIT;
         let mut rotation_sync = ProducerSyncState::INIT;
         let mut has_received_mqtt = false;
 
@@ -528,30 +527,7 @@ impl ArcadeMatrixApp {
                 }
             }
 
-            // 2. Sync Waiting Marquee
-            let mqtt_enabled = { config.settings.read().mqtt.enabled };
-            if mqtt_enabled && !has_received_mqtt && forced_opt.is_none() {
-                let handle = engine_runtime.register_instance_handle("waiting_marquee", "message");
-                let req_id = 50;
-                let req = DisplayRequest::new(
-                    DisplaySourceId::Marquee,
-                    req_id,
-                    handle,
-                    DisplaySourceId::Marquee as u8,
-                    RequestLifecycle::Persistent,
-                    true,
-                    0,
-                );
-                if waiting_marquee_sync.has_changed(true, req_id, handle) {
-                    arbiter.submit_request(req);
-                    waiting_marquee_sync.update(true, req_id, handle);
-                }
-            } else if waiting_marquee_sync.active {
-                arbiter.cancel_request(DisplaySourceId::Marquee, 50);
-                waiting_marquee_sync.update(false, 0, EngineHandle::NULL);
-            }
-
-            // 3. Sync Rotation Producer
+            // 2. Sync Rotation Producer
             let idle_list = config.settings.read().rotation.clone();
             if !idle_list.is_empty() {
                 if let Some(rot_req) = rotation_manager.build_rotation_request(

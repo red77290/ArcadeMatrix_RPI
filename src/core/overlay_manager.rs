@@ -49,6 +49,7 @@ impl OverlayManager {
         if should_be_active {
             self.fighter
                 .set_interval(system_config.idle_fighter_interval);
+            self.fighter.set_speed(system_config.idle_fighter_speed);
             self.fighter_active = true;
         } else {
             if self.fighter.is_active() {

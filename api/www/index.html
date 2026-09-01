@@ -150,7 +150,7 @@
         <div class="card glass shadow">
           <h3>🥊 <span data-i18n="fighter_title">Fighter Overlay</span></h3>
           <p class="text-muted" data-i18n="fighter_desc">Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.</p>
-          <div class="form-grid col-2" style="margin-top: 1rem;">
+          <div class="form-grid col-3" style="margin-top: 1rem;">
             <div class="form-group">
               <label data-i18n="fighter_enabled">Enabled</label>
               <label class="switch">
@@ -161,6 +161,10 @@
             <div class="form-group">
               <label data-i18n="fighter_interval">Interval between fights (seconds)</label>
               <input type="number" id="fighter-interval" class="input" value="10" min="1">
+            </div>
+            <div class="form-group">
+              <label><span data-i18n="fighter_speed">Animation Speed</span> (<span id="val-fighter-speed">100</span>%)</label>
+              <input type="range" id="fighter-speed" min="25" max="200" value="100" step="5" class="input" style="height: 38px; padding: 0.2rem;">
             </div>
           </div>
           <button id="btn-save-fighter" class="btn btn-primary" style="margin-top: 1.5rem;" data-i18n="fighter_save">Save Fighter Settings</button>
@@ -270,7 +274,7 @@
               </div>
             </div>
 
-            <div class="form-grid col-2" style="margin-top: 1rem;">
+            <div class="form-grid col-3" style="margin-top: 1rem;">
               <div class="form-group">
                 <label><span data-i18n="gen_idle_fighter_enable">Enable Idle Fighter Overlay</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
@@ -283,6 +287,10 @@
               <div class="form-group">
                 <label data-i18n="gen_idle_fighter_interval">Interval between fights (seconds)</label>
                 <input type="number" id="sys-idle-fighter-interval" class="input" value="10" min="5" max="3600">
+              </div>
+              <div class="form-group">
+                <label><span data-i18n="gen_idle_fighter_speed">Fighter Speed</span> (<span id="val-sys-fighter-speed">100</span>%)</label>
+                <input type="range" id="sys-idle-fighter-speed" min="25" max="200" value="100" step="5" class="input" style="height: 38px; padding: 0.2rem;">
               </div>
             </div>
 

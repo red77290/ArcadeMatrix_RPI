@@ -295,6 +295,7 @@ pub struct FighterEngine {
     fight_end: u128,
     next_fight_time: u128,
     interval_sec: u32,
+    speed_percent: u32,
     loading: bool,
     rx: Option<Receiver<(Player, Player)>>,
 }
@@ -319,6 +320,7 @@ impl FighterEngine {
             fight_end: 0,
             next_fight_time: 0,
             interval_sec: 10,
+            speed_percent: 100,
             loading: false,
             rx: None,
         }
@@ -326,6 +328,10 @@ impl FighterEngine {
 
     pub fn set_interval(&mut self, interval_sec: u32) {
         self.interval_sec = interval_sec.max(1);
+    }
+
+    pub fn set_speed(&mut self, speed_percent: u32) {
+        self.speed_percent = speed_percent.clamp(25, 200);
     }
 
     pub fn is_active(&self) -> bool {
@@ -602,21 +608,18 @@ impl FighterEngine {
         }
 
         // Update animation frames
+        let speed = self.speed_percent;
         if let Some(ref mut p1) = self.p1 {
-            Self::update_anim(p1, now);
+            Self::update_anim(p1, now, speed);
         }
         if let Some(ref mut p2) = self.p2 {
-            Self::update_anim(p2, now);
+            Self::update_anim(p2, now, speed);
         }
 
-        // Movement & Instant Engagement Logic (Continuous Arcade Momentum)
+        // Movement & Instant Engagement Logic (Natural Arcade Momentum)
         if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
-            let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
-            let engage_dist = if self.matrix_width >= 128 {
-                20.0 * scale
-            } else {
-                14.0 * scale
-            };
+            let scale = 1.0;
+            let engage_dist = if self.matrix_width >= 128 { 20.0 } else { 14.0 };
             let center_x = self.matrix_width as f32 / 2.0;
 
             let p1_target_x =
@@ -629,16 +632,17 @@ impl FighterEngine {
                 && !p1.dead
                 && !p2.dead
             {
+                let step_interval = (30 * 100 / speed.clamp(25, 200)) as u128;
                 let elapsed = now.saturating_sub(self.last_move);
-                if elapsed >= 20 {
-                    let steps = (elapsed / 20) as f32;
-                    self.last_move += (steps as u128) * 20;
+                if elapsed >= step_interval {
+                    let steps = (elapsed / step_interval) as f32;
+                    self.last_move += (steps as u128) * step_interval;
 
                     if p1.x < p1_target_x {
-                        p1.x = (p1.x + steps * scale.max(1.0)).min(p1_target_x);
+                        p1.x = (p1.x + steps).min(p1_target_x);
                     }
                     if p2.x > p2_target_x {
-                        p2.x = (p2.x - steps * scale.max(1.0)).max(p2_target_x);
+                        p2.x = (p2.x - steps).max(p2_target_x);
                     }
                 }
 
@@ -712,17 +716,17 @@ impl FighterEngine {
             }
 
             if p1.state == "fall" {
-                p1.x += p1.dir * -2.0;
+                p1.x += p1.dir * -1.0;
             }
             if p2.state == "fall" {
-                p2.x += p2.dir * -2.0;
+                p2.x += p2.dir * -1.0;
             }
 
             if self.fight_end == 0 && (p1.dead || p2.dead) {
                 self.fight_end = now;
             }
 
-            if self.fight_end > 0 && now.saturating_sub(self.fight_end) > 2000 {
+            if self.fight_end > 0 && now.saturating_sub(self.fight_end) > 3000 {
                 self.active = false;
                 self.next_fight_time = now + (self.interval_sec as u128 * 1000);
             }
@@ -740,21 +744,27 @@ impl FighterEngine {
         }
     }
 
-    fn update_anim(p: &mut Player, now: u128) {
+    fn update_anim(p: &mut Player, now: u128, speed_percent: u32) {
         if let Some(anim) = p.character.get_sprite(&p.state) {
-            let mut delay =
+            let raw_delay =
                 anim.delays[p.frame_idx.min(anim.delays.len().saturating_sub(1))] as u128;
-            if p.state != "stand" && p.state != "win" {
-                delay = (delay * 3) / 4; // 25% faster combat animation for snappy arcade feel
-                if delay > 70 {
-                    delay = 70;
+            let mut delay = (raw_delay * 100) / (speed_percent.clamp(25, 200) as u128);
+            if p.state != "stand" && p.state != "win" && p.state != "walk" {
+                // Snappy combat strikes while maintaining legible animation timing
+                delay = (delay * 9) / 10;
+                let min_combat = (40 * 100) / (speed_percent.clamp(25, 200) as u128);
+                if delay < min_combat {
+                    delay = min_combat;
+                }
+            } else {
+                // Natural pacing for walk, stand, and victory poses
+                let min_idle = (50 * 100) / (speed_percent.clamp(25, 200) as u128);
+                if delay < min_idle {
+                    delay = min_idle;
                 }
             }
-            if delay < 25 {
-                delay = 25;
-            }
 
-            if now.saturating_sub(p.last_f) > delay {
+            if now.saturating_sub(p.last_f) >= delay {
                 p.frame_idx += 1;
                 p.last_f = now;
 
@@ -777,7 +787,7 @@ impl FighterEngine {
                 }
 
                 if p.state.starts_with("special") || p.state.starts_with("super") {
-                    p.x += p.dir * 2.0;
+                    p.x += p.dir * (1.0 * speed_percent as f32 / 100.0);
                 }
             }
         }

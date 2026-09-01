@@ -6,6 +6,7 @@ use std::time::Instant;
 /// Decoupled RotationManager managing playlist pacing, slot index, and duration timers
 pub struct RotationManager {
     current_index: usize,
+    cycle_sequence: u32,
     slot_start_time: Instant,
 }
 
@@ -19,6 +20,7 @@ impl RotationManager {
     pub fn new() -> Self {
         Self {
             current_index: 0,
+            cycle_sequence: 1,
             slot_start_time: Instant::now(),
         }
     }
@@ -35,6 +37,7 @@ impl RotationManager {
 
     pub fn reset(&mut self) {
         self.current_index = 0;
+        self.cycle_sequence = self.cycle_sequence.wrapping_add(1);
         self.slot_start_time = Instant::now();
     }
 
@@ -44,6 +47,7 @@ impl RotationManager {
             return;
         }
         self.current_index = (self.current_index + 1) % rotation_list.len();
+        self.cycle_sequence = self.cycle_sequence.wrapping_add(1);
         self.slot_start_time = Instant::now();
     }
 
@@ -123,7 +127,7 @@ impl RotationManager {
 
         Some(DisplayRequest::new(
             DisplaySourceId::Rotation,
-            (self.current_index + 1) as u32,
+            self.cycle_sequence,
             handle,
             DisplaySourceId::Rotation as u8, // Priority 10
             RequestLifecycle::Persistent,

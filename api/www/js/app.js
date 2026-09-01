@@ -428,14 +428,24 @@ function initCustomMarquee() {
     } catch (e) {
       window.showToast('Failed to display marquee image', 'error');
     }
-  }
+  });
 }
 
-function initFighterOverlay() {
+function initMedia() {
   const enabledEl = document.getElementById('fighter-enabled');
   const intervalEl = document.getElementById('fighter-interval');
+  const speedEl = document.getElementById('fighter-speed');
+  const valSpeedEl = document.getElementById('val-fighter-speed');
   const saveBtn = document.getElementById('btn-save-fighter');
+
   if (!enabledEl || !intervalEl || !saveBtn) return;
+
+  if (speedEl && valSpeedEl && !speedEl._boundInput) {
+    speedEl._boundInput = true;
+    speedEl.addEventListener('input', (e) => {
+      valSpeedEl.textContent = e.target.value;
+    });
+  }
 
   // Load current values from the canonical system config.
   (async () => {
@@ -448,6 +458,10 @@ function initFighterOverlay() {
       if (typeof sys.idle_fighter_interval === 'number') {
         intervalEl.value = sys.idle_fighter_interval;
       }
+      if (typeof sys.idle_fighter_speed === 'number' && speedEl) {
+        speedEl.value = sys.idle_fighter_speed;
+        if (valSpeedEl) valSpeedEl.textContent = String(sys.idle_fighter_speed);
+      }
     } catch (e) {
       console.error('Failed to load fighter settings', e);
     }
@@ -458,6 +472,7 @@ function initFighterOverlay() {
       await API.post('/api/system', {
         idle_fighter_enabled: enabledEl.checked,
         idle_fighter_interval: parseInt(intervalEl.value) || 1,
+        idle_fighter_speed: parseInt(speedEl?.value) || 100,
       });
       window.showToast('Fighter overlay settings saved!', 'success');
     } catch (e) {
@@ -676,6 +691,17 @@ async function initSettings() {
     setVal('sys-unit', sys.temp_unit || 'C');
     setChk('sys-idle-fighter-enabled', sys.idle_fighter_enabled ?? true);
     setVal('sys-idle-fighter-interval', sys.idle_fighter_interval || 10);
+    setVal('sys-idle-fighter-speed', sys.idle_fighter_speed || 100);
+
+    const sysFighterSpeedEl = document.getElementById('sys-idle-fighter-speed');
+    const valSysFighterSpeed = document.getElementById('val-sys-fighter-speed');
+    if (valSysFighterSpeed) valSysFighterSpeed.textContent = String(sys.idle_fighter_speed || 100);
+    if (sysFighterSpeedEl && valSysFighterSpeed && !sysFighterSpeedEl._boundInput) {
+      sysFighterSpeedEl._boundInput = true;
+      sysFighterSpeedEl.addEventListener('input', (e) => {
+        valSysFighterSpeed.textContent = e.target.value;
+      });
+    }
 
     if (sys.lang) {
       setLanguage(sys.lang);
@@ -735,6 +761,7 @@ async function initSettings() {
       const tempUnit = document.getElementById('sys-unit')?.value || 'C';
       const idleFighterEnabled = document.getElementById('sys-idle-fighter-enabled')?.checked ?? true;
       const idleFighterInterval = parseInt(document.getElementById('sys-idle-fighter-interval')?.value) || 10;
+      const idleFighterSpeed = parseInt(document.getElementById('sys-idle-fighter-speed')?.value) || 100;
 
       try {
         await API.post('/api/system', {
@@ -743,7 +770,8 @@ async function initSettings() {
           format_24h: format24h,
           temp_unit: tempUnit,
           idle_fighter_enabled: idleFighterEnabled,
-          idle_fighter_interval: idleFighterInterval
+          idle_fighter_interval: idleFighterInterval,
+          idle_fighter_speed: idleFighterSpeed
         });
         setLanguage(lang);
         window.showToast(t('system_prefs_saved', 'System preferences saved!'), 'success');

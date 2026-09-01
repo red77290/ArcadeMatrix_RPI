@@ -340,8 +340,27 @@ impl FighterEngine {
         self.loading = false;
     }
 
-    fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
-        let index_path = Path::new(dir).join("index.json");
+    fn find_fighters_dir(name: &str) -> Option<std::path::PathBuf> {
+        let candidates = [
+            std::path::PathBuf::from(name),
+            std::path::PathBuf::from(format!("/opt/arcadematrix/{}", name)),
+            std::path::PathBuf::from(format!("/home/pi/ArcadeMatrix/{}", name)),
+            std::path::PathBuf::from(format!("/home/pi/ArcadeMatrix_RPi/{}", name)),
+            std::path::PathBuf::from(format!("data/{}", name)),
+            std::path::PathBuf::from(format!("release/sdCard/{}", name)),
+            std::path::PathBuf::from(format!("../{}", name)),
+            std::path::PathBuf::from(format!("../ArcadeMatrix/release/sdCard/{}", name)),
+        ];
+        for c in &candidates {
+            if c.join("index.json").exists() {
+                return Some(c.clone());
+            }
+        }
+        None
+    }
+
+    fn load_index(dir: &Path) -> HashMap<String, FighterIndexMeta> {
+        let index_path = dir.join("index.json");
         match std::fs::read_to_string(&index_path) {
             Ok(content) => {
                 match serde_json::from_str::<HashMap<String, FighterIndexMeta>>(&content) {
@@ -368,37 +387,32 @@ impl FighterEngine {
         let matrix_height = self.matrix_height;
 
         thread::spawn(move || {
-            let dir64 = "fighters_64";
-            let dir32 = "fighters_32";
+            let dir64 = Self::find_fighters_dir("fighters_64");
+            let dir32 = Self::find_fighters_dir("fighters_32");
 
             // Pick the asset set that matches the panel height. A 64px (or taller)
             // panel prefers fighters_64; anything shorter uses fighters_32. We only
-            // touch the other resolution as a last-resort fallback, so a 32px panel
-            // never logs spurious errors about the fighters_64 assets.
+            // touch the other resolution as a last-resort fallback.
             let (preferred, fallback) = if matrix_height >= 64 {
                 (dir64, dir32)
             } else {
                 (dir32, dir64)
             };
 
-            let mut dir = preferred;
-            let mut index = Self::load_index(preferred);
-
-            if index.is_empty() {
-                let alt = Self::load_index(fallback);
-                if !alt.is_empty() {
-                    index = alt;
-                    dir = fallback;
-                }
-            }
-
-            if index.is_empty() {
+            let chosen_dir = preferred.or(fallback);
+            if chosen_dir.is_none() {
                 tracing::warn!(
-                    "FighterEngine: No valid index.json found (looked in '{}' for a \
-                     {}px panel). Are the fighter sprite assets deployed?",
-                    preferred,
+                    "FighterEngine: No valid index.json found (looked in candidates for {}px panel). Are the fighter sprite assets deployed?",
                     matrix_height
                 );
+                return;
+            }
+
+            let dir_path = chosen_dir.unwrap();
+            let index = Self::load_index(&dir_path);
+
+            if index.is_empty() {
+                tracing::warn!("FighterEngine: Empty index.json in {}", dir_path.display());
                 return;
             }
 
@@ -480,15 +494,16 @@ impl FighterEngine {
             };
 
             tracing::info!(
-                "🥊 FighterEngine: Match -> [P1: {}] (H:{}) vs [P2: {}] (H:{})",
+                "🥊 FighterEngine: Match -> [P1: {}] (H:{}) vs [P2: {}] (H:{}) from {}",
                 name1,
                 meta1.height,
                 name2,
-                meta2.height
+                meta2.height,
+                dir_path.display()
             );
 
-            let char1_dir = Path::new(dir).join(&name1);
-            let char2_dir = Path::new(dir).join(&name2);
+            let char1_dir = dir_path.join(&name1);
+            let char2_dir = dir_path.join(&name2);
 
             let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
             let c2 = FighterChar::load_char(&char2_dir, meta2.clone());

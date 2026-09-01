@@ -744,6 +744,9 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         submitBtn.disabled = false;
         submitBtn.innerText = t('modal_create_btn', '🚀 Create & Add Screen');
       }
+    };
+  }
+
   renderModalContent();
   document.body.appendChild(overlay);
 }

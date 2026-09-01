@@ -102,7 +102,6 @@ pub struct MatrixConfig {
     pub disable_hardware_pulsing: bool,
     pub mapping: String,
     pub rotation: u32,
-    pub gyro_autorotate: bool,
     pub transition_effect: String,
     pub transition_duration_ms: u32,
 }
@@ -201,7 +200,6 @@ impl Default for MatrixConfig {
             disable_hardware_pulsing: false,
             mapping: "regular".to_string(),
             rotation: 0,
-            gyro_autorotate: false,
             transition_effect: "vortex".to_string(),
             transition_duration_ms: 400,
         }

@@ -689,32 +689,10 @@ async function initSettings() {
       });
     }
 
-    // Screen Orientation, Gyro & Transitions
+    // Screen Orientation & Transitions
     setVal('hw-screen-rotation', matrix.rotation ?? 0);
-    setChk('hw-gyro-autorotate', matrix.gyro_autorotate ?? false);
     setVal('hw-rotation-transition', matrix.transition_effect || 'vortex');
     setVal('hw-transition-duration', matrix.transition_duration_ms || 400);
-
-    const btnCalibrate = document.getElementById('btn-gyro-calibrate');
-    if (btnCalibrate && !btnCalibrate._boundClick) {
-      btnCalibrate._boundClick = true;
-      btnCalibrate.addEventListener('click', async () => {
-        try {
-          await API.post('/api/gyro/calibrate');
-          window.showToast('Gyroscope calibrated successfully!', 'success');
-        } catch (_) {
-          window.showToast('Gyroscope calibration completed', 'info');
-        }
-      });
-    }
-
-    const btnTestTrans = document.getElementById('btn-test-transition');
-    if (btnTestTrans && !btnTestTrans._boundClick) {
-      btnTestTrans._boundClick = true;
-      btnTestTrans.addEventListener('click', () => {
-        window.showToast('Transition FX preview triggered on matrix', 'info');
-      });
-    }
 
     // Raspberry Pi Matrix Hardware (pure RPi HUB75 configuration)
     setVal('hw-rows', matrix.height || 32);
@@ -808,7 +786,6 @@ async function initSettings() {
       const matrix = {
         ...base,
         rotation: numOr('hw-screen-rotation', 0),
-        gyro_autorotate: document.getElementById('hw-gyro-autorotate')?.checked ?? false,
         transition_effect: document.getElementById('hw-rotation-transition')?.value || 'vortex',
         transition_duration_ms: numOr('hw-transition-duration', 400),
         height: numOr('hw-rows', 32),

@@ -2,6 +2,93 @@ use super::data::{format_market_price, MarketQuote};
 use super::font::draw_text_clipped;
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::path::Path;
+use std::sync::OnceLock;
+
+static ICON_CACHE_8X8: OnceLock<Mutex<HashMap<String, Option<image::RgbaImage>>>> = OnceLock::new();
+
+fn get_icon_cache() -> &'static Mutex<HashMap<String, Option<image::RgbaImage>>> {
+    ICON_CACHE_8X8.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+pub fn get_or_load_market_icon_8x8(symbol: &str) -> Option<image::RgbaImage> {
+    let sym = symbol.to_uppercase();
+    {
+        let cache = get_icon_cache().lock();
+        if let Some(cached) = cache.get(&sym) {
+            return cached.clone();
+        }
+    }
+
+    let loaded = load_or_fetch_market_icon(&sym);
+    let mut cache = get_icon_cache().lock();
+    cache.insert(sym, loaded.clone());
+    loaded
+}
+
+fn load_or_fetch_market_icon(symbol: &str) -> Option<image::RgbaImage> {
+    let lower = symbol.to_lowercase();
+    let paths = [
+        format!("data/crypto_icons/{}.png", lower),
+        format!("data/stock_icons/{}.png", lower),
+        format!("data/crypto_icons/{}.png", symbol),
+        format!("data/stock_icons/{}.png", symbol),
+    ];
+
+    for path in &paths {
+        if Path::new(path).exists() {
+            if let Ok(img) = image::open(path) {
+                let rgba = img.into_rgba8();
+                let resized =
+                    image::imageops::resize(&rgba, 8, 8, image::imageops::FilterType::Triangle);
+                return Some(resized);
+            }
+        }
+    }
+
+    // Attempt background download from standard ticker endpoints
+    let urls = [
+        format!(
+            "https://financialmodelingprep.com/image-stock/{}.png",
+            symbol
+        ),
+        format!("https://assets.coincap.io/assets/icons/{}@2x.png", lower),
+    ];
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .user_agent("Mozilla/5.0")
+        .build()
+        .ok()?;
+
+    for u in &urls {
+        let proxy_url = format!("https://wsrv.nl/?url={}&w=8&h=8&output=png", u);
+        if let Ok(resp) = client.get(&proxy_url).send() {
+            if resp.status().is_success() {
+                if let Ok(bytes) = resp.bytes() {
+                    let dest = format!("data/crypto_icons/{}.png", lower);
+                    let _ = std::fs::create_dir_all("data/crypto_icons");
+                    let _ = std::fs::write(&dest, &bytes);
+
+                    if let Ok(img) = image::load_from_memory(&bytes) {
+                        let rgba = img.into_rgba8();
+                        let resized = image::imageops::resize(
+                            &rgba,
+                            8,
+                            8,
+                            image::imageops::FilterType::Triangle,
+                        );
+                        return Some(resized);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
 
 type Icon8x8 = [(u8, u8, u8); 64];
 
@@ -15,7 +102,7 @@ const C_TESLA: (u8, u8, u8) = (227, 25, 55); // Tesla Red
 const C_WHITE: (u8, u8, u8) = (255, 255, 255);
 const C_NONE: (u8, u8, u8) = (0, 0, 0);
 
-// Official 8x8 pixel-art bitmaps matching ESP32 firmware
+// Official 8x8 pixel-art fallback bitmaps matching ESP32 firmware
 const ICON_BTC: Icon8x8 = [
     C_NONE, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_BITCOIN, C_NONE, C_NONE, C_BITCOIN,
     C_BITCOIN, C_WHITE, C_BITCOIN, C_WHITE, C_BITCOIN, C_BITCOIN, C_NONE, C_BITCOIN, C_BITCOIN,
@@ -161,6 +248,29 @@ pub fn draw_mini_market_icon(
     symbol: &str,
     _theme: &DashboardTheme,
 ) {
+    // 1. Try downloaded & cached 8x8 PNG icon from disk/remote
+    if let Some(img) = get_or_load_market_icon_8x8(symbol) {
+        for py in 0..img.height() {
+            for px in 0..img.width() {
+                let p = img.get_pixel(px, py);
+                if p[3] > 64 {
+                    draw_pixel_clipped(
+                        matrix,
+                        x + px as i32,
+                        y + py as i32,
+                        min_x,
+                        max_x,
+                        min_y,
+                        max_y,
+                        (p[0], p[1], p[2]),
+                    );
+                }
+            }
+        }
+        return;
+    }
+
+    // 2. Fallback to pixel-art bitmap or generic badge
     let icon_data: Option<&Icon8x8> = match symbol.to_uppercase().as_str() {
         "BTC" => Some(&ICON_BTC),
         "ETH" => Some(&ICON_ETH),

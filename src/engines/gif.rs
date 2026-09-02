@@ -106,7 +106,14 @@ impl GifEngine {
 
                 let (num, den) = frame.delay().numer_denom_ms();
                 let ms = if den == 0 { 0 } else { num / den };
-                let delay = Duration::from_millis(if ms == 0 { 50 } else { ms as u64 });
+                let ms_clamped = if ms == 0 {
+                    100 // Standard GIF fallback for 0ms delay headers
+                } else if ms < 20 {
+                    20 // Cap at 50fps max to avoid stuttering
+                } else {
+                    ms
+                };
+                let delay = Duration::from_millis(ms_clamped as u64);
 
                 frames.push((canvas, delay));
             }
@@ -333,6 +340,11 @@ impl GifEngine {
                 .filter(|s| !s.is_empty())
                 .collect()
         };
+
+        let count = config.get_int("gifs_count", 0);
+        if count > 0 {
+            self.target_count = count as u32;
+        }
     }
 
     pub fn draw_current_frame(&mut self, matrix: &mut dyn MatrixBackend) -> bool {
@@ -377,8 +389,13 @@ impl Engine for GifEngine {
 
     fn activate(&mut self) {
         self.gifs_played = 0;
+        self.loop_count = 0;
         self.play_random_playlist_gif(&self.playlists.clone());
         self.last_update = Some(Instant::now());
+    }
+
+    fn is_realtime(&self) -> bool {
+        true
     }
 
     fn update(&mut self, context: &mut EngineContext) {
@@ -413,25 +430,14 @@ impl Engine for GifEngine {
         }
 
         if self.loop_count >= 1 {
+            self.loop_count = 0;
             self.gifs_played += 1;
-            if self.gifs_played < self.target_count {
-                self.play_random_playlist_gif(&self.playlists.clone());
-                self.last_update = Some(Instant::now());
-            }
+            self.play_random_playlist_gif(&self.playlists.clone());
+            self.last_update = Some(Instant::now());
         }
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        let w = context.matrix.width();
-        let h = context.matrix.height();
-        if self.target_width != w || self.target_height != h {
-            self.target_width = w;
-            self.target_height = h;
-            self.geometry =
-                DisplayGeometry::new(w, h, self.geometry.rotation, self.geometry.version);
-            self.play_random_playlist_gif(&self.playlists.clone());
-        }
-
         if self.frames.is_empty() {
             return;
         }

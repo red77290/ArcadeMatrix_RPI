@@ -290,6 +290,67 @@ impl Engine for SysInfoEngine {
             format!("{}m{:02}", mins, uptime % 60)
         };
 
+        let is_tate = w < 48 || h > (w * 3) / 2;
+        if is_tate {
+            // Portrait / Tate Stacked Layout (e.g. 32x64, 32x128, 64x128, matching ESP32)
+            let step_y = h / 4;
+            let base_y = 2 + self.offset_y;
+
+            // Row 1: CPU
+            if self.show_cpu {
+                Self::draw_bitmap_string(matrix, "CPU", 2 + self.offset_x, base_y, label_col);
+                let cpu_s = format!("{:.0}%", cpu);
+                let cx = w - (cpu_s.len() as i32 * 6 + 2) + self.offset_x;
+                Self::draw_bitmap_string(matrix, &cpu_s, cx, base_y, cpu_col);
+                Self::draw_gauge_bar(
+                    matrix,
+                    2 + self.offset_x,
+                    base_y + 8,
+                    w - 4,
+                    3,
+                    cpu,
+                    cpu_col,
+                );
+            }
+
+            // Row 2: RAM
+            if self.show_ram {
+                let y2 = base_y + step_y;
+                Self::draw_bitmap_string(matrix, "RAM", 2 + self.offset_x, y2, label_col);
+                let ram_s = format!("{:.0}%", ram);
+                let rx = w - (ram_s.len() as i32 * 6 + 2) + self.offset_x;
+                Self::draw_bitmap_string(matrix, &ram_s, rx, y2, ram_col);
+                Self::draw_gauge_bar(matrix, 2 + self.offset_x, y2 + 8, w - 4, 3, ram, ram_col);
+            }
+
+            // Row 3: TEMP
+            if self.show_temp {
+                let y3 = base_y + step_y * 2;
+                Self::draw_bitmap_string(matrix, "TMP", 2 + self.offset_x, y3, label_col);
+                let tx = w - (t_str.len() as i32 * 6 + 2) + self.offset_x;
+                Self::draw_bitmap_string(matrix, &t_str, tx, y3, temp_col);
+                let temp_pct = ((temp - 20.0) * (100.0 / 60.0)).clamp(0.0, 100.0);
+                Self::draw_gauge_bar(
+                    matrix,
+                    2 + self.offset_x,
+                    y3 + 8,
+                    w - 4,
+                    3,
+                    temp_pct,
+                    temp_col,
+                );
+            }
+
+            // Row 4: UPTIME
+            if self.show_uptime {
+                let y4 = base_y + step_y * 3;
+                Self::draw_bitmap_string(matrix, "UPT", 2 + self.offset_x, y4, label_col);
+                let ux = w - (up_str.len() as i32 * 6 + 2) + self.offset_x;
+                Self::draw_bitmap_string(matrix, &up_str, ux, y4, (0, 190, 255));
+            }
+            return;
+        }
+
         match self.theme {
             1 => {
                 // Cyberpunk Neon theme

@@ -1,4 +1,4 @@
-use super::font::draw_text_clipped;
+use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
 use crate::core::matrix::MatrixBackend;
 
@@ -109,35 +109,69 @@ pub fn render_climate_slot(
         theme.border,
     );
 
-    let icon_y = rect.y + (rect.h - 8) / 2;
-    draw_mini_weather_icon(
-        matrix,
-        rect.x + 2,
-        icon_y,
-        rect.inner_min_x(),
-        rect.inner_max_x(),
-        rect.inner_min_y(),
-        rect.inner_max_y(),
-        weather_code,
-        theme,
-    );
-
     let temp_val = if is_fahrenheit {
         temp_c * 1.8 + 32.0
     } else {
         temp_c
     };
     let t_str = format!("{:.0}°", temp_val);
-    let text_y = rect.y + (rect.h - 7) / 2;
-    draw_text_clipped(
-        matrix,
-        &t_str,
-        rect.x + 11,
-        text_y,
-        rect.inner_min_x(),
-        rect.inner_max_x(),
-        rect.inner_min_y(),
-        rect.inner_max_y(),
-        theme.accent,
-    );
+    let tw = measure_text(&t_str);
+
+    if rect.h >= 24 && rect.w <= 40 {
+        // Stacked Portrait Layout (Icon on top, Temp below)
+        let icon_x = rect.x + (rect.w - 8) / 2;
+        let icon_y = rect.y + 4;
+        draw_mini_weather_icon(
+            matrix,
+            icon_x,
+            icon_y,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            weather_code,
+            theme,
+        );
+
+        let tx = rect.x + (rect.w - tw) / 2;
+        let ty = rect.y + rect.h - 12;
+        draw_text_clipped(
+            matrix,
+            &t_str,
+            tx,
+            ty,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            theme.accent,
+        );
+    } else {
+        // Side-by-side horizontal layout
+        let icon_y = rect.y + (rect.h - 8) / 2;
+        draw_mini_weather_icon(
+            matrix,
+            rect.x + 2,
+            icon_y,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            weather_code,
+            theme,
+        );
+
+        let text_y = rect.y + (rect.h - 7) / 2;
+        draw_text_clipped(
+            matrix,
+            &t_str,
+            rect.x + 11,
+            text_y,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            theme.accent,
+        );
+    }
 }

@@ -346,8 +346,63 @@ impl Engine for StockEngine {
             (255, 60, 60) // Red
         };
 
+        let is_tate = width < 48 || height > (width * 3) / 2;
+
         if !self.show_chart {
-            if height >= 64 {
+            if is_tate {
+                // --- Vertical TATE Layout (e.g. 32x128, matching ESP32) ---
+                let icon_x = (width as i32 - 16) / 2;
+                let icon_y = 6;
+
+                if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
+                    for y in 0..img.height() {
+                        for x in 0..img.width() {
+                            let p = img.get_pixel(x, y);
+                            if p[3] > 128 {
+                                matrix.set_pixel(
+                                    icon_x + x as i32,
+                                    icon_y + y as i32,
+                                    p[0],
+                                    p[1],
+                                    p[2],
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    let icon = match symbol.as_str() {
+                        "AAPL" => &crate::engines::icons::ICON_AAPL,
+                        "NVDA" => &crate::engines::icons::ICON_NVDA,
+                        "TSLA" => &crate::engines::icons::ICON_TSLA,
+                        _ => &crate::engines::icons::ICON_AAPL,
+                    };
+                    let icon_color = crate::engines::icons::get_stock_color(&symbol);
+                    crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
+                }
+
+                let font = self.base_renderer.font();
+                let (_, sym_w, _) = font.get_pixel_map(&symbol, 1.0);
+                let sym_x = (width as i32 - sym_w) / 2;
+                self.draw_plain_text(matrix, &symbol, sym_x, 26, (255, 255, 255), 1.0);
+
+                let (_, price_w, _) = font.get_pixel_map(&price_str, 1.0);
+                let price_x = (width as i32 - price_w) / 2;
+                self.draw_plain_text(matrix, &price_str, price_x, 38, (0, 220, 255), 1.0);
+
+                // Divider line
+                for x in 2..(width as i32 - 2) {
+                    matrix.set_pixel(x, 50, 50, 50, 50);
+                }
+
+                let full_pct = if !success || price <= 0.0 {
+                    pct_str.clone()
+                } else {
+                    format!("{}{}", if change >= 0.0 { "^" } else { "v" }, pct_str)
+                };
+                let (_, pct_w, _) = font.get_pixel_map(&full_pct, 1.0);
+                let pct_x = (width as i32 - pct_w) / 2;
+                self.draw_plain_text(matrix, &full_pct, pct_x, 54, badge_color_tuple, 1.0);
+            } else if height >= 64 && width >= 80 {
                 let scale = 2;
                 let icon_x = 6;
                 let icon_y = 6;
@@ -447,8 +502,8 @@ impl Engine for StockEngine {
             let tf_label = self.chart_timeframe.label();
 
             if width <= 64 {
-                // --- Unified Vertical (64x64, 32x64 Tate) ---
-                let icon_x = 2;
+                // --- Unified Vertical (64x64, 32x128 / 32x64 Tate) ---
+                let icon_x = (width as i32 - 16) / 2;
                 let icon_y = 2;
 
                 if let Some(img) = self.get_and_load_icon(&symbol, image_url.clone(), 16) {
@@ -477,30 +532,32 @@ impl Engine for StockEngine {
                     crate::engines::icons::draw_icon(matrix, icon, icon_x, icon_y, 2, icon_color);
                 }
 
-                let sym_w = self.draw_plain_text(matrix, &symbol, 20, 2, (255, 255, 255), 1.0);
-
                 let font = self.base_renderer.font();
-                let (_, tf_w, _) = font.get_pixel_map(tf_label, 1.0);
-                let tf_x = (width as i32 - tf_w - 2).max(20 + sym_w + 4);
-                self.draw_plain_text(matrix, tf_label, tf_x, 2, (140, 140, 140), 1.0);
+                let (_, sym_w, _) = font.get_pixel_map(&symbol, 1.0);
+                let sym_x = (width as i32 - sym_w) / 2;
+                self.draw_plain_text(matrix, &symbol, sym_x, 20, (255, 255, 255), 1.0);
 
-                self.draw_plain_text(matrix, &price_str, 20, 10, (0, 220, 255), 1.0);
+                let (_, price_w, _) = font.get_pixel_map(&price_str, 1.0);
+                let price_x = (width as i32 - price_w) / 2;
+                self.draw_plain_text(matrix, &price_str, price_x, 28, (0, 220, 255), 1.0);
 
                 let full_pct = if !success || price <= 0.0 {
                     pct_str.clone()
                 } else {
                     format!("{}{}", if change >= 0.0 { "^" } else { "v" }, pct_str)
                 };
-                self.draw_plain_text(matrix, &full_pct, 2, 19, badge_color_tuple, 1.0);
+                let (_, pct_w, _) = font.get_pixel_map(&full_pct, 1.0);
+                let pct_x = (width as i32 - pct_w) / 2;
+                self.draw_plain_text(matrix, &full_pct, pct_x, 37, badge_color_tuple, 1.0);
 
                 for x in 2..(width as i32 - 2) {
-                    matrix.set_pixel(x, 28, 50, 50, 50);
+                    matrix.set_pixel(x, 46, 50, 50, 50);
                 }
 
                 let spark_x = 2;
-                let spark_y = 30;
+                let spark_y = 48;
                 let spark_w = width.saturating_sub(4);
-                let spark_h = (height as i32 - 32).max(10) as u32;
+                let spark_h = (height as i32 - 50).max(10) as u32;
 
                 if let Some(hist) = history_opt {
                     let is_up =

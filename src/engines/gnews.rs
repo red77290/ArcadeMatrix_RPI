@@ -442,8 +442,92 @@ impl Engine for GNewsEngine {
         }
 
         let matrix = &mut *ctx.matrix;
+        let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
-        if mw >= 128 {
+        if is_vertical {
+            // ==========================================
+            // Portrait / Tate Layout (Matching ESP32)
+            // ==========================================
+            // Top indicator
+            self.base_renderer
+                .render_text(matrix, "NEWS", -1, 1, 2, 2, Some(cat_color), None);
+
+            // Pulsing live beacon
+            if self.show_beacon {
+                let br = 120 + (beacon_pulse * 135.0) as u8;
+                Self::fill_rect_util(matrix, (mw as i32) - 5, 4, 3, 3, (br, 20, 20));
+            }
+
+            // Divider line
+            Self::draw_hline_util(matrix, 2, 11, mw.saturating_sub(4), (40, 45, 55));
+
+            // News source
+            if self.show_source {
+                let src_str = if article.source.len() > 10 && mw <= 32 {
+                    &article.source[..10]
+                } else {
+                    &article.source
+                };
+                self.base_renderer.render_text(
+                    matrix,
+                    src_str,
+                    -1,
+                    1,
+                    2,
+                    14,
+                    Some((160, 175, 195)),
+                    None,
+                );
+            }
+
+            // Multi-line word wrapped headline title
+            let font = self.base_renderer.font();
+            let mut line_y = 25;
+            let max_w = (mw as i32) - 4;
+            let mut cur_line = String::new();
+
+            for word in article.title.split_whitespace() {
+                let candidate = if cur_line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{} {}", cur_line, word)
+                };
+                let (_, w_cand, _) = font.get_pixel_map(&candidate, 1.0);
+                if w_cand <= max_w {
+                    cur_line = candidate;
+                } else {
+                    if !cur_line.is_empty() {
+                        self.base_renderer.render_text(
+                            matrix,
+                            &cur_line,
+                            -1,
+                            1,
+                            2,
+                            line_y,
+                            Some((255, 255, 255)),
+                            None,
+                        );
+                        line_y += 9;
+                        if line_y >= (mh as i32) - 7 {
+                            break;
+                        }
+                    }
+                    cur_line = word.to_string();
+                }
+            }
+            if !cur_line.is_empty() && line_y < (mh as i32) - 7 {
+                self.base_renderer.render_text(
+                    matrix,
+                    &cur_line,
+                    -1,
+                    1,
+                    2,
+                    line_y,
+                    Some((255, 255, 255)),
+                    None,
+                );
+            }
+        } else if mw >= 128 {
             // Wide Layout
             let mut cur_x: i32 = 4;
             let header_y: i32 = if mh >= 64 { 4 } else { 2 };
@@ -522,7 +606,7 @@ impl Engine for GNewsEngine {
                 None,
             );
         } else {
-            // Compact Layout (64x32 or vertical)
+            // Compact Layout (64x32)
             if self.show_beacon {
                 let br = (120.0 + beacon_pulse * 135.0) as u8;
                 Self::fill_rect_util(matrix, 2, 2, 3, 3, (br, 20, 20));

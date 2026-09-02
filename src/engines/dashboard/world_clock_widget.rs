@@ -52,9 +52,38 @@ pub fn render_world_clock_slot(
 
     let label_w = measure_text(&wt.code);
     let time_w = measure_text(&wt_str);
-    let text_y = rect.y + (rect.h - 7) / 2;
 
-    if rect.w >= (label_w + time_w + 5) {
+    if rect.h >= 24 && rect.w <= 40 {
+        // Stacked Portrait Layout (City Code on top, Time below)
+        let cx = rect.x + (rect.w - label_w) / 2;
+        let cy = rect.y + 4;
+        draw_text_clipped(
+            matrix,
+            &wt.code,
+            cx,
+            cy,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            theme.secondary,
+        );
+
+        let tx = rect.x + (rect.w - time_w) / 2;
+        let ty = rect.y + rect.h - 12;
+        draw_text_clipped(
+            matrix,
+            &wt_str,
+            tx,
+            ty,
+            rect.inner_min_x(),
+            rect.inner_max_x(),
+            rect.inner_min_y(),
+            rect.inner_max_y(),
+            theme.primary,
+        );
+    } else if rect.w >= (label_w + time_w + 5) {
+        let text_y = rect.y + (rect.h - 7) / 2;
         draw_text_clipped(
             matrix,
             &wt.code,
@@ -78,6 +107,7 @@ pub fn render_world_clock_slot(
             theme.primary,
         );
     } else {
+        let text_y = rect.y + (rect.h - 7) / 2;
         // Cycle between code and time on smaller slots
         let show_code = (seconds % 4) < 2;
         if show_code {

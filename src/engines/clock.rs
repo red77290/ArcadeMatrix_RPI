@@ -348,6 +348,11 @@ impl Engine for ClockEngine {
         }
 
         let font = self.base_renderer.font();
+        let effective_size = if matrix.width() < 48 && self.time_size > 1 {
+            1
+        } else {
+            self.time_size
+        };
 
         match self.time_theme {
             18 => {
@@ -356,7 +361,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     18,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some((0, 140, 0)),
@@ -369,7 +374,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     21,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some((0, 140, 0)),
@@ -380,7 +385,7 @@ impl Engine for ClockEngine {
                 matrix,
                 &time_str,
                 &font,
-                self.time_size,
+                effective_size,
                 self.time_offset_x,
                 self.time_offset_y,
             ),
@@ -392,7 +397,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     20,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some(color1),
@@ -401,37 +406,37 @@ impl Engine for ClockEngine {
             }
             22 => self
                 .pong
-                .update_and_render(matrix, hours, minutes, &font, self.time_size),
-            23 => self.tetris.render(matrix, &time_str, &font, self.time_size),
+                .update_and_render(matrix, hours, minutes, &font, effective_size),
+            23 => self.tetris.render(matrix, &time_str, &font, effective_size),
             24 => self.word.render(
                 matrix,
                 hours,
                 minutes,
                 &font,
-                self.time_size,
+                effective_size,
                 &context.config.settings.read().system.lang,
             ),
             25 => self
                 .binary
-                .render(matrix, hours, minutes, seconds, &font, self.time_size),
+                .render(matrix, hours, minutes, seconds, &font, effective_size),
             26 => self
                 .pacman
-                .render(matrix, &time_str, hours, minutes, &font, self.time_size),
+                .render(matrix, &time_str, hours, minutes, &font, effective_size),
             27 => self
                 .versus
-                .render(matrix, hours, minutes, &font, self.time_size),
+                .render(matrix, hours, minutes, &font, effective_size),
             28 => self
                 .slot_machine
-                .render(matrix, &time_str, &font, self.time_size),
+                .render(matrix, &time_str, &font, effective_size),
             29 => self
                 .tetris_gb
-                .render(matrix, &time_str, &font, self.time_size),
+                .render(matrix, &time_str, &font, effective_size),
             _ => {
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
                     self.time_theme,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     None,

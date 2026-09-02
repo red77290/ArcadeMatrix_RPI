@@ -10,7 +10,6 @@ pub mod world_clock_widget;
 use climate_widget::render_climate_slot;
 use clock_widget::{render_analog_watch_dial, render_digital_clock, ClockMode};
 use data::*;
-use font::{draw_text_clipped, measure_text};
 use geometry::*;
 use market_widget::render_market_ticker;
 use sysinfo_widget::render_sysinfo_slot;
@@ -373,173 +372,293 @@ impl Engine for DashboardEngine {
 
         let data = self.data.lock().map(|d| d.clone()).unwrap_or_default();
 
-        let is_tate = h > (w * 3) / 2 || (w < 48 && h >= 64);
-        let is_wide = w >= 128;
+        let is_tate = h > (w * 3) / 2 || (w < 48 && h >= 48);
+        let is_wide = w >= 128 || (w >= 48 && w >= h);
 
         if is_tate {
             // ================================================================
-            // TATE / Portrait Layout (e.g. 32x64, 64x128)
+            // PORTRAIT TOWER Responsive Layout (32x64, 32x128, 64x128, 64x256)
             // ================================================================
-            let time_str = if is_24h {
-                format!("{:02}:{:02}", hours, minutes)
-            } else {
-                let h12 = if hours % 12 == 0 { 12 } else { hours % 12 };
-                format!("{:02}:{:02}", h12, minutes)
-            };
-            let mut cur_y = 2 + self.offset_y;
+            let mut cur_y = self.offset_y;
+            let gap = 1;
 
-            if self.show_clock {
-                let tw = measure_text(&time_str);
-                let tx = ((w - tw) / 2 + self.offset_x).max(1);
-                draw_text_clipped(
-                    matrix,
-                    &time_str,
-                    tx,
-                    cur_y,
-                    0,
-                    w,
-                    0,
-                    h,
-                    theme_palette.primary,
-                );
-                cur_y += 10;
-            }
+            if h >= 240 {
+                // Full 64x256 Tall Tower
+                if self.show_clock {
+                    let clock_rect = Rect::new(self.offset_x, cur_y, w, 64);
+                    match self.clock_mode {
+                        ClockMode::WatchDial => render_analog_watch_dial(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            sub_second,
+                            day,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                        ),
+                        ClockMode::Digital => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                            is_24h,
+                            active_lang,
+                        ),
+                        ClockMode::Minimal => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            false,
+                            false,
+                            is_24h,
+                            active_lang,
+                        ),
+                    }
+                    cur_y += 64 + gap;
+                }
 
-            if self.show_date && cur_y < h - 30 {
-                let date_str = if active_lang == "en" {
-                    format!("{:02}/{:02}", month, day)
-                } else {
-                    format!("{:02}/{:02}", day, month)
-                };
-                let dw = measure_text(&date_str);
-                let dx = ((w - dw) / 2 + self.offset_x).max(1);
-                draw_text_clipped(matrix, &date_str, dx, cur_y, 0, w, 0, h, theme_palette.text);
-                cur_y += 10;
-            }
+                if self.show_world_clock && !data.world_times.is_empty() && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, 44);
+                    render_world_clock_slot(
+                        matrix,
+                        &slot_rect,
+                        &data.world_times,
+                        seconds,
+                        &utc,
+                        &theme_palette,
+                        is_24h,
+                    );
+                    cur_y += 44 + gap;
+                }
 
-            if cur_y < h - 20 {
-                for x in 2..w - 2 {
-                    matrix.set_pixel(
-                        x,
-                        cur_y,
-                        theme_palette.border.0,
-                        theme_palette.border.1,
-                        theme_palette.border.2,
+                if self.show_weather && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, 54);
+                    render_climate_slot(
+                        matrix,
+                        &slot_rect,
+                        data.temp_c,
+                        is_fahrenheit,
+                        data.weather_code,
+                        &theme_palette,
+                    );
+                    cur_y += 54 + gap;
+                }
+
+                if self.show_markets && !data.markets.is_empty() && cur_y < h {
+                    let rem_h = h - cur_y;
+                    let m_h = if self.show_sysinfo && rem_h > 24 {
+                        rem_h - 16
+                    } else {
+                        rem_h
+                    };
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, m_h);
+                    render_market_ticker(
+                        matrix,
+                        &slot_rect,
+                        &data.markets,
+                        now_ms(),
+                        &theme_palette,
+                    );
+                    cur_y += m_h + gap;
+                }
+
+                if self.show_sysinfo && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, h - cur_y);
+                    render_sysinfo_slot(
+                        matrix,
+                        &slot_rect,
+                        data.cpu_usage,
+                        data.ram_usage,
+                        data.wifi_rssi,
+                        seconds,
+                        &theme_palette,
                     );
                 }
-                cur_y += 3;
-            }
-
-            if self.show_weather && cur_y < h - 20 {
-                let temp_disp = if is_fahrenheit {
-                    data.temp_c * 1.8 + 32.0
-                } else {
-                    data.temp_c
-                };
-                let unit_suffix = if is_fahrenheit { "°F" } else { "°C" };
-                let t_str = format!("{:.0}{}", temp_disp, unit_suffix);
-                climate_widget::draw_mini_weather_icon(
-                    matrix,
-                    2 + self.offset_x,
-                    cur_y,
-                    0,
-                    w,
-                    0,
-                    h,
-                    data.weather_code,
-                    &theme_palette,
-                );
-                let vw = measure_text(&t_str);
-                draw_text_clipped(
-                    matrix,
-                    &t_str,
-                    w - vw - 2 + self.offset_x,
-                    cur_y,
-                    0,
-                    w,
-                    0,
-                    h,
-                    theme_palette.accent,
-                );
-                cur_y += 10;
-            }
-
-            if self.show_sysinfo && cur_y < h - 10 {
-                let (lbl, val) = if (seconds / 3) % 2 == 0 {
-                    ("CPU", data.cpu_usage.clamp(0.0, 100.0))
-                } else {
-                    ("RAM", data.ram_usage.clamp(0.0, 100.0))
-                };
-                draw_text_clipped(
-                    matrix,
-                    lbl,
-                    2 + self.offset_x,
-                    cur_y,
-                    0,
-                    w,
-                    0,
-                    h,
-                    theme_palette.primary,
-                );
-                let bar_x = 22 + self.offset_x;
-                let bar_w = (w - bar_x - 2).max(4);
-                let bar_y = cur_y + 2;
-                let usage_ratio = val / 100.0;
-                for px in 0..bar_w {
-                    let col_ratio = (px as f32 + 0.5) / bar_w as f32;
-                    let col = if col_ratio <= usage_ratio {
-                        if col_ratio < 0.20 {
-                            (0, 180, 255)
-                        } else if col_ratio < 0.40 {
-                            (0, 230, 80)
-                        } else if col_ratio < 0.60 {
-                            (255, 215, 0)
-                        } else if col_ratio < 0.80 {
-                            (255, 130, 0)
-                        } else {
-                            (255, 45, 45)
-                        }
-                    } else {
-                        (25, 30, 45)
-                    };
-                    for py in 0..2 {
-                        draw_pixel_clipped(matrix, bar_x + px, bar_y + py, 0, w, 0, h, col);
+            } else if h >= 120 {
+                // Medium 32x128 / 64x128 Tower (e.g. 128x32 matrix in TATE orientation)
+                if self.show_clock {
+                    let clock_rect = Rect::new(self.offset_x, cur_y, w, 48);
+                    match self.clock_mode {
+                        ClockMode::WatchDial => render_analog_watch_dial(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            sub_second,
+                            day,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                        ),
+                        ClockMode::Digital => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                            is_24h,
+                            active_lang,
+                        ),
+                        ClockMode::Minimal => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            false,
+                            false,
+                            is_24h,
+                            active_lang,
+                        ),
                     }
+                    cur_y += 48 + gap;
                 }
-                cur_y += 10;
-            }
 
-            if self.show_markets && !data.markets.is_empty() && cur_y < h - 8 {
-                let m = &data.markets[(seconds as usize / 3) % data.markets.len()];
-                let p_str = format_market_price(m.price);
-                let m_col = if m.change_24h >= 0.0 {
-                    theme_palette.green
-                } else {
-                    theme_palette.red
-                };
-                draw_text_clipped(
-                    matrix,
-                    &m.symbol,
-                    2 + self.offset_x,
-                    h - 8,
-                    0,
-                    w,
-                    0,
-                    h,
-                    theme_palette.primary,
-                );
-                let pw = measure_text(&p_str);
-                draw_text_clipped(
-                    matrix,
-                    &p_str,
-                    w - pw - 2 + self.offset_x,
-                    h - 8,
-                    0,
-                    w,
-                    0,
-                    h,
-                    m_col,
-                );
+                if self.show_weather && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, 36);
+                    render_climate_slot(
+                        matrix,
+                        &slot_rect,
+                        data.temp_c,
+                        is_fahrenheit,
+                        data.weather_code,
+                        &theme_palette,
+                    );
+                    cur_y += 36 + gap;
+                }
+
+                if self.show_markets && !data.markets.is_empty() && cur_y < h {
+                    let rem_h = h - cur_y;
+                    let m_h = if self.show_sysinfo && rem_h > 24 {
+                        rem_h - 16
+                    } else {
+                        rem_h
+                    };
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, m_h);
+                    render_market_ticker(
+                        matrix,
+                        &slot_rect,
+                        &data.markets,
+                        now_ms(),
+                        &theme_palette,
+                    );
+                    cur_y += m_h + gap;
+                } else if self.show_world_clock && !data.world_times.is_empty() && cur_y < h {
+                    let rem_h = h - cur_y;
+                    let w_h = if self.show_sysinfo && rem_h > 24 {
+                        rem_h - 16
+                    } else {
+                        rem_h
+                    };
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, w_h);
+                    render_world_clock_slot(
+                        matrix,
+                        &slot_rect,
+                        &data.world_times,
+                        seconds,
+                        &utc,
+                        &theme_palette,
+                        is_24h,
+                    );
+                    cur_y += w_h + gap;
+                }
+
+                if self.show_sysinfo && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, h - cur_y);
+                    render_sysinfo_slot(
+                        matrix,
+                        &slot_rect,
+                        data.cpu_usage,
+                        data.ram_usage,
+                        data.wifi_rssi,
+                        seconds,
+                        &theme_palette,
+                    );
+                }
+            } else {
+                // Small 32x64 / 64x64 Tower
+                if self.show_clock {
+                    let clock_h = h / 2;
+                    let clock_rect = Rect::new(self.offset_x, cur_y, w, clock_h);
+                    match self.clock_mode {
+                        ClockMode::WatchDial => render_analog_watch_dial(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            sub_second,
+                            day,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                        ),
+                        ClockMode::Digital => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            self.show_seconds,
+                            self.show_date,
+                            is_24h,
+                            active_lang,
+                        ),
+                        ClockMode::Minimal => render_digital_clock(
+                            matrix,
+                            &clock_rect,
+                            hours,
+                            minutes,
+                            seconds,
+                            day,
+                            month,
+                            &theme_palette,
+                            false,
+                            false,
+                            is_24h,
+                            active_lang,
+                        ),
+                    }
+                    cur_y += clock_h + gap;
+                }
+
+                if self.show_weather && cur_y < h {
+                    let slot_rect = Rect::new(self.offset_x, cur_y, w, h - cur_y);
+                    render_climate_slot(
+                        matrix,
+                        &slot_rect,
+                        data.temp_c,
+                        is_fahrenheit,
+                        data.weather_code,
+                        &theme_palette,
+                    );
+                }
             }
         } else if is_wide {
             // ================================================================

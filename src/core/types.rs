@@ -1,5 +1,32 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use std::time::Instant;
+
+/// Mode for forced overriding of the display engine from the Control Plane
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ForcedEngineMode {
+    None,
+    Message,
+    Marquee,
+}
+
+/// Immutable lock-free snapshot published atomically by Control Plane to Realtime Plane
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProducerSnapshot {
+    pub forced_mode: ForcedEngineMode,
+    pub message_payload: Option<Arc<crate::engines::message::MessagePayload>>,
+    pub generation: u32,
+}
+
+impl Default for ProducerSnapshot {
+    fn default() -> Self {
+        Self {
+            forced_mode: ForcedEngineMode::None,
+            message_payload: None,
+            generation: 0,
+        }
+    }
+}
 
 /// Numerical compact handle uniquely identifying an engine instance on the hot path
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

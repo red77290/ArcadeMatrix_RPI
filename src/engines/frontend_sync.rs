@@ -102,8 +102,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         {
                                             if let Ok(img) = image::open(&path) {
                                                 *config.image_obj.lock() = Some(img.to_rgb8());
-                                                *config.force_engine.lock() =
-                                                    Some("marquee".to_string());
+                                                config.set_forced_engine_mode(
+                                                    crate::core::types::ForcedEngineMode::Marquee,
+                                                );
                                                 continue;
                                             }
                                         }
@@ -123,8 +124,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() = Some(msg_payload);
-                                        *config.force_engine.lock() = Some("message".to_string());
+                                        config.set_message_payload(Some(msg_payload));
 
                                         let config_clone = Arc::clone(&config);
                                         let cache_clone = Arc::clone(&dmd_cache);
@@ -139,8 +139,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                     {
                                                         *config_clone.image_obj.lock() =
                                                             Some(img.to_rgb8());
-                                                        *config_clone.force_engine.lock() =
-                                                            Some("marquee".to_string());
+                                                        config_clone.set_forced_engine_mode(
+                                                            crate::core::types::ForcedEngineMode::Marquee,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -156,8 +157,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         {
                                             if let Ok(img) = image::open(&path) {
                                                 *config.image_obj.lock() = Some(img.to_rgb8());
-                                                *config.force_engine.lock() =
-                                                    Some("marquee".to_string());
+                                                config.set_forced_engine_mode(
+                                                    crate::core::types::ForcedEngineMode::Marquee,
+                                                );
                                                 continue;
                                             }
                                         }
@@ -174,8 +176,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() = Some(msg_payload);
-                                        *config.force_engine.lock() = Some("message".to_string());
+                                        config.set_message_payload(Some(msg_payload));
 
                                         let config_clone = Arc::clone(&config);
                                         let cache_clone = Arc::clone(&dmd_cache);
@@ -196,15 +197,16 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                     {
                                                         *config_clone.image_obj.lock() =
                                                             Some(img.to_rgb8());
-                                                        *config_clone.force_engine.lock() =
-                                                            Some("marquee".to_string());
+                                                        config_clone.set_forced_engine_mode(
+                                                            crate::core::types::ForcedEngineMode::Marquee,
+                                                        );
                                                     }
                                                 }
                                             }
                                         });
                                     }
                                 } else if status == "stopped" {
-                                    *config.force_engine.lock() = None;
+                                    config.clear_forced_engine();
                                     *config.image_obj.lock() = None;
                                 }
                             }

@@ -11,8 +11,11 @@ Both platforms adhere to the **V1.6-FinalLocked** execution model, enforcing str
 | Architectural Invariant | ESP32 Implementation (C++) | RPi Implementation (Rust) |
 | :--- | :--- | :--- |
 | **Hot-Path Memory Allocation** | **Strictly Zero-Allocation** (`malloc`, `new`, `std::vector`, `String` prohibited) | **Strictly Zero-Allocation** (`Vec::push`, `String`, `format!`, `serde_json`, `HashMap` lookups prohibited) |
-| **Hot-Path Lock Freedom** | **Zero Mutex** on Core 1 hot-path. SRSW Triple Buffer lock-free CAS. | **Zero Contention Mutex** on H-Core render loop. Pre-parsed typed payload snapshots (`ProducerSyncState`). |
-| **Intent Identity** | `source_id + request_id + engine_handle` | `source_id + request_id + engine_handle` |
+| Architectural Invariant | ESP32 Implementation (C++) | RPi Implementation (Rust) |
+| :--- | :--- | :--- |
+| **Hot-Path Memory Allocation** | **Strictly Zero-Allocation** (`malloc`, `new`, `std::vector`, `String` prohibited) | **Strictly Zero-Allocation** (`Vec::push`, `String`, `format!`, `serde_json`, `HashMap` lookups prohibited) |
+| **Hot-Path Lock Freedom** | **Zero Mutex** on Core 1 hot-path. SRSW Triple Buffer lock-free CAS. | **Zero Mutex** on H-Core render loop. Lock-free `ArcSwap<ProducerSnapshot>` atomic publication boundary. |
+| **Intent Identity** | `source_id + request_id + engine_handle` | `source_id + request_id + engine_handle` (Uniform for all sources, zero exception) |
 | **Arbiter Slot Model** | 8 private slots, $O(1)$ SPSC queue consumption | 8 bounded slots, $O(1)$ linear scan |
 | **Preemption Stack** | Fixed `PreemptionStack<PreemptionEntry, 4>` | Bounded `[PreemptionEntry; 4]`, `depth: usize` |
 | **Preemption Saturation** | Strict rejection at `depth == 4` (active session preserved) | Strict rejection at `depth == 4` (active session preserved) |
@@ -46,10 +49,11 @@ $$\text{Intent} = (\text{source\_id}, \text{request\_id}, \text{engine\_handle})
 ### 3.1 Control Plane (Async Tokio / Core 0)
 - Responsible for HTTP REST API, WebSocket subscriptions, MQTT ingestion, and JSON configuration validation.
 - Pre-parses incoming payloads into strongly-typed structures (e.g., `MessagePayload`).
-- Publishes changes atomically to shared memory without blocking the render plane.
+- Publishes changes atomically to shared memory via `arc_swap::ArcSwap<ProducerSnapshot>` with zero lock acquisition on the realtime thread.
 
 ### 3.2 Realtime Render Plane (H-Core / Core 1)
-- Consumes pre-parsed payloads and configuration snapshots.
+- Consumes pre-parsed payloads and configuration snapshots via lock-free atomic pointer loads (`producer_snapshot.load()`).
+- Zero mutex locks on the entire render loop hot-path.
 - Executes `DisplayArbiter::evaluate()` in $O(1)$ time complexity without dynamic allocations.
 - Resolves engine handles in $O(1)$ time via indexed vector offsets (`handle.instance_id as usize`).
 - Dispatches lifecycle transitions (`activate`, `deactivate`, `pause`, `resume`) and invokes `update()` & `render()`.

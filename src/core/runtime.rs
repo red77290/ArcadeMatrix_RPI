@@ -2,8 +2,7 @@ use crate::core::arbiter::DisplayArbiter;
 use crate::core::engine_contract::EngineContext;
 use crate::core::registry::EngineRuntime;
 use crate::core::types::{
-    DisplayDecision, DisplayGeometry, DisplaySession, DisplaySourceId, PreemptionEntry,
-    TransitionMode,
+    DisplayDecision, DisplayGeometry, DisplaySession, PreemptionEntry, TransitionMode,
 };
 use std::time::Instant;
 
@@ -251,12 +250,9 @@ impl DisplayRuntime {
         self.deactivate_current(engine_runtime);
 
         while let Some(top) = self.preemption_stack.pop() {
-            // Check if top entry's intent is still valid (exact identity matching)
-            let is_still_desired = if top.source_id == DisplaySourceId::Rotation {
-                arbiter.has_request(DisplaySourceId::Rotation)
-            } else {
-                arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle)
-            };
+            // Check if top entry's intent is still valid (exact identity matching: source_id + request_id + engine_handle)
+            let is_still_desired =
+                arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle);
 
             if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
                 if let Some(engine) = engine_runtime.get_instance_by_handle(top.engine_handle) {
@@ -310,11 +306,8 @@ impl DisplayRuntime {
                     return TransitionMode::Resume;
                 }
             } else {
-                let is_still_desired = if top.source_id == DisplaySourceId::Rotation {
-                    arbiter.has_request(DisplaySourceId::Rotation)
-                } else {
-                    arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle)
-                };
+                let is_still_desired =
+                    arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle);
                 if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
                     if let Some(engine) = engine_runtime.get_instance_by_handle(top.engine_handle) {
                         engine.resume();

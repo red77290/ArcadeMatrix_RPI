@@ -573,7 +573,8 @@ async fn post_marquee(
     match image::load_from_memory(&bytes) {
         Ok(img) => {
             *data.config.image_obj.lock() = Some(img.to_rgb8());
-            *data.config.force_engine.lock() = Some("marquee".to_string());
+            data.config
+                .set_forced_engine_mode(crate::core::types::ForcedEngineMode::Marquee);
             HttpResponse::Ok().json(json!({"status": "ok"}))
         }
         Err(e) => HttpResponse::BadRequest()

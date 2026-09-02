@@ -457,7 +457,9 @@ impl ArcadeMatrixApp {
         let mut message_sync = ProducerSyncState::INIT;
         let mut marquee_sync = ProducerSyncState::INIT;
         let mut rotation_sync = ProducerSyncState::INIT;
-        let mut last_message_payload: Option<crate::engines::message::MessagePayload> = None;
+        let mut last_message_payload: Option<
+            std::sync::Arc<crate::engines::message::MessagePayload>,
+        > = None;
 
         // 1. Run interactive Startup Splash Screen
         let active_ip = crate::core::splash::SplashScreen::run(
@@ -546,65 +548,67 @@ impl ArcadeMatrixApp {
                 continue;
             }
 
-            // --- PRODUCER SYNCHRONIZATION (EDGE-TRIGGERED, ZERO ALLOCATION) ---
+            // --- PRODUCER SYNCHRONIZATION (EDGE-TRIGGERED, LOCK-FREE, ZERO ALLOCATION) ---
 
-            // 1. Sync MQTT/Message & Marquee Producers
-            let forced_mode_is_msg;
-            let forced_mode_is_marquee;
-            {
-                let forced_guard = config.force_engine.lock();
-                forced_mode_is_msg = forced_guard.as_deref() == Some("message");
-                forced_mode_is_marquee = forced_guard.as_deref() == Some("marquee");
-            }
+            // 1. Sync MQTT/Message & Marquee Producers from Lock-Free Snapshot
+            let producer_snap = config.producer_snapshot.load();
+            let forced_mode = producer_snap.forced_mode;
 
-            if forced_mode_is_msg {
-                let payload_opt = { config.message_payload.lock().clone() };
-                if payload_opt != last_message_payload {
-                    last_message_payload = payload_opt.clone();
-                    if let Some(payload) = payload_opt {
-                        let req_id = mqtt_req_gen.next_id();
-                        let duration_ms = if payload.timeout_seconds > 0 {
-                            payload.timeout_seconds * 1000
-                        } else {
-                            5000
+            match forced_mode {
+                crate::core::types::ForcedEngineMode::Message => {
+                    if let Some(ref payload) = producer_snap.message_payload {
+                        let is_new = match &last_message_payload {
+                            Some(last) => !std::sync::Arc::ptr_eq(last, payload),
+                            None => true,
                         };
-                        let req = DisplayRequest::new(
-                            DisplaySourceId::Mqtt,
-                            req_id,
-                            snapshot.mqtt_handle,
-                            DisplaySourceId::Mqtt as u8,
-                            RequestLifecycle::Transient,
-                            true,
-                            duration_ms,
-                        );
-                        arbiter.submit_request(req);
-                        message_sync.update(true, req_id, snapshot.mqtt_handle);
+                        if is_new {
+                            last_message_payload = Some(std::sync::Arc::clone(payload));
+                            let req_id = mqtt_req_gen.next_id();
+                            let duration_ms = if payload.timeout_seconds > 0 {
+                                payload.timeout_seconds * 1000
+                            } else {
+                                5000
+                            };
+                            let req = DisplayRequest::new(
+                                DisplaySourceId::Mqtt,
+                                req_id,
+                                snapshot.mqtt_handle,
+                                DisplaySourceId::Mqtt as u8,
+                                RequestLifecycle::Transient,
+                                true,
+                                duration_ms,
+                            );
+                            arbiter.submit_request(req);
+                            message_sync.update(true, req_id, snapshot.mqtt_handle);
+                        }
                     }
                 }
-            } else if forced_mode_is_marquee {
-                if !marquee_sync.active {
-                    let req_id = marquee_req_gen.next_id();
-                    let req = DisplayRequest::new(
-                        DisplaySourceId::Marquee,
-                        req_id,
-                        snapshot.marquee_handle,
-                        DisplaySourceId::Marquee as u8,
-                        RequestLifecycle::Persistent,
-                        true,
-                        0,
-                    );
-                    arbiter.submit_request(req);
-                    marquee_sync.update(true, req_id, snapshot.marquee_handle);
+                crate::core::types::ForcedEngineMode::Marquee => {
+                    if !marquee_sync.active {
+                        let req_id = marquee_req_gen.next_id();
+                        let req = DisplayRequest::new(
+                            DisplaySourceId::Marquee,
+                            req_id,
+                            snapshot.marquee_handle,
+                            DisplaySourceId::Marquee as u8,
+                            RequestLifecycle::Persistent,
+                            true,
+                            0,
+                        );
+                        arbiter.submit_request(req);
+                        marquee_sync.update(true, req_id, snapshot.marquee_handle);
+                    }
                 }
-            } else {
-                last_message_payload = None;
-                if message_sync.active {
-                    arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
-                    message_sync.update(false, 0, EngineHandle::NULL);
-                }
-                if marquee_sync.active {
-                    arbiter.cancel_request(DisplaySourceId::Marquee, 0);
-                    marquee_sync.update(false, 0, EngineHandle::NULL);
+                crate::core::types::ForcedEngineMode::None => {
+                    last_message_payload = None;
+                    if message_sync.active {
+                        arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
+                        message_sync.update(false, 0, EngineHandle::NULL);
+                    }
+                    if marquee_sync.active {
+                        arbiter.cancel_request(DisplaySourceId::Marquee, 0);
+                        marquee_sync.update(false, 0, EngineHandle::NULL);
+                    }
                 }
             }
 

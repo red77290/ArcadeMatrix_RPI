@@ -118,6 +118,17 @@ fn test_h_core_zero_allocation_mechanical_proof() {
     let mut engine_runtime = EngineRuntime::new();
     let mut matrix = MockMatrix::new(64, 32);
     let config = arcadematrix::core::config::Config::new("config.json");
+
+    // Pre-publish a message payload via Control Plane
+    let initial_payload = arcadematrix::engines::message::MessagePayload::new(
+        "ArcadeMatrix".to_string(),
+        "#00ff00",
+        1,
+        "left",
+        10,
+    );
+    config.set_message_payload(Some(initial_payload));
+
     let mut ctx = EngineContext {
         matrix: &mut matrix,
         config: &config,
@@ -127,46 +138,122 @@ fn test_h_core_zero_allocation_mechanical_proof() {
     // 1. Cold Path: Register and initialize instances (Heap allocation permitted here)
     let h1 = engine_runtime.register_instance_handle("inst_rot", "hotpath_mock");
     let h2 = engine_runtime.register_instance_handle("inst_marq", "hotpath_mock");
-    let h3 = engine_runtime.register_instance_handle("inst_mqtt", "hotpath_mock");
+    let h3 = engine_runtime.register_instance_handle("inst_mqtt", "message");
 
     engine_runtime.init_instance(h1, &mut ctx, &empty_cfg);
     engine_runtime.init_instance(h2, &mut ctx, &empty_cfg);
     engine_runtime.init_instance(h3, &mut ctx, &empty_cfg);
 
-    let mut sync_state = ProducerSyncState::INIT;
+    let mut message_sync = ProducerSyncState::INIT;
+    let mut marquee_sync = ProducerSyncState::INIT;
+    let mut rotation_sync = ProducerSyncState::INIT;
+    let mut last_message_payload: Option<
+        std::sync::Arc<arcadematrix::engines::message::MessagePayload>,
+    > = None;
+    let mut mqtt_req_gen = RequestIdGenerator::new(1001);
+    let mut marquee_req_gen = RequestIdGenerator::new(2001);
 
-    // 2. Arm the thread-local allocation tracker
-    THREAD_ALLOC_COUNT.with(|c| c.set(0));
-    THREAD_DEALLOC_COUNT.with(|c| c.set(0));
-    THREAD_TRACKING.with(|t| t.set(true));
-
-    // 3. Execute 10,000 steady-state H-Core cycles
-    for i in 1..=10_000 {
-        let now = Instant::now();
-
-        if i % 100 == 0 {
+    // 2. Warmup: Prime lazy glyph rendering before entering steady-state
+    {
+        let producer_snap = config.producer_snapshot.load();
+        if let Some(ref payload) = producer_snap.message_payload {
+            last_message_payload = Some(std::sync::Arc::clone(payload));
+            let req_id = mqtt_req_gen.next_id();
             let req = DisplayRequest::new(
                 DisplaySourceId::Mqtt,
-                i,
+                req_id,
                 h3,
                 40,
                 RequestLifecycle::Transient,
                 true,
-                50,
+                5000,
             );
             arbiter.submit_request(req);
-        } else if i % 50 == 0 {
-            arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
+            message_sync.update(true, req_id, h3);
+        }
+        let decision = arbiter.evaluate(Instant::now());
+        let _mode = runtime.transition_session(decision, &arbiter, &mut engine_runtime);
+        runtime.update(&mut engine_runtime, &mut ctx);
+        runtime.render(&mut engine_runtime, &mut ctx);
+    }
+
+    // 3. Arm the thread-local allocation tracker
+    THREAD_ALLOC_COUNT.with(|c| c.set(0));
+    THREAD_DEALLOC_COUNT.with(|c| c.set(0));
+    THREAD_TRACKING.with(|t| t.set(true));
+
+    // 4. Execute 10,000 steady-state H-Core cycles covering full render loop logic
+    for i in 1..=10_000 {
+        let now = Instant::now();
+
+        // 3.1 Lock-Free Producer Snapshot Load (Zero Mutex, Zero Allocation)
+        let producer_snap = config.producer_snapshot.load();
+        let forced_mode = producer_snap.forced_mode;
+
+        match forced_mode {
+            arcadematrix::core::types::ForcedEngineMode::Message => {
+                if let Some(ref payload) = producer_snap.message_payload {
+                    let is_new = match &last_message_payload {
+                        Some(last) => !std::sync::Arc::ptr_eq(last, payload),
+                        None => true,
+                    };
+                    if is_new {
+                        last_message_payload = Some(std::sync::Arc::clone(payload));
+                        let req_id = mqtt_req_gen.next_id();
+                        let req = DisplayRequest::new(
+                            DisplaySourceId::Mqtt,
+                            req_id,
+                            h3,
+                            40,
+                            RequestLifecycle::Transient,
+                            true,
+                            5000,
+                        );
+                        arbiter.submit_request(req);
+                        message_sync.update(true, req_id, h3);
+                    }
+                }
+            }
+            arcadematrix::core::types::ForcedEngineMode::Marquee => {
+                if !marquee_sync.active {
+                    let req_id = marquee_req_gen.next_id();
+                    let req = DisplayRequest::new(
+                        DisplaySourceId::Marquee,
+                        req_id,
+                        h2,
+                        30,
+                        RequestLifecycle::Persistent,
+                        true,
+                        0,
+                    );
+                    arbiter.submit_request(req);
+                    marquee_sync.update(true, req_id, h2);
+                }
+            }
+            arcadematrix::core::types::ForcedEngineMode::None => {
+                last_message_payload = None;
+                if message_sync.active {
+                    arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
+                    message_sync.update(false, 0, EngineHandle::NULL);
+                }
+                if marquee_sync.active {
+                    arbiter.cancel_request(DisplaySourceId::Marquee, 0);
+                    marquee_sync.update(false, 0, EngineHandle::NULL);
+                }
+            }
         }
 
-        if sync_state.has_changed(true, i, h1) {
-            sync_state.update(true, i, h1);
+        // 3.2 Rotation Producer Sync
+        if rotation_sync.has_changed(true, i as u32, h1) {
+            rotation_sync.update(true, i as u32, h1);
         }
 
+        // 3.3 Arbiter Decision & O(1) Vector Handle Resolution
         let decision = arbiter.evaluate(now);
-        let _resolved = engine_runtime.resolve_handle(h1);
-        let _inst = engine_runtime.get_active_instance(h1);
+        let _resolved = engine_runtime.resolve_handle(decision.engine_handle);
+        let _inst = engine_runtime.get_active_instance(decision.engine_handle);
 
+        // 3.4 Pure FSM Transition, Update & Render (including MessageEngine update with lock-free snapshot)
         let _mode = runtime.transition_session(decision, &arbiter, &mut engine_runtime);
         runtime.update(&mut engine_runtime, &mut ctx);
         runtime.render(&mut engine_runtime, &mut ctx);
@@ -180,6 +267,56 @@ fn test_h_core_zero_allocation_mechanical_proof() {
         "Zero-allocation H-Core invariant violated: observed {} allocations during 10,000 cycles!",
         total_allocations
     );
+}
+
+#[test]
+fn test_lock_free_producer_snapshot_boundary() {
+    let config = arcadematrix::core::config::Config::new("config.json");
+
+    // Initially None
+    let snap0 = config.producer_snapshot.load();
+    assert_eq!(
+        snap0.forced_mode,
+        arcadematrix::core::types::ForcedEngineMode::None
+    );
+    assert!(snap0.message_payload.is_none());
+
+    // Publish Message mode from Control Plane
+    let msg = arcadematrix::engines::message::MessagePayload::new(
+        "Alert".to_string(),
+        "#ff0000",
+        1,
+        "left",
+        5,
+    );
+    config.set_message_payload(Some(msg));
+
+    let snap1 = config.producer_snapshot.load();
+    assert_eq!(
+        snap1.forced_mode,
+        arcadematrix::core::types::ForcedEngineMode::Message
+    );
+    assert_eq!(snap1.message_payload.as_ref().unwrap().text, "Alert");
+    assert_eq!(snap1.generation, 1);
+
+    // Switch to Marquee mode
+    config.set_forced_engine_mode(arcadematrix::core::types::ForcedEngineMode::Marquee);
+    let snap2 = config.producer_snapshot.load();
+    assert_eq!(
+        snap2.forced_mode,
+        arcadematrix::core::types::ForcedEngineMode::Marquee
+    );
+    assert_eq!(snap2.generation, 2);
+
+    // Clear forced engine
+    config.clear_forced_engine();
+    let snap3 = config.producer_snapshot.load();
+    assert_eq!(
+        snap3.forced_mode,
+        arcadematrix::core::types::ForcedEngineMode::None
+    );
+    assert!(snap3.message_payload.is_none());
+    assert_eq!(snap3.generation, 3);
 }
 
 // =========================================================================

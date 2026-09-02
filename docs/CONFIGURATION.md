@@ -243,7 +243,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Country edition (`auto` uses local region). |
 | `max_articles` | `int` | `5` | `3` to `15` | Maximum number of headlines cached and rotated per cycle. |
 | `cache_ttl_min` | `int` | `30` | `5` to `120` | Cache refresh interval in minutes between background API queries. |
-| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `static_paged` | Animation mode (60 FPS smooth horizontal ticker or paged word wrapping). |
+| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Animation mode (smooth right-to-left ticker, arcade serpentine snake flow, vertical crawl, or static paged word wrapping). |
 | `scroll_speed` | `int` | `3` | `1` to `5` | Ticker scrolling speed multiplier (1: Slow ~18 px/s to 5: Turbo ~60 px/s). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` to `4000` | Initial pause dwell time (ms) at headline start before scrolling. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` to `4000` | Pause dwell time (ms) at end of headline before transitioning. |

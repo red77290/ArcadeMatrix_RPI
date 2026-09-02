@@ -227,7 +227,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Edición regional por país. |
 | `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché por ciclo. |
 | `cache_ttl_min` | `int` | `30` | `5` a `120` | Intervalo de refresco de la caché en red (minutos). |
-| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `static_paged` | Modo de animación (desplazamiento continuo a 60 FPS o paginación multilínea). |
+| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Modo de animación (desplazamiento continuo derecha a izquierda, flujo serpentina arcade, desplazamiento vertical o paginación fija). |
 | `scroll_speed` | `int` | `3` | `1` a `5` | Multiplicador de velocidad de desplazamiento (1: Lento ~18 px/s a 5: Turbo ~60 px/s). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` a `4000` | Tiempo de pausa inicial (ms) antes de comenzar el desplazamiento. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` a `4000` | Tiempo de pausa final (ms) al final del titular antes de cambiar. |

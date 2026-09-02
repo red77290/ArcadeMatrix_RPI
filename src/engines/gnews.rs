@@ -76,10 +76,11 @@ pub struct GNewsEngine {
     last_fetch: Option<Instant>,
     last_fetched_lang: String,
     geometry: DisplayGeometry,
-    cached_vertical_lines: Vec<String>,
-    cached_vertical_max_scroll: i32,
+    cached_display_lines: Vec<String>,
+    cached_max_scroll: i32,
     cached_article_index: usize,
     cached_article_title: String,
+    cached_display_mode: String,
 }
 
 impl GNewsEngine {
@@ -175,10 +176,11 @@ impl GNewsEngine {
             last_fetch: last_fetch_inst,
             last_fetched_lang: String::new(),
             geometry: DisplayGeometry::new(64, 32, 0, 0),
-            cached_vertical_lines: Vec::new(),
-            cached_vertical_max_scroll: 0,
+            cached_display_lines: Vec::new(),
+            cached_max_scroll: 0,
             cached_article_index: usize::MAX,
             cached_article_title: String::new(),
+            cached_display_mode: String::new(),
         }
     }
 
@@ -234,6 +236,45 @@ impl GNewsEngine {
         lines
     }
 
+    pub fn distribute_text_to_rows(text: &str, num_rows: usize) -> Vec<String> {
+        let words: Vec<&str> = text.split_whitespace().collect();
+        if words.is_empty() {
+            return Vec::new();
+        }
+        let num_rows = num_rows.clamp(1, 16);
+        if words.len() <= num_rows {
+            return words.into_iter().map(|w| w.to_string()).collect();
+        }
+
+        let total_chars: usize =
+            words.iter().map(|w| w.chars().count()).sum::<usize>() + words.len() - 1;
+        let target_per_row = (total_chars / num_rows).max(8);
+
+        let mut rows = Vec::new();
+        let mut cur_row = String::new();
+
+        for word in words {
+            if rows.len() + 1 < num_rows {
+                let cur_len = cur_row.chars().count();
+                if !cur_row.is_empty() && cur_len + word.chars().count() + 1 > target_per_row {
+                    rows.push(cur_row);
+                    cur_row = word.to_string();
+                    continue;
+                }
+            }
+            if cur_row.is_empty() {
+                cur_row = word.to_string();
+            } else {
+                cur_row.push(' ');
+                cur_row.push_str(word);
+            }
+        }
+        if !cur_row.is_empty() {
+            rows.push(cur_row);
+        }
+        rows
+    }
+
     pub fn get_category_short(category: &str) -> &'static str {
         let cat = category.to_lowercase();
         if cat.contains("tech") {
@@ -286,7 +327,20 @@ impl GNewsEngine {
         self.cache_ttl_min = config.get_int("cache_ttl_min", 30).clamp(5, 120) as u64;
         self.requests_per_day = config.get_int("requests_per_day", 10).clamp(1, 100) as u32;
         self.force_refresh = config.get_bool("force_refresh", false);
+
+        let prev_mode = self.display_mode.clone();
         self.display_mode = config.get_string("display_mode", "smooth_scroll");
+        if self.display_mode != prev_mode {
+            self.scroll_pixel_offset = 0;
+            self.scroll_state = ScrollState::PauseStart;
+            self.state_start = Instant::now();
+            self.cached_display_lines.clear();
+            self.cached_max_scroll = 0;
+            self.cached_article_index = usize::MAX;
+            self.cached_article_title.clear();
+            self.cached_display_mode.clear();
+        }
+
         self.scroll_speed = config.get_int("scroll_speed", 3).clamp(1, 5) as u32;
         self.scroll_pause_start_ms =
             config.get_int("scroll_pause_start_ms", 1200).clamp(0, 4000) as u64;
@@ -481,10 +535,11 @@ impl GNewsEngine {
         self.state_start = now;
         self.last_scroll_tick = now;
         self.last_article_switch = now;
-        self.cached_vertical_lines.clear();
-        self.cached_vertical_max_scroll = 0;
+        self.cached_display_lines.clear();
+        self.cached_max_scroll = 0;
         self.cached_article_index = usize::MAX;
         self.cached_article_title.clear();
+        self.cached_display_mode.clear();
     }
 
     fn fill_rect_util(
@@ -557,10 +612,11 @@ impl Engine for GNewsEngine {
         self.last_scroll_tick = now;
         self.last_source_tick = now;
         self.last_article_switch = now;
-        self.cached_vertical_lines.clear();
-        self.cached_vertical_max_scroll = 0;
+        self.cached_display_lines.clear();
+        self.cached_max_scroll = 0;
         self.cached_article_index = usize::MAX;
         self.cached_article_title.clear();
+        self.cached_display_mode.clear();
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
@@ -580,10 +636,11 @@ impl Engine for GNewsEngine {
 
     fn on_display_geometry_changed(&mut self, geometry: &DisplayGeometry) {
         self.geometry = *geometry;
-        self.cached_vertical_lines.clear();
-        self.cached_vertical_max_scroll = 0;
+        self.cached_display_lines.clear();
+        self.cached_max_scroll = 0;
         self.cached_article_index = usize::MAX;
         self.cached_article_title.clear();
+        self.cached_display_mode.clear();
     }
 
     fn is_realtime(&self) -> bool {
@@ -608,10 +665,11 @@ impl Engine for GNewsEngine {
                 if self.current_index >= self.articles.len() {
                     self.current_index = 0;
                 }
-                self.cached_vertical_lines.clear();
-                self.cached_vertical_max_scroll = 0;
+                self.cached_display_lines.clear();
+                self.cached_max_scroll = 0;
                 self.cached_article_index = usize::MAX;
                 self.cached_article_title.clear();
+                self.cached_display_mode.clear();
             }
         }
 
@@ -683,88 +741,106 @@ impl Engine for GNewsEngine {
         let mh = ctx.matrix.height();
         let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
-        if is_vertical {
-            let max_w = (mw as i32) - 4;
-            let body_y: i32 = 24;
-            let viewport_h = ((mh as i32) - body_y).max(10);
+        let cache_invalid = self.cached_article_index != self.current_index
+            || self.cached_article_title != article.title
+            || self.cached_display_mode != self.display_mode;
 
-            if self.cached_article_index != self.current_index
-                || self.cached_article_title != article.title
-            {
-                let lines = Self::wrap_text_to_lines(&article.title, max_w);
-                let total_h = lines.len() as i32 * 9;
-                let max_scroll = if total_h > viewport_h {
-                    (total_h - viewport_h) + 12
-                } else {
-                    0
-                };
-                self.cached_vertical_lines = lines;
-                self.cached_vertical_max_scroll = max_scroll;
-                self.cached_article_index = self.current_index;
-                self.cached_article_title = article.title.clone();
-            }
+        if cache_invalid {
+            let mode = self.display_mode.as_str();
+            if is_vertical {
+                let body_y: i32 = 24;
+                let num_rows = (((mh as i32) - body_y) / 9).max(1) as usize;
+                let max_w = (mw as i32) - 4;
+                let viewport_h = ((mh as i32) - body_y).max(10);
 
-            let max_scroll = self.cached_vertical_max_scroll;
-
-            if max_scroll == 0 {
-                if now.duration_since(self.last_article_switch).as_secs()
-                    >= self.article_duration_sec
-                {
-                    self.advance_to_next_article();
+                match mode {
+                    "serpentine" => {
+                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let total_h = lines.len() as i32 * 9;
+                        self.cached_max_scroll = if total_h > viewport_h {
+                            (total_h - viewport_h) + 12
+                        } else {
+                            0
+                        };
+                        self.cached_display_lines = lines;
+                    }
+                    "vertical_crawl" => {
+                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let total_h = lines.len() as i32 * 9;
+                        self.cached_max_scroll = if total_h > viewport_h {
+                            (total_h - viewport_h) + 12
+                        } else {
+                            0
+                        };
+                        self.cached_display_lines = lines;
+                    }
+                    "static_paged" => {
+                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        self.cached_max_scroll = 0;
+                        self.cached_display_lines = lines;
+                    }
+                    _ => {
+                        // Default: "smooth_scroll"
+                        // Multi-line block filling entire height, scrolling horizontally Right -> Left
+                        let lines = Self::distribute_text_to_rows(&article.title, num_rows);
+                        let max_line_w = lines.iter().map(|l| measure_text(l)).max().unwrap_or(0);
+                        self.cached_max_scroll = (mw as i32) + max_line_w + 12;
+                        self.cached_display_lines = lines;
+                    }
                 }
             } else {
-                let tick_ms = match self.scroll_speed {
-                    1 => 70,
-                    2 => 55,
-                    3 => 42,
-                    4 => 32,
-                    _ => 22,
-                };
-
-                match self.scroll_state {
-                    ScrollState::PauseStart => {
-                        if now.duration_since(self.state_start).as_millis() as u64
-                            >= self.scroll_pause_start_ms
-                        {
-                            self.scroll_state = ScrollState::Scrolling;
-                            self.state_start = now;
-                            self.last_scroll_tick = now;
-                        }
+                // Horizontal display
+                match mode {
+                    "vertical_crawl" => {
+                        let max_w = (mw as i32) - 8;
+                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let total_h = lines.len() as i32 * 9;
+                        let viewport_h = ((mh as i32) - 16).max(10);
+                        self.cached_max_scroll = if total_h > viewport_h {
+                            (total_h - viewport_h) + 12
+                        } else {
+                            0
+                        };
+                        self.cached_display_lines = lines;
                     }
-                    ScrollState::Scrolling => {
-                        let elapsed_scroll = self.last_scroll_tick.elapsed().as_millis() as u64;
-                        if elapsed_scroll >= tick_ms {
-                            let steps = (elapsed_scroll / tick_ms) as i32;
-                            self.scroll_pixel_offset += steps;
-                            self.last_scroll_tick += Duration::from_millis(steps as u64 * tick_ms);
-                            if self.scroll_pixel_offset >= max_scroll {
-                                self.scroll_state = ScrollState::PauseEnd;
-                                self.state_start = now;
-                            }
-                        }
+                    "static_paged" => {
+                        let max_w = (mw as i32) - 8;
+                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        self.cached_max_scroll = 0;
+                        self.cached_display_lines = lines;
                     }
-                    ScrollState::PauseEnd => {
-                        if now.duration_since(self.state_start).as_millis() as u64
-                            >= self.scroll_pause_end_ms
-                        {
-                            self.advance_to_next_article();
-                        }
+                    _ => {
+                        // "smooth_scroll" or "serpentine" on horizontal display
+                        let text_w = measure_text(&article.title);
+                        self.cached_max_scroll = text_w + 12;
+                        self.cached_display_lines.clear();
                     }
                 }
             }
-        } else if self.display_mode == "static_paged" {
+
+            self.cached_article_index = self.current_index;
+            self.cached_article_title = article.title.clone();
+            self.cached_display_mode = self.display_mode.clone();
+        }
+
+        let max_scroll = self.cached_max_scroll;
+
+        if max_scroll == 0 || self.display_mode == "static_paged" {
             if now.duration_since(self.last_article_switch).as_secs() >= self.article_duration_sec {
                 self.advance_to_next_article();
             }
         } else {
-            // Horizontal Wide / Compact ticker
-            let text_width = measure_text(&article.title);
-            let tick_ms = match self.scroll_speed {
+            let base_tick_ms = match self.scroll_speed {
                 1 => 50,
                 2 => 40,
                 3 => 30,
                 4 => 22,
                 _ => 15,
+            };
+            let tick_ms = if self.display_mode == "vertical_crawl" {
+                base_tick_ms + 15
+            } else {
+                base_tick_ms
             };
 
             match self.scroll_state {
@@ -783,7 +859,7 @@ impl Engine for GNewsEngine {
                         let steps = (elapsed_scroll / tick_ms) as i32;
                         self.scroll_pixel_offset += steps;
                         self.last_scroll_tick += Duration::from_millis(steps as u64 * tick_ms);
-                        if self.scroll_pixel_offset >= (text_width + 12) {
+                        if self.scroll_pixel_offset >= max_scroll {
                             self.scroll_state = ScrollState::PauseEnd;
                             self.state_start = now;
                         }
@@ -930,114 +1006,184 @@ impl Engine for GNewsEngine {
                 }
             }
 
-            // 5. Multi-line word-wrapped headline with alternating serpentine alignment, track turns and smooth crawl
+            // 5. Headline rendering based on display_mode
             let body_y: i32 = 24;
             let line_spacing: i32 = 9;
-            let clip_min_x: i32 = 2;
-            let clip_max_x: i32 = (mw as i32) - 2;
+            let clip_min_x: i32 = 0;
+            let clip_max_x: i32 = mw as i32;
             let clip_min_y: i32 = body_y;
             let clip_max_y: i32 = mh as i32;
-            let total_lines = self.cached_vertical_lines.len();
 
-            for (idx, line) in self.cached_vertical_lines.iter().enumerate() {
-                let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
-                if y + line_spacing > clip_min_y && y < clip_max_y {
-                    let line_w = measure_text(line);
-                    let is_odd = (idx % 2) != 0;
+            match self.display_mode.as_str() {
+                "serpentine" => {
+                    let inner_min_x = 2;
+                    let inner_max_x = (mw as i32) - 2;
+                    let total_lines = self.cached_display_lines.len();
 
-                    // Serpentine alternating alignment (Even: Left -> Right, Odd: Right -> Left flow)
-                    let draw_x = if is_odd && line_w < (clip_max_x - clip_min_x) {
-                        (clip_max_x - line_w).max(clip_min_x)
-                    } else {
-                        clip_min_x
-                    };
+                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                        let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
+                        if y + line_spacing > clip_min_y && y < clip_max_y {
+                            let line_w = measure_text(line);
+                            let is_odd = (idx % 2) != 0;
 
-                    draw_text_clipped(
-                        matrix,
-                        line,
-                        draw_x,
-                        y,
-                        clip_min_x,
-                        clip_max_x,
-                        clip_min_y,
-                        clip_max_y,
-                        (255, 255, 255),
-                    );
-
-                    // Serpentine track connectors between consecutive lines (PacmanClock S-curve parity)
-                    if idx + 1 < total_lines {
-                        let next_y = y + line_spacing;
-                        if next_y < clip_max_y && y + 5 >= clip_min_y {
-                            let track_col = (cat_color.0 / 4, cat_color.1 / 4, cat_color.2 / 4);
-                            if !is_odd {
-                                // Right-side turn connector (Row idx -> Row idx+1)
-                                let rx = clip_max_x - 1;
-                                for ty in (y + 5)..=(next_y + 1) {
-                                    if ty >= clip_min_y && ty < clip_max_y {
-                                        matrix.set_pixel(
-                                            rx,
-                                            ty,
-                                            track_col.0,
-                                            track_col.1,
-                                            track_col.2,
-                                        );
-                                    }
-                                }
+                            // Serpentine alternating alignment (Even: Left -> Right, Odd: Right -> Left flow)
+                            let draw_x = if is_odd && line_w < (inner_max_x - inner_min_x) {
+                                (inner_max_x - line_w).max(inner_min_x)
                             } else {
-                                // Left-side turn connector (Row idx -> Row idx+1)
-                                let lx = clip_min_x - 1;
-                                for ty in (y + 5)..=(next_y + 1) {
-                                    if ty >= clip_min_y && ty < clip_max_y {
-                                        matrix.set_pixel(
-                                            lx,
-                                            ty,
-                                            track_col.0,
-                                            track_col.1,
-                                            track_col.2,
-                                        );
+                                inner_min_x
+                            };
+
+                            draw_text_clipped(
+                                matrix,
+                                line,
+                                draw_x,
+                                y,
+                                inner_min_x,
+                                inner_max_x,
+                                clip_min_y,
+                                clip_max_y,
+                                (255, 255, 255),
+                            );
+
+                            // Serpentine track connectors between consecutive lines (PacmanClock S-curve parity)
+                            if idx + 1 < total_lines {
+                                let next_y = y + line_spacing;
+                                if next_y < clip_max_y && y + 5 >= clip_min_y {
+                                    let track_col =
+                                        (cat_color.0 / 4, cat_color.1 / 4, cat_color.2 / 4);
+                                    if !is_odd {
+                                        // Right-side turn connector (Row idx -> Row idx+1)
+                                        let rx = inner_max_x - 1;
+                                        for ty in (y + 5)..=(next_y + 1) {
+                                            if ty >= clip_min_y && ty < clip_max_y {
+                                                matrix.set_pixel(
+                                                    rx,
+                                                    ty,
+                                                    track_col.0,
+                                                    track_col.1,
+                                                    track_col.2,
+                                                );
+                                            }
+                                        }
+                                    } else {
+                                        // Left-side turn connector (Row idx -> Row idx+1)
+                                        let lx = inner_min_x - 1;
+                                        for ty in (y + 5)..=(next_y + 1) {
+                                            if ty >= clip_min_y && ty < clip_max_y {
+                                                matrix.set_pixel(
+                                                    lx,
+                                                    ty,
+                                                    track_col.0,
+                                                    track_col.1,
+                                                    track_col.2,
+                                                );
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    // Animated Serpentine Pac-Man dot traveling along the active visible lines
+                    if total_lines > 0 {
+                        let avail_w = (inner_max_x - inner_min_x).max(10);
+                        let leg_len = avail_w + line_spacing;
+                        let total_path = (total_lines as i32 * leg_len).max(1);
+                        let anim_step =
+                            (self.source_marquee_offset as i32 * 2).rem_euclid(total_path);
+                        let cur_line_idx = (anim_step / leg_len) as usize;
+                        let line_progress = anim_step % leg_len;
+
+                        if cur_line_idx < total_lines {
+                            let y = body_y + (cur_line_idx as i32 * line_spacing)
+                                - self.scroll_pixel_offset;
+                            let is_odd = (cur_line_idx % 2) != 0;
+
+                            let (px, py) = if line_progress < avail_w {
+                                let lx = if !is_odd {
+                                    inner_min_x + line_progress
+                                } else {
+                                    inner_max_x - line_progress
+                                };
+                                (lx, y + 3)
+                            } else {
+                                // Turn corner
+                                let ty = y + 3 + (line_progress - avail_w);
+                                let tx = if !is_odd {
+                                    inner_max_x - 1
+                                } else {
+                                    inner_min_x - 1
+                                };
+                                (tx, ty)
+                            };
+
+                            if px >= 0 && px < mw as i32 && py >= clip_min_y && py < clip_max_y {
+                                let pac_gold = (255, 215, 0);
+                                matrix.set_pixel(px, py, pac_gold.0, pac_gold.1, pac_gold.2);
+                            }
+                        }
+                    }
                 }
-            }
-
-            // Animated Serpentine Pac-Man dot traveling along the active visible lines
-            if total_lines > 0 {
-                let avail_w = (clip_max_x - clip_min_x).max(10);
-                let leg_len = avail_w + line_spacing;
-                let total_path = (total_lines as i32 * leg_len).max(1);
-                let anim_step = (self.source_marquee_offset as i32 * 2).rem_euclid(total_path);
-                let cur_line_idx = (anim_step / leg_len) as usize;
-                let line_progress = anim_step % leg_len;
-
-                if cur_line_idx < total_lines {
-                    let y =
-                        body_y + (cur_line_idx as i32 * line_spacing) - self.scroll_pixel_offset;
-                    let is_odd = (cur_line_idx % 2) != 0;
-
-                    let (px, py) = if line_progress < avail_w {
-                        let lx = if !is_odd {
-                            clip_min_x + line_progress
-                        } else {
-                            clip_max_x - line_progress
-                        };
-                        (lx, y + 3)
-                    } else {
-                        // Turn corner
-                        let ty = y + 3 + (line_progress - avail_w);
-                        let tx = if !is_odd {
-                            clip_max_x - 1
-                        } else {
-                            clip_min_x - 1
-                        };
-                        (tx, ty)
-                    };
-
-                    if px >= 0 && px < mw as i32 && py >= clip_min_y && py < clip_max_y {
-                        let pac_gold = (255, 215, 0);
-                        matrix.set_pixel(px, py, pac_gold.0, pac_gold.1, pac_gold.2);
+                "vertical_crawl" => {
+                    let inner_min_x = 2;
+                    let inner_max_x = (mw as i32) - 2;
+                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                        let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
+                        if y + line_spacing > clip_min_y && y < clip_max_y {
+                            draw_text_clipped(
+                                matrix,
+                                line,
+                                inner_min_x,
+                                y,
+                                inner_min_x,
+                                inner_max_x,
+                                clip_min_y,
+                                clip_max_y,
+                                (255, 255, 255),
+                            );
+                        }
+                    }
+                }
+                "static_paged" => {
+                    let inner_min_x = 2;
+                    let inner_max_x = (mw as i32) - 2;
+                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                        let y = body_y + (idx as i32 * line_spacing);
+                        if y + line_spacing > clip_min_y && y < clip_max_y {
+                            draw_text_clipped(
+                                matrix,
+                                line,
+                                inner_min_x,
+                                y,
+                                inner_min_x,
+                                inner_max_x,
+                                clip_min_y,
+                                clip_max_y,
+                                (255, 255, 255),
+                            );
+                        }
+                    }
+                }
+                _ => {
+                    // Default: "smooth_scroll"
+                    // Multi-line block filling entire height, scrolling horizontally Right -> Left
+                    let start_x = (mw as i32) - self.scroll_pixel_offset;
+                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                        let y = body_y + (idx as i32 * line_spacing);
+                        if y + line_spacing > clip_min_y && y < clip_max_y {
+                            draw_text_clipped(
+                                matrix,
+                                line,
+                                start_x,
+                                y,
+                                clip_min_x,
+                                clip_max_x,
+                                clip_min_y,
+                                clip_max_y,
+                                (255, 255, 255),
+                            );
+                        }
                     }
                 }
             }
@@ -1156,39 +1302,73 @@ impl Engine for GNewsEngine {
             let div_y = if mh >= 64 { 16 } else { 12 };
             Self::draw_hline_util(matrix, 2, div_y, mw.saturating_sub(4), (40, 45, 55));
 
-            // Headline Text Ticker
+            // Headline Content Area
             let body_y = div_y + if mh >= 64 { 8 } else { 4 };
-            let start_x = 4 - self.scroll_pixel_offset;
-            if mh >= 64 && mw >= 256 {
-                draw_text_scaled(
-                    matrix,
-                    &article.title,
-                    start_x,
-                    body_y,
-                    0,
-                    mw as i32,
-                    0,
-                    mh as i32,
-                    2,
-                    (255, 255, 255),
-                );
+            if self.display_mode == "vertical_crawl" {
+                for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                    let y = body_y + (idx as i32 * 9) - self.scroll_pixel_offset;
+                    if y + 9 > div_y && y < mh as i32 {
+                        draw_text_clipped(
+                            matrix,
+                            line,
+                            4,
+                            y,
+                            4,
+                            mw as i32 - 4,
+                            div_y + 1,
+                            mh as i32,
+                            (255, 255, 255),
+                        );
+                    }
+                }
+            } else if self.display_mode == "static_paged" {
+                for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                    let y = body_y + (idx as i32 * 9);
+                    if y + 9 > div_y && y < mh as i32 {
+                        draw_text_clipped(
+                            matrix,
+                            line,
+                            4,
+                            y,
+                            4,
+                            mw as i32 - 4,
+                            div_y + 1,
+                            mh as i32,
+                            (255, 255, 255),
+                        );
+                    }
+                }
             } else {
-                draw_text_clipped(
-                    matrix,
-                    &article.title,
-                    start_x,
-                    body_y,
-                    0,
-                    mw as i32,
-                    0,
-                    mh as i32,
-                    (255, 255, 255),
-                );
+                let start_x = 4 - self.scroll_pixel_offset;
+                if mh >= 64 && mw >= 256 {
+                    draw_text_scaled(
+                        matrix,
+                        &article.title,
+                        start_x,
+                        body_y,
+                        0,
+                        mw as i32,
+                        0,
+                        mh as i32,
+                        2,
+                        (255, 255, 255),
+                    );
+                } else {
+                    draw_text_clipped(
+                        matrix,
+                        &article.title,
+                        start_x,
+                        body_y,
+                        0,
+                        mw as i32,
+                        0,
+                        mh as i32,
+                        (255, 255, 255),
+                    );
+                }
             }
         } else {
-            // ==========================================
             // Compact Layout (64x32)
-            // ==========================================
             if self.show_beacon {
                 let br = (120.0 + beacon_pulse * 135.0) as u8;
                 Self::fill_rect_util(matrix, 2, 2, 3, 3, (br, 20, 20));
@@ -1215,19 +1395,54 @@ impl Engine for GNewsEngine {
 
             Self::draw_hline_util(matrix, 0, 10, mw, (35, 40, 50));
 
-            // Headline ticker
-            let start_x = 2 - self.scroll_pixel_offset;
-            draw_text_clipped(
-                matrix,
-                &article.title,
-                start_x,
-                15,
-                0,
-                mw as i32,
-                0,
-                mh as i32,
-                (255, 255, 255),
-            );
+            if self.display_mode == "vertical_crawl" {
+                for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                    let y = 14 + (idx as i32 * 9) - self.scroll_pixel_offset;
+                    if y + 9 > 10 && y < mh as i32 {
+                        draw_text_clipped(
+                            matrix,
+                            line,
+                            2,
+                            y,
+                            2,
+                            mw as i32 - 2,
+                            11,
+                            mh as i32,
+                            (255, 255, 255),
+                        );
+                    }
+                }
+            } else if self.display_mode == "static_paged" {
+                for (idx, line) in self.cached_display_lines.iter().enumerate() {
+                    let y = 14 + (idx as i32 * 9);
+                    if y + 9 > 10 && y < mh as i32 {
+                        draw_text_clipped(
+                            matrix,
+                            line,
+                            2,
+                            y,
+                            2,
+                            mw as i32 - 2,
+                            11,
+                            mh as i32,
+                            (255, 255, 255),
+                        );
+                    }
+                }
+            } else {
+                let start_x = 2 - self.scroll_pixel_offset;
+                draw_text_clipped(
+                    matrix,
+                    &article.title,
+                    start_x,
+                    15,
+                    0,
+                    mw as i32,
+                    0,
+                    mh as i32,
+                    (255, 255, 255),
+                );
+            }
         }
     }
 
@@ -1480,6 +1695,14 @@ fn register_gnews_engine() -> EngineDescriptor {
                         ConfigOption {
                             label: "Smooth Horizontal Scroll",
                             value: "smooth_scroll",
+                        },
+                        ConfigOption {
+                            label: "Serpentine Snake Flow",
+                            value: "serpentine",
+                        },
+                        ConfigOption {
+                            label: "Vertical Crawl",
+                            value: "vertical_crawl",
                         },
                         ConfigOption {
                             label: "Static Word-Wrapped Paging",

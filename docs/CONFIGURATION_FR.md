@@ -225,7 +225,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Édition régionale du pays. |
 | `max_articles` | `int` | `5` | `3` à `15` | Nombre maximal d'articles mis en cache et alternés par cycle. |
 | `cache_ttl_min` | `int` | `30` | `5` à `120` | Intervalle de rafraîchissement réseau du cache en minutes. |
-| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `static_paged` | Mode d'animation (défilement sous-pixel fluide à 60 FPS ou pagination multiligne). |
+| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Mode d'animation (défilement fluide droite-gauche, flux serpentin arcade, défilement vertical ou pagination statique). |
 | `scroll_speed` | `int` | `3` | `1` à `5` | Multiplicateur de vitesse de défilement (1 : Lent ~18 px/s à 5 : Turbo ~60 px/s). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` à `4000` | Temps de pause fixe (ms) au début du titre avant le défilement. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` à `4000` | Temps de pause fixe (ms) à la fin du titre avant la transition. |

@@ -750,3 +750,50 @@ fn test_gnews_wrap_text_narrow_tate_display() {
         .collect();
     assert_eq!(original_chars, wrapped_chars);
 }
+
+#[test]
+fn test_gnews_distribute_text_to_rows_even_distribution_and_char_preservation() {
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    let text = "Guerre en Ukraine : Les dernieres informations technologiques et gouvernementales internationales";
+    let rows = GNewsEngine::distribute_text_to_rows(text, 4);
+
+    assert_eq!(
+        rows.len(),
+        4,
+        "Expected 4 rows distributed, got {}",
+        rows.len()
+    );
+
+    let original_chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let row_chars: Vec<char> = rows
+        .join("")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert_eq!(
+        original_chars, row_chars,
+        "All characters must be preserved without loss"
+    );
+}
+
+#[test]
+fn test_gnews_display_mode_schema_options() {
+    use arcadematrix::core::registry::EngineRegistry;
+
+    let gnews_desc = EngineRegistry::get_descriptor("gnews").expect("gnews descriptor");
+    let dm_field = gnews_desc
+        .schema
+        .fields
+        .iter()
+        .find(|f| f.id == "display_mode")
+        .expect("display_mode field");
+
+    let opts = dm_field.options.as_ref().expect("options list");
+    let opt_values: Vec<&str> = opts.iter().map(|o| o.value).collect();
+
+    assert!(opt_values.contains(&"smooth_scroll"));
+    assert!(opt_values.contains(&"serpentine"));
+    assert!(opt_values.contains(&"vertical_crawl"));
+    assert!(opt_values.contains(&"static_paged"));
+}

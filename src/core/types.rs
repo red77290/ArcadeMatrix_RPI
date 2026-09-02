@@ -118,6 +118,14 @@ impl DisplayDecision {
     pub fn is_none(&self) -> bool {
         self.engine_handle.is_null() && self.priority == 0
     }
+
+    #[inline]
+    pub fn matches_intent(&self, session: &DisplaySession) -> bool {
+        session.is_active
+            && self.source_id == session.source_id
+            && self.request_id == session.request_id
+            && self.engine_handle == session.engine_handle
+    }
 }
 
 /// Active display session owned exclusively by DisplayRuntime
@@ -127,6 +135,7 @@ pub struct DisplaySession {
     pub source_id: DisplaySourceId,
     pub engine_handle: EngineHandle,
     pub request_id: u32,
+    pub priority: u8,
     pub started_at: Instant,
     pub is_active: bool,
 }
@@ -138,19 +147,21 @@ impl DisplaySession {
             source_id: DisplaySourceId::Rotation,
             engine_handle: EngineHandle::NULL,
             request_id: 0,
+            priority: 0,
             started_at: Instant::now(),
             is_active: false,
         }
     }
 }
 
-/// Compact stack entry for deterministic preemption tracking (16 bytes POD)
+/// Compact stack entry for deterministic preemption tracking (20 bytes POD)
 #[derive(Debug, Clone, Copy)]
 pub struct PreemptionEntry {
     pub session_id: u32,
     pub source_id: DisplaySourceId,
     pub engine_handle: EngineHandle,
     pub request_id: u32,
+    pub priority: u8,
     pub started_at: Instant,
 }
 
@@ -261,5 +272,29 @@ impl ProducerSyncState {
         self.active = active;
         self.request_id = request_id;
         self.handle = handle;
+    }
+}
+
+/// Monotonic domain-owned request ID generator ensuring distinct event identity
+#[derive(Debug, Clone)]
+pub struct RequestIdGenerator {
+    next_id: u32,
+}
+
+impl RequestIdGenerator {
+    pub const fn new(initial_id: u32) -> Self {
+        Self {
+            next_id: initial_id,
+        }
+    }
+
+    #[inline]
+    pub fn next_id(&mut self) -> u32 {
+        let id = self.next_id;
+        self.next_id = self.next_id.wrapping_add(1);
+        if self.next_id == 0 {
+            self.next_id = 1;
+        }
+        id
     }
 }

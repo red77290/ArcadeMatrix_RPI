@@ -250,7 +250,57 @@ impl ArcadeMatrixApp {
         let _ = render_handle.join();
         Ok(())
     }
+}
 
+struct ResolvedRotationEntry {
+    handle: EngineHandle,
+    duration_sec: u32,
+    overlays: crate::core::config::OverlayConfig,
+}
+
+struct RuntimeSnapshot {
+    rotation: Vec<ResolvedRotationEntry>,
+    system: crate::core::config::SystemConfig,
+    display_rotation: u8,
+}
+
+fn build_runtime_snapshot(config: &Config, engine_runtime: &mut EngineRuntime) -> RuntimeSnapshot {
+    let settings = config.settings.read();
+    for inst in &settings.instances {
+        engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
+    }
+    engine_runtime.register_instance_handle("mqtt_message", "message");
+    engine_runtime.register_instance_handle("marquee", "marquee");
+
+    let mut rotation = Vec::with_capacity(settings.rotation.len());
+    for entry in &settings.rotation {
+        if let Some(inst) = settings
+            .instances
+            .iter()
+            .find(|i| i.instance_id == entry.instance_id)
+        {
+            let handle =
+                engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
+            rotation.push(ResolvedRotationEntry {
+                handle,
+                duration_sec: if entry.duration_sec > 0 {
+                    entry.duration_sec
+                } else {
+                    10
+                },
+                overlays: entry.overlays.clone(),
+            });
+        }
+    }
+
+    RuntimeSnapshot {
+        rotation,
+        system: settings.system.clone(),
+        display_rotation: (settings.matrix.rotation % 4) as u8,
+    }
+}
+
+impl ArcadeMatrixApp {
     fn render_loop(
         config: Arc<Config>,
         local_ip: String,
@@ -299,11 +349,6 @@ impl ArcadeMatrixApp {
                     )
                 };
 
-                // Retry hardware init instead of instantly falling back to a Mock
-                // (black) matrix. After a "restart to apply settings" the previous
-                // process can still hold the GPIO/DMA for a moment, which makes the
-                // very next init fail with "Couldn't create LedMatrix". Retrying
-                // until the hardware is released prevents a permanent black screen.
                 const MAX_INIT_ATTEMPTS: u32 = 30;
                 let mut attempt = 0u32;
                 loop {
@@ -373,13 +418,22 @@ impl ArcadeMatrixApp {
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
+        let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
+        let mut orientation_manager = crate::core::orientation::OrientationManager::new(
+            width,
+            height,
+            snapshot.display_rotation,
+        );
+
+        let mut mqtt_req_gen = crate::core::types::RequestIdGenerator::new(1001);
+        let mut marquee_req_gen = crate::core::types::RequestIdGenerator::new(2001);
+
         let mut message_sync = ProducerSyncState::INIT;
         let mut marquee_sync = ProducerSyncState::INIT;
         let mut rotation_sync = ProducerSyncState::INIT;
-        let mut has_received_mqtt = false;
+        let mut last_message_payload: Option<serde_json::Value> = None;
 
-        // 1. Run interactive Startup Splash Screen (Mario hammer smash & Pacman eat particles)
-        // while polling for real network IP in the background.
+        // 1. Run interactive Startup Splash Screen
         let active_ip = crate::core::splash::SplashScreen::run(
             matrix.as_mut(),
             &running,
@@ -412,6 +466,8 @@ impl ArcadeMatrixApp {
         matrix.clear();
         matrix.update();
 
+        let empty_config_map = std::collections::HashMap::new();
+
         while running.load(Ordering::SeqCst) {
             // Auto-restart if configuration requires hardware reload
             if config.reload_flag.swap(false, Ordering::Relaxed) {
@@ -422,32 +478,32 @@ impl ArcadeMatrixApp {
             }
 
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
+                snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
                 rotation_manager.reset();
+                if orientation_manager.set_rotation(snapshot.display_rotation) {
+                    runtime.on_display_geometry_changed(
+                        orientation_manager.geometry(),
+                        &mut engine_runtime,
+                    );
+                }
                 tracing::info!("Display settings changed! Resetting rotation to index 0.");
             }
 
             // Standby / Night mode check
-            let (standby_enabled, turn_off_at, wake_up_at, night_bright) = {
-                let s = config.settings.read();
-                (
-                    s.system.night_mode_enabled,
-                    s.system.turn_off_at.clone(),
-                    s.system.wake_up_at.clone(),
-                    s.system.night_brightness,
-                )
-            };
-
-            let is_night =
-                crate::core::rotation::is_night_time(standby_enabled, &turn_off_at, &wake_up_at);
+            let is_night = crate::core::rotation::is_night_time(
+                snapshot.system.night_mode_enabled,
+                &snapshot.system.turn_off_at,
+                &snapshot.system.wake_up_at,
+            );
 
             if is_night {
-                if night_bright == 0 {
+                if snapshot.system.night_brightness == 0 {
                     matrix.clear();
                     matrix.update();
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 } else {
-                    matrix.set_brightness(night_bright as u8);
+                    matrix.set_brightness(snapshot.system.night_brightness as u8);
                 }
             } else {
                 let bright = config.matrix_brightness.load(Ordering::Relaxed);
@@ -468,55 +524,55 @@ impl ArcadeMatrixApp {
             let forced_opt = config.force_engine.lock().clone();
             if let Some(ref forced_mode) = forced_opt {
                 if forced_mode == "message" {
-                    has_received_mqtt = true;
                     let payload_val_opt = config.message_payload.lock().clone();
-                    if let Some(payload_val) = payload_val_opt {
-                        if let Ok(payload) = serde_json::from_value::<
-                            crate::engines::message::MessagePayload,
-                        >(payload_val)
-                        {
-                            let handle =
-                                engine_runtime.register_instance_handle("mqtt_message", "message");
-                            let req_id = 100;
-                            let duration_ms = if payload.timeout_seconds > 0 {
-                                (payload.timeout_seconds * 1000) as u32
-                            } else {
-                                5000
-                            };
-                            let req = DisplayRequest::new(
-                                DisplaySourceId::Mqtt,
-                                req_id,
-                                handle,
-                                DisplaySourceId::Mqtt as u8,
-                                RequestLifecycle::Transient,
-                                true,
-                                duration_ms,
-                            );
-                            if message_sync.has_changed(true, req_id, handle) {
+                    if payload_val_opt != last_message_payload {
+                        last_message_payload = payload_val_opt.clone();
+                        if let Some(payload_val) = payload_val_opt {
+                            if let Ok(payload) = serde_json::from_value::<
+                                crate::engines::message::MessagePayload,
+                            >(payload_val)
+                            {
+                                let handle = engine_runtime
+                                    .register_instance_handle("mqtt_message", "message");
+                                let req_id = mqtt_req_gen.next_id();
+                                let duration_ms = if payload.timeout_seconds > 0 {
+                                    (payload.timeout_seconds * 1000) as u32
+                                } else {
+                                    5000
+                                };
+                                let req = DisplayRequest::new(
+                                    DisplaySourceId::Mqtt,
+                                    req_id,
+                                    handle,
+                                    DisplaySourceId::Mqtt as u8,
+                                    RequestLifecycle::Transient,
+                                    true,
+                                    duration_ms,
+                                );
                                 arbiter.submit_request(req);
                                 message_sync.update(true, req_id, handle);
                             }
                         }
                     }
                 } else if forced_mode == "marquee" {
-                    has_received_mqtt = true;
-                    let handle = engine_runtime.register_instance_handle("marquee", "marquee");
-                    let req_id = 200;
-                    let req = DisplayRequest::new(
-                        DisplaySourceId::Marquee,
-                        req_id,
-                        handle,
-                        DisplaySourceId::Marquee as u8,
-                        RequestLifecycle::Persistent,
-                        true,
-                        0,
-                    );
-                    if marquee_sync.has_changed(true, req_id, handle) {
+                    if !marquee_sync.active {
+                        let handle = engine_runtime.register_instance_handle("marquee", "marquee");
+                        let req_id = marquee_req_gen.next_id();
+                        let req = DisplayRequest::new(
+                            DisplaySourceId::Marquee,
+                            req_id,
+                            handle,
+                            DisplaySourceId::Marquee as u8,
+                            RequestLifecycle::Persistent,
+                            true,
+                            0,
+                        );
                         arbiter.submit_request(req);
                         marquee_sync.update(true, req_id, handle);
                     }
                 }
             } else {
+                last_message_payload = None;
                 if message_sync.active {
                     arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
                     message_sync.update(false, 0, EngineHandle::NULL);
@@ -528,43 +584,40 @@ impl ArcadeMatrixApp {
             }
 
             // 2. Sync Rotation Producer
-            let idle_list = config.settings.read().rotation.clone();
-            if !idle_list.is_empty() {
-                if let Some(rot_req) = rotation_manager.build_rotation_request(
-                    &idle_list,
-                    &mut engine_runtime,
-                    &config.settings.read(),
-                ) {
-                    if rotation_sync.has_changed(true, rot_req.request_id, rot_req.engine_handle) {
-                        arbiter.submit_request(rot_req);
-                        rotation_sync.update(true, rot_req.request_id, rot_req.engine_handle);
-                    }
+            if !snapshot.rotation.is_empty() {
+                let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
+                let rot_entry = &snapshot.rotation[curr_idx];
+                let rot_req = rotation_manager
+                    .build_rotation_request_with_handle(rot_entry.handle, rot_entry.duration_sec);
+
+                if rotation_sync.has_changed(true, rot_req.request_id, rot_req.engine_handle) {
+                    arbiter.submit_request(rot_req);
+                    rotation_sync.update(true, rot_req.request_id, rot_req.engine_handle);
                 }
             } else if rotation_sync.active {
                 arbiter.cancel_request(DisplaySourceId::Rotation, 0);
                 rotation_sync.update(false, 0, EngineHandle::NULL);
             }
 
-            // 4. Evaluate Arbiter
+            // 3. Evaluate Arbiter (O(1), zero allocation)
             let decision = arbiter.evaluate(std::time::Instant::now());
 
-            // 5. Resolve active config map
-            let settings = config.settings.read().clone();
-            let empty_map = std::collections::HashMap::new();
+            // 4. Resolve active config map
+            let settings_guard = config.settings.read();
             let active_config_map = if let Some((inst_name, _)) =
                 engine_runtime.handle_to_names(decision.engine_handle)
             {
-                settings
+                settings_guard
                     .instances
                     .iter()
                     .find(|i| i.instance_id == inst_name)
                     .map(|i| &i.config)
-                    .unwrap_or(&empty_map)
+                    .unwrap_or(&empty_config_map)
             } else {
-                &empty_map
+                &empty_config_map
             };
 
-            // 6 & 7. Transition, Update & Render Active Engine in scoped context
+            // 5 & 6. Transition, Update & Render Active Engine in scoped context
             let mut realtime_cadence = false;
             let mut is_finished = false;
             let mut self_paced = false;
@@ -596,27 +649,36 @@ impl ArcadeMatrixApp {
                     allows_overlay = engine.allows_overlay();
                 }
             }
+            drop(settings_guard);
 
-            // 8. Configure & Composite Overlay
-            if allows_overlay {
-                if let Some(rot_entry) = rotation_manager.current_entry(&idle_list) {
-                    overlay_manager.configure(&rot_entry.overlays, &settings.system);
-                } else {
-                    overlay_manager.configure(
-                        &crate::core::config::OverlayConfig::default(),
-                        &settings.system,
-                    );
-                }
+            // 7. Configure & Composite Overlay
+            if allows_overlay && !snapshot.rotation.is_empty() {
+                let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
+                let rot_entry = &snapshot.rotation[curr_idx];
+                overlay_manager.configure(&rot_entry.overlays, &snapshot.system);
             } else {
                 overlay_manager.configure(
                     &crate::core::config::OverlayConfig::default(),
-                    &settings.system,
+                    &snapshot.system,
                 );
             }
 
-            // Check rotation advance
-            if runtime.active_session().source_id == DisplaySourceId::Rotation {
-                let _ = rotation_manager.evaluate_advance(&idle_list, is_finished, self_paced);
+            // 8. Check rotation advance
+            if runtime.active_session().source_id == DisplaySourceId::Rotation
+                && !snapshot.rotation.is_empty()
+            {
+                let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
+                let rot_entry = &snapshot.rotation[curr_idx];
+                let should_advance = if self_paced {
+                    is_finished
+                } else {
+                    rotation_manager.slot_elapsed()
+                        >= std::time::Duration::from_secs(rot_entry.duration_sec as u64)
+                        || is_finished
+                };
+                if should_advance {
+                    rotation_manager.advance_len(snapshot.rotation.len());
+                }
             }
 
             overlay_manager.composite(matrix.as_mut());

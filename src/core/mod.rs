@@ -6,6 +6,7 @@ pub mod dmd_cache;
 pub mod engine_contract;
 pub mod i18n;
 pub mod matrix;
+pub mod orientation;
 pub mod overlay_manager;
 pub mod registry;
 pub mod rotation;

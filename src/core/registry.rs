@@ -76,12 +76,19 @@ impl EngineRegistry {
 use crate::core::engine_contract::{Engine, EngineContext, HashConfig};
 use std::collections::HashMap;
 
+/// Registered instance metadata stored in the permanent registry index
+#[derive(Debug, Clone)]
+pub struct RegisteredInstance {
+    pub handle: EngineHandle,
+    pub instance_name: String,
+    pub engine_name: String,
+}
+
 pub struct EngineRuntime {
     instances: HashMap<String, Box<dyn Engine>>,
     configs: HashMap<String, HashMap<String, String>>,
     instance_to_id: HashMap<String, u16>,
-    id_to_instance: HashMap<u16, String>,
-    handle_to_engine_name: HashMap<u16, String>,
+    id_to_registered: Vec<Option<RegisteredInstance>>,
     next_instance_id: u16,
 }
 
@@ -97,13 +104,13 @@ impl EngineRuntime {
             instances: HashMap::new(),
             configs: HashMap::new(),
             instance_to_id: HashMap::new(),
-            id_to_instance: HashMap::new(),
-            handle_to_engine_name: HashMap::new(),
+            id_to_registered: vec![None], // index 0 is reserved for NULL
             next_instance_id: 1,
         }
     }
 
     /// Registers or retrieves an interned EngineHandle for the given instance and engine IDs.
+    /// This is a cold-path operation performed during initialization and config updates.
     pub fn register_instance_handle(
         &mut self,
         instance_id_str: &str,
@@ -116,63 +123,84 @@ impl EngineRuntime {
             let id = self.next_instance_id;
             self.next_instance_id += 1;
             self.instance_to_id.insert(instance_id_str.to_string(), id);
-            self.id_to_instance.insert(id, instance_id_str.to_string());
             id
         };
 
-        self.handle_to_engine_name
-            .insert(instance_id, engine_id_str.to_string());
-        EngineHandle::new(engine_id, instance_id)
+        let handle = EngineHandle::new(engine_id, instance_id);
+        let registered = RegisteredInstance {
+            handle,
+            instance_name: instance_id_str.to_string(),
+            engine_name: engine_id_str.to_string(),
+        };
+
+        let idx = instance_id as usize;
+        if idx >= self.id_to_registered.len() {
+            self.id_to_registered.resize(idx + 1, None);
+        }
+        self.id_to_registered[idx] = Some(registered);
+
+        handle
     }
 
-    /// Checks if a handle can be resolved against the registry.
+    /// Checks if a handle can be resolved strictly against the registry and instance table.
+    /// Strict validation: engine_id matches AND instance_id is registered AND descriptor is available.
+    /// Zero heap allocation (O(1)).
+    #[inline]
     pub fn resolve_handle(&self, handle: EngineHandle) -> bool {
         if handle.is_null() {
             return false;
         }
 
-        if let Some(engine_name) = EngineRegistry::id_to_engine_name(handle.engine_id) {
-            EngineRegistry::get_descriptor(engine_name).is_some()
-        } else if let Some(engine_name) = self.handle_to_engine_name.get(&handle.instance_id) {
-            EngineRegistry::get_descriptor(engine_name).is_some()
-        } else {
-            false
+        let idx = handle.instance_id as usize;
+        if let Some(Some(entry)) = self.id_to_registered.get(idx) {
+            if entry.handle.engine_id != handle.engine_id {
+                return false;
+            }
+            if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
+                return desc.available;
+            }
         }
+        false
     }
 
-    /// Returns string identifiers (instance_id, engine_id) for an EngineHandle.
+    /// Returns string identifiers (instance_id, engine_id) for an EngineHandle in O(1) without allocation.
+    #[inline]
     pub fn handle_to_names(&self, handle: EngineHandle) -> Option<(&str, &str)> {
-        let instance_name = self.id_to_instance.get(&handle.instance_id)?.as_str();
-        let engine_name = EngineRegistry::id_to_engine_name(handle.engine_id).or_else(|| {
-            self.handle_to_engine_name
-                .get(&handle.instance_id)
-                .map(|s| s.as_str())
-        })?;
-        Some((instance_name, engine_name))
+        let idx = handle.instance_id as usize;
+        let entry = self.id_to_registered.get(idx)?.as_ref()?;
+        if entry.handle.engine_id != handle.engine_id {
+            return None;
+        }
+        Some((entry.instance_name.as_str(), entry.engine_name.as_str()))
     }
 
-    /// Retrieves an engine instance by its compact EngineHandle.
+    /// Retrieves an engine instance by its compact EngineHandle without String allocations.
     pub fn get_instance_by_handle(
         &mut self,
         handle: EngineHandle,
         context: &mut EngineContext,
         config_map: &HashMap<String, String>,
     ) -> Option<&mut Box<dyn Engine>> {
-        let (instance_name, engine_name) = {
-            let inst = self.id_to_instance.get(&handle.instance_id)?.clone();
-            let eng = EngineRegistry::id_to_engine_name(handle.engine_id)
-                .map(|s| s.to_string())
-                .or_else(|| self.handle_to_engine_name.get(&handle.instance_id).cloned())?;
-            (inst, eng)
-        };
+        let idx = handle.instance_id as usize;
+        let entry = self.id_to_registered.get(idx)?.as_ref()?;
+        if entry.handle.engine_id != handle.engine_id {
+            return None;
+        }
+        let instance_name = entry.instance_name.clone();
+        let engine_name = entry.engine_name.clone();
 
         self.get_instance(&instance_name, &engine_name, context, config_map)
     }
 
-    /// Retrieves an already initialized engine instance by handle without reconfiguring.
+    /// Retrieves an already initialized engine instance by handle without reconfiguring in O(1).
+    #[inline]
     pub fn get_active_instance(&mut self, handle: EngineHandle) -> Option<&mut Box<dyn Engine>> {
-        let instance_name = self.id_to_instance.get(&handle.instance_id)?;
-        self.instances.get_mut(instance_name)
+        let idx = handle.instance_id as usize;
+        let entry = self.id_to_registered.get(idx)?.as_ref()?;
+        if entry.handle.engine_id != handle.engine_id {
+            return None;
+        }
+        self.instances.get_mut(&entry.instance_name)
     }
 
     /// Primary lazy-once factory and live configuration accessor.

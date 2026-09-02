@@ -22,15 +22,17 @@ impl DisplayArbiter {
     }
 
     /// Submits or updates an intent in the bounded storage.
-    /// Invariant: If request_id matches an existing request for the same source,
+    /// Invariant: If request_id and engine_handle match an existing request for the same source,
     /// created_at is strictly preserved to ensure deterministic expiration.
     pub fn submit_request(&mut self, mut request: DisplayRequest) {
         // 1. Check if an intent already exists for this source
         for slot in self.requests.iter_mut() {
             if let Some(existing) = slot {
                 if existing.source_id == request.source_id {
-                    // Same source + same request_id -> PRESERVE created_at
-                    if existing.request_id == request.request_id {
+                    // Same source + same request_id + same handle -> PRESERVE created_at
+                    if existing.request_id == request.request_id
+                        && existing.engine_handle == request.engine_handle
+                    {
                         request.created_at = existing.created_at;
                     }
                     *existing = request;
@@ -128,6 +130,21 @@ impl DisplayArbiter {
     pub fn has_request(&self, source_id: DisplaySourceId) -> bool {
         self.requests.iter().any(|s| match s {
             Some(r) => r.source_id == source_id,
+            None => false,
+        })
+    }
+
+    /// Checks if an exact matching intent (source_id + request_id + engine_handle) is currently active
+    pub fn has_matching_request(
+        &self,
+        source_id: DisplaySourceId,
+        request_id: u32,
+        handle: crate::core::types::EngineHandle,
+    ) -> bool {
+        self.requests.iter().any(|s| match s {
+            Some(r) => {
+                r.source_id == source_id && r.request_id == request_id && r.engine_handle == handle
+            }
             None => false,
         })
     }

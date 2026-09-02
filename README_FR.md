@@ -31,14 +31,16 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ---
 
-## 🌟 Fonctionnalités (exclusivités RPi vs ESP32)
+## 🌟 Fonctionnalités (Exclusivités RPi & Alignement ESP32)
 
+* 🎯 **Moteur d'Arbitrage et de Préemption Canonique (`DisplayArbiter`)** : pipeline de décision borné en $O(1)$ zéro-allocation avec arbitrage de priorité (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identité d'intention stricte et nettoyage résilient des sessions orphelines.
+* 🧭 **Orientation Réactive & Mode Tate (`OrientationManager`)** : gestion multi-angles manuelle (0°, 90°, 180°, 270°) avec classification automatique du gabarit (`LayoutClass`) et versioning réactif (`DisplayGeometry`).
 * 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, branchez votre carte SD sur un PC et déposez un firmware valide nommé `arcadematrix_recovery.bin` à la racine de la partition `bootfs` OU de la partition `DATA`. Il s'installera automatiquement au prochain démarrage !)*
 * 🚀 **Performances Rust natives** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
 * 🎵 **Spotify Now Playing (`spotify`)** : affichage en direct du morceau en cours de lecture avec pochette d'album en couleur, défilement artiste/titre, barre de progression et égaliseur audio animé.
 * 📡 **Google Cast & Nest (`google_cast`)** : découverte automatique mDNS de vos enceintes Google Home / Nest Audio et affichage en direct des médias et flux audio diffusés.
 * 🖥️ **Moniteur Système (`sysinfo`)** : surveillance en direct de l'utilisation CPU (%), RAM (%), température SoC (°C/°F) et Uptime avec jauges colorées et thèmes visuels.
-* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques (Street Fighter, KOF, DBZ, Marvel...) extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay discret sur vos horloges.
+* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay avec réglage de la vitesse d'animation en temps réel (25% à 200%).
 * 📈 **Tickers & Graphiques Crypto / Bourse (`crypto`, `stock`)** : cotations en direct, variations % sur 24h et courbes sparklines historiques depuis CoinGecko, Binance et Yahoo Finance avec cache intelligent.
 * 🌦️ **Météo dynamique (`weather`)** : météo en direct, température actuelle, prévisions multi-jours et icônes rétro animées via OpenWeatherMap.
 * ⏰ **Sélection massive d'horloges animées (`clock`)** : horloges interactives comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** et **Versus (Mugen)** !

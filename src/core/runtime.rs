@@ -153,6 +153,7 @@ impl DisplayRuntime {
                 && decision.request_id != self.active_session.request_id
             {
                 self.active_session.request_id = decision.request_id;
+                self.active_session.priority = decision.priority;
                 // In-place engine update without lifecycle disruption
                 if let Some(engine) = engine_runtime.get_instance_by_handle(
                     decision.engine_handle,
@@ -165,7 +166,42 @@ impl DisplayRuntime {
                 return TransitionMode::None;
             }
 
-            // Case C: Same source + Different engine handle -> REPLACE
+            // Case C: Higher priority decision and preemptive -> PREEMPT
+            let active_priority = self.active_session_priority();
+            if decision.priority > active_priority && decision.preemptive {
+                // 1. Transactional check: ensure incoming target engine can be resolved
+                if !engine_runtime.resolve_handle(decision.engine_handle) {
+                    return TransitionMode::None; // Rejet transactionnel: session courante intacte
+                }
+
+                // 2. Check stack capacity BEFORE any destructive/lifecycle operation
+                if self.preemption_stack.is_full() {
+                    return TransitionMode::None; // Depth == 4 -> rejection déterministe
+                }
+
+                // 3. Pause active engine and push onto preemption stack
+                if let Some(engine) =
+                    engine_runtime.get_active_instance(self.active_session.engine_handle)
+                {
+                    engine.pause();
+                }
+
+                let preemption_entry = PreemptionEntry {
+                    session_id: self.active_session.session_id,
+                    source_id: self.active_session.source_id,
+                    engine_handle: self.active_session.engine_handle,
+                    request_id: self.active_session.request_id,
+                    priority: self.active_session.priority,
+                    started_at: self.active_session.started_at,
+                };
+                self.preemption_stack.push(preemption_entry);
+
+                // 4. Activate new preemptive session
+                self.activate_new(decision, engine_runtime, context, config_map);
+                return TransitionMode::Preempt;
+            }
+
+            // Case D: Same source + Different engine handle (same/lower priority) -> REPLACE
             if decision.source_id == self.active_session.source_id
                 && decision.engine_handle != self.active_session.engine_handle
             {
@@ -179,44 +215,14 @@ impl DisplayRuntime {
                 return TransitionMode::Replace;
             }
 
-            // Case D: Higher priority decision and preemptive -> PREEMPT
-            let active_priority = self.active_session_priority();
-            if decision.priority > active_priority && decision.preemptive {
-                // Transactional check: ensure incoming target engine can be resolved
-                if !engine_runtime.resolve_handle(decision.engine_handle) {
-                    return TransitionMode::None; // Rejet transactionnel: session courante intacte
-                }
-
-                // Check stack capacity (saturation rejection)
-                if self.preemption_stack.is_full() {
-                    return TransitionMode::None; // Depth == 4 -> rejection déterministe
-                }
-
-                // Pause active engine and push onto preemption stack
-                if let Some(engine) =
-                    engine_runtime.get_active_instance(self.active_session.engine_handle)
-                {
-                    engine.pause();
-                }
-
-                let preemption_entry = PreemptionEntry {
-                    session_id: self.active_session.session_id,
-                    source_id: self.active_session.source_id,
-                    engine_handle: self.active_session.engine_handle,
-                    request_id: self.active_session.request_id,
-                    started_at: self.active_session.started_at,
-                };
-                self.preemption_stack.push(preemption_entry);
-
-                // Activate new preemptive session
-                self.activate_new(decision, engine_runtime, context, config_map);
-                return TransitionMode::Preempt;
-            }
-
             // Case E: Priority decreased (Active intent expired/cancelled, or lower intent winning)
             if decision.priority < active_priority {
                 // If the active source is no longer present in Arbiter intents, resume parent
-                if !arbiter.has_request(self.active_session.source_id) {
+                if !arbiter.has_matching_request(
+                    self.active_session.source_id,
+                    self.active_session.request_id,
+                    self.active_session.engine_handle,
+                ) {
                     self.deactivate_current(engine_runtime);
                     return self.unwind_stack_or_activate(
                         decision,
@@ -264,9 +270,12 @@ impl DisplayRuntime {
         self.deactivate_current(engine_runtime);
 
         while let Some(top) = self.preemption_stack.pop() {
-            // Check if top entry's intent is still valid (Rotation is always persistent)
-            let is_still_desired =
-                top.source_id == DisplaySourceId::Rotation || arbiter.has_request(top.source_id);
+            // Check if top entry's intent is still valid (exact identity matching)
+            let is_still_desired = if top.source_id == DisplaySourceId::Rotation {
+                arbiter.has_request(DisplaySourceId::Rotation)
+            } else {
+                arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle)
+            };
 
             if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
                 if let Some(engine) =
@@ -278,13 +287,14 @@ impl DisplayRuntime {
                         source_id: top.source_id,
                         engine_handle: top.engine_handle,
                         request_id: top.request_id,
+                        priority: top.priority,
                         started_at: top.started_at,
                         is_active: true,
                     };
                     return TransitionMode::Resume;
                 }
             }
-            // If top was expired/invalid, clean it up and continue unwinding
+            // If top was expired/orphan, clean it up and continue unwinding
             if let Some(engine) = engine_runtime.get_active_instance(top.engine_handle) {
                 engine.deactivate();
             }
@@ -305,25 +315,10 @@ impl DisplayRuntime {
     ) -> TransitionMode {
         // First try to resume from stack if top matches decision
         while let Some(top) = self.preemption_stack.pop() {
-            if top.source_id == decision.source_id && top.engine_handle == decision.engine_handle {
-                if let Some(engine) =
-                    engine_runtime.get_instance_by_handle(top.engine_handle, context, config_map)
-                {
-                    engine.resume();
-                    self.active_session = DisplaySession {
-                        session_id: top.session_id,
-                        source_id: top.source_id,
-                        engine_handle: top.engine_handle,
-                        request_id: decision.request_id,
-                        started_at: top.started_at,
-                        is_active: true,
-                    };
-                    return TransitionMode::Resume;
-                }
-            } else if top.source_id == DisplaySourceId::Rotation
-                || arbiter.has_request(top.source_id)
+            if top.source_id == decision.source_id
+                && top.engine_handle == decision.engine_handle
+                && top.request_id == decision.request_id
             {
-                // If top is another valid higher entry, resume it
                 if let Some(engine) =
                     engine_runtime.get_instance_by_handle(top.engine_handle, context, config_map)
                 {
@@ -333,10 +328,40 @@ impl DisplayRuntime {
                         source_id: top.source_id,
                         engine_handle: top.engine_handle,
                         request_id: top.request_id,
+                        priority: top.priority,
                         started_at: top.started_at,
                         is_active: true,
                     };
                     return TransitionMode::Resume;
+                }
+            } else {
+                let is_still_desired = if top.source_id == DisplaySourceId::Rotation {
+                    arbiter.has_request(DisplaySourceId::Rotation)
+                } else {
+                    arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle)
+                };
+                if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
+                    if let Some(engine) = engine_runtime.get_instance_by_handle(
+                        top.engine_handle,
+                        context,
+                        config_map,
+                    ) {
+                        engine.resume();
+                        self.active_session = DisplaySession {
+                            session_id: top.session_id,
+                            source_id: top.source_id,
+                            engine_handle: top.engine_handle,
+                            request_id: top.request_id,
+                            priority: top.priority,
+                            started_at: top.started_at,
+                            is_active: true,
+                        };
+                        return TransitionMode::Resume;
+                    }
+                }
+                // Clean up expired/orphan intermediate session
+                if let Some(engine) = engine_runtime.get_active_instance(top.engine_handle) {
+                    engine.deactivate();
                 }
             }
         }
@@ -367,6 +392,7 @@ impl DisplayRuntime {
             source_id: decision.source_id,
             engine_handle: decision.engine_handle,
             request_id: decision.request_id,
+            priority: decision.priority,
             started_at: Instant::now(),
             is_active: true,
         };
@@ -385,7 +411,7 @@ impl DisplayRuntime {
 
     #[inline]
     fn active_session_priority(&self) -> u8 {
-        self.active_session.source_id as u8
+        self.active_session.priority
     }
 
     /// Ticking update method called on the active engine every frame

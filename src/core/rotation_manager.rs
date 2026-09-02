@@ -43,10 +43,16 @@ impl RotationManager {
 
     /// Advances to the next rotation slot
     pub fn advance(&mut self, rotation_list: &[RotationEntry]) {
-        if rotation_list.is_empty() {
+        self.advance_len(rotation_list.len());
+    }
+
+    /// Advances to the next rotation slot given the playlist length (zero allocation, O(1))
+    #[inline]
+    pub fn advance_len(&mut self, len: usize) {
+        if len == 0 {
             return;
         }
-        self.current_index = (self.current_index + 1) % rotation_list.len();
+        self.current_index = (self.current_index + 1) % len;
         self.cycle_sequence = self.cycle_sequence.wrapping_add(1);
         self.slot_start_time = Instant::now();
     }
@@ -113,6 +119,24 @@ impl RotationManager {
         let handle =
             engine_runtime.register_instance_handle(&instance.instance_id, &instance.engine_id);
         Some(handle)
+    }
+
+    /// Builds a DisplayRequest with a pre-resolved EngineHandle (zero allocation, O(1))
+    #[inline]
+    pub fn build_rotation_request_with_handle(
+        &self,
+        handle: EngineHandle,
+        duration_sec: u32,
+    ) -> DisplayRequest {
+        DisplayRequest::new(
+            DisplaySourceId::Rotation,
+            self.cycle_sequence,
+            handle,
+            DisplaySourceId::Rotation as u8, // Priority 10
+            RequestLifecycle::Persistent,
+            false, // Non-preemptive
+            duration_sec * 1000,
+        )
     }
 
     /// Builds a DisplayRequest for the currently active rotation slot

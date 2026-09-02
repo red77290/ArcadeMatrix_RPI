@@ -945,6 +945,17 @@ components:
         day_brightness:
           type: integer
           description: Live daytime brightness (0-100), persisted across restarts.
+        idle_fighter_enabled:
+          type: boolean
+          description: Whether the Fighter overlay is enabled during idle rotation.
+        idle_fighter_interval:
+          type: integer
+          description: Interval between fight animations in seconds.
+        idle_fighter_speed:
+          type: integer
+          minimum: 25
+          maximum: 200
+          description: Fighter animation and combat speed percentage (25-200%).
 
     MatrixConfig:
       type: object

@@ -68,6 +68,11 @@ pub trait Engine: Send + Sync {
     fn is_realtime(&self) -> bool { false }
     fn set_rotation_budget(&mut self, _budget: u32) {}
     fn self_paced(&self) -> bool { false }
+    fn allows_overlay(&self) -> bool { true }
+    fn allow_rotation(&self) -> bool { true }
+    fn pause(&mut self) { self.deactivate(); }
+    fn resume(&mut self) { self.activate(); }
+    fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
 ```
 
@@ -83,6 +88,11 @@ pub trait Engine: Send + Sync {
 | `is_realtime` | `false` | Si le moteur anime seulement dans un certain état vivant et a alors besoin de ~25 FPS. |
 | `set_rotation_budget` | no-op | Si l'avance de rotation est basée sur un compteur (ex. jouer N GIFs). Reçoit la valeur numérique de l'entrée. |
 | `self_paced` | `false` | Si le moteur pilote sa propre avance via `is_finished` et ne doit PAS être forcé par le timer de durée. |
+| `allows_overlay` | `true` | Surcharger à `false` pour les alertes d'urgence plein écran ou les moteurs interdisant les overlays (Fighter). |
+| `allow_rotation` | `true` | Surcharger à `false` pour les moteurs événementiels/préemptifs stricts (ex. Marquee) exclus du sélecteur de rotation. |
+| `pause` | `deactivate()` | Hook appelé lors d'une préemption temporaire par une alerte prioritaire sur la `PreemptionStack`. |
+| `resume` | `activate()` | Hook appelé lors de la reprise après la fin d'une préemption. |
+| `on_display_geometry_changed` | no-op | Hook appelé lors d'un changement de géométrie/orientation du panneau (mode Tate / 90° / 180° / 270°). |
 
 ---
 

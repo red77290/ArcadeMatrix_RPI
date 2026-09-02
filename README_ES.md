@@ -27,21 +27,27 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!
 3. Abre el archivo `config.json` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`SSID` y `PASS`).
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela.
-5. La matriz se encenderá de inmediato y **mostrará la dirección IP**## 🌟 Funciones (exclusivas de RPi vs ESP32)
+5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esta IP para acceder a la Web UI!
 
+---
+
+## 🌟 Funciones (Exclusivas de RPi y Alineación ESP32)
+
+* 🎯 **Motor de Arbitraje y Preferencia Canónico (`DisplayArbiter`)** : pipeline de decisión acotado en $O(1)$ sin asignaciones con arbitraje de prioridades (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identidad de intención estricta y limpieza resiliente de sesiones huérfanas.
+* 🧭 **Orientación Dinámica y Modo Tate (`OrientationManager`)** : soporte multiángulo manual (0°, 90°, 180°, 270°) con clasificación geométrica automática (`LayoutClass`) y versionado reactivo (`DisplayGeometry`).
 * 🔄 **Actualización de Firmware OTA (Over-The-Air)** : ¡Actualiza el binario nativo de Rust directamente desde la interfaz web sin tener que volver a flashear la imagen de tu tarjeta SD! *(Recuperación Failsafe: Si una actualización OTA rompe tu sistema, conecta tu tarjeta SD a un PC y suelta un firmware válido llamado `arcadematrix_recovery.bin` en la raíz de la partición `bootfs` O en la partición `DATA`. ¡Se instalará automáticamente en el próximo arranque!)*
 * 🚀 **Rendimiento Nativo en Rust** : motor multiproceso de alto rendimiento basado en Actix-web y procesamiento gráfico en Rust puro con 0% de uso de CPU en reposo.
 * 🎵 **Spotify Now Playing (`spotify`)** : visualización en vivo de la reproducción actual con portada de álbum a todo color, marquesina animada de artista/canción, barra de progreso y ecualizador de audio animado.
 * 📡 **Google Cast & Nest (`google_cast`)** : descubrimiento mDNS automático de altavoces Google Home / Nest Audio en tu red local y visualización en tiempo real de medios y volumen.
 * 🖥️ **Monitor de Sistema (`sysinfo`)** : monitorización en tiempo real de CPU (%), RAM (%), temperatura SoC (°C/°F) y Uptime con indicadores gráficos y temas visuales configurables.
-* 🥊 **Motor de Combate M.U.G.E.N (`fighter`)** : auténticos combates de sprites retro (Street Fighter, KOF, DBZ, Marvel...) extraídos en RGB565 sin lag, reproducibles en modo independiente o como overlay sobre los relojes.
+* 🥊 **Motor de Combate M.U.G.E.N (`fighter`)** : auténticos combates de sprites retro extraídos en RGB565 sin lag, reproducibles en modo independiente o como overlay con ajuste de velocidad de animación en tiempo real (25% a 200%).
 * 📈 **Tickers y Gráficos de Criptomonedas / Bolsa (`crypto`, `stock`)** : cotizaciones en vivo, porcentajes 24h y gráficos sparkline históricos desde CoinGecko, Binance y Yahoo Finance con caché inteligente.
 * 🌦️ **Meteorología Dinámica (`weather`)** : previsión meteorológica en tiempo real, temperatura, pronósticos para los próximos días e iconos animados retro con OpenWeatherMap.
 * ⏰ **Selección Masiva de Relojes Animados (`clock`)** : relojes interactivos que incluyen Arcade, Binary, Cyberpunk, Flip, Word, así como los nuevos relojes **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** y **Versus (Mugen)**.
 * **Fuentes cargables dinámicamente (`.ttf`)** : deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
 * **Lluvia digital Matrix real (Katakana)** : un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
 * **Gradientes suaves personalizados** : además de los temas clásicos Publisher, elige un tema **Custom Color / Gradient** y selecciona dos colores para generar un gradiente dinámico.
-* **Playlists de imágenes dinámicas (GIF/PNG/JPG)** : lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.e sirven con Rust (`image-rs` para dibujar, `Actix-web` para la API), lo que permite modificarlo mucho más rápido.
+* **Playlists de imágenes dinámicas (GIF/PNG/JPG)** : lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.
 
 ---
 

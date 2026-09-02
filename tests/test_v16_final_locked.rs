@@ -680,3 +680,73 @@ fn test_request_id_generator_sequence_and_wrapping() {
     // After wrapping, must not emit 0
     assert_eq!(gen_wrap.next_id(), 1);
 }
+
+// =========================================================================
+// Group 10 — GNewsEngine Vertical Wrapping & Multi-Line Character Integrity
+// =========================================================================
+
+#[test]
+fn test_gnews_wrap_text_no_missing_letters() {
+    use arcadematrix::engines::dashboard::font::measure_text;
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    let text = "Guerre en Ukraine : Les dernières informations technologiques et gouvernementales internationales";
+    let max_w = 60; // 64px display with 2px margins
+    let lines = GNewsEngine::wrap_text_to_lines(text, max_w);
+
+    // 1. Verify that NO line exceeds max_w
+    for (i, line) in lines.iter().enumerate() {
+        let w = measure_text(line);
+        assert!(
+            w <= max_w,
+            "Line {} exceeds max_w: '{}' (w={}, max_w={})",
+            i,
+            line,
+            w,
+            max_w
+        );
+    }
+
+    // 2. Verify that all non-space characters from original text are fully preserved (0 missing letters!)
+    let original_chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let wrapped_chars: Vec<char> = lines
+        .join("")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert_eq!(
+        original_chars, wrapped_chars,
+        "Every single letter must be preserved without loss"
+    );
+}
+
+#[test]
+fn test_gnews_wrap_text_narrow_tate_display() {
+    use arcadematrix::engines::dashboard::font::measure_text;
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    // Narrow 32px display (max_w = 28px)
+    let text = "Apple annonce l'iPhone 17 Pro Max";
+    let max_w = 28;
+    let lines = GNewsEngine::wrap_text_to_lines(text, max_w);
+
+    for (i, line) in lines.iter().enumerate() {
+        let w = measure_text(line);
+        assert!(
+            w <= max_w,
+            "Line {} exceeds max_w: '{}' (w={}, max_w={})",
+            i,
+            line,
+            w,
+            max_w
+        );
+    }
+
+    let original_chars: Vec<char> = text.chars().filter(|c| !c.is_whitespace()).collect();
+    let wrapped_chars: Vec<char> = lines
+        .join("")
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    assert_eq!(original_chars, wrapped_chars);
+}

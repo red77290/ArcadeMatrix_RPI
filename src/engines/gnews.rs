@@ -76,6 +76,10 @@ pub struct GNewsEngine {
     last_fetch: Option<Instant>,
     last_fetched_lang: String,
     geometry: DisplayGeometry,
+    cached_vertical_lines: Vec<String>,
+    cached_vertical_max_scroll: i32,
+    cached_article_index: usize,
+    cached_article_title: String,
 }
 
 impl GNewsEngine {
@@ -171,7 +175,63 @@ impl GNewsEngine {
             last_fetch: last_fetch_inst,
             last_fetched_lang: String::new(),
             geometry: DisplayGeometry::new(64, 32, 0, 0),
+            cached_vertical_lines: Vec::new(),
+            cached_vertical_max_scroll: 0,
+            cached_article_index: usize::MAX,
+            cached_article_title: String::new(),
         }
+    }
+
+    pub fn wrap_text_to_lines(text: &str, max_w: i32) -> Vec<String> {
+        let mut lines = Vec::new();
+        let max_w = max_w.max(12);
+        let mut cur_line = String::new();
+
+        for word in text.split_whitespace() {
+            let w_word = measure_text(word);
+            if w_word > max_w {
+                // Flush previous line if not empty
+                if !cur_line.is_empty() {
+                    lines.push(cur_line);
+                    cur_line = String::new();
+                }
+                // Break long word across lines by characters
+                let mut chunk = String::new();
+                for ch in word.chars() {
+                    let mut test_chunk = chunk.clone();
+                    test_chunk.push(ch);
+                    if measure_text(&test_chunk) <= max_w {
+                        chunk = test_chunk;
+                    } else {
+                        if !chunk.is_empty() {
+                            lines.push(chunk);
+                        }
+                        chunk = ch.to_string();
+                    }
+                }
+                if !chunk.is_empty() {
+                    cur_line = chunk;
+                }
+            } else {
+                let candidate = if cur_line.is_empty() {
+                    word.to_string()
+                } else {
+                    format!("{} {}", cur_line, word)
+                };
+                if measure_text(&candidate) <= max_w {
+                    cur_line = candidate;
+                } else {
+                    if !cur_line.is_empty() {
+                        lines.push(cur_line);
+                    }
+                    cur_line = word.to_string();
+                }
+            }
+        }
+        if !cur_line.is_empty() {
+            lines.push(cur_line);
+        }
+        lines
     }
 
     pub fn get_category_short(category: &str) -> &'static str {
@@ -421,6 +481,10 @@ impl GNewsEngine {
         self.state_start = now;
         self.last_scroll_tick = now;
         self.last_article_switch = now;
+        self.cached_vertical_lines.clear();
+        self.cached_vertical_max_scroll = 0;
+        self.cached_article_index = usize::MAX;
+        self.cached_article_title.clear();
     }
 
     fn fill_rect_util(
@@ -493,6 +557,10 @@ impl Engine for GNewsEngine {
         self.last_scroll_tick = now;
         self.last_source_tick = now;
         self.last_article_switch = now;
+        self.cached_vertical_lines.clear();
+        self.cached_vertical_max_scroll = 0;
+        self.cached_article_index = usize::MAX;
+        self.cached_article_title.clear();
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
@@ -512,6 +580,10 @@ impl Engine for GNewsEngine {
 
     fn on_display_geometry_changed(&mut self, geometry: &DisplayGeometry) {
         self.geometry = *geometry;
+        self.cached_vertical_lines.clear();
+        self.cached_vertical_max_scroll = 0;
+        self.cached_article_index = usize::MAX;
+        self.cached_article_title.clear();
     }
 
     fn is_realtime(&self) -> bool {
@@ -536,6 +608,10 @@ impl Engine for GNewsEngine {
                 if self.current_index >= self.articles.len() {
                     self.current_index = 0;
                 }
+                self.cached_vertical_lines.clear();
+                self.cached_vertical_max_scroll = 0;
+                self.cached_article_index = usize::MAX;
+                self.cached_article_title.clear();
             }
         }
 
@@ -594,7 +670,7 @@ impl Engine for GNewsEngine {
             self.current_index = 0;
         }
 
-        // 3. Smooth discrete source marquee advancement (~30ms per pixel)
+        // 4. Smooth discrete source marquee advancement (~35ms per pixel)
         let elapsed_src = self.last_source_tick.elapsed().as_millis() as u64;
         if elapsed_src >= 35 {
             let steps = (elapsed_src / 35) as u32;
@@ -603,13 +679,85 @@ impl Engine for GNewsEngine {
         }
 
         let article = &self.articles[self.current_index];
+        let mw = ctx.matrix.width();
+        let mh = ctx.matrix.height();
+        let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
-        if self.display_mode == "static_paged" {
+        if is_vertical {
+            let max_w = (mw as i32) - 4;
+            let body_y: i32 = 24;
+            let viewport_h = ((mh as i32) - body_y).max(10);
+
+            if self.cached_article_index != self.current_index
+                || self.cached_article_title != article.title
+            {
+                let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                let total_h = lines.len() as i32 * 9;
+                let max_scroll = if total_h > viewport_h {
+                    (total_h - viewport_h) + 12
+                } else {
+                    0
+                };
+                self.cached_vertical_lines = lines;
+                self.cached_vertical_max_scroll = max_scroll;
+                self.cached_article_index = self.current_index;
+                self.cached_article_title = article.title.clone();
+            }
+
+            let max_scroll = self.cached_vertical_max_scroll;
+
+            if max_scroll == 0 {
+                if now.duration_since(self.last_article_switch).as_secs()
+                    >= self.article_duration_sec
+                {
+                    self.advance_to_next_article();
+                }
+            } else {
+                let tick_ms = match self.scroll_speed {
+                    1 => 70,
+                    2 => 55,
+                    3 => 42,
+                    4 => 32,
+                    _ => 22,
+                };
+
+                match self.scroll_state {
+                    ScrollState::PauseStart => {
+                        if now.duration_since(self.state_start).as_millis() as u64
+                            >= self.scroll_pause_start_ms
+                        {
+                            self.scroll_state = ScrollState::Scrolling;
+                            self.state_start = now;
+                            self.last_scroll_tick = now;
+                        }
+                    }
+                    ScrollState::Scrolling => {
+                        let elapsed_scroll = self.last_scroll_tick.elapsed().as_millis() as u64;
+                        if elapsed_scroll >= tick_ms {
+                            let steps = (elapsed_scroll / tick_ms) as i32;
+                            self.scroll_pixel_offset += steps;
+                            self.last_scroll_tick += Duration::from_millis(steps as u64 * tick_ms);
+                            if self.scroll_pixel_offset >= max_scroll {
+                                self.scroll_state = ScrollState::PauseEnd;
+                                self.state_start = now;
+                            }
+                        }
+                    }
+                    ScrollState::PauseEnd => {
+                        if now.duration_since(self.state_start).as_millis() as u64
+                            >= self.scroll_pause_end_ms
+                        {
+                            self.advance_to_next_article();
+                        }
+                    }
+                }
+            }
+        } else if self.display_mode == "static_paged" {
             if now.duration_since(self.last_article_switch).as_secs() >= self.article_duration_sec {
                 self.advance_to_next_article();
             }
         } else {
-            // Smooth discrete pixel scrolling ticker (constant velocity, zero stutter)
+            // Horizontal Wide / Compact ticker
             let text_width = measure_text(&article.title);
             let tick_ms = match self.scroll_speed {
                 1 => 50,
@@ -782,53 +930,29 @@ impl Engine for GNewsEngine {
                 }
             }
 
-            // 5. Multi-line word wrapped headline title
-            let max_w = (mw as i32) - 4;
-            let mut line_y = 24;
-            let mut cur_line = String::new();
+            // 5. Multi-line word wrapped headline title with smooth vertical scroll & clipping
+            let body_y: i32 = 24;
+            let line_spacing: i32 = 9;
+            let clip_min_x: i32 = 2;
+            let clip_max_x: i32 = (mw as i32) - 2;
+            let clip_min_y: i32 = body_y;
+            let clip_max_y: i32 = mh as i32;
 
-            for word in article.title.split_whitespace() {
-                let candidate = if cur_line.is_empty() {
-                    word.to_string()
-                } else {
-                    format!("{} {}", cur_line, word)
-                };
-                let w_cand = measure_text(&candidate);
-                if w_cand <= max_w {
-                    cur_line = candidate;
-                } else {
-                    if !cur_line.is_empty() {
-                        draw_text_clipped(
-                            matrix,
-                            &cur_line,
-                            2,
-                            line_y,
-                            0,
-                            mw as i32,
-                            0,
-                            mh as i32,
-                            (255, 255, 255),
-                        );
-                        line_y += 9;
-                        if line_y >= (mh as i32) - 7 {
-                            break;
-                        }
-                    }
-                    cur_line = word.to_string();
+            for (idx, line) in self.cached_vertical_lines.iter().enumerate() {
+                let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
+                if y + line_spacing > clip_min_y && y < clip_max_y {
+                    draw_text_clipped(
+                        matrix,
+                        line,
+                        clip_min_x,
+                        y,
+                        clip_min_x,
+                        clip_max_x,
+                        clip_min_y,
+                        clip_max_y,
+                        (255, 255, 255),
+                    );
                 }
-            }
-            if !cur_line.is_empty() && line_y < (mh as i32) - 7 {
-                draw_text_clipped(
-                    matrix,
-                    &cur_line,
-                    2,
-                    line_y,
-                    0,
-                    mw as i32,
-                    0,
-                    mh as i32,
-                    (255, 255, 255),
-                );
             }
         } else if mw >= 128 {
             // ==========================================

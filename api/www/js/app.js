@@ -715,10 +715,10 @@ async function initSettings() {
       });
     }
 
-    // Screen Orientation & Transitions
-    setVal('hw-screen-rotation', matrix.rotation ?? 0);
-    setVal('hw-rotation-transition', matrix.transition_effect || 'vortex');
-    setVal('hw-transition-duration', matrix.transition_duration_ms || 400);
+    // Screen Orientation & Transitions (General preferences)
+    setVal('sys-screen-rotation', matrix.rotation ?? 0);
+    setVal('sys-rotation-transition', matrix.transition_effect || 'vortex');
+    setVal('sys-transition-duration', matrix.transition_duration_ms || 400);
 
     // Raspberry Pi Matrix Hardware (pure RPi HUB75 configuration)
     setVal('hw-rows', matrix.height || 32);
@@ -750,7 +750,7 @@ async function initSettings() {
     console.error('Failed to load settings', e);
   }
 
-  // Save General System Preferences
+  // Save General System Preferences (including real-time Screen Orientation & Transitions)
   const btnSaveGeneral = document.getElementById('btn-save-general');
   if (btnSaveGeneral && !btnSaveGeneral._boundClick) {
     btnSaveGeneral._boundClick = true;
@@ -762,6 +762,9 @@ async function initSettings() {
       const idleFighterEnabled = document.getElementById('sys-idle-fighter-enabled')?.checked ?? true;
       const idleFighterInterval = parseInt(document.getElementById('sys-idle-fighter-interval')?.value) || 10;
       const idleFighterSpeed = parseInt(document.getElementById('sys-idle-fighter-speed')?.value) || 100;
+      const rotation = parseInt(document.getElementById('sys-screen-rotation')?.value) || 0;
+      const transitionEffect = document.getElementById('sys-rotation-transition')?.value || 'vortex';
+      const transitionDuration = parseInt(document.getElementById('sys-transition-duration')?.value) || 400;
 
       try {
         await API.post('/api/system', {
@@ -771,10 +774,18 @@ async function initSettings() {
           temp_unit: tempUnit,
           idle_fighter_enabled: idleFighterEnabled,
           idle_fighter_interval: idleFighterInterval,
-          idle_fighter_speed: idleFighterSpeed
+          idle_fighter_speed: idleFighterSpeed,
+          rotation,
+          transition_effect: transitionEffect,
+          transition_duration_ms: transitionDuration
         });
+        if (window.__sysConfig && window.__sysConfig.matrix) {
+          window.__sysConfig.matrix.rotation = rotation;
+          window.__sysConfig.matrix.transition_effect = transitionEffect;
+          window.__sysConfig.matrix.transition_duration_ms = transitionDuration;
+        }
         setLanguage(lang);
-        window.showToast(t('system_prefs_saved', 'System preferences saved!'), 'success');
+        window.showToast(t('system_prefs_saved', 'System preferences and display rotation saved in real-time!'), 'success');
       } catch (e) {
         window.showToast(t('system_prefs_error', 'Failed to save system preferences'), 'error');
       }
@@ -804,7 +815,7 @@ async function initSettings() {
     });
   }
 
-  // Save Raspberry Pi Hardware settings
+  // Save Raspberry Pi Hardware settings (requires panel daemon restart for hardware bus/chip re-init)
   const btnSaveHw = document.getElementById('btn-save-hw');
   if (btnSaveHw && !btnSaveHw._boundClick) {
     btnSaveHw._boundClick = true;
@@ -813,9 +824,6 @@ async function initSettings() {
       const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
       const matrix = {
         ...base,
-        rotation: numOr('hw-screen-rotation', 0),
-        transition_effect: document.getElementById('hw-rotation-transition')?.value || 'vortex',
-        transition_duration_ms: numOr('hw-transition-duration', 400),
         height: numOr('hw-rows', 32),
         width: numOr('hw-cols', 64),
         chain_length: numOr('hw-chain', 1),
@@ -834,7 +842,7 @@ async function initSettings() {
       try {
         await API.post('/api/system', { matrix });
         if (window.__sysConfig) window.__sysConfig.matrix = matrix;
-        window.showToast('Hardware settings saved! The panel will restart to apply changes.', 'success');
+        window.showToast('Hardware settings saved! The panel will restart to apply physical bus changes.', 'success');
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');
       }

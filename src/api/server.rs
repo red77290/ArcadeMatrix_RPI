@@ -156,13 +156,48 @@ async fn post_system(
         // reverting to the default when the config is reloaded from disk.
         s.system.day_brightness = clamped;
     }
+    // Real-time display orientation & transitions (applied immediately without a restart).
+    if let Some(v) = body.get("rotation").and_then(|v| v.as_u64()) {
+        if s.matrix.rotation != v as u32 {
+            s.matrix.rotation = v as u32;
+            data.config.reset_rotation.store(true, Ordering::Relaxed);
+        }
+    }
+    if let Some(v) = body.get("transition_effect").and_then(|v| v.as_str()) {
+        s.matrix.transition_effect = v.to_string();
+    }
+    if let Some(v) = body.get("transition_duration_ms").and_then(|v| v.as_u64()) {
+        s.matrix.transition_duration_ms = v as u32;
+    }
     // Hardware & MQTT-affecting settings only take effect after a restart of the
-    // render/network loops, so flag it when matrix params, MQTT broker, or Wi-Fi state change.
-    let new_matrix = serde_json::to_value(&s.matrix).ok();
+    // render/network loops, so flag it when physical matrix params, MQTT broker, or Wi-Fi state change.
+    let prev_matrix_cfg: Option<crate::core::config::MatrixConfig> =
+        prev_matrix.and_then(|v| serde_json::from_value(v).ok());
+    let hw_matrix_changed = if let Some(ref p) = prev_matrix_cfg {
+        p.width != s.matrix.width
+            || p.height != s.matrix.height
+            || p.chain_length != s.matrix.chain_length
+            || p.driver_chip != s.matrix.driver_chip
+            || p.mapping != s.matrix.mapping
+            || p.rgb_sequence != s.matrix.rgb_sequence
+            || p.row_address_mode != s.matrix.row_address_mode
+            || p.multiplexing != s.matrix.multiplexing
+            || p.slowdown != s.matrix.slowdown
+            || p.pwm_bits != s.matrix.pwm_bits
+            || p.pwm_lsb_nanoseconds != s.matrix.pwm_lsb_nanoseconds
+            || p.limit_refresh_rate_hz != s.matrix.limit_refresh_rate_hz
+            || p.disable_hardware_pulsing != s.matrix.disable_hardware_pulsing
+    } else {
+        false
+    };
+    if let Some(ref p) = prev_matrix_cfg {
+        if p.rotation != s.matrix.rotation {
+            data.config.reset_rotation.store(true, Ordering::Relaxed);
+        }
+    }
     let new_mqtt = serde_json::to_value(&s.mqtt).ok();
-    let needs_reload = prev_matrix != new_matrix
-        || prev_mqtt != new_mqtt
-        || prev_disable_wifi != s.wifi.disable_internal;
+    let needs_reload =
+        hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
     if needs_reload {

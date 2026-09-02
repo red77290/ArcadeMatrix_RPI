@@ -264,6 +264,16 @@ struct RuntimeSnapshot {
     display_rotation: u8,
 }
 
+#[inline]
+pub fn normalize_rotation(val: u32) -> u8 {
+    match val {
+        90 | 1 => 1,
+        180 | 2 => 2,
+        270 | 3 => 3,
+        _ => 0,
+    }
+}
+
 fn build_runtime_snapshot(config: &Config, engine_runtime: &mut EngineRuntime) -> RuntimeSnapshot {
     let settings = config.settings.read();
     for inst in &settings.instances {
@@ -296,7 +306,7 @@ fn build_runtime_snapshot(config: &Config, engine_runtime: &mut EngineRuntime) -
     RuntimeSnapshot {
         rotation,
         system: settings.system.clone(),
-        display_rotation: (settings.matrix.rotation % 4) as u8,
+        display_rotation: normalize_rotation(settings.matrix.rotation),
     }
 }
 
@@ -419,6 +429,7 @@ impl ArcadeMatrixApp {
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
         let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
+        matrix.set_rotation(snapshot.display_rotation);
         let mut orientation_manager = crate::core::orientation::OrientationManager::new(
             width,
             height,
@@ -480,13 +491,17 @@ impl ArcadeMatrixApp {
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
                 snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
                 rotation_manager.reset();
+                matrix.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
                     runtime.on_display_geometry_changed(
                         orientation_manager.geometry(),
                         &mut engine_runtime,
                     );
                 }
-                tracing::info!("Display settings changed! Resetting rotation to index 0.");
+                tracing::info!(
+                    "Display orientation/rotation updated to {}° in real-time.",
+                    (snapshot.display_rotation as u32) * 90
+                );
             }
 
             // Standby / Night mode check

@@ -431,7 +431,7 @@ function initCustomMarquee() {
   }
 }
 
-function initMedia() {
+function initFighterOverlay() {
   const enabledEl = document.getElementById('fighter-enabled');
   const intervalEl = document.getElementById('fighter-interval');
   const speedEl = document.getElementById('fighter-speed');

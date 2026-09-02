@@ -191,6 +191,7 @@ pub struct SplashScreen {
     invader_y: f32,
     invader_vx: f32,
     invader_shoot_timer: f32,
+    invader_departed: bool,
     laser_bolts: Vec<LaserBolt>,
     title_scroll_x: f32,
     // Shared / 2D Pacman state:
@@ -505,6 +506,7 @@ impl SplashScreen {
             invader_y: invader_init_y,
             invader_vx: 24.0,
             invader_shoot_timer: 0.0,
+            invader_departed: false,
             laser_bolts: Vec::with_capacity(16),
             title_scroll_x: 0.0,
             pacman_x: pac_init_x,
@@ -572,7 +574,7 @@ impl SplashScreen {
 
             // Completion check
             let animation_done = if splash.is_vertical {
-                splash.letters.iter().all(|l| l.broken)
+                splash.invader_departed
                     && splash.pacman_active
                     && splash.particles.is_empty()
                     && splash.pacman_x > (splash.width as f32 + 16.0)
@@ -626,51 +628,69 @@ impl SplashScreen {
             }
             self.phase = SplashPhase::ActiveAction;
 
-            // 1. Space Invaders Patrol & Target Tracking at the bottom
-            let target_letter = self.letters.iter().find(|l| !l.broken);
-            if let Some(tl) = target_letter {
-                let target_x = (tl.center_x - 8.0).clamp(2.0, (self.width as f32 - 18.0).max(3.0));
-                let dx = target_x - self.invader_x;
-                if dx.abs() > 1.5 {
-                    self.invader_vx = dx.signum() * 26.0;
-                }
-            } else if self.invader_vx.abs() < 12.0 {
-                self.invader_vx = 22.0;
-            }
-
-            self.invader_x += self.invader_vx * dt;
-            let min_invader_x = 2.0;
-            let max_invader_x = (self.width as f32 - 18.0).max(min_invader_x + 1.0);
-            if self.invader_x <= min_invader_x {
-                self.invader_x = min_invader_x;
-                self.invader_vx = self.invader_vx.abs();
-            } else if self.invader_x >= max_invader_x {
-                self.invader_x = max_invader_x;
-                self.invader_vx = -self.invader_vx.abs();
-            }
-
             // 2. Title Horizontal Scrolling across the upper arena
             self.title_scroll_x += 16.0 * dt;
             for letter in &mut self.letters {
                 letter.center_x = letter.base_center_x - self.title_scroll_x;
+                if !letter.broken && letter.center_x < -12.0 {
+                    letter.broken = true; // Auto-break letters that scrolled past
+                }
             }
 
             let all_letters_broken = self.letters.iter().all(|l| l.broken);
 
-            // 3. Space Invaders Laser Shooting cadence (Shoots UPWARDS towards unbroken letters)
-            self.invader_shoot_timer += dt;
-            if !all_letters_broken && self.invader_shoot_timer >= 0.36 {
-                self.invader_shoot_timer = 0.0;
-                let ship_center_x = self.invader_x + 8.0;
-
-                self.laser_bolts.push(LaserBolt {
-                    x: ship_center_x,
-                    y: self.invader_y - 2.0,
-                    vy: -60.0, // Negative velocity: travels UP
-                    r: 255,
-                    g: 35,
-                    b: 35,
+            // 1. Space Invaders Patrol & Target Tracking at the bottom
+            if !all_letters_broken {
+                let target_letter = self.letters.iter().find(|l| {
+                    !l.broken && l.center_x >= 0.0 && l.center_x <= (self.width as f32 + 6.0)
                 });
+                if let Some(tl) = target_letter {
+                    let target_x =
+                        (tl.center_x - 8.0).clamp(2.0, (self.width as f32 - 18.0).max(3.0));
+                    let dx = target_x - self.invader_x;
+                    if dx.abs() > 1.0 {
+                        self.invader_vx = dx.signum() * 32.0;
+                    }
+                } else if self.invader_vx.abs() < 12.0 {
+                    self.invader_vx = 24.0;
+                }
+
+                self.invader_x += self.invader_vx * dt;
+                let min_invader_x = 2.0;
+                let max_invader_x = (self.width as f32 - 18.0).max(min_invader_x + 1.0);
+                if self.invader_x <= min_invader_x {
+                    self.invader_x = min_invader_x;
+                    self.invader_vx = self.invader_vx.abs();
+                } else if self.invader_x >= max_invader_x {
+                    self.invader_x = max_invader_x;
+                    self.invader_vx = -self.invader_vx.abs();
+                }
+
+                // Rapid laser bursts to destroy letters quickly
+                self.invader_shoot_timer += dt;
+                if self.invader_shoot_timer >= 0.22 {
+                    self.invader_shoot_timer = 0.0;
+                    let ship_center_x = self.invader_x + 8.0;
+
+                    self.laser_bolts.push(LaserBolt {
+                        x: ship_center_x,
+                        y: self.invader_y - 2.0,
+                        vy: -68.0, // Negative velocity: travels UP
+                        r: 255,
+                        g: 35,
+                        b: 35,
+                    });
+                }
+            } else if !self.invader_departed {
+                // "le vaisseau doit partir": Ship flies away off-screen at high speed!
+                self.invader_x += 65.0 * dt;
+                if self.invader_x > (self.width as f32 + 18.0) {
+                    self.invader_departed = true;
+                    // Trigger Pacman and trailing ghosts entry!
+                    self.pacman_active = true;
+                    self.pacman_x = -14.0;
+                    self.pacman_y = (self.height as f32) * 0.46;
+                }
             }
 
             // 4. Laser Bolt Collision & Letter Destruction
@@ -768,13 +788,6 @@ impl SplashScreen {
                 }
             }
 
-            // Trigger Pacman and Ghosts entry ONLY after all letters are shattered
-            if all_letters_broken && !self.pacman_active {
-                self.pacman_active = true;
-                self.pacman_x = -12.0;
-                self.pacman_y = (self.height as f32) * 0.46;
-            }
-
             // 6. Pacman & Trailing Ghosts Autonomous Particle Hunter
             if self.pacman_active {
                 if self.tick % 2 == 0 {
@@ -823,7 +836,7 @@ impl SplashScreen {
                 }
 
                 let pr = self.pacman_radius as f32;
-                self.pacman_y = self.pacman_y.clamp(8.0, self.invader_y - pr - 2.0);
+                self.pacman_y = self.pacman_y.clamp(8.0, (self.height as f32) - pr - 1.0);
 
                 // 7. Pacman Eats Particles & Spawns Floating Scores
                 let pac_cx = self.pacman_x;
@@ -1137,44 +1150,46 @@ impl SplashScreen {
                 }
             }
 
-            // 8b. Space Invaders Armada at the bottom
-            let crab_frame = (self.tick / 10) % 2 == 1;
-            let crab_sprite = if crab_frame {
-                &INVADER_CRAB_FRAME1
-            } else {
-                &INVADER_CRAB_FRAME0
-            };
+            // 8b. Space Invaders Armada at the bottom (departs once letters are shattered)
+            if !self.invader_departed && self.invader_x < (self.width as f32 + 20.0) {
+                let crab_frame = (self.tick / 10) % 2 == 1;
+                let crab_sprite = if crab_frame {
+                    &INVADER_CRAB_FRAME1
+                } else {
+                    &INVADER_CRAB_FRAME0
+                };
 
-            // Command UFO (16x7) at the bottom
-            self.draw_sprite(
-                matrix,
-                &INVADER_UFO_SPRITE,
-                INVADER_UFO_WIDTH,
-                INVADER_UFO_HEIGHT,
-                self.invader_x as i32,
-                self.invader_y as i32,
-            );
-
-            // Flanking Crab Aliens if screen is wide enough (>= 48px)
-            if self.width >= 48 {
-                let left_crab_x = (self.invader_x - 14.0) as i32;
-                let right_crab_x = (self.invader_x + 19.0) as i32;
+                // Command UFO (16x7) at the bottom
                 self.draw_sprite(
                     matrix,
-                    crab_sprite,
-                    INVADER_CRAB_WIDTH,
-                    INVADER_CRAB_HEIGHT,
-                    left_crab_x,
+                    &INVADER_UFO_SPRITE,
+                    INVADER_UFO_WIDTH,
+                    INVADER_UFO_HEIGHT,
+                    self.invader_x as i32,
                     self.invader_y as i32,
                 );
-                self.draw_sprite(
-                    matrix,
-                    crab_sprite,
-                    INVADER_CRAB_WIDTH,
-                    INVADER_CRAB_HEIGHT,
-                    right_crab_x,
-                    self.invader_y as i32,
-                );
+
+                // Flanking Crab Aliens if screen is wide enough (>= 48px)
+                if self.width >= 48 {
+                    let left_crab_x = (self.invader_x - 14.0) as i32;
+                    let right_crab_x = (self.invader_x + 19.0) as i32;
+                    self.draw_sprite(
+                        matrix,
+                        crab_sprite,
+                        INVADER_CRAB_WIDTH,
+                        INVADER_CRAB_HEIGHT,
+                        left_crab_x,
+                        self.invader_y as i32,
+                    );
+                    self.draw_sprite(
+                        matrix,
+                        crab_sprite,
+                        INVADER_CRAB_WIDTH,
+                        INVADER_CRAB_HEIGHT,
+                        right_crab_x,
+                        self.invader_y as i32,
+                    );
+                }
             }
 
             // 8c. 2D Pacman Particle Hunter & Trailing Ghosts (Activates when only particles remain)
@@ -1485,11 +1500,14 @@ mod tests {
         assert!(splash.invader_x >= 0.0 && splash.invader_x <= 64.0);
         assert_eq!(splash.invader_y, 54.0);
 
-        // Break all letters -> Pacman and trailing ghosts enter to vacuum particles
+        // Break all letters -> Ship departs off-screen, then Pacman and ghosts enter
         for l in &mut splash.letters {
             l.broken = true;
         }
-        splash.update(0.05);
+        for _ in 0..30 {
+            splash.update(0.05);
+        }
+        assert!(splash.invader_departed);
         assert!(splash.pacman_active);
 
         for _ in 0..20 {

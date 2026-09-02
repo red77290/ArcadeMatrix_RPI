@@ -797,3 +797,74 @@ fn test_gnews_display_mode_schema_options() {
     assert!(opt_values.contains(&"vertical_crawl"));
     assert!(opt_values.contains(&"static_paged"));
 }
+
+#[test]
+fn test_gif_candidate_roots_strict_orientation_separation() {
+    use arcadematrix::engines::gif::GifEngine;
+
+    // In vertical (Tate) mode: candidate roots MUST ONLY be vertical (gifs_tate, tate)
+    // NEVER horizontal (gifs, yoko)
+    let tate_roots = GifEngine::get_candidate_roots(true);
+    for root in &tate_roots {
+        let p_str = root.to_string_lossy().to_lowercase();
+        assert!(
+            p_str.ends_with("gifs_tate") || p_str.ends_with("tate"),
+            "Tate root {:?} contains non-vertical folder!",
+            root
+        );
+        assert!(
+            !p_str.ends_with("/gifs") && !p_str.ends_with("/yoko"),
+            "Tate root {:?} must not end with horizontal /gifs or /yoko!",
+            root
+        );
+    }
+
+    // In horizontal (Yoko) mode: candidate roots MUST ONLY be horizontal (gifs, yoko)
+    // NEVER vertical (gifs_tate, tate)
+    let yoko_roots = GifEngine::get_candidate_roots(false);
+    for root in &yoko_roots {
+        let p_str = root.to_string_lossy().to_lowercase();
+        assert!(
+            !p_str.contains("gifs_tate") && !p_str.contains("tate"),
+            "Yoko root {:?} must not contain vertical gifs_tate or tate!",
+            root
+        );
+    }
+}
+
+#[test]
+fn test_gif_engine_is_tate_detection() {
+    use arcadematrix::core::engine_contract::Engine;
+    use arcadematrix::core::types::DisplayGeometry;
+    use arcadematrix::engines::gif::GifEngine;
+
+    let mut engine_vert = GifEngine::new(32, 64);
+    assert!(engine_vert.is_tate(), "32x64 must be Tate");
+
+    let mut engine_horiz = GifEngine::new(64, 32);
+    assert!(!engine_horiz.is_tate(), "64x32 must be Yoko");
+
+    let mut engine_square = GifEngine::new(64, 64);
+    assert!(!engine_square.is_tate(), "64x64 unrotated must be Yoko");
+
+    // Rotate 64x64 to 90 degrees
+    let geom_rotated = DisplayGeometry::new(64, 64, 1, 1);
+    engine_square.on_display_geometry_changed(&geom_rotated);
+    assert!(engine_square.is_tate(), "64x64 rotated 90° must be Tate");
+}
+
+#[test]
+fn test_gif_engine_plays_nothing_when_no_matching_gifs() {
+    use arcadematrix::core::engine_contract::Engine;
+    use arcadematrix::engines::gif::GifEngine;
+
+    // Test with non-existent playlist folder: must return false, frames empty, and is_finished() = true
+    let mut engine = GifEngine::new(32, 64);
+    let success = engine.play_random_playlist_gif(&["nonexistent_folder_xyz".to_string()]);
+    assert!(!success, "Must return false when no GIFs found");
+    assert!(engine.is_empty(), "Frames must remain empty");
+    assert!(
+        engine.is_finished(),
+        "Engine must report finished so rotation advances"
+    );
+}

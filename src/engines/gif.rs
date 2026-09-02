@@ -3,6 +3,7 @@ use crate::core::engine_contract::{
     EngineMetadata, Requirements,
 };
 use crate::core::matrix::MatrixBackend;
+use crate::core::types::DisplayGeometry;
 use image::RgbImage;
 use linkme::distributed_slice;
 use rand::seq::SliceRandom;
@@ -21,6 +22,7 @@ pub struct GifEngine {
     frame_elapsed: Duration,
     target_width: u32,
     target_height: u32,
+    geometry: DisplayGeometry,
     loop_count: u32,
     /// Index of the frame last actually drawn to the matrix (for swap-skip)
     last_drawn_index: Option<usize>,
@@ -44,6 +46,7 @@ impl GifEngine {
             frame_elapsed: Duration::ZERO,
             target_width,
             target_height,
+            geometry: DisplayGeometry::new(target_width, target_height, 0, 0),
             loop_count: 0,
             last_drawn_index: None,
             last_update: None,
@@ -73,20 +76,39 @@ impl GifEngine {
                 let rgba_img = frame.clone().into_buffer();
                 let rgb_img = image::DynamicImage::ImageRgba8(rgba_img).into_rgb8();
 
-                // Resize to target dimensions using Nearest neighbor for speed and retro look
+                let src_w = rgb_img.width();
+                let src_h = rgb_img.height();
+
+                // Compute uniform scaling preserving aspect ratio (zero distortion/stretching)
+                let (new_w, new_h) = if src_w > 0 && src_h > 0 {
+                    let scale_x = self.target_width as f32 / src_w as f32;
+                    let scale_y = self.target_height as f32 / src_h as f32;
+                    let scale = scale_x.min(scale_y);
+                    let nw = ((src_w as f32 * scale).round() as u32).clamp(1, self.target_width);
+                    let nh = ((src_h as f32 * scale).round() as u32).clamp(1, self.target_height);
+                    (nw, nh)
+                } else {
+                    (self.target_width, self.target_height)
+                };
+
                 let resized = image::imageops::resize(
                     &rgb_img,
-                    self.target_width,
-                    self.target_height,
+                    new_w,
+                    new_h,
                     image::imageops::FilterType::Nearest,
                 );
 
-                // delay in image crate is a Delay struct. We can extract numerator/denominator.
+                // Create a canvas filled with black and center the resized frame (letterboxed)
+                let mut canvas = RgbImage::new(self.target_width, self.target_height);
+                let offset_x = (self.target_width.saturating_sub(new_w)) / 2;
+                let offset_y = (self.target_height.saturating_sub(new_h)) / 2;
+                image::imageops::overlay(&mut canvas, &resized, offset_x as i64, offset_y as i64);
+
                 let (num, den) = frame.delay().numer_denom_ms();
                 let ms = if den == 0 { 0 } else { num / den };
                 let delay = Duration::from_millis(if ms == 0 { 50 } else { ms as u64 });
 
-                frames.push((resized, delay));
+                frames.push((canvas, delay));
             }
         }
 
@@ -106,25 +128,28 @@ impl GifEngine {
     }
 
     pub fn is_tate(&self) -> bool {
-        self.target_height > self.target_width || self.target_width < 48
+        self.target_height > self.target_width
+            || self.target_width < 48
+            || self.target_height > (self.target_width * 3) / 2
+            || self.geometry.layout_class == crate::core::types::LayoutClass::Portrait
+            || self.geometry.layout_class == crate::core::types::LayoutClass::Tall
+            || self.geometry.rotation == 1
+            || self.geometry.rotation == 3
     }
 
     pub fn get_candidate_roots(is_vertical: bool) -> Vec<PathBuf> {
         let mut roots = Vec::new();
         let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
-        let primary_sub = if is_vertical { "gifs_tate" } else { "gifs" };
-        let fallback_sub = if is_vertical { "gifs" } else { "gifs_tate" };
 
-        let sub_dirs = [
-            primary_sub,
-            if is_vertical {
-                "gifs/tate"
-            } else {
-                "gifs/yoko"
-            },
-            if is_vertical { "tate" } else { "yoko" },
-            fallback_sub,
-        ];
+        // STRICT SEPARATION:
+        // In vertical (Tate) mode: ONLY vertical roots ("gifs_tate", "gifs/tate", "tate")
+        // In horizontal (Yoko) mode: ONLY horizontal roots ("gifs", "gifs/yoko", "yoko")
+        // NEVER mix horizontal and vertical roots!
+        let sub_dirs: &[&str] = if is_vertical {
+            &["gifs_tate", "gifs/tate", "tate"]
+        } else {
+            &["gifs", "gifs/yoko", "yoko"]
+        };
 
         let base_prefixes = [
             "",
@@ -143,7 +168,7 @@ impl GifEngine {
         ];
 
         for base in &base_prefixes {
-            for sub in &sub_dirs {
+            for sub in sub_dirs {
                 let candidate = if base.is_empty() {
                     PathBuf::from(sub)
                 } else if base.starts_with('/') {
@@ -174,6 +199,7 @@ impl GifEngine {
                     || trimmed == "gifs"
                     || trimmed == "gifs_tate"
                     || trimmed == "tate"
+                    || trimmed == "yoko"
                 {
                     // Scan all candidate roots for current orientation
                     for root in &candidate_roots {
@@ -182,49 +208,51 @@ impl GifEngine {
                     continue;
                 }
 
-                let mut found = false;
-
-                // 1. Direct path check
-                let p_raw = Path::new(&raw_clean);
-                if p_raw.is_dir() {
-                    Self::scan_folder_recursive(p_raw, &mut valid_files);
-                    found = true;
-                }
-
-                let p_trim = Path::new(&trimmed);
-                if !found && p_trim.is_dir() {
-                    Self::scan_folder_recursive(p_trim, &mut valid_files);
-                    found = true;
-                }
-
-                // 2. Sub-folder search across all candidate roots
+                // If user selected a specific sub-folder (e.g. "Arcade" or "gifs/Arcade" or "gifs_tate/Arcade")
                 let sub_folder = trimmed
                     .trim_start_matches("gifs_tate/")
                     .trim_start_matches("gifs/")
                     .trim_start_matches("tate/")
+                    .trim_start_matches("yoko/")
                     .trim_start_matches("data/gifs_tate/")
                     .trim_start_matches("data/gifs/")
                     .trim_start_matches('/')
                     .to_string();
 
+                let mut found = false;
+                for root in &candidate_roots {
+                    let cand1 = root.join(&trimmed);
+                    if cand1.is_dir() {
+                        Self::scan_folder_recursive(&cand1, &mut valid_files);
+                        found = true;
+                        break;
+                    }
+                    let cand2 = root.join(&sub_folder);
+                    if cand2.is_dir() {
+                        Self::scan_folder_recursive(&cand2, &mut valid_files);
+                        found = true;
+                        break;
+                    }
+                }
+
                 if !found {
-                    for root in &candidate_roots {
-                        let cand1 = root.join(&trimmed);
-                        if cand1.is_dir() {
-                            Self::scan_folder_recursive(&cand1, &mut valid_files);
-                            break;
-                        }
-                        let cand2 = root.join(&sub_folder);
-                        if cand2.is_dir() {
-                            Self::scan_folder_recursive(&cand2, &mut valid_files);
-                            break;
+                    let p_raw = Path::new(&raw_clean);
+                    if p_raw.is_dir() {
+                        let p_str_lower = raw_clean.to_lowercase();
+                        let matches_orientation = if is_vertical {
+                            p_str_lower.contains("tate") || !p_str_lower.contains("gifs/")
+                        } else {
+                            !p_str_lower.contains("tate")
+                        };
+                        if matches_orientation {
+                            Self::scan_folder_recursive(p_raw, &mut valid_files);
                         }
                     }
                 }
             }
         }
 
-        // Fallback: If no files found from specific playlists, scan all available roots
+        // Fallback: If no files found from specific playlists, scan all available roots for THIS orientation
         if valid_files.is_empty() {
             for root in &candidate_roots {
                 Self::scan_folder_recursive(root, &mut valid_files);
@@ -234,18 +262,12 @@ impl GifEngine {
             }
         }
 
-        // Second fallback: If still empty, scan the alternate orientation roots
+        // STRICT SEPARATION:
+        // "en vertical, s'il n'y a pas de gifs vertical tu ne joue rien, meme chose à l'horizontal"
+        // ZERO fallback to alternate orientation! If no files match the current orientation, return false and play nothing!
         if valid_files.is_empty() {
-            let alt_roots = Self::get_candidate_roots(!is_vertical);
-            for root in &alt_roots {
-                Self::scan_folder_recursive(root, &mut valid_files);
-                if !valid_files.is_empty() {
-                    break;
-                }
-            }
-        }
-
-        if valid_files.is_empty() {
+            self.frames.clear();
+            self.current_gif_path = None;
             return false;
         }
 
@@ -259,6 +281,8 @@ impl GifEngine {
         if let Some(chosen) = valid_files.choose(&mut rng) {
             self.load_gif(chosen)
         } else {
+            self.frames.clear();
+            self.current_gif_path = None;
             false
         }
     }
@@ -346,6 +370,7 @@ impl Engine for GifEngine {
     ) -> Result<(), EngineError> {
         self.target_width = context.matrix.width();
         self.target_height = context.matrix.height();
+        self.geometry = DisplayGeometry::new(self.target_width, self.target_height, 0, 0);
         self.apply_config(config);
         Ok(())
     }
@@ -362,6 +387,8 @@ impl Engine for GifEngine {
         if self.target_width != w || self.target_height != h {
             self.target_width = w;
             self.target_height = h;
+            self.geometry =
+                DisplayGeometry::new(w, h, self.geometry.rotation, self.geometry.version);
             self.play_random_playlist_gif(&self.playlists.clone());
         }
 
@@ -400,6 +427,8 @@ impl Engine for GifEngine {
         if self.target_width != w || self.target_height != h {
             self.target_width = w;
             self.target_height = h;
+            self.geometry =
+                DisplayGeometry::new(w, h, self.geometry.rotation, self.geometry.version);
             self.play_random_playlist_gif(&self.playlists.clone());
         }
 
@@ -416,8 +445,13 @@ impl Engine for GifEngine {
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        let prev_tate = self.is_tate();
         self.target_width = geometry.logical_width;
         self.target_height = geometry.logical_height;
+        self.geometry = *geometry;
+        if self.is_tate() != prev_tate {
+            self.play_random_playlist_gif(&self.playlists.clone());
+        }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {

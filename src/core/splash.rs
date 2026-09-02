@@ -201,7 +201,6 @@ pub struct SplashScreen {
     pacman_mouth_angle: i32,
     pacman_facing_dir: u8, // 0: Right, 1: Down, 2: Left, 3: Up
     pacman_active: bool,
-    pacman_trail: Vec<(f32, f32)>,
     chomp_timer: f32,
     ghost_colors: [(u8, u8, u8); 4],
     tick: u32,
@@ -515,7 +514,6 @@ impl SplashScreen {
             pacman_mouth_angle: 35,
             pacman_facing_dir: 0,
             pacman_active: !is_vertical,
-            pacman_trail: Vec::with_capacity(64),
             chomp_timer: 0.0,
             ghost_colors: [
                 (255, 0, 0),     // Blinky (Red)
@@ -788,66 +786,24 @@ impl SplashScreen {
                 }
             }
 
-            // 6. Pacman & Trailing Ghosts Autonomous Particle Hunter
+            // 6. Pacman & Trailing Ghosts: run along bottom floor from left to right eating particles
             if self.pacman_active {
-                if self.tick % 2 == 0 {
-                    self.pacman_trail.insert(0, (self.pacman_x, self.pacman_y));
-                    self.pacman_trail.truncate(45);
-                }
-
                 self.chomp_timer += dt * 8.5;
                 self.pacman_mouth_angle = ((self.chomp_timer.sin().abs()) * 45.0) as i32;
+                self.pacman_facing_dir = 0; // Running Left -> Right
 
-                if !self.particles.is_empty() {
-                    let mut min_dist_sq = f32::MAX;
-                    let mut target_vec = None;
+                let pac_speed = (self.width as f32 / 2.2).clamp(18.0, 32.0);
+                self.pacman_x += pac_speed * dt;
+                self.pacman_y = self.ground_y - (self.pacman_radius as f32) - 1.0;
 
-                    for p in &self.particles {
-                        let dx = p.x - self.pacman_x;
-                        let dy = p.y - self.pacman_y;
-                        let dist_sq = dx * dx + dy * dy;
-                        if dist_sq < min_dist_sq {
-                            min_dist_sq = dist_sq;
-                            target_vec = Some((dx, dy, dist_sq));
-                        }
-                    }
-
-                    if let Some((dx, dy, dist_sq)) = target_vec {
-                        let dist = dist_sq.sqrt();
-                        if dist > 0.5 {
-                            let speed = 34.0;
-                            let vx = (dx / dist) * speed;
-                            let vy = (dy / dist) * speed;
-
-                            self.pacman_x += vx * dt;
-                            self.pacman_y += vy * dt;
-
-                            if dx.abs() >= dy.abs() {
-                                self.pacman_facing_dir = if dx > 0.0 { 0 } else { 2 };
-                            } else {
-                                self.pacman_facing_dir = if dy > 0.0 { 1 } else { 3 };
-                            }
-                        }
-                    }
-                } else {
-                    // All particles eaten! Pacman and ghosts exit smoothly to the right
-                    self.pacman_x += 32.0 * dt;
-                    self.pacman_facing_dir = 0;
-                }
-
-                let pr = self.pacman_radius as f32;
-                self.pacman_y = self.pacman_y.clamp(8.0, (self.height as f32) - pr - 1.0);
-
-                // 7. Pacman Eats Particles & Spawns Floating Scores
+                // 7. Pacman Eats Particles on the floor & Spawns Floating Scores
                 let pac_cx = self.pacman_x;
                 let pac_cy = self.pacman_y;
-                let eat_rad_sq = (pr + 3.2).powi(2);
+                let eat_rad = self.pacman_radius as f32 + 3.5;
                 let mut eaten = 0;
 
                 self.particles.retain(|p| {
-                    let dx = p.x - pac_cx;
-                    let dy = p.y - pac_cy;
-                    if dx * dx + dy * dy < eat_rad_sq {
+                    if (p.x - pac_cx).abs() < eat_rad && (p.y - pac_cy).abs() < 10.0 {
                         eaten += 1;
                         false
                     } else {
@@ -1192,21 +1148,20 @@ impl SplashScreen {
                 }
             }
 
-            // 8c. 2D Pacman Particle Hunter & Trailing Ghosts (Activates when only particles remain)
+            // 8c. Pacman & Trailing Ghosts along the bottom floor (running Left -> Right)
             if self.pacman_active {
-                let trail_offsets = [8, 16, 24, 32];
+                let ghost_spacing = (self.pacman_radius * 2 + 3) as i32;
                 for (i, &gc) in self.ghost_colors.iter().enumerate() {
-                    let trail_idx = trail_offsets[i];
-                    let (gx, gy) = if trail_idx < self.pacman_trail.len() {
-                        self.pacman_trail[trail_idx]
-                    } else {
-                        (self.pacman_x - (i as f32 + 1.0) * 10.0, self.pacman_y)
-                    };
-
+                    let gx = self.pacman_x as i32
+                        - (self.pacman_radius * 3)
+                        - (i as i32 * ghost_spacing);
+                    let gy_offset = ((self.tick as f32 * 0.25 + i as f32 * 1.2).sin()
+                        * (self.pacman_radius as f32 * 0.35))
+                        as i32;
                     self.draw_ghost(
                         matrix,
-                        gx as i32,
-                        gy as i32,
+                        gx,
+                        self.pacman_y as i32 + gy_offset,
                         self.pacman_radius - 1,
                         gc,
                         self.tick,
@@ -1219,7 +1174,7 @@ impl SplashScreen {
                     self.pacman_y as i32,
                     self.pacman_radius,
                     self.pacman_mouth_angle,
-                    self.pacman_facing_dir,
+                    0, // Facing Right
                 );
             }
         } else {

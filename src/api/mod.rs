@@ -2,6 +2,7 @@ pub mod binance;
 pub mod cast;
 pub mod coingecko;
 pub mod crypto_provider;
+pub mod gnews;
 pub mod history;
 pub mod openweathermap;
 pub mod ota;
@@ -12,6 +13,7 @@ pub mod weather_provider;
 pub mod yahoo_finance;
 
 pub use crypto_provider::CryptoProvider;
+pub use gnews::GNewsProvider;
 pub use history::{PriceHistory, Timeframe};
 pub use server::run_server;
 pub use stock_provider::StockProvider;

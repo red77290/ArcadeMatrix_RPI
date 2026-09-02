@@ -233,7 +233,27 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
 | `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
-| `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
+### Engine: `gnews` (GNews Live Feed & Breaking News Ticker)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `api_key` | `String` | `""` | Any valid key | GNews.io API key (optional; uses demo articles if empty). |
+| `category` | `Options` | `technology` | `general`, `world`, `nation`, `business`, `technology`, `entertainment`, `sports`, `science`, `health` | Primary news category. |
+| `keywords` | `String` | `""` | Text / Query | Custom search query or filter tags (e.g. `ai OR arcade`). |
+| `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Article language (`auto` syncs with system language). |
+| `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Country edition (`auto` uses local region). |
+| `max_articles` | `int` | `5` | `3` to `15` | Maximum number of headlines cached and rotated per cycle. |
+| `cache_ttl_min` | `int` | `30` | `5` to `120` | Cache refresh interval in minutes between background API queries. |
+| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `static_paged` | Animation mode (60 FPS smooth horizontal ticker or paged word wrapping). |
+| `scroll_speed` | `int` | `3` | `1` to `5` | Ticker scrolling speed multiplier (1: Slow ~18 px/s to 5: Turbo ~60 px/s). |
+| `scroll_pause_start_ms` | `int` | `1200` | `0` to `4000` | Initial pause dwell time (ms) at headline start before scrolling. |
+| `scroll_pause_end_ms` | `int` | `1000` | `0` to `4000` | Pause dwell time (ms) at end of headline before transitioning. |
+| `article_duration_sec` | `int` | `12` | `5` to `60` | Display duration per article in seconds. |
+| `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Color palette scheme. |
+| `show_category_badge` | `bool` | `true` | `true`, `false` | Display color-coded category pill (`[TECH]`, `[WORLD]`, etc.). |
+| `show_source` | `bool` | `true` | `true`, `false` | Display news source name badge (`BBC News`, `Reuters`, etc.). |
+| `show_time_ago` | `bool` | `true` | `true`, `false` | Display relative time badge (`5m ago`, `2h ago`). |
+| `show_beacon` | `bool` | `true` | `true`, `false` | Display pulsing live broadcast beacon dot. |
+| `show_progress_dots` | `bool` | `true` | `true`, `false` | Display headline index dots (`● ○ ○ ○ ○`). |
 
 ### Engine: `weather`
 | Field | Type | Default | Options | Description |

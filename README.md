@@ -42,6 +42,7 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 * 🖥️ **System Monitor (`sysinfo`)**: Real-time monitoring of CPU usage (%), RAM (%), SoC temperature (°C/°F), and system Uptime with colored gauges and customizable visual themes.
 * 🥊 **M.U.G.E.N Fighter Engine (`fighter`)**: Authentic retro fighting game sprites decoded in RGB565 with zero stutter, playable standalone or as an overlay over your clocks, featuring live configurable animation speeds (25%–200%).
 * 📈 **Real-Time Crypto & Stock Tickers (`crypto`, `stock`)**: Live price quotes, 24h % badges, and historical sparkline charts from CoinGecko, Binance, and Yahoo Finance with smart caching.
+* 📰 **Live Breaking News & GNews Ticker (`gnews`)**: Real-time top headlines and breaking news with topic categories (Tech, World, Business, Science, Sports...), live pulsing broadcast beacon, customizable sub-pixel 60 FPS scrolling ticker, and multi-language/localization filtering!
 * 🌦️ **Dynamic Weather (`weather`)**: Live weather conditions, current temperature, multi-day forecasts, and animated retro icons powered by OpenWeatherMap.
 * ⏰ **Massive Animated Clock Selection (`clock`)**: Interactive clocks including Arcade, Binary, Cyberpunk, Flip, Word, as well as **Pac-Man**, **Tetris**, **SlotMachine**, **Pong**, and **Versus (Mugen)** clocks!
 * **Dynamically Loadable Fonts (`.ttf`)**: Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.

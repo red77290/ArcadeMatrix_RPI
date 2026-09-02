@@ -428,7 +428,7 @@ function initCustomMarquee() {
     } catch (e) {
       window.showToast('Failed to display marquee image', 'error');
     }
-  });
+  }
 }
 
 function initMedia() {

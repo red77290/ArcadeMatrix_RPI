@@ -13,6 +13,7 @@ pub mod weather_provider;
 pub mod yahoo_finance;
 
 pub use crypto_provider::CryptoProvider;
+#[allow(unused_imports)]
 pub use gnews::GNewsProvider;
 pub use history::{PriceHistory, Timeframe};
 pub use server::run_server;

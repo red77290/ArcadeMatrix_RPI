@@ -263,6 +263,16 @@ export function formatOptLabel(fieldId, val, raw) {
     const themeKey = `theme_${tName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     return dict[themeKey] || tName;
   }
+  // 9. Categories (GNews and general topics)
+  if (fieldId === 'category' || fieldId === 'categories') {
+    const catKey = `cat_${lower}`;
+    if (dict[catKey]) return dict[catKey];
+  }
+  // 10. Display modes
+  if (fieldId === 'display_mode') {
+    const dmKey = `opt_display_mode_${lower}`;
+    if (dict[dmKey]) return dict[dmKey];
+  }
   return raw || val;
 }
 
@@ -1615,9 +1625,13 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           formGroup.id = `fg-${cleanId}-${field.id}`;
           
           const label = document.createElement('label');
-          label.innerText = field.label || field.id;
+          const lang = localStorage.getItem('lang') || 'en';
+          const dict = (typeof translations !== 'undefined' && translations && translations[lang]) ? translations[lang] : ((typeof translations !== 'undefined' && translations) ? translations.en : {});
+          const fieldLabelKey = `field_${field.id}`;
+          const fieldDescKey = `field_desc_${field.id}`;
+          label.innerText = (dict && dict[fieldLabelKey]) ? dict[fieldLabelKey] : (field.label || field.id);
           if (field.description) {
-            label.title = field.description;
+            label.title = (dict && dict[fieldDescKey]) ? dict[fieldDescKey] : field.description;
             label.style.cursor = 'help';
             label.innerHTML += ' ℹ️';
           }

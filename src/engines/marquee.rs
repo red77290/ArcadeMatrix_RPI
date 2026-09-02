@@ -64,7 +64,10 @@ impl Engine for MarqueeEngine {
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn render(&mut self, context: &mut EngineContext) {
-        if let Some(img) = &self.image {
+        let lock = context.config.image_obj.lock();
+        if let Some(img) = lock.as_ref() {
+            self.render_image(&mut *context.matrix, img);
+        } else if let Some(img) = &self.image {
             self.render_image(&mut *context.matrix, img);
         }
     }

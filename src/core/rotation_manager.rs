@@ -102,7 +102,7 @@ impl RotationManager {
         }
     }
 
-    /// Resolves the current EngineHandle from config instances
+    /// [Control-Plane / Cold Path Compatibility Only] Resolves the current EngineHandle from config instances
     pub fn current_handle(
         &self,
         rotation_list: &[RotationEntry],
@@ -121,7 +121,7 @@ impl RotationManager {
         Some(handle)
     }
 
-    /// Builds a DisplayRequest with a pre-resolved EngineHandle (zero allocation, O(1))
+    /// Builds a DisplayRequest with a pre-resolved EngineHandle (zero allocation, O(1) realtime path)
     #[inline]
     pub fn build_rotation_request_with_handle(
         &self,
@@ -139,7 +139,7 @@ impl RotationManager {
         )
     }
 
-    /// Builds a DisplayRequest for the currently active rotation slot
+    /// [Control-Plane / Cold Path Compatibility Only] Builds a DisplayRequest for the currently active rotation slot
     pub fn build_rotation_request(
         &self,
         rotation_list: &[RotationEntry],

@@ -281,7 +281,7 @@ pub struct Config {
     pub matrix_power: AtomicBool,
     pub matrix_brightness: AtomicU32,
     pub force_engine: Mutex<Option<String>>,
-    pub message_payload: Mutex<Option<serde_json::Value>>,
+    pub message_payload: Mutex<Option<crate::engines::message::MessagePayload>>,
     pub image_obj: Mutex<Option<image::RgbImage>>,
     pub settings: RwLock<ConfigSettings>,
 }

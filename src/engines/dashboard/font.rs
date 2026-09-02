@@ -105,6 +105,32 @@ pub static GLCD_FONT_5X7: [[u8; 5]; 95] = [
     [0x00, 0x06, 0x09, 0x09, 0x06], // 126 '°' (Degree sign mapped to index 94)
 ];
 
+pub fn normalize_char(c: char) -> char {
+    match c {
+        'é' | 'è' | 'ê' | 'ë' => 'e',
+        'É' | 'È' | 'Ê' | 'Ë' => 'E',
+        'à' | 'â' | 'ä' | 'á' | 'ã' | 'å' => 'a',
+        'À' | 'Â' | 'Ä' | 'Á' | 'Ã' | 'Å' => 'A',
+        'ç' => 'c',
+        'Ç' => 'C',
+        'î' | 'ï' | 'í' | 'ì' => 'i',
+        'Î' | 'Ï' | 'Í' | 'Ì' => 'I',
+        'ô' | 'ö' | 'ó' | 'ò' | 'õ' => 'o',
+        'Ô' | 'Ö' | 'Ó' | 'Ò' | 'Õ' => 'O',
+        'ù' | 'û' | 'ü' | 'ú' => 'u',
+        'Ù' | 'Û' | 'Ü' | 'Ú' => 'U',
+        'ñ' => 'n',
+        'Ñ' => 'N',
+        'ÿ' => 'y',
+        '’' | '‘' | '`' | '´' => '\'',
+        '“' | '”' | '«' | '»' => '"',
+        '–' | '—' | '−' => '-',
+        '…' => '.',
+        '°' => '°',
+        other => other,
+    }
+}
+
 pub fn draw_char_clipped(
     matrix: &mut dyn MatrixBackend,
     c: char,
@@ -116,10 +142,11 @@ pub fn draw_char_clipped(
     max_y: i32,
     color: (u8, u8, u8),
 ) {
-    let idx = match c {
+    let norm_c = normalize_char(c);
+    let idx = match norm_c {
         '°' => 94,
         _ => {
-            let u = c as u32;
+            let u = norm_c as u32;
             if u >= 32 && u <= 126 {
                 (u - 32) as usize
             } else {
@@ -159,6 +186,72 @@ pub fn draw_text_clipped(
     for c in text.chars() {
         draw_char_clipped(matrix, c, x, y, min_x, max_x, min_y, max_y, color);
         x += 6; // 5px char + 1px spacing
+    }
+}
+
+pub fn draw_char_scaled(
+    matrix: &mut dyn MatrixBackend,
+    c: char,
+    x: i32,
+    y: i32,
+    min_x: i32,
+    max_x: i32,
+    min_y: i32,
+    max_y: i32,
+    scale: i32,
+    color: (u8, u8, u8),
+) {
+    let norm_c = normalize_char(c);
+    let idx = match norm_c {
+        '°' => 94,
+        _ => {
+            let u = norm_c as u32;
+            if u >= 32 && u <= 126 {
+                (u - 32) as usize
+            } else {
+                return;
+            }
+        }
+    };
+
+    let glyph = &GLCD_FONT_5X7[idx];
+    for col in 0..5 {
+        let mut line = glyph[col];
+        for row in 0..7 {
+            if (line & 1) != 0 {
+                for sx in 0..scale {
+                    let px = x + (col as i32) * scale + sx;
+                    if px < min_x || px >= max_x {
+                        continue;
+                    }
+                    for sy in 0..scale {
+                        let py = y + row * scale + sy;
+                        if py >= min_y && py < max_y {
+                            matrix.set_pixel(px, py, color.0, color.1, color.2);
+                        }
+                    }
+                }
+            }
+            line >>= 1;
+        }
+    }
+}
+
+pub fn draw_text_scaled(
+    matrix: &mut dyn MatrixBackend,
+    text: &str,
+    mut x: i32,
+    y: i32,
+    min_x: i32,
+    max_x: i32,
+    min_y: i32,
+    max_y: i32,
+    scale: i32,
+    color: (u8, u8, u8),
+) {
+    for c in text.chars() {
+        draw_char_scaled(matrix, c, x, y, min_x, max_x, min_y, max_y, scale, color);
+        x += 6 * scale;
     }
 }
 

@@ -5,7 +5,6 @@ use crate::core::types::{
     DisplayDecision, DisplayGeometry, DisplaySession, DisplaySourceId, PreemptionEntry,
     TransitionMode,
 };
-use std::collections::HashMap;
 use std::time::Instant;
 
 pub const MAX_PREEMPTION_DEPTH: usize = 4;
@@ -120,19 +119,18 @@ impl DisplayRuntime {
     }
 
     /// Evaluates and applies the session transition based on DisplayDecision and current intent state.
+    /// Pure realtime execution: O(1) bounded, zero heap allocation, zero HashMap lookups.
     pub fn transition_session(
         &mut self,
         decision: DisplayDecision,
         arbiter: &DisplayArbiter,
         engine_runtime: &mut EngineRuntime,
-        context: &mut EngineContext,
-        config_map: &HashMap<String, String>,
     ) -> TransitionMode {
         // 1. Decision is NONE (no active intent winning)
         if decision.is_none() {
             if self.active_session.is_active {
                 // Active session ended -> Unwind preemption stack to find valid resumable session
-                return self.unwind_stack_to_resume(arbiter, engine_runtime, context, config_map);
+                return self.unwind_stack_to_resume(arbiter, engine_runtime);
             }
             return TransitionMode::None;
         }
@@ -154,15 +152,6 @@ impl DisplayRuntime {
             {
                 self.active_session.request_id = decision.request_id;
                 self.active_session.priority = decision.priority;
-                // In-place engine update without lifecycle disruption
-                if let Some(engine) = engine_runtime.get_instance_by_handle(
-                    decision.engine_handle,
-                    context,
-                    config_map,
-                ) {
-                    let cfg = crate::core::engine_contract::HashConfig { data: config_map };
-                    engine.on_config_changed(&cfg);
-                }
                 return TransitionMode::None;
             }
 
@@ -197,7 +186,7 @@ impl DisplayRuntime {
                 self.preemption_stack.push(preemption_entry);
 
                 // 4. Activate new preemptive session
-                self.activate_new(decision, engine_runtime, context, config_map);
+                self.activate_new(decision, engine_runtime);
                 return TransitionMode::Preempt;
             }
 
@@ -211,7 +200,7 @@ impl DisplayRuntime {
                 }
 
                 self.deactivate_current(engine_runtime);
-                self.activate_new(decision, engine_runtime, context, config_map);
+                self.activate_new(decision, engine_runtime);
                 return TransitionMode::Replace;
             }
 
@@ -224,13 +213,7 @@ impl DisplayRuntime {
                     self.active_session.engine_handle,
                 ) {
                     self.deactivate_current(engine_runtime);
-                    return self.unwind_stack_or_activate(
-                        decision,
-                        arbiter,
-                        engine_runtime,
-                        context,
-                        config_map,
-                    );
+                    return self.unwind_stack_or_activate(decision, arbiter, engine_runtime);
                 }
                 // Otherwise if active source still has a valid intent, it stays dominant
                 return TransitionMode::None;
@@ -244,7 +227,7 @@ impl DisplayRuntime {
                     return TransitionMode::None; // Rejet transactionnel
                 }
                 self.deactivate_current(engine_runtime);
-                self.activate_new(decision, engine_runtime, context, config_map);
+                self.activate_new(decision, engine_runtime);
                 return TransitionMode::Replace;
             }
         } else {
@@ -252,7 +235,7 @@ impl DisplayRuntime {
             if !engine_runtime.resolve_handle(decision.engine_handle) {
                 return TransitionMode::None; // Rejet transactionnel
             }
-            self.activate_new(decision, engine_runtime, context, config_map);
+            self.activate_new(decision, engine_runtime);
             return TransitionMode::Replace;
         }
 
@@ -264,8 +247,6 @@ impl DisplayRuntime {
         &mut self,
         arbiter: &DisplayArbiter,
         engine_runtime: &mut EngineRuntime,
-        context: &mut EngineContext,
-        config_map: &HashMap<String, String>,
     ) -> TransitionMode {
         self.deactivate_current(engine_runtime);
 
@@ -278,9 +259,7 @@ impl DisplayRuntime {
             };
 
             if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
-                if let Some(engine) =
-                    engine_runtime.get_instance_by_handle(top.engine_handle, context, config_map)
-                {
+                if let Some(engine) = engine_runtime.get_instance_by_handle(top.engine_handle) {
                     engine.resume();
                     self.active_session = DisplaySession {
                         session_id: top.session_id,
@@ -301,7 +280,7 @@ impl DisplayRuntime {
         }
 
         self.active_session = DisplaySession::empty();
-        TransitionMode::Resume
+        TransitionMode::None
     }
 
     /// Resumes parent stack entry or activates lower winning intent
@@ -310,8 +289,6 @@ impl DisplayRuntime {
         decision: DisplayDecision,
         arbiter: &DisplayArbiter,
         engine_runtime: &mut EngineRuntime,
-        context: &mut EngineContext,
-        config_map: &HashMap<String, String>,
     ) -> TransitionMode {
         // First try to resume from stack if top matches decision
         while let Some(top) = self.preemption_stack.pop() {
@@ -319,9 +296,7 @@ impl DisplayRuntime {
                 && top.engine_handle == decision.engine_handle
                 && top.request_id == decision.request_id
             {
-                if let Some(engine) =
-                    engine_runtime.get_instance_by_handle(top.engine_handle, context, config_map)
-                {
+                if let Some(engine) = engine_runtime.get_instance_by_handle(top.engine_handle) {
                     engine.resume();
                     self.active_session = DisplaySession {
                         session_id: top.session_id,
@@ -341,11 +316,7 @@ impl DisplayRuntime {
                     arbiter.has_matching_request(top.source_id, top.request_id, top.engine_handle)
                 };
                 if is_still_desired && engine_runtime.resolve_handle(top.engine_handle) {
-                    if let Some(engine) = engine_runtime.get_instance_by_handle(
-                        top.engine_handle,
-                        context,
-                        config_map,
-                    ) {
+                    if let Some(engine) = engine_runtime.get_instance_by_handle(top.engine_handle) {
                         engine.resume();
                         self.active_session = DisplaySession {
                             session_id: top.session_id,
@@ -367,20 +338,12 @@ impl DisplayRuntime {
         }
 
         // Otherwise activate the decision directly
-        self.activate_new(decision, engine_runtime, context, config_map);
-        TransitionMode::Resume
+        self.activate_new(decision, engine_runtime);
+        TransitionMode::Replace
     }
 
-    fn activate_new(
-        &mut self,
-        decision: DisplayDecision,
-        engine_runtime: &mut EngineRuntime,
-        context: &mut EngineContext,
-        config_map: &HashMap<String, String>,
-    ) {
-        if let Some(engine) =
-            engine_runtime.get_instance_by_handle(decision.engine_handle, context, config_map)
-        {
+    fn activate_new(&mut self, decision: DisplayDecision, engine_runtime: &mut EngineRuntime) {
+        if let Some(engine) = engine_runtime.get_instance_by_handle(decision.engine_handle) {
             engine.activate();
         }
 

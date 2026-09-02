@@ -154,8 +154,8 @@ impl DisplaySession {
     }
 }
 
-/// Compact stack entry for deterministic preemption tracking (20 bytes POD)
-#[derive(Debug, Clone, Copy)]
+/// Compact stack entry for deterministic preemption tracking (POD representation)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PreemptionEntry {
     pub session_id: u32,
     pub source_id: DisplaySourceId,

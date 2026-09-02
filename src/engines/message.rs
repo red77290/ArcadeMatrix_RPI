@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use std::time::Instant;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessagePayload {
     pub text: String,
     pub color: String,
@@ -203,6 +203,25 @@ impl Engine for MessageEngine {
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        if let Some(payload) = context.config.message_payload.lock().as_ref() {
+            if self.text != payload.text
+                || self.color != payload.color
+                || self.size != payload.size
+                || self.direction != payload.direction
+                || self.speed != payload.speed
+            {
+                self.text = payload.text.clone();
+                self.color = payload.color.clone();
+                self.size = payload.size;
+                self.direction = payload.direction.clone();
+                self.speed = payload.speed;
+                self.reset_state(
+                    context.matrix.width() as f32,
+                    context.matrix.height() as f32,
+                );
+            }
+        }
+
         let now = Instant::now();
         let dt = self
             .last_update

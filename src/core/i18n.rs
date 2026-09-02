@@ -391,12 +391,59 @@ pub fn noise_level(lang: Lang, level_index: usize) -> &'static str {
     }
 }
 
+// ----------------------------------------------------------------------------
+// 6. GNews Status Labels
+// ----------------------------------------------------------------------------
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GNewsStatus {
+    Ok,
+    EmptyKey,
+    InvalidKey,
+    RateLimited,
+    NetworkError,
+    Loading,
+}
+
+pub fn gnews_status_label(lang: Lang, status: GNewsStatus) -> &'static str {
+    match status {
+        GNewsStatus::EmptyKey => match lang {
+            Lang::Fr => "CLE API REQUISE",
+            Lang::En => "API KEY REQUIRED",
+            Lang::Es => "CLAVE API REQUERIDA",
+        },
+        GNewsStatus::InvalidKey => match lang {
+            Lang::Fr => "CLE API INVALIDE",
+            Lang::En => "INVALID API KEY",
+            Lang::Es => "CLAVE API INVALIDA",
+        },
+        GNewsStatus::RateLimited => match lang {
+            Lang::Fr => "LIMITE ATTEINTE",
+            Lang::En => "RATE LIMITED",
+            Lang::Es => "LIMITE SUPERADO",
+        },
+        GNewsStatus::NetworkError => match lang {
+            Lang::Fr => "ERREUR RESEAU",
+            Lang::En => "NETWORK ERROR",
+            Lang::Es => "ERROR DE RED",
+        },
+        GNewsStatus::Loading => match lang {
+            Lang::Fr => "CHARGEMENT...",
+            Lang::En => "LOADING...",
+            Lang::Es => "CARGANDO...",
+        },
+        GNewsStatus::Ok => "GNEWS LIVE",
+    }
+}
+
+// ============================================================================
+// Unit Tests
+// ============================================================================
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_lang_from_code() {
+    fn test_lang_parsing() {
         assert_eq!(Lang::from_code("fr"), Lang::Fr);
         assert_eq!(Lang::from_code("FR"), Lang::Fr);
         assert_eq!(Lang::from_code("en"), Lang::En);
@@ -412,6 +459,17 @@ mod tests {
             for day in 0..7 {
                 assert!(!weather_day_label(lang, day, false, false).is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn test_gnews_status_labels() {
+        for lang in [Lang::Fr, Lang::En, Lang::Es] {
+            assert!(!gnews_status_label(lang, GNewsStatus::EmptyKey).is_empty());
+            assert!(!gnews_status_label(lang, GNewsStatus::InvalidKey).is_empty());
+            assert!(!gnews_status_label(lang, GNewsStatus::RateLimited).is_empty());
+            assert!(!gnews_status_label(lang, GNewsStatus::NetworkError).is_empty());
+            assert!(!gnews_status_label(lang, GNewsStatus::Loading).is_empty());
         }
     }
 

@@ -123,8 +123,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() =
-                                            Some(serde_json::to_value(msg_payload).unwrap());
+                                        *config.message_payload.lock() = Some(msg_payload);
                                         *config.force_engine.lock() = Some("message".to_string());
 
                                         let config_clone = Arc::clone(&config);
@@ -175,8 +174,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() =
-                                            Some(serde_json::to_value(msg_payload).unwrap());
+                                        *config.message_payload.lock() = Some(msg_payload);
                                         *config.force_engine.lock() = Some("message".to_string());
 
                                         let config_clone = Arc::clone(&config);

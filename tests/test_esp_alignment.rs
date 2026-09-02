@@ -1,14 +1,11 @@
 use arcadematrix::core::arbiter::DisplayArbiter;
-use arcadematrix::core::engine_contract::{Engine, EngineContext, HashConfig};
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
 use arcadematrix::core::orientation::OrientationManager;
-use arcadematrix::core::registry::{EngineRegistry, EngineRuntime};
+use arcadematrix::core::registry::EngineRuntime;
 use arcadematrix::core::runtime::DisplayRuntime;
 use arcadematrix::core::types::{
     DisplayDecision, DisplayRequest, DisplaySourceId, EngineHandle, ProducerSyncState,
     RequestIdGenerator, RequestLifecycle, TransitionMode,
 };
-use std::collections::HashMap;
 use std::time::Instant;
 
 // =========================================================================
@@ -60,21 +57,7 @@ fn test_a02_runtime_exclusively_owns_session() {
     let mut engine_runtime = EngineRuntime::new();
     engine_runtime.register_instance_handle("clock_main", "clock");
 
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
-
-    let mode = runtime.transition_session(
-        decision,
-        &arbiter,
-        &mut engine_runtime,
-        &mut ctx,
-        &config_map,
-    );
+    let mode = runtime.transition_session(decision, &arbiter, &mut engine_runtime);
 
     assert_eq!(mode, TransitionMode::Replace);
     assert!(runtime.is_active());
@@ -96,14 +79,6 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         engine_runtime.register_instance_handle(&format!("inst_{}", i), "clock");
     }
 
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
-
     // 1. Activate baseline (depth = 0)
     let d1 = DisplayDecision {
         source_id: DisplaySourceId::Rotation,
@@ -113,7 +88,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: false,
     };
     assert_eq!(
-        runtime.transition_session(d1, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d1, &arbiter, &mut engine_runtime),
         TransitionMode::Replace
     );
     assert_eq!(runtime.preemption_depth(), 0);
@@ -127,7 +102,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(d2, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d2, &arbiter, &mut engine_runtime),
         TransitionMode::Preempt
     );
     assert_eq!(runtime.preemption_depth(), 1);
@@ -141,7 +116,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(d3, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d3, &arbiter, &mut engine_runtime),
         TransitionMode::Preempt
     );
     assert_eq!(runtime.preemption_depth(), 2);
@@ -155,7 +130,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(d4, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d4, &arbiter, &mut engine_runtime),
         TransitionMode::Preempt
     );
     assert_eq!(runtime.preemption_depth(), 3);
@@ -169,7 +144,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(d5, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d5, &arbiter, &mut engine_runtime),
         TransitionMode::Preempt
     );
     assert_eq!(runtime.preemption_depth(), 4);
@@ -183,7 +158,7 @@ fn test_a03_preemption_stack_fixed_capacity_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(d6, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(d6, &arbiter, &mut engine_runtime),
         TransitionMode::None
     );
     assert_eq!(runtime.preemption_depth(), 4);
@@ -205,14 +180,6 @@ fn test_b01_preemption_and_exact_resume() {
     let handle_rot = engine_runtime.register_instance_handle("rot_clock", "clock");
     let handle_mqtt = engine_runtime.register_instance_handle("mqtt_msg", "message");
 
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
-
     // 1. Rotation active
     arbiter.submit_request(DisplayRequest::new(
         DisplaySourceId::Rotation,
@@ -225,7 +192,7 @@ fn test_b01_preemption_and_exact_resume() {
     ));
     let dec1 = arbiter.evaluate(Instant::now());
     assert_eq!(
-        runtime.transition_session(dec1, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(dec1, &arbiter, &mut engine_runtime),
         TransitionMode::Replace
     );
     assert_eq!(runtime.active_session().engine_handle, handle_rot);
@@ -242,7 +209,7 @@ fn test_b01_preemption_and_exact_resume() {
     ));
     let dec2 = arbiter.evaluate(Instant::now());
     assert_eq!(
-        runtime.transition_session(dec2, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(dec2, &arbiter, &mut engine_runtime),
         TransitionMode::Preempt
     );
     assert_eq!(runtime.active_session().engine_handle, handle_mqtt);
@@ -253,7 +220,7 @@ fn test_b01_preemption_and_exact_resume() {
     let dec3 = arbiter.evaluate(Instant::now());
     assert_eq!(dec3.source_id, DisplaySourceId::Rotation);
     assert_eq!(
-        runtime.transition_session(dec3, &arbiter, &mut engine_runtime, &mut ctx, &config_map),
+        runtime.transition_session(dec3, &arbiter, &mut engine_runtime),
         TransitionMode::Resume
     );
     assert_eq!(runtime.active_session().engine_handle, handle_rot);
@@ -270,14 +237,6 @@ fn test_b02_submerged_orphan_cleanup_on_resume() {
     let handle_mar = engine_runtime.register_instance_handle("mar_1", "marquee");
     let handle_mqtt = engine_runtime.register_instance_handle("mqtt_1", "message");
 
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
-
     // Baseline: Rotation
     arbiter.submit_request(DisplayRequest::new(
         DisplaySourceId::Rotation,
@@ -289,7 +248,7 @@ fn test_b02_submerged_orphan_cleanup_on_resume() {
         10000,
     ));
     let dec1 = arbiter.evaluate(Instant::now());
-    runtime.transition_session(dec1, &arbiter, &mut engine_runtime, &mut ctx, &config_map);
+    runtime.transition_session(dec1, &arbiter, &mut engine_runtime);
 
     // Preemption 1: Marquee (priority 30)
     arbiter.submit_request(DisplayRequest::new(
@@ -302,7 +261,7 @@ fn test_b02_submerged_orphan_cleanup_on_resume() {
         0,
     ));
     let dec2 = arbiter.evaluate(Instant::now());
-    runtime.transition_session(dec2, &arbiter, &mut engine_runtime, &mut ctx, &config_map);
+    runtime.transition_session(dec2, &arbiter, &mut engine_runtime);
     assert_eq!(runtime.preemption_depth(), 1);
 
     // Preemption 2: MQTT (priority 40)
@@ -316,7 +275,7 @@ fn test_b02_submerged_orphan_cleanup_on_resume() {
         5000,
     ));
     let dec3 = arbiter.evaluate(Instant::now());
-    runtime.transition_session(dec3, &arbiter, &mut engine_runtime, &mut ctx, &config_map);
+    runtime.transition_session(dec3, &arbiter, &mut engine_runtime);
     assert_eq!(runtime.preemption_depth(), 2);
 
     // While MQTT is active, Marquee game ends (cancelled in Arbiter)
@@ -327,8 +286,7 @@ fn test_b02_submerged_orphan_cleanup_on_resume() {
     let dec4 = arbiter.evaluate(Instant::now());
 
     // Resume should cleanly discard orphan Marquee and resume Rotation directly
-    let mode =
-        runtime.transition_session(dec4, &arbiter, &mut engine_runtime, &mut ctx, &config_map);
+    let mode = runtime.transition_session(dec4, &arbiter, &mut engine_runtime);
     assert_eq!(mode, TransitionMode::Resume);
     assert_eq!(runtime.active_session().engine_handle, handle_rot);
     assert_eq!(runtime.preemption_depth(), 0);
@@ -418,14 +376,6 @@ fn test_c02_transactional_resolution_rejection() {
     let mut engine_runtime = EngineRuntime::new();
     engine_runtime.register_instance_handle("valid_inst", "clock");
 
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
-
     // 1. Valid session
     let d_valid = DisplayDecision {
         source_id: DisplaySourceId::Rotation,
@@ -435,13 +385,7 @@ fn test_c02_transactional_resolution_rejection() {
         preemptive: false,
     };
     assert_eq!(
-        runtime.transition_session(
-            d_valid,
-            &arbiter,
-            &mut engine_runtime,
-            &mut ctx,
-            &config_map
-        ),
+        runtime.transition_session(d_valid, &arbiter, &mut engine_runtime,),
         TransitionMode::Replace
     );
     assert!(runtime.is_active());
@@ -455,13 +399,7 @@ fn test_c02_transactional_resolution_rejection() {
         preemptive: true,
     };
     assert_eq!(
-        runtime.transition_session(
-            d_invalid,
-            &arbiter,
-            &mut engine_runtime,
-            &mut ctx,
-            &config_map
-        ),
+        runtime.transition_session(d_invalid, &arbiter, &mut engine_runtime,),
         TransitionMode::None
     );
     assert_eq!(
@@ -482,14 +420,6 @@ fn test_d01_h_core_hot_path_zero_allocation_simulation() {
 
     let h1 = engine_runtime.register_instance_handle("inst_a", "clock");
     let h2 = engine_runtime.register_instance_handle("inst_b", "message");
-
-    let mut matrix = MockMatrix::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
-    let mut ctx = EngineContext {
-        matrix: &mut matrix,
-        config: &config,
-    };
-    let config_map = HashMap::new();
 
     let mut sync_state = ProducerSyncState::INIT;
 
@@ -519,12 +449,6 @@ fn test_d01_h_core_hot_path_zero_allocation_simulation() {
         let decision = arbiter.evaluate(now);
         assert!(engine_runtime.resolve_handle(h1));
 
-        let _ = runtime.transition_session(
-            decision,
-            &arbiter,
-            &mut engine_runtime,
-            &mut ctx,
-            &config_map,
-        );
+        let _ = runtime.transition_session(decision, &arbiter, &mut engine_runtime);
     }
 }

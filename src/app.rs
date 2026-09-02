@@ -262,6 +262,8 @@ struct RuntimeSnapshot {
     rotation: Vec<ResolvedRotationEntry>,
     system: crate::core::config::SystemConfig,
     display_rotation: u8,
+    mqtt_handle: EngineHandle,
+    marquee_handle: EngineHandle,
 }
 
 #[inline]
@@ -274,13 +276,24 @@ pub fn normalize_rotation(val: u32) -> u8 {
     }
 }
 
-fn build_runtime_snapshot(config: &Config, engine_runtime: &mut EngineRuntime) -> RuntimeSnapshot {
+fn build_runtime_snapshot(
+    config: &Config,
+    engine_runtime: &mut EngineRuntime,
+    matrix: &mut dyn MatrixBackend,
+) -> RuntimeSnapshot {
     let settings = config.settings.read();
+    let mut ctx = crate::core::engine_contract::EngineContext { matrix, config };
+
     for inst in &settings.instances {
-        engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
+        let handle = engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
+        engine_runtime.init_instance(handle, &mut ctx, &inst.config);
     }
-    engine_runtime.register_instance_handle("mqtt_message", "message");
-    engine_runtime.register_instance_handle("marquee", "marquee");
+    let mqtt_handle = engine_runtime.register_instance_handle("mqtt_message", "message");
+    let empty_cfg = std::collections::HashMap::new();
+    engine_runtime.init_instance(mqtt_handle, &mut ctx, &empty_cfg);
+
+    let marquee_handle = engine_runtime.register_instance_handle("marquee", "marquee");
+    engine_runtime.init_instance(marquee_handle, &mut ctx, &empty_cfg);
 
     let mut rotation = Vec::with_capacity(settings.rotation.len());
     for entry in &settings.rotation {
@@ -307,6 +320,8 @@ fn build_runtime_snapshot(config: &Config, engine_runtime: &mut EngineRuntime) -
         rotation,
         system: settings.system.clone(),
         display_rotation: normalize_rotation(settings.matrix.rotation),
+        mqtt_handle,
+        marquee_handle,
     }
 }
 
@@ -428,7 +443,7 @@ impl ArcadeMatrixApp {
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
-        let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
+        let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime, matrix.as_mut());
         matrix.set_rotation(snapshot.display_rotation);
         let mut orientation_manager = crate::core::orientation::OrientationManager::new(
             width,
@@ -442,7 +457,7 @@ impl ArcadeMatrixApp {
         let mut message_sync = ProducerSyncState::INIT;
         let mut marquee_sync = ProducerSyncState::INIT;
         let mut rotation_sync = ProducerSyncState::INIT;
-        let mut last_message_payload: Option<serde_json::Value> = None;
+        let mut last_message_payload: Option<crate::engines::message::MessagePayload> = None;
 
         // 1. Run interactive Startup Splash Screen
         let active_ip = crate::core::splash::SplashScreen::run(
@@ -477,8 +492,6 @@ impl ArcadeMatrixApp {
         matrix.clear();
         matrix.update();
 
-        let empty_config_map = std::collections::HashMap::new();
-
         while running.load(Ordering::SeqCst) {
             // Auto-restart if configuration requires hardware reload
             if config.reload_flag.swap(false, Ordering::Relaxed) {
@@ -489,7 +502,7 @@ impl ArcadeMatrixApp {
             }
 
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
-                snapshot = build_runtime_snapshot(&config, &mut engine_runtime);
+                snapshot = build_runtime_snapshot(&config, &mut engine_runtime, matrix.as_mut());
                 rotation_manager.reset();
                 matrix.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
@@ -533,58 +546,55 @@ impl ArcadeMatrixApp {
                 continue;
             }
 
-            // --- PRODUCER SYNCHRONIZATION (EDGE-TRIGGERED) ---
+            // --- PRODUCER SYNCHRONIZATION (EDGE-TRIGGERED, ZERO ALLOCATION) ---
 
             // 1. Sync MQTT/Message & Marquee Producers
-            let forced_opt = config.force_engine.lock().clone();
-            if let Some(ref forced_mode) = forced_opt {
-                if forced_mode == "message" {
-                    let payload_val_opt = config.message_payload.lock().clone();
-                    if payload_val_opt != last_message_payload {
-                        last_message_payload = payload_val_opt.clone();
-                        if let Some(payload_val) = payload_val_opt {
-                            if let Ok(payload) = serde_json::from_value::<
-                                crate::engines::message::MessagePayload,
-                            >(payload_val)
-                            {
-                                let handle = engine_runtime
-                                    .register_instance_handle("mqtt_message", "message");
-                                let req_id = mqtt_req_gen.next_id();
-                                let duration_ms = if payload.timeout_seconds > 0 {
-                                    (payload.timeout_seconds * 1000) as u32
-                                } else {
-                                    5000
-                                };
-                                let req = DisplayRequest::new(
-                                    DisplaySourceId::Mqtt,
-                                    req_id,
-                                    handle,
-                                    DisplaySourceId::Mqtt as u8,
-                                    RequestLifecycle::Transient,
-                                    true,
-                                    duration_ms,
-                                );
-                                arbiter.submit_request(req);
-                                message_sync.update(true, req_id, handle);
-                            }
-                        }
-                    }
-                } else if forced_mode == "marquee" {
-                    if !marquee_sync.active {
-                        let handle = engine_runtime.register_instance_handle("marquee", "marquee");
-                        let req_id = marquee_req_gen.next_id();
+            let forced_mode_is_msg;
+            let forced_mode_is_marquee;
+            {
+                let forced_guard = config.force_engine.lock();
+                forced_mode_is_msg = forced_guard.as_deref() == Some("message");
+                forced_mode_is_marquee = forced_guard.as_deref() == Some("marquee");
+            }
+
+            if forced_mode_is_msg {
+                let payload_opt = { config.message_payload.lock().clone() };
+                if payload_opt != last_message_payload {
+                    last_message_payload = payload_opt.clone();
+                    if let Some(payload) = payload_opt {
+                        let req_id = mqtt_req_gen.next_id();
+                        let duration_ms = if payload.timeout_seconds > 0 {
+                            payload.timeout_seconds * 1000
+                        } else {
+                            5000
+                        };
                         let req = DisplayRequest::new(
-                            DisplaySourceId::Marquee,
+                            DisplaySourceId::Mqtt,
                             req_id,
-                            handle,
-                            DisplaySourceId::Marquee as u8,
-                            RequestLifecycle::Persistent,
+                            snapshot.mqtt_handle,
+                            DisplaySourceId::Mqtt as u8,
+                            RequestLifecycle::Transient,
                             true,
-                            0,
+                            duration_ms,
                         );
                         arbiter.submit_request(req);
-                        marquee_sync.update(true, req_id, handle);
+                        message_sync.update(true, req_id, snapshot.mqtt_handle);
                     }
+                }
+            } else if forced_mode_is_marquee {
+                if !marquee_sync.active {
+                    let req_id = marquee_req_gen.next_id();
+                    let req = DisplayRequest::new(
+                        DisplaySourceId::Marquee,
+                        req_id,
+                        snapshot.marquee_handle,
+                        DisplaySourceId::Marquee as u8,
+                        RequestLifecycle::Persistent,
+                        true,
+                        0,
+                    );
+                    arbiter.submit_request(req);
+                    marquee_sync.update(true, req_id, snapshot.marquee_handle);
                 }
             } else {
                 last_message_payload = None;
@@ -617,40 +627,19 @@ impl ArcadeMatrixApp {
             // 3. Evaluate Arbiter (O(1), zero allocation)
             let decision = arbiter.evaluate(std::time::Instant::now());
 
-            // 4. Resolve active config map
-            let settings_guard = config.settings.read();
-            let active_config_map = if let Some((inst_name, _)) =
-                engine_runtime.handle_to_names(decision.engine_handle)
-            {
-                settings_guard
-                    .instances
-                    .iter()
-                    .find(|i| i.instance_id == inst_name)
-                    .map(|i| &i.config)
-                    .unwrap_or(&empty_config_map)
-            } else {
-                &empty_config_map
-            };
-
-            // 5 & 6. Transition, Update & Render Active Engine in scoped context
+            // 4. Transition, Update & Render Active Engine in scoped context
             let mut realtime_cadence = false;
             let mut is_finished = false;
             let mut self_paced = false;
             let mut allows_overlay = false;
 
             {
+                runtime.transition_session(decision, &arbiter, &mut engine_runtime);
+
                 let mut ctx = crate::core::engine_contract::EngineContext {
                     matrix: matrix.as_mut(),
                     config: &config,
                 };
-                runtime.transition_session(
-                    decision,
-                    &arbiter,
-                    &mut engine_runtime,
-                    &mut ctx,
-                    active_config_map,
-                );
-
                 ctx.matrix.clear();
                 runtime.update(&mut engine_runtime, &mut ctx);
                 runtime.render(&mut engine_runtime, &mut ctx);
@@ -664,9 +653,8 @@ impl ArcadeMatrixApp {
                     allows_overlay = engine.allows_overlay();
                 }
             }
-            drop(settings_guard);
 
-            // 7. Configure & Composite Overlay
+            // 5. Configure & Composite Overlay
             if allows_overlay && !snapshot.rotation.is_empty() {
                 let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
                 let rot_entry = &snapshot.rotation[curr_idx];
@@ -678,7 +666,7 @@ impl ArcadeMatrixApp {
                 );
             }
 
-            // 8. Check rotation advance
+            // 6. Check rotation advance
             if runtime.active_session().source_id == DisplaySourceId::Rotation
                 && !snapshot.rotation.is_empty()
             {

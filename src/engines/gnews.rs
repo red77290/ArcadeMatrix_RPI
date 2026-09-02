@@ -5,7 +5,9 @@ use crate::core::engine_contract::{
 use crate::core::i18n::{self, GNewsStatus, Lang};
 use crate::core::matrix::MatrixBackend;
 use crate::core::types::DisplayGeometry;
-use crate::engines::dashboard::font::{draw_text_clipped, draw_text_scaled, measure_text};
+use crate::engines::dashboard::font::{
+    draw_char_clipped, draw_text_clipped, draw_text_scaled, measure_text,
+};
 use linkme::distributed_slice;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -77,6 +79,7 @@ pub struct GNewsEngine {
     last_fetched_lang: String,
     geometry: DisplayGeometry,
     cached_display_lines: Vec<String>,
+    cached_title_chars: Vec<char>,
     cached_max_scroll: i32,
     cached_article_index: usize,
     cached_article_title: String,
@@ -177,6 +180,7 @@ impl GNewsEngine {
             last_fetched_lang: String::new(),
             geometry: DisplayGeometry::new(64, 32, 0, 0),
             cached_display_lines: Vec::new(),
+            cached_title_chars: Vec::new(),
             cached_max_scroll: 0,
             cached_article_index: usize::MAX,
             cached_article_title: String::new(),
@@ -317,6 +321,150 @@ impl GNewsEngine {
         }
     }
 
+    /// Computes (x, y) on the S-curve serpentine track for a given distance along the track.
+    ///
+    /// - Tier 0: (x_max -> x_min) at body_y (Right -> Left, Even)
+    /// - Turn 0: at x_min from body_y to body_y + line_spacing (Down)
+    /// - Tier 1: (x_min -> x_max) at body_y + line_spacing (Left -> Right, Odd)
+    /// - Turn 1: at x_max from body_y + line_spacing to body_y + 2 * line_spacing (Down)
+    /// - Tier 2: (x_max -> x_min) at body_y + 2 * line_spacing (Right -> Left, Even)
+    /// ...
+    #[inline]
+    pub fn serpentine_track_pos(
+        dist: i32,
+        x_min: i32,
+        x_max: i32,
+        body_y: i32,
+        line_spacing: i32,
+    ) -> (i32, i32) {
+        let leg_len = (x_max - x_min).max(1);
+        let turn_len = line_spacing;
+        let tier_len = leg_len + turn_len;
+
+        let tier = dist / tier_len;
+        let rem = dist % tier_len;
+
+        let y_tier = body_y + tier * line_spacing;
+
+        if rem < leg_len {
+            let is_odd = (tier % 2) != 0;
+            let x = if !is_odd {
+                // Even tier: Right -> Left
+                x_max - rem
+            } else {
+                // Odd tier: Left -> Right
+                x_min + rem
+            };
+            (x, y_tier)
+        } else {
+            let turn_progress = rem - leg_len;
+            let is_odd = (tier % 2) != 0;
+            let x = if !is_odd {
+                // Turn at left edge
+                x_min
+            } else {
+                // Turn at right edge
+                x_max
+            };
+            let y = y_tier + turn_progress;
+            (x, y)
+        }
+    }
+
+    /// Computes (x, y) on the mental serpentine track where each row alternates direction
+    /// and characters organically enter and exit off-frame before wrapping to the row above.
+    ///
+    /// - Tier 0 (Row 0): moves Right -> Left as u decreases
+    /// - Tier 1 (Row 1): moves Left -> Right as u decreases
+    /// - Tier 2 (Row 2): moves Right -> Left as u decreases
+    /// - Tier 3 (Row 3): moves Left -> Right as u decreases
+    #[inline]
+    pub fn serpentine_track_pos_mental(
+        u: i32,
+        clip_min_x: i32,
+        clip_max_x: i32,
+        body_y: i32,
+        line_spacing: i32,
+    ) -> (i32, i32) {
+        let char_w = 6; // 5px glyph + 1px spacing
+        let x_left = clip_min_x - char_w;
+        let x_right = clip_max_x;
+        let leg_len = (x_right - x_left).max(1);
+
+        let tier = u / leg_len;
+        let rem = u % leg_len;
+
+        let y = body_y + tier * line_spacing;
+        let is_odd = (tier % 2) != 0;
+
+        let x = if !is_odd {
+            // Even tier (Row 0, 2...): moves Right -> Left as u decreases
+            x_left + rem
+        } else {
+            // Odd tier (Row 1, 3...): moves Left -> Right as u decreases
+            x_right - rem
+        };
+
+        (x, y)
+    }
+
+    /// Renders a headline flowing in continuous mental serpentine motion where letters
+    /// slide organically into and out of the matrix frame (column-by-column clipping).
+    pub fn render_serpentine_headline(
+        matrix: &mut dyn MatrixBackend,
+        title_chars: &[char],
+        scroll_offset: i32,
+        _mw: i32,
+        body_y: i32,
+        clip_min_x: i32,
+        clip_max_x: i32,
+        clip_min_y: i32,
+        clip_max_y: i32,
+        line_spacing: i32,
+    ) {
+        let char_w = 6;
+        let leg_len = (clip_max_x - (clip_min_x - char_w)).max(1);
+        let num_rows = (((clip_max_y - body_y) / line_spacing).max(1)) as usize;
+
+        let s = scroll_offset;
+        let n_chars = title_chars.len();
+        let visible_track_len = (num_rows as i32) * leg_len;
+
+        // Base initial offset so character 0 at S=0 starts at clip_min_x + 2
+        let initial_offset = 8;
+
+        let min_k = (((s - initial_offset) / 6).max(0) as usize).min(n_chars);
+        let max_k = ((((s - initial_offset + visible_track_len + 18) / 6) + 1).max(0) as usize)
+            .min(n_chars);
+
+        for k in min_k..max_k {
+            let c = title_chars[k];
+            let u = (initial_offset + k as i32 * 6) - s;
+            if u >= 0 {
+                let (cx, cy) = Self::serpentine_track_pos_mental(
+                    u,
+                    clip_min_x,
+                    clip_max_x,
+                    body_y,
+                    line_spacing,
+                );
+                if cy + 7 > clip_min_y && cy < clip_max_y {
+                    draw_char_clipped(
+                        matrix,
+                        c,
+                        cx,
+                        cy,
+                        clip_min_x,
+                        clip_max_x,
+                        clip_min_y,
+                        clip_max_y,
+                        (255, 255, 255),
+                    );
+                }
+            }
+        }
+    }
+
     fn apply_config(&mut self, config: &dyn EngineConfig) {
         self.api_key = config.get_string("api_key", "");
         self.category = config.get_string("category", "technology");
@@ -335,13 +483,14 @@ impl GNewsEngine {
             self.scroll_state = ScrollState::PauseStart;
             self.state_start = Instant::now();
             self.cached_display_lines.clear();
+            self.cached_title_chars.clear();
             self.cached_max_scroll = 0;
             self.cached_article_index = usize::MAX;
             self.cached_article_title.clear();
             self.cached_display_mode.clear();
         }
 
-        self.scroll_speed = config.get_int("scroll_speed", 3).clamp(1, 5) as u32;
+        self.scroll_speed = config.get_int("scroll_speed", 3).clamp(1, 10) as u32;
         self.scroll_pause_start_ms =
             config.get_int("scroll_pause_start_ms", 1200).clamp(0, 4000) as u64;
         self.scroll_pause_end_ms =
@@ -746,27 +895,25 @@ impl Engine for GNewsEngine {
             || self.cached_display_mode != self.display_mode;
 
         if cache_invalid {
+            self.cached_title_chars = article.title.chars().collect();
             let mode = self.display_mode.as_str();
+            let line_spacing: i32 = 9;
+
             if is_vertical {
                 let body_y: i32 = 24;
-                let num_rows = (((mh as i32) - body_y) / 9).max(1) as usize;
+                let num_rows = (((mh as i32) - body_y) / line_spacing).max(1) as usize;
                 let max_w = (mw as i32) - 4;
                 let viewport_h = ((mh as i32) - body_y).max(10);
 
                 match mode {
                     "serpentine" => {
-                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
-                        let total_h = lines.len() as i32 * 9;
-                        self.cached_max_scroll = if total_h > viewport_h {
-                            (total_h - viewport_h) + 12
-                        } else {
-                            0
-                        };
-                        self.cached_display_lines = lines;
+                        let text_len = (self.cached_title_chars.len() as i32) * 6;
+                        self.cached_max_scroll = text_len + 24;
+                        self.cached_display_lines.clear();
                     }
                     "vertical_crawl" => {
                         let lines = Self::wrap_text_to_lines(&article.title, max_w);
-                        let total_h = lines.len() as i32 * 9;
+                        let total_h = lines.len() as i32 * line_spacing;
                         self.cached_max_scroll = if total_h > viewport_h {
                             (total_h - viewport_h) + 12
                         } else {
@@ -790,11 +937,25 @@ impl Engine for GNewsEngine {
                 }
             } else {
                 // Horizontal display
+                let (body_y, clip_max_y) = if mw >= 128 || mh >= 64 {
+                    let div_y = if mh >= 64 { 16 } else { 12 };
+                    let by = div_y + if mh >= 64 { 8 } else { 4 };
+                    (by, mh as i32)
+                } else {
+                    (14, mh as i32)
+                };
+                let num_rows = (((clip_max_y - body_y) / line_spacing).max(1)) as usize;
+
                 match mode {
+                    "serpentine" => {
+                        let text_len = (self.cached_title_chars.len() as i32) * 6;
+                        self.cached_max_scroll = text_len + 24;
+                        self.cached_display_lines.clear();
+                    }
                     "vertical_crawl" => {
                         let max_w = (mw as i32) - 8;
                         let lines = Self::wrap_text_to_lines(&article.title, max_w);
-                        let total_h = lines.len() as i32 * 9;
+                        let total_h = lines.len() as i32 * line_spacing;
                         let viewport_h = ((mh as i32) - 16).max(10);
                         self.cached_max_scroll = if total_h > viewport_h {
                             (total_h - viewport_h) + 12
@@ -810,7 +971,7 @@ impl Engine for GNewsEngine {
                         self.cached_display_lines = lines;
                     }
                     _ => {
-                        // "smooth_scroll" or "serpentine" on horizontal display
+                        // "smooth_scroll" on horizontal display
                         let text_w = measure_text(&article.title);
                         self.cached_max_scroll = text_w + 12;
                         self.cached_display_lines.clear();
@@ -831,11 +992,16 @@ impl Engine for GNewsEngine {
             }
         } else {
             let base_tick_ms = match self.scroll_speed {
-                1 => 50,
-                2 => 40,
-                3 => 30,
-                4 => 22,
-                _ => 15,
+                1 => 60,
+                2 => 48,
+                3 => 36,
+                4 => 26,
+                5 => 20,
+                6 => 15,
+                7 => 11,
+                8 => 8,
+                9 => 6,
+                _ => 4,
             };
             let tick_ms = if self.display_mode == "vertical_crawl" {
                 base_tick_ms + 15
@@ -1016,114 +1182,18 @@ impl Engine for GNewsEngine {
 
             match self.display_mode.as_str() {
                 "serpentine" => {
-                    let inner_min_x = 2;
-                    let inner_max_x = (mw as i32) - 2;
-                    let total_lines = self.cached_display_lines.len();
-
-                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
-                        let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
-                        if y + line_spacing > clip_min_y && y < clip_max_y {
-                            let line_w = measure_text(line);
-                            let is_odd = (idx % 2) != 0;
-
-                            // Serpentine alternating alignment (Even: Left -> Right, Odd: Right -> Left flow)
-                            let draw_x = if is_odd && line_w < (inner_max_x - inner_min_x) {
-                                (inner_max_x - line_w).max(inner_min_x)
-                            } else {
-                                inner_min_x
-                            };
-
-                            draw_text_clipped(
-                                matrix,
-                                line,
-                                draw_x,
-                                y,
-                                inner_min_x,
-                                inner_max_x,
-                                clip_min_y,
-                                clip_max_y,
-                                (255, 255, 255),
-                            );
-
-                            // Serpentine track connectors between consecutive lines (PacmanClock S-curve parity)
-                            if idx + 1 < total_lines {
-                                let next_y = y + line_spacing;
-                                if next_y < clip_max_y && y + 5 >= clip_min_y {
-                                    let track_col =
-                                        (cat_color.0 / 4, cat_color.1 / 4, cat_color.2 / 4);
-                                    if !is_odd {
-                                        // Right-side turn connector (Row idx -> Row idx+1)
-                                        let rx = inner_max_x - 1;
-                                        for ty in (y + 5)..=(next_y + 1) {
-                                            if ty >= clip_min_y && ty < clip_max_y {
-                                                matrix.set_pixel(
-                                                    rx,
-                                                    ty,
-                                                    track_col.0,
-                                                    track_col.1,
-                                                    track_col.2,
-                                                );
-                                            }
-                                        }
-                                    } else {
-                                        // Left-side turn connector (Row idx -> Row idx+1)
-                                        let lx = inner_min_x - 1;
-                                        for ty in (y + 5)..=(next_y + 1) {
-                                            if ty >= clip_min_y && ty < clip_max_y {
-                                                matrix.set_pixel(
-                                                    lx,
-                                                    ty,
-                                                    track_col.0,
-                                                    track_col.1,
-                                                    track_col.2,
-                                                );
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    // Animated Serpentine Pac-Man dot traveling along the active visible lines
-                    if total_lines > 0 {
-                        let avail_w = (inner_max_x - inner_min_x).max(10);
-                        let leg_len = avail_w + line_spacing;
-                        let total_path = (total_lines as i32 * leg_len).max(1);
-                        let anim_step =
-                            (self.source_marquee_offset as i32 * 2).rem_euclid(total_path);
-                        let cur_line_idx = (anim_step / leg_len) as usize;
-                        let line_progress = anim_step % leg_len;
-
-                        if cur_line_idx < total_lines {
-                            let y = body_y + (cur_line_idx as i32 * line_spacing)
-                                - self.scroll_pixel_offset;
-                            let is_odd = (cur_line_idx % 2) != 0;
-
-                            let (px, py) = if line_progress < avail_w {
-                                let lx = if !is_odd {
-                                    inner_min_x + line_progress
-                                } else {
-                                    inner_max_x - line_progress
-                                };
-                                (lx, y + 3)
-                            } else {
-                                // Turn corner
-                                let ty = y + 3 + (line_progress - avail_w);
-                                let tx = if !is_odd {
-                                    inner_max_x - 1
-                                } else {
-                                    inner_min_x - 1
-                                };
-                                (tx, ty)
-                            };
-
-                            if px >= 0 && px < mw as i32 && py >= clip_min_y && py < clip_max_y {
-                                let pac_gold = (255, 215, 0);
-                                matrix.set_pixel(px, py, pac_gold.0, pac_gold.1, pac_gold.2);
-                            }
-                        }
-                    }
+                    Self::render_serpentine_headline(
+                        matrix,
+                        &self.cached_title_chars,
+                        self.scroll_pixel_offset,
+                        mw as i32,
+                        body_y,
+                        clip_min_x,
+                        clip_max_x,
+                        clip_min_y,
+                        clip_max_y,
+                        line_spacing,
+                    );
                 }
                 "vertical_crawl" => {
                     let inner_min_x = 2;
@@ -1338,6 +1408,19 @@ impl Engine for GNewsEngine {
                         );
                     }
                 }
+            } else if self.display_mode == "serpentine" {
+                Self::render_serpentine_headline(
+                    matrix,
+                    &self.cached_title_chars,
+                    self.scroll_pixel_offset,
+                    mw as i32,
+                    body_y,
+                    0,
+                    mw as i32,
+                    div_y + 1,
+                    mh as i32,
+                    9,
+                );
             } else {
                 let start_x = 4 - self.scroll_pixel_offset;
                 if mh >= 64 && mw >= 256 {
@@ -1429,6 +1512,19 @@ impl Engine for GNewsEngine {
                         );
                     }
                 }
+            } else if self.display_mode == "serpentine" {
+                Self::render_serpentine_headline(
+                    matrix,
+                    &self.cached_title_chars,
+                    self.scroll_pixel_offset,
+                    mw as i32,
+                    14,
+                    0,
+                    mw as i32,
+                    11,
+                    mh as i32,
+                    9,
+                );
             } else {
                 let start_x = 2 - self.scroll_pixel_offset;
                 draw_text_clipped(
@@ -1716,10 +1812,10 @@ fn register_gnews_engine() -> EngineDescriptor {
                     id: "scroll_speed",
                     field_type: ConfigType::Integer,
                     label: "Scroll Speed",
-                    description: "Ticker speed (1=Slow, 5=Turbo)",
+                    description: "Ticker speed (1=Slow, 10=Fast)",
                     default_value: "3",
                     min_val: Some("1"),
-                    max_val: Some("5"),
+                    max_val: Some("10"),
                     validation_policy: ValidationPolicy::Clamp,
                     ..Default::default()
                 },

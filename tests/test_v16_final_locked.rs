@@ -838,10 +838,10 @@ fn test_gif_engine_is_tate_detection() {
     use arcadematrix::core::types::DisplayGeometry;
     use arcadematrix::engines::gif::GifEngine;
 
-    let mut engine_vert = GifEngine::new(32, 64);
+    let engine_vert = GifEngine::new(32, 64);
     assert!(engine_vert.is_tate(), "32x64 must be Tate");
 
-    let mut engine_horiz = GifEngine::new(64, 32);
+    let engine_horiz = GifEngine::new(64, 32);
     assert!(!engine_horiz.is_tate(), "64x32 must be Yoko");
 
     let mut engine_square = GifEngine::new(64, 64);
@@ -866,5 +866,235 @@ fn test_gif_engine_plays_nothing_when_no_matching_gifs() {
     assert!(
         engine.is_finished(),
         "Engine must report finished so rotation advances"
+    );
+}
+
+#[test]
+fn test_gnews_serpentine_track_pos_alternating_tiers() {
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    let x_min = 2;
+    let x_max = 57;
+    let body_y = 24;
+    let line_spacing = 9;
+    let leg_len = x_max - x_min; // 55
+    let tier_len = leg_len + line_spacing; // 64
+
+    // 1. Tier 0 (Even: Right -> Left)
+    // Start of tier 0: dist = 0 -> (x_max, body_y)
+    let (x0, y0) = GNewsEngine::serpentine_track_pos(0, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x0, x_max);
+    assert_eq!(y0, body_y);
+
+    // Mid of tier 0: dist = 20 -> x decreases
+    let (x_mid0, y_mid0) =
+        GNewsEngine::serpentine_track_pos(20, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x_mid0, x_max - 20);
+    assert_eq!(y_mid0, body_y);
+
+    // End of tier 0 leg: dist = 55 -> reaches x_min
+    let (x_end0, y_end0) =
+        GNewsEngine::serpentine_track_pos(leg_len, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x_end0, x_min);
+    assert_eq!(y_end0, body_y);
+
+    // 2. Turn 0 (Downwards at left edge)
+    // Progress 4 px down the left turn
+    let (x_turn0, y_turn0) =
+        GNewsEngine::serpentine_track_pos(leg_len + 4, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x_turn0, x_min);
+    assert_eq!(y_turn0, body_y + 4);
+
+    // 3. Tier 1 (Odd: Left -> Right)
+    // Start of tier 1: dist = tier_len -> (x_min, body_y + line_spacing)
+    let (x1, y1) = GNewsEngine::serpentine_track_pos(tier_len, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x1, x_min);
+    assert_eq!(y1, body_y + line_spacing);
+
+    // Mid of tier 1: dist = tier_len + 25 -> x increases (Left -> Right)
+    let (x_mid1, y_mid1) =
+        GNewsEngine::serpentine_track_pos(tier_len + 25, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x_mid1, x_min + 25);
+    assert_eq!(y_mid1, body_y + line_spacing);
+
+    // End of tier 1 leg: dist = tier_len + leg_len -> reaches x_max
+    let (x_end1, y_end1) =
+        GNewsEngine::serpentine_track_pos(tier_len + leg_len, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x_end1, x_max);
+    assert_eq!(y_end1, body_y + line_spacing);
+
+    // 4. Turn 1 (Downwards at right edge)
+    let (x_turn1, y_turn1) = GNewsEngine::serpentine_track_pos(
+        tier_len + leg_len + 5,
+        x_min,
+        x_max,
+        body_y,
+        line_spacing,
+    );
+    assert_eq!(x_turn1, x_max);
+    assert_eq!(y_turn1, body_y + line_spacing + 5);
+
+    // 5. Tier 2 (Even: Right -> Left again)
+    let (x2, y2) =
+        GNewsEngine::serpentine_track_pos(2 * tier_len, x_min, x_max, body_y, line_spacing);
+    assert_eq!(x2, x_max);
+    assert_eq!(y2, body_y + 2 * line_spacing);
+}
+
+#[test]
+fn test_gnews_serpentine_mental_track_transitions() {
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    let clip_min_x = 0;
+    let clip_max_x = 64;
+    let body_y = 24;
+    let line_spacing = 9;
+    let char_w = 6;
+    let leg_len = clip_max_x - (clip_min_x - char_w); // 70
+
+    // Tier 0: Row 0 (Right -> Left as u decreases)
+    // At u = 0, character is fully off-screen to the left (x = -6)
+    let (x0_end, y0_end) =
+        GNewsEngine::serpentine_track_pos_mental(0, clip_min_x, clip_max_x, body_y, line_spacing);
+    assert_eq!(x0_end, -6);
+    assert_eq!(y0_end, body_y);
+
+    // Initial visible offset for first character at S=0 (u = 8 -> x = 2)
+    let (x0_init, y0_init) =
+        GNewsEngine::serpentine_track_pos_mental(8, clip_min_x, clip_max_x, body_y, line_spacing);
+    assert_eq!(x0_init, 2);
+    assert_eq!(y0_init, body_y);
+
+    // Transition between Row 1 right edge and Row 0 right edge (pure organic wrap-around)
+    // Row 1 right edge: u = leg_len -> x = 64 (fully off-screen to the right)
+    let (x1_right, y1_right) = GNewsEngine::serpentine_track_pos_mental(
+        leg_len,
+        clip_min_x,
+        clip_max_x,
+        body_y,
+        line_spacing,
+    );
+    assert_eq!(x1_right, 64);
+    assert_eq!(y1_right, body_y + line_spacing);
+
+    // 1px progression (u = leg_len - 1) -> immediately entering Row 0 at right edge (x = 63)!
+    let (x0_enter, y0_enter) = GNewsEngine::serpentine_track_pos_mental(
+        leg_len - 1,
+        clip_min_x,
+        clip_max_x,
+        body_y,
+        line_spacing,
+    );
+    assert_eq!(x0_enter, 63);
+    assert_eq!(y0_enter, body_y);
+
+    // Transition between Row 2 left edge and Row 1 left edge (pure organic wrap-around)
+    // Row 2 left edge: u = 2 * leg_len -> x = -6 (fully off-screen to the left)
+    let (x2_left, y2_left) = GNewsEngine::serpentine_track_pos_mental(
+        2 * leg_len,
+        clip_min_x,
+        clip_max_x,
+        body_y,
+        line_spacing,
+    );
+    assert_eq!(x2_left, -6);
+    assert_eq!(y2_left, body_y + 2 * line_spacing);
+
+    // 1px progression (u = 2 * leg_len - 1) -> immediately entering Row 1 at left edge (x = -5)!
+    let (x1_enter, y1_enter) = GNewsEngine::serpentine_track_pos_mental(
+        2 * leg_len - 1,
+        clip_min_x,
+        clip_max_x,
+        body_y,
+        line_spacing,
+    );
+    assert_eq!(x1_enter, -5);
+    assert_eq!(y1_enter, body_y + line_spacing);
+}
+
+#[test]
+fn test_gnews_serpentine_render_execution_no_panic() {
+    use arcadematrix::core::matrix::MatrixBackend;
+    use arcadematrix::engines::gnews::GNewsEngine;
+
+    struct MockMatrix {
+        width: u32,
+        height: u32,
+        pixels: Vec<(i32, i32, u8, u8, u8)>,
+    }
+    impl MockMatrix {
+        fn new(w: u32, h: u32) -> Self {
+            Self {
+                width: w,
+                height: h,
+                pixels: Vec::new(),
+            }
+        }
+    }
+    impl MatrixBackend for MockMatrix {
+        fn width(&self) -> u32 {
+            self.width
+        }
+        fn height(&self) -> u32 {
+            self.height
+        }
+        fn set_pixel(&mut self, x: i32, y: i32, r: u8, g: u8, b: u8) {
+            self.pixels.push((x, y, r, g, b));
+        }
+        fn clear(&mut self) {
+            self.pixels.clear();
+        }
+        fn update(&mut self) {}
+        fn set_brightness(&mut self, _brightness: u8) {}
+    }
+
+    let title_chars: Vec<char> = "BREAKING NEWS: ArcadeMatrix Serpentine Flow Working!"
+        .chars()
+        .collect();
+    let mut matrix = MockMatrix::new(64, 64);
+
+    // Render at offset 0 (entry on line 1)
+    GNewsEngine::render_serpentine_headline(&mut matrix, &title_chars, 0, 64, 24, 0, 64, 24, 64, 9);
+    assert!(
+        !matrix.pixels.is_empty(),
+        "Pixels should be drawn on serpentine track"
+    );
+
+    // Render mid-stream (long snake spanning multiple lines)
+    matrix.pixels.clear();
+    GNewsEngine::render_serpentine_headline(
+        &mut matrix,
+        &title_chars,
+        20,
+        64,
+        24,
+        0,
+        64,
+        24,
+        64,
+        9,
+    );
+    assert!(
+        !matrix.pixels.is_empty(),
+        "Pixels should be drawn across S-curve tiers"
+    );
+
+    // Render on horizontal 256x64 display
+    let mut matrix_wide = MockMatrix::new(256, 64);
+    GNewsEngine::render_serpentine_headline(
+        &mut matrix_wide,
+        &title_chars,
+        15,
+        256,
+        24,
+        0,
+        256,
+        17,
+        64,
+        9,
+    );
+    assert!(
+        !matrix_wide.pixels.is_empty(),
+        "Widescreen 256x64 should render serpentine flow"
     );
 }

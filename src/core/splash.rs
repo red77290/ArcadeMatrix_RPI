@@ -199,6 +199,8 @@ pub struct SplashScreen {
     pacman_radius: i32,
     pacman_mouth_angle: i32,
     pacman_facing_dir: u8, // 0: Right, 1: Down, 2: Left, 3: Up
+    pacman_active: bool,
+    pacman_trail: Vec<(f32, f32)>,
     chomp_timer: f32,
     ghost_colors: [(u8, u8, u8); 4],
     tick: u32,
@@ -474,7 +476,7 @@ impl SplashScreen {
         let pacman_radius = if height >= 64 { 5 } else { 4 };
 
         let (pac_init_x, pac_init_y) = if is_vertical {
-            ((width as f32) * 0.5, (height as f32) * 0.46)
+            (-24.0, (height as f32) * 0.46)
         } else {
             (-54.0, ground_y - pacman_radius as f32 - 1.0)
         };
@@ -510,6 +512,8 @@ impl SplashScreen {
             pacman_radius,
             pacman_mouth_angle: 35,
             pacman_facing_dir: 0,
+            pacman_active: !is_vertical,
+            pacman_trail: Vec::with_capacity(64),
             chomp_timer: 0.0,
             ghost_colors: [
                 (255, 0, 0),     // Blinky (Red)
@@ -568,9 +572,10 @@ impl SplashScreen {
 
             // Completion check
             let animation_done = if splash.is_vertical {
-                (splash.letters.iter().all(|l| l.broken)
-                    || splash.title_scroll_x > (splash.width as f32 + 90.0))
+                splash.letters.iter().all(|l| l.broken)
+                    && splash.pacman_active
                     && splash.particles.is_empty()
+                    && splash.pacman_x > (splash.width as f32 + 16.0)
             } else {
                 splash.jumpman_x > (splash.width as f32 + 28.0)
                     && splash.pacman_x > (splash.width as f32 + 16.0)
@@ -621,7 +626,18 @@ impl SplashScreen {
             }
             self.phase = SplashPhase::ActiveAction;
 
-            // 1. Space Invaders Ship Patrol at the bottom
+            // 1. Space Invaders Patrol & Target Tracking at the bottom
+            let target_letter = self.letters.iter().find(|l| !l.broken);
+            if let Some(tl) = target_letter {
+                let target_x = (tl.center_x - 8.0).clamp(2.0, (self.width as f32 - 18.0).max(3.0));
+                let dx = target_x - self.invader_x;
+                if dx.abs() > 1.5 {
+                    self.invader_vx = dx.signum() * 26.0;
+                }
+            } else if self.invader_vx.abs() < 12.0 {
+                self.invader_vx = 22.0;
+            }
+
             self.invader_x += self.invader_vx * dt;
             let min_invader_x = 2.0;
             let max_invader_x = (self.width as f32 - 18.0).max(min_invader_x + 1.0);
@@ -639,17 +655,18 @@ impl SplashScreen {
                 letter.center_x = letter.base_center_x - self.title_scroll_x;
             }
 
-            // 3. Space Invaders Laser Shooting cadence (Shoots UPWARDS!)
+            let all_letters_broken = self.letters.iter().all(|l| l.broken);
+
+            // 3. Space Invaders Laser Shooting cadence (Shoots UPWARDS towards unbroken letters)
             self.invader_shoot_timer += dt;
-            if self.invader_shoot_timer >= 0.40 {
+            if !all_letters_broken && self.invader_shoot_timer >= 0.36 {
                 self.invader_shoot_timer = 0.0;
                 let ship_center_x = self.invader_x + 8.0;
 
-                // Fire laser bolt UPWARDS towards passing title
                 self.laser_bolts.push(LaserBolt {
                     x: ship_center_x,
                     y: self.invader_y - 2.0,
-                    vy: -58.0, // Negative velocity: travels UP
+                    vy: -60.0, // Negative velocity: travels UP
                     r: 255,
                     g: 35,
                     b: 35,
@@ -751,92 +768,91 @@ impl SplashScreen {
                 }
             }
 
-            // 6. Pacman 2D Autonomous Hunter
-            self.chomp_timer += dt * 8.5;
-            self.pacman_mouth_angle = ((self.chomp_timer.sin().abs()) * 45.0) as i32;
-
-            if !self.particles.is_empty() {
-                // Find nearest particle in 2D space
-                let mut min_dist_sq = f32::MAX;
-                let mut target_vec = None;
-
-                for p in &self.particles {
-                    let dx = p.x - self.pacman_x;
-                    let dy = p.y - self.pacman_y;
-                    let dist_sq = dx * dx + dy * dy;
-                    if dist_sq < min_dist_sq {
-                        min_dist_sq = dist_sq;
-                        target_vec = Some((dx, dy, dist_sq));
-                    }
-                }
-
-                if let Some((dx, dy, dist_sq)) = target_vec {
-                    let dist = dist_sq.sqrt();
-                    if dist > 0.5 {
-                        let speed = 32.0; // Dynamic 2D chase speed
-                        let vx = (dx / dist) * speed;
-                        let vy = (dy / dist) * speed;
-
-                        self.pacman_x += vx * dt;
-                        self.pacman_y += vy * dt;
-
-                        // Directional orientation: 0: Right, 1: Down, 2: Left, 3: Up
-                        if dx.abs() >= dy.abs() {
-                            self.pacman_facing_dir = if dx > 0.0 { 0 } else { 2 };
-                        } else {
-                            self.pacman_facing_dir = if dy > 0.0 { 1 } else { 3 };
-                        }
-                    }
-                }
-            } else {
-                // Smooth 2D Lissajous orbit in middle arena while awaiting debris
-                let t = elapsed * 1.6;
-                let target_x = (self.width as f32 * 0.5) + (self.width as f32 * 0.32) * t.cos();
-                let target_y = (self.height as f32 * 0.44) + 6.0 * (t * 2.0).sin();
-                let dx = target_x - self.pacman_x;
-                let dy = target_y - self.pacman_y;
-                self.pacman_x += dx * (dt * 3.5);
-                self.pacman_y += dy * (dt * 3.5);
-
-                if dx.abs() >= dy.abs() {
-                    self.pacman_facing_dir = if dx > 0.0 { 0 } else { 2 };
-                } else {
-                    self.pacman_facing_dir = if dy > 0.0 { 1 } else { 3 };
-                }
+            // Trigger Pacman and Ghosts entry ONLY after all letters are shattered
+            if all_letters_broken && !self.pacman_active {
+                self.pacman_active = true;
+                self.pacman_x = -12.0;
+                self.pacman_y = (self.height as f32) * 0.46;
             }
 
-            // Clamp Pacman inside arena boundaries
-            let pr = self.pacman_radius as f32;
-            self.pacman_x = self.pacman_x.clamp(pr + 1.0, self.width as f32 - pr - 1.0);
-            self.pacman_y = self.pacman_y.clamp(8.0, self.invader_y - pr - 2.0);
-
-            // 7. Pacman Eats Particles & Spawns Floating Scores
-            let pac_cx = self.pacman_x;
-            let pac_cy = self.pacman_y;
-            let eat_rad_sq = (pr + 3.2).powi(2);
-            let mut eaten = 0;
-
-            self.particles.retain(|p| {
-                let dx = p.x - pac_cx;
-                let dy = p.y - pac_cy;
-                if dx * dx + dy * dy < eat_rad_sq {
-                    eaten += 1;
-                    false
-                } else {
-                    true
+            // 6. Pacman & Trailing Ghosts Autonomous Particle Hunter
+            if self.pacman_active {
+                if self.tick % 2 == 0 {
+                    self.pacman_trail.insert(0, (self.pacman_x, self.pacman_y));
+                    self.pacman_trail.truncate(45);
                 }
-            });
 
-            if eaten > 0 && self.score_popups.len() < 8 {
-                self.score_popups.push(ScorePopup {
-                    x: pac_cx,
-                    y: pac_cy - 5.0,
-                    vy: -15.0,
-                    life: 1.0,
-                    r: 255,
-                    g: 255,
-                    b: 100,
+                self.chomp_timer += dt * 8.5;
+                self.pacman_mouth_angle = ((self.chomp_timer.sin().abs()) * 45.0) as i32;
+
+                if !self.particles.is_empty() {
+                    let mut min_dist_sq = f32::MAX;
+                    let mut target_vec = None;
+
+                    for p in &self.particles {
+                        let dx = p.x - self.pacman_x;
+                        let dy = p.y - self.pacman_y;
+                        let dist_sq = dx * dx + dy * dy;
+                        if dist_sq < min_dist_sq {
+                            min_dist_sq = dist_sq;
+                            target_vec = Some((dx, dy, dist_sq));
+                        }
+                    }
+
+                    if let Some((dx, dy, dist_sq)) = target_vec {
+                        let dist = dist_sq.sqrt();
+                        if dist > 0.5 {
+                            let speed = 34.0;
+                            let vx = (dx / dist) * speed;
+                            let vy = (dy / dist) * speed;
+
+                            self.pacman_x += vx * dt;
+                            self.pacman_y += vy * dt;
+
+                            if dx.abs() >= dy.abs() {
+                                self.pacman_facing_dir = if dx > 0.0 { 0 } else { 2 };
+                            } else {
+                                self.pacman_facing_dir = if dy > 0.0 { 1 } else { 3 };
+                            }
+                        }
+                    }
+                } else {
+                    // All particles eaten! Pacman and ghosts exit smoothly to the right
+                    self.pacman_x += 32.0 * dt;
+                    self.pacman_facing_dir = 0;
+                }
+
+                let pr = self.pacman_radius as f32;
+                self.pacman_y = self.pacman_y.clamp(8.0, self.invader_y - pr - 2.0);
+
+                // 7. Pacman Eats Particles & Spawns Floating Scores
+                let pac_cx = self.pacman_x;
+                let pac_cy = self.pacman_y;
+                let eat_rad_sq = (pr + 3.2).powi(2);
+                let mut eaten = 0;
+
+                self.particles.retain(|p| {
+                    let dx = p.x - pac_cx;
+                    let dy = p.y - pac_cy;
+                    if dx * dx + dy * dy < eat_rad_sq {
+                        eaten += 1;
+                        false
+                    } else {
+                        true
+                    }
                 });
+
+                if eaten > 0 && self.score_popups.len() < 8 {
+                    self.score_popups.push(ScorePopup {
+                        x: pac_cx,
+                        y: pac_cy - 5.0,
+                        vy: -15.0,
+                        life: 1.0,
+                        r: 255,
+                        g: 255,
+                        b: 100,
+                    });
+                }
             }
         } else {
             // ================================================================
@@ -1161,15 +1177,36 @@ impl SplashScreen {
                 );
             }
 
-            // 8c. 2D Pacman Particle Hunter (directional mouth orientation)
-            self.draw_pacman_directional(
-                matrix,
-                self.pacman_x as i32,
-                self.pacman_y as i32,
-                self.pacman_radius,
-                self.pacman_mouth_angle,
-                self.pacman_facing_dir,
-            );
+            // 8c. 2D Pacman Particle Hunter & Trailing Ghosts (Activates when only particles remain)
+            if self.pacman_active {
+                let trail_offsets = [8, 16, 24, 32];
+                for (i, &gc) in self.ghost_colors.iter().enumerate() {
+                    let trail_idx = trail_offsets[i];
+                    let (gx, gy) = if trail_idx < self.pacman_trail.len() {
+                        self.pacman_trail[trail_idx]
+                    } else {
+                        (self.pacman_x - (i as f32 + 1.0) * 10.0, self.pacman_y)
+                    };
+
+                    self.draw_ghost(
+                        matrix,
+                        gx as i32,
+                        gy as i32,
+                        self.pacman_radius - 1,
+                        gc,
+                        self.tick,
+                    );
+                }
+
+                self.draw_pacman_directional(
+                    matrix,
+                    self.pacman_x as i32,
+                    self.pacman_y as i32,
+                    self.pacman_radius,
+                    self.pacman_mouth_angle,
+                    self.pacman_facing_dir,
+                );
+            }
         } else {
             // ================================================================
             // 8b. HORIZONTAL: Donkey Kong Jumpman & 1D Pacman
@@ -1437,20 +1474,29 @@ mod tests {
         let mut splash = SplashScreen::new(64, 64);
         assert!(splash.is_vertical);
         assert_eq!(splash.invader_y, 54.0); // At the bottom on 64x64
+        assert!(!splash.pacman_active); // Pacman waits off-screen until letters are destroyed
+
         splash.start_time = Instant::now() - Duration::from_millis(1000);
 
-        // Run update cycles to simulate Space Invader laser firing upwards
+        // Run update cycles while letters are intact: Space Invader fires upwards
+        for _ in 0..10 {
+            splash.update(0.05);
+        }
+        assert!(splash.invader_x >= 0.0 && splash.invader_x <= 64.0);
+        assert_eq!(splash.invader_y, 54.0);
+
+        // Break all letters -> Pacman and trailing ghosts enter to vacuum particles
+        for l in &mut splash.letters {
+            l.broken = true;
+        }
+        splash.update(0.05);
+        assert!(splash.pacman_active);
+
         for _ in 0..20 {
             splash.update(0.05);
         }
-
-        // Validate 2D Pacman hunter coordinates are within screen
-        assert!(splash.pacman_x >= 0.0 && splash.pacman_x <= 64.0);
+        assert!(splash.pacman_x >= -20.0 && splash.pacman_x <= 80.0);
         assert!(splash.pacman_y >= 0.0 && splash.pacman_y <= 64.0);
-
-        // Validate Invader patrol coordinates at the bottom
-        assert!(splash.invader_x >= 0.0 && splash.invader_x <= 64.0);
-        assert_eq!(splash.invader_y, 54.0);
     }
 
     #[test]

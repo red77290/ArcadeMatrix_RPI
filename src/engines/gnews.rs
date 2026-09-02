@@ -930,21 +930,32 @@ impl Engine for GNewsEngine {
                 }
             }
 
-            // 5. Multi-line word wrapped headline title with smooth vertical scroll & clipping
+            // 5. Multi-line word-wrapped headline with alternating serpentine alignment, track turns and smooth crawl
             let body_y: i32 = 24;
             let line_spacing: i32 = 9;
             let clip_min_x: i32 = 2;
             let clip_max_x: i32 = (mw as i32) - 2;
             let clip_min_y: i32 = body_y;
             let clip_max_y: i32 = mh as i32;
+            let total_lines = self.cached_vertical_lines.len();
 
             for (idx, line) in self.cached_vertical_lines.iter().enumerate() {
                 let y = body_y + (idx as i32 * line_spacing) - self.scroll_pixel_offset;
                 if y + line_spacing > clip_min_y && y < clip_max_y {
+                    let line_w = measure_text(line);
+                    let is_odd = (idx % 2) != 0;
+
+                    // Serpentine alternating alignment (Even: Left -> Right, Odd: Right -> Left flow)
+                    let draw_x = if is_odd && line_w < (clip_max_x - clip_min_x) {
+                        (clip_max_x - line_w).max(clip_min_x)
+                    } else {
+                        clip_min_x
+                    };
+
                     draw_text_clipped(
                         matrix,
                         line,
-                        clip_min_x,
+                        draw_x,
                         y,
                         clip_min_x,
                         clip_max_x,
@@ -952,6 +963,82 @@ impl Engine for GNewsEngine {
                         clip_max_y,
                         (255, 255, 255),
                     );
+
+                    // Serpentine track connectors between consecutive lines (PacmanClock S-curve parity)
+                    if idx + 1 < total_lines {
+                        let next_y = y + line_spacing;
+                        if next_y < clip_max_y && y + 5 >= clip_min_y {
+                            let track_col = (cat_color.0 / 4, cat_color.1 / 4, cat_color.2 / 4);
+                            if !is_odd {
+                                // Right-side turn connector (Row idx -> Row idx+1)
+                                let rx = clip_max_x - 1;
+                                for ty in (y + 5)..=(next_y + 1) {
+                                    if ty >= clip_min_y && ty < clip_max_y {
+                                        matrix.set_pixel(
+                                            rx,
+                                            ty,
+                                            track_col.0,
+                                            track_col.1,
+                                            track_col.2,
+                                        );
+                                    }
+                                }
+                            } else {
+                                // Left-side turn connector (Row idx -> Row idx+1)
+                                let lx = clip_min_x - 1;
+                                for ty in (y + 5)..=(next_y + 1) {
+                                    if ty >= clip_min_y && ty < clip_max_y {
+                                        matrix.set_pixel(
+                                            lx,
+                                            ty,
+                                            track_col.0,
+                                            track_col.1,
+                                            track_col.2,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Animated Serpentine Pac-Man dot traveling along the active visible lines
+            if total_lines > 0 {
+                let avail_w = (clip_max_x - clip_min_x).max(10);
+                let leg_len = avail_w + line_spacing;
+                let total_path = (total_lines as i32 * leg_len).max(1);
+                let anim_step = (self.source_marquee_offset as i32 * 2).rem_euclid(total_path);
+                let cur_line_idx = (anim_step / leg_len) as usize;
+                let line_progress = anim_step % leg_len;
+
+                if cur_line_idx < total_lines {
+                    let y =
+                        body_y + (cur_line_idx as i32 * line_spacing) - self.scroll_pixel_offset;
+                    let is_odd = (cur_line_idx % 2) != 0;
+
+                    let (px, py) = if line_progress < avail_w {
+                        let lx = if !is_odd {
+                            clip_min_x + line_progress
+                        } else {
+                            clip_max_x - line_progress
+                        };
+                        (lx, y + 3)
+                    } else {
+                        // Turn corner
+                        let ty = y + 3 + (line_progress - avail_w);
+                        let tx = if !is_odd {
+                            clip_max_x - 1
+                        } else {
+                            clip_min_x - 1
+                        };
+                        (tx, ty)
+                    };
+
+                    if px >= 0 && px < mw as i32 && py >= clip_min_y && py < clip_max_y {
+                        let pac_gold = (255, 215, 0);
+                        matrix.set_pixel(px, py, pac_gold.0, pac_gold.1, pac_gold.2);
+                    }
                 }
             }
         } else if mw >= 128 {

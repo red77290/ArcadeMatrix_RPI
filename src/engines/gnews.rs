@@ -422,45 +422,77 @@ impl GNewsEngine {
         clip_max_y: i32,
         line_spacing: i32,
     ) {
+        let t_len = title_chars.len();
+        if t_len == 0 {
+            return;
+        }
+
         let char_w = 6;
-        let leg_len = (clip_max_x - (clip_min_x - char_w)).max(1);
-        let num_rows = (((clip_max_y - body_y) / line_spacing).max(1)) as usize;
+        let w = (clip_max_x - clip_min_x).max(1);
+        let num_rows = if clip_max_y <= 32 {
+            2
+        } else {
+            (((clip_max_y - body_y) / line_spacing).max(2)) as usize
+        };
+
+        let sep_spaces = 4;
+        let total_units = t_len + sep_spaces;
+        let total_pixel_len = (total_units * char_w) as i32;
+        let track_len = (num_rows as i32) * w;
+
+        let mut loop_pixel_len = total_pixel_len;
+        while loop_pixel_len < track_len {
+            loop_pixel_len += total_pixel_len;
+        }
 
         let s = scroll_offset;
-        let n_chars = title_chars.len();
-        let visible_track_len = (num_rows as i32) * leg_len;
+        let glyphs_on_track = (track_len / char_w as i32) + 4;
 
-        // Base initial offset so character 0 at S=0 starts at clip_min_x + 2
-        let initial_offset = 8;
+        for i in 0..glyphs_on_track {
+            let u = (i * char_w as i32 + (s.rem_euclid(loop_pixel_len))).rem_euclid(loop_pixel_len);
+            if u >= track_len {
+                continue;
+            }
 
-        let min_k = (((s - initial_offset) / 6).max(0) as usize).min(n_chars);
-        let max_k = ((((s - initial_offset + visible_track_len + 18) / 6) + 1).max(0) as usize)
-            .min(n_chars);
+            let r = (u / w) as usize;
+            if r >= num_rows {
+                continue;
+            }
 
-        for k in min_k..max_k {
-            let c = title_chars[k];
-            let u = (initial_offset + k as i32 * 6) - s;
-            if u >= 0 {
-                let (cx, cy) = Self::serpentine_track_pos_mental(
-                    u,
+            let rem = u % w;
+            let display_row = num_rows - 1 - r;
+            let cy = body_y + (display_row as i32 * line_spacing);
+
+            let cx = if (display_row % 2) == 0 {
+                clip_max_x - rem - char_w as i32
+            } else {
+                clip_min_x + rem
+            };
+
+            let char_idx = (i as usize) % total_units;
+            let c = if char_idx < t_len {
+                title_chars[char_idx]
+            } else {
+                ' '
+            };
+
+            if c != ' '
+                && cy + 7 > clip_min_y
+                && cy < clip_max_y
+                && cx + 5 >= clip_min_x
+                && cx < clip_max_x
+            {
+                draw_char_clipped(
+                    matrix,
+                    c,
+                    cx,
+                    cy,
                     clip_min_x,
                     clip_max_x,
-                    body_y,
-                    line_spacing,
+                    clip_min_y,
+                    clip_max_y,
+                    (255, 255, 255),
                 );
-                if cy + 7 > clip_min_y && cy < clip_max_y {
-                    draw_char_clipped(
-                        matrix,
-                        c,
-                        cx,
-                        cy,
-                        clip_min_x,
-                        clip_max_x,
-                        clip_min_y,
-                        clip_max_y,
-                        (255, 255, 255),
-                    );
-                }
             }
         }
     }
@@ -937,19 +969,17 @@ impl Engine for GNewsEngine {
                 }
             } else {
                 // Horizontal display
-                let (body_y, clip_max_y) = if mw >= 128 || mh >= 64 {
-                    let div_y = if mh >= 64 { 16 } else { 12 };
-                    let by = div_y + if mh >= 64 { 8 } else { 4 };
-                    (by, mh as i32)
+                let (body_y, clip_max_y, num_rows) = if mh >= 64 {
+                    (19, mh as i32, 4)
                 } else {
-                    (14, mh as i32)
+                    (13, mh as i32, 2)
                 };
-                let num_rows = (((clip_max_y - body_y) / line_spacing).max(1)) as usize;
 
                 match mode {
                     "serpentine" => {
                         let text_len = (self.cached_title_chars.len() as i32) * 6;
-                        self.cached_max_scroll = text_len + 24;
+                        let track_len = (num_rows as i32) * (mw as i32);
+                        self.cached_max_scroll = (track_len + text_len).max(track_len * 2);
                         self.cached_display_lines.clear();
                     }
                     "vertical_crawl" => {
@@ -1173,11 +1203,12 @@ impl Engine for GNewsEngine {
             }
 
             // 5. Headline rendering based on display_mode
-            let body_y: i32 = 24;
-            let line_spacing: i32 = 9;
+            let div_y = if mh >= 64 { 16 } else { 11 };
+            let body_y: i32 = if mh >= 64 { 19 } else { 13 };
+            let line_spacing: i32 = if mh >= 64 { 10 } else { 9 };
             let clip_min_x: i32 = 0;
             let clip_max_x: i32 = mw as i32;
-            let clip_min_y: i32 = body_y;
+            let clip_min_y: i32 = div_y + 1;
             let clip_max_y: i32 = mh as i32;
 
             match self.display_mode.as_str() {
@@ -1518,7 +1549,7 @@ impl Engine for GNewsEngine {
                     &self.cached_title_chars,
                     self.scroll_pixel_offset,
                     mw as i32,
-                    14,
+                    13,
                     0,
                     mw as i32,
                     11,

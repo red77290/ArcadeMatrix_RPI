@@ -101,6 +101,9 @@ pub struct MatrixConfig {
     pub pwm_lsb_nanoseconds: u32,
     pub disable_hardware_pulsing: bool,
     pub mapping: String,
+    pub rotation: u32,
+    pub transition_effect: String,
+    pub transition_duration_ms: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -132,6 +135,7 @@ pub struct SystemConfig {
     pub timezone: String,
     pub format_24h: bool,
     pub lang: String,
+    pub temp_unit: String,
     pub night_mode_enabled: bool,
     pub turn_off_at: String,
     pub wake_up_at: String,
@@ -144,6 +148,8 @@ pub struct SystemConfig {
     pub idle_fighter_enabled: bool,
     #[serde(default = "default_fighter_interval")]
     pub idle_fighter_interval: u32,
+    #[serde(default = "default_fighter_speed")]
+    pub idle_fighter_speed: u32,
 }
 
 fn default_fighter_enabled() -> bool {
@@ -152,6 +158,10 @@ fn default_fighter_enabled() -> bool {
 
 fn default_fighter_interval() -> u32 {
     10
+}
+
+fn default_fighter_speed() -> u32 {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,6 +205,9 @@ impl Default for MatrixConfig {
             pwm_lsb_nanoseconds: 130,
             disable_hardware_pulsing: false,
             mapping: "regular".to_string(),
+            rotation: 0,
+            transition_effect: "vortex".to_string(),
+            transition_duration_ms: 400,
         }
     }
 }
@@ -232,6 +245,7 @@ impl Default for SystemConfig {
             timezone: "CET-1CEST,M3.5.0,M10.5.0/3".to_string(),
             format_24h: true,
             lang: "en".to_string(),
+            temp_unit: "C".to_string(),
             night_mode_enabled: false,
             turn_off_at: "23:00".to_string(),
             wake_up_at: "07:00".to_string(),
@@ -239,6 +253,7 @@ impl Default for SystemConfig {
             day_brightness: 100,
             idle_fighter_enabled: default_fighter_enabled(),
             idle_fighter_interval: default_fighter_interval(),
+            idle_fighter_speed: default_fighter_speed(),
         }
     }
 }
@@ -258,6 +273,10 @@ impl Default for ConfigSettings {
     }
 }
 
+use crate::core::types::{ForcedEngineMode, ProducerSnapshot};
+use arc_swap::ArcSwap;
+use std::sync::Arc;
+
 pub struct Config {
     pub config_file: Mutex<PathBuf>,
     pub json_file: PathBuf,
@@ -265,8 +284,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
     pub matrix_brightness: AtomicU32,
-    pub force_engine: Mutex<Option<String>>,
-    pub message_payload: Mutex<Option<serde_json::Value>>,
+    pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub image_obj: Mutex<Option<image::RgbImage>>,
     pub settings: RwLock<ConfigSettings>,
 }
@@ -345,8 +363,7 @@ impl Config {
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
             matrix_brightness: AtomicU32::new(initial_brightness),
-            force_engine: Mutex::new(None),
-            message_payload: Mutex::new(None),
+            producer_snapshot: ArcSwap::from_pointee(ProducerSnapshot::default()),
             image_obj: Mutex::new(None),
             settings: RwLock::new(settings),
         };
@@ -356,6 +373,45 @@ impl Config {
         }
 
         cfg
+    }
+
+    /// Atomically updates and publishes a forced engine mode in a lock-free snapshot.
+    pub fn set_forced_engine_mode(&self, mode: ForcedEngineMode) {
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.forced_mode = mode;
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Atomically updates and publishes a message payload in a lock-free snapshot.
+    pub fn set_message_payload(&self, payload: Option<crate::engines::message::MessagePayload>) {
+        let msg_arc = payload.map(Arc::new);
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.forced_mode = if msg_arc.is_some() {
+                ForcedEngineMode::Message
+            } else if next.forced_mode == ForcedEngineMode::Message {
+                ForcedEngineMode::None
+            } else {
+                next.forced_mode
+            };
+            next.message_payload = msg_arc.clone();
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Atomically clears any forced engine override.
+    pub fn clear_forced_engine(&self) {
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.forced_mode = ForcedEngineMode::None;
+            next.message_payload = None;
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
     }
 
     pub fn save(&self) -> bool {

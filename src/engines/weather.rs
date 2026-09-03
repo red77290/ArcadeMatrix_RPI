@@ -21,6 +21,7 @@ pub struct WeatherEngine {
     lang: String,
     last_lang: String,
     units: String,
+    last_units: String,
     offset_x: i32,
     offset_y: i32,
 }
@@ -41,6 +42,7 @@ impl WeatherEngine {
             lang: "en".to_string(),
             last_lang: "en".to_string(),
             units: "metric".to_string(),
+            last_units: "metric".to_string(),
             offset_x: 0,
             offset_y: 0,
         }
@@ -117,15 +119,30 @@ impl Engine for WeatherEngine {
             return;
         }
 
-        let sys_lang = context.config.settings.read().system.lang.clone();
-        let active_lang = if !sys_lang.is_empty() {
+        let (sys_lang, sys_unit) = {
+            let s = context.config.settings.read();
+            (s.system.lang.clone(), s.system.temp_unit.clone())
+        };
+
+        let active_lang = if !self.lang.is_empty() && self.lang != "system" {
+            self.lang.clone()
+        } else if !sys_lang.is_empty() {
             sys_lang
         } else {
             "fr".to_string()
         };
 
-        if self.last_lang != active_lang {
+        let active_units = if !self.units.is_empty() && self.units != "system" {
+            self.units.clone()
+        } else if sys_unit.eq_ignore_ascii_case("F") {
+            "imperial".to_string()
+        } else {
+            "metric".to_string()
+        };
+
+        if self.last_lang != active_lang || self.last_units != active_units {
             self.last_lang = active_lang.clone();
+            self.last_units = active_units.clone();
             self.last_fetch = None;
             self.forecasts.clear();
             self.panorama = None;
@@ -137,13 +154,18 @@ impl Engine for WeatherEngine {
             .unwrap_or(true);
 
         if should_fetch {
-            self.fetch_forecast(&self.api_key.clone(), &self.city.clone(), &active_lang);
+            self.fetch_forecast(
+                &self.api_key.clone(),
+                &self.city.clone(),
+                &active_lang,
+                &active_units,
+            );
         }
 
         if self.forecasts.is_empty() {
-            let empty_text = if self.units.eq_ignore_ascii_case("imperial")
-                || self.units.eq_ignore_ascii_case("fahrenheit")
-                || self.units.eq_ignore_ascii_case("f")
+            let empty_text = if active_units.eq_ignore_ascii_case("imperial")
+                || active_units.eq_ignore_ascii_case("fahrenheit")
+                || active_units.eq_ignore_ascii_case("f")
             {
                 "--°F"
             } else {
@@ -754,12 +776,12 @@ impl WeatherEngine {
         }
     }
 
-    fn fetch_forecast(&mut self, api_key: &str, city: &str, lang: &str) {
+    fn fetch_forecast(&mut self, api_key: &str, city: &str, lang: &str, units: &str) {
         self.last_fetch = Some(Instant::now());
         self.panorama = None; // Invalidate panorama cache
 
         for provider in &self.providers {
-            if let Some(forecasts) = provider.fetch_forecast(api_key, city, lang, &self.units) {
+            if let Some(forecasts) = provider.fetch_forecast(api_key, city, lang, units) {
                 self.forecasts = forecasts;
                 return;
             }
@@ -783,7 +805,12 @@ fn register_weather_engine() -> EngineDescriptor {
             version: crate::core::build_info::VERSION,
         },
         capabilities: Capabilities::default(),
-        requirements: Requirements::default(),
+        requirements: Requirements {
+            needs_network: true,
+            ..Default::default()
+        },
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {

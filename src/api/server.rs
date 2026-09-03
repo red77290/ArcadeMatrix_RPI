@@ -7,6 +7,7 @@ use futures_util::StreamExt;
 use rust_embed::RustEmbed;
 use serde_json::json;
 use std::net::UdpSocket;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use sysinfo::System;
@@ -109,6 +110,15 @@ async fn post_system(
     if let Some(v) = body.get("lang").and_then(|v| v.as_str()) {
         s.system.lang = v.to_string();
     }
+    if let Some(v) = body.get("timezone").and_then(|v| v.as_str()) {
+        s.system.timezone = v.to_string();
+    }
+    if let Some(v) = body.get("format_24h").and_then(|v| v.as_bool()) {
+        s.system.format_24h = v;
+    }
+    if let Some(v) = body.get("temp_unit").and_then(|v| v.as_str()) {
+        s.system.temp_unit = v.to_string();
+    }
     // Fighter overlay toggle/interval (media page). Handled as top-level keys so
     // the UI can patch them without replacing the whole `system` object.
     if let Some(v) = body.get("idle_fighter_enabled").and_then(|v| v.as_bool()) {
@@ -116,6 +126,9 @@ async fn post_system(
     }
     if let Some(v) = body.get("idle_fighter_interval").and_then(|v| v.as_u64()) {
         s.system.idle_fighter_interval = (v.max(1)) as u32;
+    }
+    if let Some(v) = body.get("idle_fighter_speed").and_then(|v| v.as_u64()) {
+        s.system.idle_fighter_speed = (v.clamp(25, 200)) as u32;
     }
     if let Some(v) = body.get("night_mode_enabled").and_then(|v| v.as_bool()) {
         s.system.night_mode_enabled = v;
@@ -143,13 +156,48 @@ async fn post_system(
         // reverting to the default when the config is reloaded from disk.
         s.system.day_brightness = clamped;
     }
+    // Real-time display orientation & transitions (applied immediately without a restart).
+    if let Some(v) = body.get("rotation").and_then(|v| v.as_u64()) {
+        if s.matrix.rotation != v as u32 {
+            s.matrix.rotation = v as u32;
+            data.config.reset_rotation.store(true, Ordering::Relaxed);
+        }
+    }
+    if let Some(v) = body.get("transition_effect").and_then(|v| v.as_str()) {
+        s.matrix.transition_effect = v.to_string();
+    }
+    if let Some(v) = body.get("transition_duration_ms").and_then(|v| v.as_u64()) {
+        s.matrix.transition_duration_ms = v as u32;
+    }
     // Hardware & MQTT-affecting settings only take effect after a restart of the
-    // render/network loops, so flag it when matrix params, MQTT broker, or Wi-Fi state change.
-    let new_matrix = serde_json::to_value(&s.matrix).ok();
+    // render/network loops, so flag it when physical matrix params, MQTT broker, or Wi-Fi state change.
+    let prev_matrix_cfg: Option<crate::core::config::MatrixConfig> =
+        prev_matrix.and_then(|v| serde_json::from_value(v).ok());
+    let hw_matrix_changed = if let Some(ref p) = prev_matrix_cfg {
+        p.width != s.matrix.width
+            || p.height != s.matrix.height
+            || p.chain_length != s.matrix.chain_length
+            || p.driver_chip != s.matrix.driver_chip
+            || p.mapping != s.matrix.mapping
+            || p.rgb_sequence != s.matrix.rgb_sequence
+            || p.row_address_mode != s.matrix.row_address_mode
+            || p.multiplexing != s.matrix.multiplexing
+            || p.slowdown != s.matrix.slowdown
+            || p.pwm_bits != s.matrix.pwm_bits
+            || p.pwm_lsb_nanoseconds != s.matrix.pwm_lsb_nanoseconds
+            || p.limit_refresh_rate_hz != s.matrix.limit_refresh_rate_hz
+            || p.disable_hardware_pulsing != s.matrix.disable_hardware_pulsing
+    } else {
+        false
+    };
+    if let Some(ref p) = prev_matrix_cfg {
+        if p.rotation != s.matrix.rotation {
+            data.config.reset_rotation.store(true, Ordering::Relaxed);
+        }
+    }
     let new_mqtt = serde_json::to_value(&s.mqtt).ok();
-    let needs_reload = prev_matrix != new_matrix
-        || prev_mqtt != new_mqtt
-        || prev_disable_wifi != s.wifi.disable_internal;
+    let needs_reload =
+        hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
     if needs_reload {
@@ -525,7 +573,8 @@ async fn post_marquee(
     match image::load_from_memory(&bytes) {
         Ok(img) => {
             *data.config.image_obj.lock() = Some(img.to_rgb8());
-            *data.config.force_engine.lock() = Some("marquee".to_string());
+            data.config
+                .set_forced_engine_mode(crate::core::types::ForcedEngineMode::Marquee);
             HttpResponse::Ok().json(json!({"status": "ok"}))
         }
         Err(e) => HttpResponse::BadRequest()
@@ -637,6 +686,70 @@ async fn get_fonts(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     HttpResponse::Ok().json(fonts)
 }
 
+fn find_gif_candidate_roots(orientation: &str) -> Vec<std::path::PathBuf> {
+    let mut roots = Vec::new();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
+
+    let subs: &[&str] = if orientation == "tate" {
+        &["gifs_tate", "gifs/tate", "tate"]
+    } else {
+        &["gifs", "gifs/yoko", "yoko"]
+    };
+
+    let base_prefixes = [
+        "",
+        "/",
+        "data/",
+        "release/sdCard/",
+        "../",
+        "../ArcadeMatrix/release/sdCard/",
+        "/opt/arcadematrix/",
+        &format!("{}/", home),
+        &format!("{}/ArcadeMatrix_RPi/", home),
+        &format!("{}/ArcadeMatrix/", home),
+        &format!("{}/ArcadeMatrix/release/sdCard/", home),
+        "/media/",
+        "/mnt/",
+    ];
+
+    for base in &base_prefixes {
+        for sub in subs {
+            let candidate = if base.is_empty() {
+                std::path::PathBuf::from(sub)
+            } else if base.starts_with('/') {
+                std::path::Path::new(base).join(sub)
+            } else {
+                std::path::PathBuf::from(format!("{}{}", base, sub))
+            };
+
+            if candidate.is_dir() && !roots.contains(&candidate) {
+                roots.push(candidate);
+            }
+        }
+    }
+
+    roots
+}
+
+fn count_gifs_in_dir(path: &std::path::Path) -> usize {
+    let mut count = 0;
+    if let Ok(entries) = std::fs::read_dir(path) {
+        for entry in entries.flatten() {
+            if let Ok(ft) = entry.file_type() {
+                if ft.is_dir() {
+                    count += count_gifs_in_dir(&entry.path());
+                } else {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if name.to_lowercase().ends_with(".gif") && !name.starts_with("._") {
+                        count += 1;
+                    }
+                }
+            }
+        }
+    }
+    count
+}
+
 #[get("/api/playlists")]
 async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     if let Err(e) = check_auth(&req, &data.config) {
@@ -644,18 +757,200 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     }
 
     let mut playlists = Vec::new();
-    if let Ok(entries) = std::fs::read_dir("gifs") {
-        for entry in entries.flatten() {
-            if let Ok(file_type) = entry.file_type() {
-                if file_type.is_dir() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        playlists.push(json!({"value": name, "label": name}));
+    let mut seen_yoko = std::collections::HashSet::new();
+    let mut seen_tate = std::collections::HashSet::new();
+
+    // 1. Scan horizontal / yoko folders across candidate roots
+    for root in find_gif_candidate_roots("yoko") {
+        let pl_json = root.join("playlists.json");
+        if pl_json.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&pl_json) {
+                if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = doc.as_object() {
+                        for (k, v) in obj {
+                            if !k.starts_with('.')
+                                && !k.starts_with('_')
+                                && seen_yoko.insert(k.clone())
+                            {
+                                let path = v.get("path").and_then(|p| p.as_str()).unwrap_or(k);
+                                playlists.push(json!({
+                                    "value": if path.starts_with('/') { path.to_string() } else { format!("/gifs/{}", path) },
+                                    "label": k,
+                                    "orientation": "yoko"
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.')
+                                && !name.starts_with('_')
+                                && seen_yoko.insert(name.to_string())
+                            {
+                                playlists.push(json!({
+                                    "value": format!("/gifs/{}", name),
+                                    "label": name,
+                                    "orientation": "yoko"
+                                }));
+                            }
+                        }
                     }
                 }
             }
         }
     }
+
+    // 2. Scan vertical / tate folders across candidate roots
+    for root in find_gif_candidate_roots("tate") {
+        let pl_json = root.join("playlists.json");
+        if pl_json.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&pl_json) {
+                if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = doc.as_object() {
+                        for (k, v) in obj {
+                            if !k.starts_with('.')
+                                && !k.starts_with('_')
+                                && seen_tate.insert(k.clone())
+                            {
+                                let path = v.get("path").and_then(|p| p.as_str()).unwrap_or(k);
+                                playlists.push(json!({
+                                    "value": if path.starts_with('/') { path.to_string() } else { format!("/gifs_tate/{}", path) },
+                                    "label": k,
+                                    "orientation": "tate"
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.')
+                                && !name.starts_with('_')
+                                && seen_tate.insert(name.to_string())
+                            {
+                                playlists.push(json!({
+                                    "value": format!("/gifs_tate/{}", name),
+                                    "label": name,
+                                    "orientation": "tate"
+                                }));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     HttpResponse::Ok().json(playlists)
+}
+
+#[get("/api/gifs/playlists")]
+async fn get_gifs_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+
+    let mut yoko_map = serde_json::Map::new();
+    for root in find_gif_candidate_roots("yoko") {
+        let pl_json = root.join("playlists.json");
+        if pl_json.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&pl_json) {
+                if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = doc.as_object() {
+                        for (k, v) in obj {
+                            if !k.starts_with('.')
+                                && !k.starts_with('_')
+                                && !yoko_map.contains_key(k)
+                            {
+                                yoko_map.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.')
+                                && !name.starts_with('_')
+                                && !yoko_map.contains_key(name)
+                            {
+                                let count = count_gifs_in_dir(&entry.path());
+                                yoko_map.insert(
+                                    name.to_string(),
+                                    json!({"path": format!("/gifs/{}", name), "count": count}),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut tate_map = serde_json::Map::new();
+    for root in find_gif_candidate_roots("tate") {
+        let pl_json = root.join("playlists.json");
+        if pl_json.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&pl_json) {
+                if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(obj) = doc.as_object() {
+                        for (k, v) in obj {
+                            if !k.starts_with('.')
+                                && !k.starts_with('_')
+                                && !tate_map.contains_key(k)
+                            {
+                                tate_map.insert(k.clone(), v.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.')
+                                && !name.starts_with('_')
+                                && !tate_map.contains_key(name)
+                            {
+                                let count = count_gifs_in_dir(&entry.path());
+                                tate_map.insert(
+                                    name.to_string(),
+                                    json!({"path": format!("/gifs_tate/{}", name), "count": count}),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    HttpResponse::Ok().json(json!({
+        "yoko": yoko_map,
+        "tate": tate_map
+    }))
 }
 
 #[get("/api/themes")]
@@ -783,6 +1078,32 @@ async fn get_timezones() -> impl actix_web::Responder {
     HttpResponse::Ok().json(res)
 }
 
+#[get("/api/hardware")]
+async fn get_hardware_compat(data: web::Data<AppState>) -> impl Responder {
+    let s = data.config.settings.read();
+    HttpResponse::Ok().json(&s.matrix)
+}
+
+#[get("/api/gyro")]
+async fn get_gyro_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({
+        "present": false,
+        "pitch": 0.0,
+        "roll": 0.0,
+        "orientation": 0
+    }))
+}
+
+#[post("/api/display/orientation")]
+async fn post_orientation_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
+#[post("/api/gyro/calibrate")]
+async fn post_gyro_calibrate_compat() -> impl Responder {
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -792,10 +1113,24 @@ async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder 
     if p.is_empty() {
         p = "index.html".to_string();
     }
+
+    // Check disk first for real-time web development updates
+    let disk_path = Path::new("api/www").join(&p);
+    if disk_path.exists() && disk_path.is_file() {
+        if let Ok(bytes) = std::fs::read(&disk_path) {
+            let mime = mime_guess::from_path(&disk_path).first_or_octet_stream();
+            return actix_web::HttpResponse::Ok()
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                .content_type(mime.as_ref())
+                .body(bytes);
+        }
+    }
+
     match WebAssets::get(&p) {
         Some(content) => {
             let mime = mime_guess::from_path(&p).first_or_octet_stream();
             actix_web::HttpResponse::Ok()
+                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
                 .content_type(mime.as_ref())
                 .body(content.data.into_owned())
         }
@@ -812,6 +1147,10 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .app_data(app_state.clone())
             .service(get_system)
             .service(post_system)
+            .service(get_hardware_compat)
+            .service(get_gyro_compat)
+            .service(post_orientation_compat)
+            .service(post_gyro_calibrate_compat)
             .service(get_instances)
             .service(post_instances)
             .service(delete_instance)
@@ -826,6 +1165,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_stats)
             .service(get_fonts)
             .service(get_playlists)
+            .service(get_gifs_playlists)
             .service(get_themes)
             .service(get_timezones)
             .service(post_wifi)

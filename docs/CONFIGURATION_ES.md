@@ -201,6 +201,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `BTC,ETH` | Separados por comas | Símbolos de criptomonedas a monitorear (CoinGecko / Binance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
@@ -210,10 +211,33 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Separados por comas | Tickers bursátiles a monitorear (Yahoo Finance). |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
+
+### Motor: `gnews` (Noticias en Vivo y Ticker GNews)
+| Campo | Tipo | Predeterminado | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `api_key` | `String` | `""` | Clave válida | Clave API de GNews.io (opcional; usa noticias de demostración si está vacía). |
+| `category` | `Options` | `technology` | `general`, `world`, `nation`, `business`, `technology`, `entertainment`, `sports`, `science`, `health` | Categoría temática principal. |
+| `keywords` | `String` | `""` | Texto / Consulta | Palabras clave de búsqueda o etiquetas personalizadas (ej. `ai OR arcade`). |
+| `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Idioma de las noticias (`auto` sincroniza con el sistema). |
+| `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Edición regional por país. |
+| `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché por ciclo. |
+| `cache_ttl_min` | `int` | `30` | `5` a `120` | Intervalo de refresco de la caché en red (minutos). |
+| `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Modo de animación (desplazamiento continuo derecha a izquierda, flujo serpentina arcade, desplazamiento vertical o paginación fija). |
+| `scroll_speed` | `int` | `3` | `1` a `5` | Multiplicador de velocidad de desplazamiento (1: Lento ~18 px/s a 5: Turbo ~60 px/s). |
+| `scroll_pause_start_ms` | `int` | `1200` | `0` a `4000` | Tiempo de pausa inicial (ms) antes de comenzar el desplazamiento. |
+| `scroll_pause_end_ms` | `int` | `1000` | `0` a `4000` | Tiempo de pausa final (ms) al final del titular antes de cambiar. |
+| `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización por artículo en segundos. |
+| `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Esquema de colores visual. |
+| `show_category_badge` | `bool` | `true` | `true`, `false` | Muestra la píldora de categoría en color (`[TECH]`, `[WORLD]`, etc.). |
+| `show_source` | `bool` | `true` | `true`, `false` | Muestra el nombre de la fuente de noticias (`BBC News`, `Reuters`, etc.). |
+| `show_time_ago` | `bool` | `true` | `true`, `false` | Muestra la antigüedad relativa (`5m ago`, `2h ago`). |
+| `show_beacon` | `bool` | `true` | `true`, `false` | Muestra la baliza luminosa de directo parpadeante. |
+| `show_progress_dots` | `bool` | `true` | `true`, `false` | Muestra los puntos de progreso (`● ○ ○ ○ ○`). |
 
 ### Motor: `weather`
 | Campo | Tipo | Predeterminado | Opciones | Descripción |
@@ -251,6 +275,22 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 | `fighter_2` | `String` | `""` | Nombre de carpeta | Luchador P2 (dejar vacío para selección aleatoria). |
 | `show_hud` | `bool` | `true` | `true`, `false` | Muestra barras de vida retro (HP), medidores de Super y nombres de luchadores. |
 | `match_duration` | `int` | `30` | `10` a `120` | Duración máxima del asalto en segundos antes de agotar el tiempo. |
+
+### Motor: `dashboard` (Smart Dashboard Hub)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `clock_mode` | `Options` | `0` | `0` (Digital), `1` (Esfera), `2` (Mínimo) | Estilo de visualización del reloj |
+| `theme` | `Options` | `0` | `0` (Cyberpunk), `1` (Amber HUD), `2` (Minimalist), `3` (Matrix) | Paleta de colores para los widgets |
+| `show_clock` | `bool` | `true` | `true`, `false` | Muestra el reloj principal |
+| `show_world_clock` | `bool` | `true` | `true`, `false` | Muestra zonas horarias mundiales secundarias |
+| `world_clocks` | `String` | `NYC,TYO,LON` | Códigos de aeropuerto | Zonas horarias separadas por comas (ej. `NYC,TYO,LON,PAR,SFO`) |
+| `show_weather` | `bool` | `true` | `true`, `false` | Muestra el widget meteorológico en vivo |
+| `weather_city` | `String` | `Paris,FR` | Ciudad | Consulta de ciudad para OpenWeatherMap |
+| `show_markets` | `bool` | `true` | `true`, `false` | Muestra el teletipo bursátil y cripto |
+| `tracked_markets` | `String` | `BTC,ETH,NVDA,AAPL` | Símbolos | Símbolos bursátiles separados por comas |
+| `show_sysinfo` | `bool` | `true` | `true`, `false` | Muestra el uso de CPU % y RAM % |
+| `show_date` | `bool` | `true` | `true`, `false` | Muestra la fecha actual |
+| `show_seconds` | `bool` | `true` | `true`, `false` | Muestra el contador de segundos |
 
 ### Motor: `google_cast` (Google Home / Nest Audio)
 | Campo | Tipo | Por defecto | Descripción |

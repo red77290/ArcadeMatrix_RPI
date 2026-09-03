@@ -272,10 +272,15 @@ impl Engine for ClockEngine {
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
 
-        let tz_str = if !self.timezone.is_empty() {
+        let (sys_tz, sys_24h) = {
+            let sys = context.config.settings.read();
+            (sys.system.timezone.clone(), sys.system.format_24h)
+        };
+
+        let tz_str = if !self.timezone.is_empty() && self.timezone != "system" {
             self.timezone.clone()
         } else {
-            context.config.settings.read().system.timezone.clone()
+            sys_tz
         };
 
         let now = if let Some(tz) = parse_tz(&tz_str) {
@@ -284,11 +289,17 @@ impl Engine for ClockEngine {
             chrono::Local::now().naive_local()
         };
 
+        // If system format is 12h and format string uses %H, adapt dynamically to %I
+        let mut base_format = self.time_format.clone();
+        if !sys_24h {
+            base_format = base_format.replace("%H", "%I");
+        }
+
         // Full time string with seconds (for binary clock)
-        let time_str_full = now.format(&self.time_format).to_string();
+        let time_str_full = now.format(&base_format).to_string();
 
         // Short time string for display clocks
-        let mut format_str = self.time_format.clone();
+        let mut format_str = base_format.clone();
         if self.time_theme == 19 && !format_str.contains("%S") {
             format_str.push_str(":%S");
         }
@@ -337,6 +348,11 @@ impl Engine for ClockEngine {
         }
 
         let font = self.base_renderer.font();
+        let effective_size = if matrix.width() < 48 && self.time_size > 1 {
+            1
+        } else {
+            self.time_size
+        };
 
         match self.time_theme {
             18 => {
@@ -345,7 +361,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     18,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some((0, 140, 0)),
@@ -358,7 +374,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     21,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some((0, 140, 0)),
@@ -369,7 +385,7 @@ impl Engine for ClockEngine {
                 matrix,
                 &time_str,
                 &font,
-                self.time_size,
+                effective_size,
                 self.time_offset_x,
                 self.time_offset_y,
             ),
@@ -381,7 +397,7 @@ impl Engine for ClockEngine {
                     matrix,
                     &time_str,
                     20,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     Some(color1),
@@ -390,37 +406,37 @@ impl Engine for ClockEngine {
             }
             22 => self
                 .pong
-                .update_and_render(matrix, hours, minutes, &font, self.time_size),
-            23 => self.tetris.render(matrix, &time_str, &font, self.time_size),
+                .update_and_render(matrix, hours, minutes, &font, effective_size),
+            23 => self.tetris.render(matrix, &time_str, &font, effective_size),
             24 => self.word.render(
                 matrix,
                 hours,
                 minutes,
                 &font,
-                self.time_size,
+                effective_size,
                 &context.config.settings.read().system.lang,
             ),
             25 => self
                 .binary
-                .render(matrix, hours, minutes, seconds, &font, self.time_size),
+                .render(matrix, hours, minutes, seconds, &font, effective_size),
             26 => self
                 .pacman
-                .render(matrix, &time_str, hours, minutes, &font, self.time_size),
+                .render(matrix, &time_str, hours, minutes, &font, effective_size),
             27 => self
                 .versus
-                .render(matrix, hours, minutes, &font, self.time_size),
+                .render(matrix, hours, minutes, &font, effective_size),
             28 => self
                 .slot_machine
-                .render(matrix, &time_str, &font, self.time_size),
+                .render(matrix, &time_str, &font, effective_size),
             29 => self
                 .tetris_gb
-                .render(matrix, &time_str, &font, self.time_size),
+                .render(matrix, &time_str, &font, effective_size),
             _ => {
                 self.base_renderer.render_text(
                     matrix,
                     &time_str,
                     self.time_theme,
-                    self.time_size,
+                    effective_size,
                     self.time_offset_x,
                     self.time_offset_y,
                     None,
@@ -454,6 +470,8 @@ fn register_clock_engine() -> EngineDescriptor {
         },
         capabilities: Capabilities::default(),
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![
                 crate::core::engine_contract::ConfigField {

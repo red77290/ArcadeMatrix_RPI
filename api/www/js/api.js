@@ -82,7 +82,7 @@ export const API = {
   },
 
   async checkOtaUpdate() {
-    return this.get('/api/ota/check');
+    return this.get('/api/ota/check?_t=' + Date.now());
   },
 
   async triggerAutoOta(downloadUrl = null) {
@@ -90,7 +90,7 @@ export const API = {
   },
 
   async getVersion() {
-    return this.get('/api/version').catch(() => this.get('/api/stats')).catch(() => ({ version: '3.0.0' }));
+    return this.get('/api/version?_t=' + Date.now()).catch(() => this.get('/api/stats?_t=' + Date.now())).catch(() => ({ version: '--' }));
   },
 
   async waitForReconnect(timeoutMs = 60000, intervalMs = 2000, expectedVersion = null) {
@@ -102,7 +102,7 @@ export const API = {
 
     while (Date.now() - start < timeoutMs) {
       try {
-        const res = await fetch('/api/version', { signal: AbortSignal.timeout(1500) });
+        const res = await fetch('/api/version?_t=' + Date.now(), { cache: 'no-store', signal: AbortSignal.timeout(1500) });
         if (res.ok) {
           const data = await res.json();
           // If we expected a new version, make sure it didn't just return the old un-restarted daemon

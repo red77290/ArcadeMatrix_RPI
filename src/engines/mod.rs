@@ -1,10 +1,12 @@
 pub mod clock;
 pub mod clocks;
 pub mod crypto;
+pub mod dashboard;
 pub mod date;
 pub mod fighter;
 pub mod frontend_sync;
 pub mod gif;
+pub mod gnews;
 pub mod google_cast;
 pub mod icons;
 pub mod marquee;

@@ -3,6 +3,7 @@ use crate::core::engine_contract::{
     EngineMetadata, Requirements,
 };
 use crate::core::matrix::MatrixBackend;
+use crate::core::types::DisplayGeometry;
 use image::RgbImage;
 use linkme::distributed_slice;
 use rand::seq::SliceRandom;
@@ -21,6 +22,7 @@ pub struct GifEngine {
     frame_elapsed: Duration,
     target_width: u32,
     target_height: u32,
+    geometry: DisplayGeometry,
     loop_count: u32,
     /// Index of the frame last actually drawn to the matrix (for swap-skip)
     last_drawn_index: Option<usize>,
@@ -44,6 +46,7 @@ impl GifEngine {
             frame_elapsed: Duration::ZERO,
             target_width,
             target_height,
+            geometry: DisplayGeometry::new(target_width, target_height, 0, 0),
             loop_count: 0,
             last_drawn_index: None,
             last_update: None,
@@ -73,20 +76,46 @@ impl GifEngine {
                 let rgba_img = frame.clone().into_buffer();
                 let rgb_img = image::DynamicImage::ImageRgba8(rgba_img).into_rgb8();
 
-                // Resize to target dimensions using Nearest neighbor for speed and retro look
+                let src_w = rgb_img.width();
+                let src_h = rgb_img.height();
+
+                // Compute uniform scaling preserving aspect ratio (zero distortion/stretching)
+                let (new_w, new_h) = if src_w > 0 && src_h > 0 {
+                    let scale_x = self.target_width as f32 / src_w as f32;
+                    let scale_y = self.target_height as f32 / src_h as f32;
+                    let scale = scale_x.min(scale_y);
+                    let nw = ((src_w as f32 * scale).round() as u32).clamp(1, self.target_width);
+                    let nh = ((src_h as f32 * scale).round() as u32).clamp(1, self.target_height);
+                    (nw, nh)
+                } else {
+                    (self.target_width, self.target_height)
+                };
+
                 let resized = image::imageops::resize(
                     &rgb_img,
-                    self.target_width,
-                    self.target_height,
+                    new_w,
+                    new_h,
                     image::imageops::FilterType::Nearest,
                 );
 
-                // delay in image crate is a Delay struct. We can extract numerator/denominator.
+                // Create a canvas filled with black and center the resized frame (letterboxed)
+                let mut canvas = RgbImage::new(self.target_width, self.target_height);
+                let offset_x = (self.target_width.saturating_sub(new_w)) / 2;
+                let offset_y = (self.target_height.saturating_sub(new_h)) / 2;
+                image::imageops::overlay(&mut canvas, &resized, offset_x as i64, offset_y as i64);
+
                 let (num, den) = frame.delay().numer_denom_ms();
                 let ms = if den == 0 { 0 } else { num / den };
-                let delay = Duration::from_millis(if ms == 0 { 50 } else { ms as u64 });
+                let ms_clamped = if ms == 0 {
+                    100 // Standard GIF fallback for 0ms delay headers
+                } else if ms < 20 {
+                    20 // Cap at 50fps max to avoid stuttering
+                } else {
+                    ms
+                };
+                let delay = Duration::from_millis(ms_clamped as u64);
 
-                frames.push((resized, delay));
+                frames.push((canvas, delay));
             }
         }
 
@@ -105,57 +134,151 @@ impl GifEngine {
         }
     }
 
+    pub fn is_tate(&self) -> bool {
+        self.target_height > self.target_width
+            || self.target_width < 48
+            || self.target_height > (self.target_width * 3) / 2
+            || self.geometry.layout_class == crate::core::types::LayoutClass::Portrait
+            || self.geometry.layout_class == crate::core::types::LayoutClass::Tall
+            || self.geometry.rotation == 1
+            || self.geometry.rotation == 3
+    }
+
+    pub fn get_candidate_roots(is_vertical: bool) -> Vec<PathBuf> {
+        let mut roots = Vec::new();
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
+
+        // STRICT SEPARATION:
+        // In vertical (Tate) mode: ONLY vertical roots ("gifs_tate", "gifs/tate", "tate")
+        // In horizontal (Yoko) mode: ONLY horizontal roots ("gifs", "gifs/yoko", "yoko")
+        // NEVER mix horizontal and vertical roots!
+        let sub_dirs: &[&str] = if is_vertical {
+            &["gifs_tate", "gifs/tate", "tate"]
+        } else {
+            &["gifs", "gifs/yoko", "yoko"]
+        };
+
+        let base_prefixes = [
+            "",
+            "/",
+            "data/",
+            "release/sdCard/",
+            "../",
+            "../ArcadeMatrix/release/sdCard/",
+            "/opt/arcadematrix/",
+            &format!("{}/", home),
+            &format!("{}/ArcadeMatrix_RPi/", home),
+            &format!("{}/ArcadeMatrix/", home),
+            &format!("{}/ArcadeMatrix/release/sdCard/", home),
+            "/media/",
+            "/mnt/",
+        ];
+
+        for base in &base_prefixes {
+            for sub in sub_dirs {
+                let candidate = if base.is_empty() {
+                    PathBuf::from(sub)
+                } else if base.starts_with('/') {
+                    Path::new(base).join(sub)
+                } else {
+                    PathBuf::from(format!("{}{}", base, sub))
+                };
+                if candidate.is_dir() && !roots.contains(&candidate) {
+                    roots.push(candidate);
+                }
+            }
+        }
+        roots
+    }
+
     pub fn play_random_playlist_gif(&mut self, selected_playlists: &[String]) -> bool {
+        let is_vertical = self.is_tate();
+        let candidate_roots = Self::get_candidate_roots(is_vertical);
         let mut valid_files = Vec::new();
 
         if !selected_playlists.is_empty() {
             for p_str in selected_playlists {
-                // Sanitize the path string to handle any stray quotes or missing prefixes
-                let mut cleaned = p_str.replace("\"", "").trim().to_string();
-                if !cleaned.starts_with("gifs/") && !cleaned.starts_with("data/") {
-                    cleaned = format!("gifs/{}", cleaned);
+                let raw_clean = p_str.replace('\"', "").trim().to_string();
+                let trimmed = raw_clean.trim_start_matches('/').to_string();
+
+                if trimmed.is_empty()
+                    || trimmed == "all"
+                    || trimmed == "gifs"
+                    || trimmed == "gifs_tate"
+                    || trimmed == "tate"
+                    || trimmed == "yoko"
+                {
+                    // Scan all candidate roots for current orientation
+                    for root in &candidate_roots {
+                        Self::scan_folder_recursive(root, &mut valid_files);
+                    }
+                    continue;
                 }
 
-                let p = Path::new(&cleaned);
-                if p.is_dir() {
-                    if let Ok(entries) = std::fs::read_dir(p) {
-                        for entry in entries.flatten() {
-                            let fname = entry.file_name().to_string_lossy().to_string();
-                            if fname.to_lowercase().ends_with(".gif") && !fname.starts_with("._") {
-                                valid_files.push(entry.path());
-                            }
+                // If user selected a specific sub-folder (e.g. "Arcade" or "gifs/Arcade" or "gifs_tate/Arcade")
+                let sub_folder = trimmed
+                    .trim_start_matches("gifs_tate/")
+                    .trim_start_matches("gifs/")
+                    .trim_start_matches("tate/")
+                    .trim_start_matches("yoko/")
+                    .trim_start_matches("data/gifs_tate/")
+                    .trim_start_matches("data/gifs/")
+                    .trim_start_matches('/')
+                    .to_string();
+
+                let mut found = false;
+                for root in &candidate_roots {
+                    let cand1 = root.join(&trimmed);
+                    if cand1.is_dir() {
+                        Self::scan_folder_recursive(&cand1, &mut valid_files);
+                        found = true;
+                        break;
+                    }
+                    let cand2 = root.join(&sub_folder);
+                    if cand2.is_dir() {
+                        Self::scan_folder_recursive(&cand2, &mut valid_files);
+                        found = true;
+                        break;
+                    }
+                }
+
+                if !found {
+                    let p_raw = Path::new(&raw_clean);
+                    if p_raw.is_dir() {
+                        let p_str_lower = raw_clean.to_lowercase();
+                        let matches_orientation = if is_vertical {
+                            p_str_lower.contains("tate") || !p_str_lower.contains("gifs/")
+                        } else {
+                            !p_str_lower.contains("tate")
+                        };
+                        if matches_orientation {
+                            Self::scan_folder_recursive(p_raw, &mut valid_files);
                         }
                     }
                 }
             }
         }
 
+        // Fallback: If no files found from specific playlists, scan all available roots for THIS orientation
         if valid_files.is_empty() {
-            // Fallback: scan all subdirectories of /gifs/
-            if let Ok(entries) = std::fs::read_dir("gifs") {
-                for entry in entries.flatten() {
-                    if entry.path().is_dir() {
-                        if let Ok(sub_entries) = std::fs::read_dir(entry.path()) {
-                            for sub in sub_entries.flatten() {
-                                let fname = sub.file_name().to_string_lossy().to_string();
-                                if fname.to_lowercase().ends_with(".gif")
-                                    && !fname.starts_with("._")
-                                {
-                                    valid_files.push(sub.path());
-                                }
-                            }
-                        }
-                    }
+            for root in &candidate_roots {
+                Self::scan_folder_recursive(root, &mut valid_files);
+                if !valid_files.is_empty() {
+                    break;
                 }
             }
         }
 
+        // STRICT SEPARATION:
+        // "en vertical, s'il n'y a pas de gifs vertical tu ne joue rien, meme chose à l'horizontal"
+        // ZERO fallback to alternate orientation! If no files match the current orientation, return false and play nothing!
         if valid_files.is_empty() {
+            self.frames.clear();
+            self.current_gif_path = None;
             return false;
         }
 
         let mut rng = rand::thread_rng();
-        // Avoid picking exact same GIF twice if multiple available
         if valid_files.len() > 1 {
             if let Some(ref last) = self.last_played_gif {
                 valid_files.retain(|p| p != last);
@@ -163,58 +286,72 @@ impl GifEngine {
         }
 
         if let Some(chosen) = valid_files.choose(&mut rng) {
-            return self.load_gif(chosen);
+            self.load_gif(chosen)
+        } else {
+            self.frames.clear();
+            self.current_gif_path = None;
+            false
         }
+    }
 
-        false
+    fn scan_folder(dir: &Path, out: &mut Vec<PathBuf>) {
+        Self::scan_folder_recursive(dir, out);
+    }
+
+    fn scan_folder_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_dir() {
+                    Self::scan_folder_recursive(&p, out);
+                } else {
+                    let fname = entry.file_name().to_string_lossy().to_string();
+                    if fname.to_lowercase().ends_with(".gif") && !fname.starts_with("._") {
+                        out.push(p);
+                    }
+                }
+            }
+        }
     }
 
     pub fn is_empty(&self) -> bool {
         self.frames.is_empty()
     }
 
-    /// Parses the comma-separated `playlists` field. Shared by `initialize` and
-    /// `on_config_changed` so live edits take effect without a restart.
     fn apply_config(&mut self, config: &dyn EngineConfig) {
-        let playlists_str = config.get_string("playlists", "");
-        self.playlists = if playlists_str.is_empty() {
+        let p1 = config.get_string("playlists", "");
+        let p2 = config.get_string("folder", "");
+        let p3 = config.get_string("variant", "");
+        let playlists_str = if !p1.is_empty() {
+            p1
+        } else if !p2.is_empty() {
+            p2
+        } else if !p3.is_empty() {
+            p3
+        } else {
+            "all".to_string()
+        };
+        self.playlists = if playlists_str.is_empty() || playlists_str == "all" {
             Vec::new()
         } else {
             playlists_str
                 .split(',')
                 .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
                 .collect()
         };
+
+        let count = config.get_int("gifs_count", 0);
+        if count > 0 {
+            self.target_count = count as u32;
+        }
     }
 
-    /// Renders the current GIF frame to the matrix.
-    /// Call this every iteration; it internally tracks elapsed time and
-    /// advances to the next frame only when the frame's own delay has elapsed.
-    /// `dt` = time elapsed since the last render call.
-    ///
-    /// Returns `true` if a new frame was actually drawn (i.e. the displayed
-    /// image changed), `false` if the current frame is identical to the one
-    /// already on the panel. Callers can skip the (memory-bus heavy) canvas
-    /// swap when this returns `false`, which drastically reduces DDR traffic
-    /// and prevents Wi-Fi/SDIO DMA starvation during playback.
-    pub fn render_next_frame(&mut self, matrix: &mut dyn MatrixBackend, dt: Duration) -> bool {
+    pub fn draw_current_frame(&mut self, matrix: &mut dyn MatrixBackend) -> bool {
         if self.frames.is_empty() {
             return false;
         }
 
-        self.frame_elapsed += dt;
-        let (_, delay) = self.frames[self.frame_index];
-
-        while self.frame_elapsed >= delay {
-            self.frame_elapsed -= delay;
-            self.frame_index += 1;
-            if self.frame_index >= self.frames.len() {
-                self.frame_index = 0;
-                self.loop_count += 1;
-            }
-        }
-
-        // Skip redraw + swap when the frame hasn't advanced since last draw.
         if self.last_drawn_index == Some(self.frame_index) {
             return false;
         }
@@ -229,9 +366,6 @@ impl GifEngine {
         self.loop_count >= target_loops
     }
 
-    /// Force-redraw the current frame to the matrix without advancing.
-    /// Used when an overlay (e.g. fighters) forces a swap every iteration and
-    /// the gif image must be present on the freshly-cleared canvas.
     pub fn redraw_current(&mut self, matrix: &mut dyn MatrixBackend) {
         if let Some((ref img, _)) = self.frames.get(self.frame_index) {
             matrix.draw_image(img, 0, 0);
@@ -246,21 +380,35 @@ impl Engine for GifEngine {
         context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        // Resize GIFs to the real panel size instead of a hardcoded 64x32,
-        // otherwise the clip only covers part of the screen on larger matrices.
         self.target_width = context.matrix.width();
         self.target_height = context.matrix.height();
+        self.geometry = DisplayGeometry::new(self.target_width, self.target_height, 0, 0);
         self.apply_config(config);
         Ok(())
     }
 
     fn activate(&mut self) {
         self.gifs_played = 0;
+        self.loop_count = 0;
         self.play_random_playlist_gif(&self.playlists.clone());
         self.last_update = Some(Instant::now());
     }
 
-    fn update(&mut self, _context: &mut EngineContext) {
+    fn is_realtime(&self) -> bool {
+        true
+    }
+
+    fn update(&mut self, context: &mut EngineContext) {
+        let w = context.matrix.width();
+        let h = context.matrix.height();
+        if self.target_width != w || self.target_height != h {
+            self.target_width = w;
+            self.target_height = h;
+            self.geometry =
+                DisplayGeometry::new(w, h, self.geometry.rotation, self.geometry.version);
+            self.play_random_playlist_gif(&self.playlists.clone());
+        }
+
         let now = Instant::now();
         if let Some(last) = self.last_update {
             self.frame_elapsed += now.duration_since(last);
@@ -281,15 +429,11 @@ impl Engine for GifEngine {
             }
         }
 
-        // A full loop of the current GIF just completed: count it and, if we
-        // still owe more clips for this rotation visit, load the next random
-        // GIF. Otherwise `is_finished()` will trip and the rotation advances.
         if self.loop_count >= 1 {
+            self.loop_count = 0;
             self.gifs_played += 1;
-            if self.gifs_played < self.target_count {
-                self.play_random_playlist_gif(&self.playlists.clone());
-                self.last_update = Some(Instant::now());
-            }
+            self.play_random_playlist_gif(&self.playlists.clone());
+            self.last_update = Some(Instant::now());
         }
     }
 
@@ -304,6 +448,16 @@ impl Engine for GifEngine {
     fn deactivate(&mut self) {
         self.frames.clear();
         self.current_gif_path = None;
+    }
+
+    fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        let prev_tate = self.is_tate();
+        self.target_width = geometry.logical_width;
+        self.target_height = geometry.logical_height;
+        self.geometry = *geometry;
+        if self.is_tate() != prev_tate {
+            self.play_random_playlist_gif(&self.playlists.clone());
+        }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
@@ -337,6 +491,8 @@ fn register_gif_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema {
             fields: vec![crate::core::engine_contract::ConfigField {
                 id: "playlists",

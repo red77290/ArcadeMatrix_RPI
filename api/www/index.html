@@ -25,7 +25,7 @@
     <nav id="sidebar">
       <div class="logo">
         <h2>🎮 ArcadeMatrix</h2>
-        <span id="version-tag" class="version-badge">v3.0.0</span>
+        <span id="version-tag" class="version-badge">--</span>
       </div>
       <ul class="nav-links">
         <li class="nav-item active" data-page="dashboard">
@@ -150,7 +150,7 @@
         <div class="card glass shadow">
           <h3>🥊 <span data-i18n="fighter_title">Fighter Overlay</span></h3>
           <p class="text-muted" data-i18n="fighter_desc">Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.</p>
-          <div class="form-grid col-2" style="margin-top: 1rem;">
+          <div class="form-grid col-3" style="margin-top: 1rem;">
             <div class="form-group">
               <label data-i18n="fighter_enabled">Enabled</label>
               <label class="switch">
@@ -161,6 +161,10 @@
             <div class="form-group">
               <label data-i18n="fighter_interval">Interval between fights (seconds)</label>
               <input type="number" id="fighter-interval" class="input" value="10" min="1">
+            </div>
+            <div class="form-group">
+              <label><span data-i18n="fighter_speed">Animation Speed</span> (<span id="val-fighter-speed">100</span>%)</label>
+              <input type="range" id="fighter-speed" min="25" max="200" value="100" step="5" class="input" style="height: 38px; padding: 0.2rem;">
             </div>
           </div>
           <button id="btn-save-fighter" class="btn btn-primary" style="margin-top: 1.5rem;" data-i18n="fighter_save">Save Fighter Settings</button>
@@ -225,101 +229,134 @@
         </header>
 
         <div class="tabs" style="margin-bottom: 1.5rem;">
-          <button class="tab-btn active" onclick="switchSystemTab('hardware')" data-i18n="sys_tab_hw">⚙️ Hardware</button>
-          <button class="tab-btn" onclick="switchSystemTab('night')" data-i18n="sys_tab_night">🌙 Night Mode</button>
-          <button class="tab-btn" onclick="switchSystemTab('network')" data-i18n="sys_tab_network">🌐 Network</button>
-          <button class="tab-btn" onclick="switchSystemTab('mqtt')" data-i18n="sys_tab_mqtt">🔄 MQTT & API</button>
-          <button class="tab-btn" onclick="switchSystemTab('ota')" data-i18n="sys_tab_ota">🚀 Updates</button>
+          <button class="tab-btn active" onclick="switchSystemTab('general')"><span data-i18n="tab_general">🌐 General</span></button>
+          <button class="tab-btn" onclick="switchSystemTab('hardware')"><span data-i18n="tab_hardware">⚙️ Hardware</span></button>
+          <button class="tab-btn" onclick="switchSystemTab('night')"><span data-i18n="tab_night">🌙 Night Mode</span></button>
+          <button class="tab-btn" onclick="switchSystemTab('network')"><span data-i18n="tab_network">📡 Network</span></button>
+          <button class="tab-btn" onclick="switchSystemTab('mqtt')"><span data-i18n="tab_mqtt">🔄 MQTT & API</span></button>
+          <button class="tab-btn" onclick="switchSystemTab('ota')"><span data-i18n="tab_ota">🚀 Updates</span></button>
         </div>
         
-        <!-- Hardware Settings -->
-        <div id="sys-tab-hardware" class="tab-pane active">
-          <!-- Screen Orientation & Gyroscope Calibration Card -->
+        <!-- General / Regional Settings -->
+        <div id="sys-tab-general" class="tab-pane active">
+          <!-- Screen Orientation & Rotation Transitions Card -->
           <div class="card glass shadow" style="margin-bottom: 1.5rem;">
-            <h3>🧭 Screen Orientation & Gyroscope</h3>
-            <p class="text-muted">Configure display rotation, baseline mounting offset, visual transition FX, or enable auto-rotation via onboard Gyroscope/IMU.</p>
+            <h3 data-i18n="hw_orientation_title">🧭 Screen Orientation & Rotation Transitions</h3>
+            <p class="text-muted" data-i18n="hw_orientation_desc">Configure matrix screen rotation (Landscape / Portrait TATE) and visual animation transition effects between screens (applied immediately in real-time).</p>
             
             <div class="form-grid col-3" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Screen Rotation / Mounting Offset</label>
-                <select id="hw-screen-rotation" class="input">
-                  <option value="0">0° - Normal (Landscape)</option>
-                  <option value="1">90° - Clockwise (Cable Left / Portrait)</option>
-                  <option value="2">180° - Inverted (Cable Top / Flip)</option>
-                  <option value="3">270° - Counter-Clockwise (Cable Right / Portrait)</option>
+                <label data-i18n="hw_screen_rotation_label">Screen Rotation / Mounting Offset</label>
+                <select id="sys-screen-rotation" class="input">
+                  <option value="0" data-i18n="hw_rot_0">0° - Normal (Landscape / YOKO)</option>
+                  <option value="90" data-i18n="hw_rot_90">90° - Portrait Clockwise (TATE)</option>
+                  <option value="180" data-i18n="hw_rot_180">180° - Inverted Landscape</option>
+                  <option value="270" data-i18n="hw_rot_270">270° - Portrait Counter-Clockwise (TATE)</option>
                 </select>
               </div>
               <div class="form-group">
-                <label>Gyro Auto-Rotation</label>
+                <label data-i18n="hw_rotation_transition_label">Rotation Transition Effect</label>
+                <select id="sys-rotation-transition" class="input">
+                  <option value="vortex" data-i18n="hw_trans_vortex">✨ Particle Vortex</option>
+                  <option value="glitch" data-i18n="hw_trans_glitch">⚡ Cyberpunk Glitch</option>
+                  <option value="slide" data-i18n="hw_trans_slide">💫 Smooth Slide</option>
+                  <option value="zoom" data-i18n="hw_trans_zoom">🌀 Tunnel Zoom</option>
+                  <option value="matrix" data-i18n="hw_trans_matrix">🌊 Matrix Rain</option>
+                  <option value="random" data-i18n="hw_trans_random">🎲 Random (Every rotation)</option>
+                  <option value="none" data-i18n="hw_trans_none">Instant Cut (None)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="hw_transition_duration_label">Transition Duration (ms)</label>
+                <input type="number" id="sys-transition-duration" class="input" value="400" min="150" max="1500" step="50">
+              </div>
+            </div>
+          </div>
+
+          <div class="card glass shadow" style="margin-bottom: 1.5rem;">
+            <h3 data-i18n="gen_title">🌐 System & Regional Preferences</h3>
+            <p class="text-muted" data-i18n="gen_desc">Configure device timezone, language, time formatting (24h/12h), temperature units and background overlays.</p>
+            
+            <div class="form-grid col-4" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label data-i18n="gen_timezone_label">Timezone / Region</label>
+                <select id="sys-timezone" class="input">
+                  <!-- Populated dynamically from GLOBAL_TIMEZONES -->
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="gen_language_label">Language</label>
+                <select id="sys-lang" class="input">
+                  <option value="en">English</option>
+                  <option value="fr">Français</option>
+                  <option value="es">Español</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="gen_timeformat_label">Time Format</label>
+                <select id="sys-format-24h" class="input">
+                  <option value="true" data-i18n="gen_opt_24h">24 Hours (23:00)</option>
+                  <option value="false" data-i18n="gen_opt_12h">12 Hours (11:00 PM)</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="gen_unit_label">Temperature Unit</label>
+                <select id="sys-unit" class="input">
+                  <option value="C" data-i18n="gen_unit_c">Celsius (°C)</option>
+                  <option value="F" data-i18n="gen_unit_f">Fahrenheit (°F)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-grid col-3" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label><span data-i18n="gen_idle_fighter_enable">Enable Idle Fighter Overlay</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
-                    <input type="checkbox" id="hw-gyro-autorotate" checked>
+                    <input type="checkbox" id="sys-idle-fighter-enabled" checked>
                     <span class="slider"></span>
                   </label>
                 </div>
               </div>
-              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
-                <button id="btn-gyro-calibrate" class="btn btn-secondary" style="width: 100%;">🎯 Set Current as Normal (0°)</button>
+              <div class="form-group">
+                <label data-i18n="gen_idle_fighter_interval">Interval between fights (seconds)</label>
+                <input type="number" id="sys-idle-fighter-interval" class="input" value="10" min="5" max="3600">
+              </div>
+              <div class="form-group">
+                <label><span data-i18n="gen_idle_fighter_speed">Fighter Speed</span> (<span id="val-sys-fighter-speed">100</span>%)</label>
+                <input type="range" id="sys-idle-fighter-speed" min="25" max="200" value="100" step="5" class="input" style="height: 38px; padding: 0.2rem;">
               </div>
             </div>
 
-            <!-- Transition Effects Row -->
-            <div class="form-grid col-3" style="margin-top: 1rem;">
-              <div class="form-group">
-                <label>Rotation Transition Effect</label>
-                <select id="hw-rotation-transition" class="input">
-                  <option value="vortex">✨ Particle Vortex (Vortex de Particules)</option>
-                  <option value="glitch">⚡ Cyberpunk Glitch (Glitch Numérique)</option>
-                  <option value="slide">💫 Smooth Slide (Glissement Directionnel)</option>
-                  <option value="zoom">🌀 Tunnel Zoom (Zoom Arcade 3D)</option>
-                  <option value="matrix">🌊 Matrix Rain (Pluie Numérique)</option>
-                  <option value="random">🎲 Random (Aléatoire à chaque rotation)</option>
-                  <option value="none">None (Instant Cut)</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label>Transition Duration (ms)</label>
-                <input type="number" id="hw-transition-duration" class="input" value="400" min="150" max="1500" step="50">
-              </div>
-              <div class="form-group" style="display: flex; flex-direction: column; justify-content: flex-end;">
-                <button id="btn-test-transition" class="btn btn-secondary" style="width: 100%;">✨ Test Transition FX</button>
-              </div>
-            </div>
-
-            <div id="gyro-live-status" style="margin-top: 1rem; padding: 0.75rem; background: rgba(0,0,0,0.2); border-radius: 8px; font-size: 0.85rem; display: flex; gap: 1.5rem; flex-wrap: wrap;">
-              <div><strong>Sensor:</strong> <span id="gyro-sensor-name">Probing...</span></div>
-              <div><strong>Gravity Vector:</strong> <span id="gyro-gravity-val">--</span></div>
-              <div><strong>Active Rotation:</strong> <span id="gyro-active-rot">0°</span></div>
-            </div>
+            <button id="btn-save-general" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;" data-i18n="gen_btn_save">💾 Save System Preferences</button>
           </div>
+        </div>
 
+        <!-- Hardware Settings -->
+        <div id="sys-tab-hardware" class="tab-pane">
           <div class="card glass shadow">
-            <h3>Matrix Hardware Configuration</h3>
-            
-            <!-- Matrix Geometry -->
+            <h3 data-i18n="hw_matrix_title">Matrix Hardware Configuration</h3>
             <div class="form-grid col-4">
               <div class="form-group">
                 <label>Rows (Height)</label>
-                <input type="number" id="hw-rows" class="input" value="64" min="16" max="128" step="16">
+                <input type="number" id="hw-rows" class="input" value="32">
               </div>
               <div class="form-group">
                 <label>Cols (Width)</label>
-                <input type="number" id="hw-cols" class="input" value="64" min="32" max="256" step="16">
+                <input type="number" id="hw-cols" class="input" value="64">
               </div>
               <div class="form-group">
-                <label>Chain Length <span class="tooltip-icon" data-tooltip="Nombre de panneaux chaînés en série (1 pour un panneau simple)">?</span></label>
-                <input type="number" id="hw-chain" class="input" value="1" min="1" max="8">
+                <label>Chain Length <span class="tooltip-icon" data-i18n-tooltip="tt_hw_chain">?</span></label>
+                <input type="number" id="hw-chain" class="input" value="1">
               </div>
               <div class="form-group">
-                <label>Power Limit (%) <span class="tooltip-icon" data-tooltip="Limite logicielle de consommation de courant (10% à 100%)">?</span></label>
-                <input type="number" id="hw-power-limit" class="input" value="50" min="10" max="100" step="5">
+                <label>Parallel Chains <span class="tooltip-icon" data-i18n-tooltip="tt_hw_parallel">?</span></label>
+                <input type="number" id="hw-parallel" class="input" value="1">
               </div>
             </div>
-
-            <!-- Driver & Signal Encoding -->
-            <div class="form-grid col-3" style="margin-top: 1rem;">
+            <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Sélectionne le driver matériel des panneaux LED (SHIFTREG standard, FM6124/FM6126A pour dalles P2 high-density, ICN2038S, SM16208)">?</span></label>
+                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Select hardware LED driver chip (Standard SHIFTREG, FM6124/FM6126A, ICN2038S, MBI5124, SM16208)">?</span></label>
                 <select id="hw-driver-chip" class="input">
                   <option value="SHIFTREG">Standard (SHIFTREG)</option>
                   <option value="FM6126A">FM6124 / FM6126A</option>
@@ -329,9 +366,19 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>RGB Sequence <span class="tooltip-icon" data-tooltip="Ordre des canaux de couleur. Modifiez si les couleurs sont inversées (ex: bleu à la place du rouge)">?</span></label>
+                <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
+                <select id="hw-mapping" class="input">
+                  <option value="regular">Regular</option>
+                  <option value="regular-pi1">Regular Pi1</option>
+                  <option value="adafruit-hat">Adafruit HAT</option>
+                  <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
+                  <option value="compute-module">Compute Module</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>RGB Sequence <span class="tooltip-icon" data-i18n-tooltip="tt_hw_rgb">?</span></label>
                 <select id="hw-rgb" class="input">
-                  <option value="RGB">RGB (Standard)</option>
+                  <option value="RGB">RGB</option>
                   <option value="RBG">RBG</option>
                   <option value="GRB">GRB</option>
                   <option value="GBR">GBR</option>
@@ -340,7 +387,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Mode de multiplexage des lignes : 0=Direct Binaire (défaut), 1=AB 16 lignes, 2=Direct 32 lignes, 3=Direct 64 lignes, 4=Shift Register">?</span></label>
+                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Default 0. Set to 1 for AB, 2 for direct, 3 for ABC, 4 for ShiftReg. Used for complex P2 panels.">?</span></label>
                 <select id="hw-row-addr-type" class="input">
                   <option value="0">0 - Direct Binary (Default)</option>
                   <option value="1">1 - Direct 16 Lines (AB)</option>
@@ -350,71 +397,36 @@
                 </select>
               </div>
             </div>
-
-            <!-- DMA Timing & Anti-Ghosting -->
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Color Depth (Bits) <span class="tooltip-icon" data-tooltip="Profondeur de couleur par canal (2 à 8 bits). 8 bits = 24-bit TrueColor">?</span></label>
-                <input type="number" id="hw-color-depth" class="input" value="8" min="2" max="8">
+                <label>Multiplexing <span class="tooltip-icon" data-tooltip="Default 0. 1=Stripe, 2=Checkered. Useful for indoor panels.">?</span></label>
+                <input type="number" id="hw-multiplexing" class="input" value="0" min="0" max="17">
               </div>
               <div class="form-group">
-                <label>Latch Blanking <span class="tooltip-icon" data-tooltip="Nombre de cycles d'extinction OE pendant le verrouillage LAT (1 à 16). Augmentez pour éliminer les traînées blanches / ghosting">?</span></label>
-                <input type="number" id="hw-latch-blanking" class="input" value="4" min="1" max="16">
+                <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 3=1, Pi 4=2, Pi 5=4)">?</span></label>
+                <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
               </div>
               <div class="form-group">
-                <label>Target Refresh (Hz) <span class="tooltip-icon" data-tooltip="Fréquence de rafraîchissement minimale ciblée par le moteur DMA (défaut 90 Hz ou 120 Hz)">?</span></label>
-                <input type="number" id="hw-limit-refresh" class="input" value="90" min="30" max="300" step="10">
+                <label>PWM Bits <span class="tooltip-icon" data-tooltip="Color depth (1-11)">?</span></label>
+                <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
               </div>
               <div class="form-group">
-                <label>Invert CLK Phase <span class="tooltip-icon" data-tooltip="Inverse la phase d'horloge CLK. Recommandé actif sur ESP32-S3 pour stabiliser les pixels et éliminer le bruit">?</span></label>
-                <div style="display: flex; align-items: center; height: 100%;">
-                  <label class="switch">
-                    <input type="checkbox" id="hw-clk-phase" checked>
-                    <span class="slider"></span>
-                  </label>
-                </div>
+                <label>PWM LSB (ns) <span class="tooltip-icon" data-tooltip="LSB pulse width (130 default)">?</span></label>
+                <input type="number" id="hw-pwm-lsb" class="input" value="130" min="50" max="3000">
               </div>
             </div>
-
-            <!-- Memory & Buffering -->
             <div class="form-grid col-2" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Force Single Buffer <span class="tooltip-icon" data-tooltip="Désactive le double buffering DMA pour diviser par deux l'empreinte mémoire RAM">?</span></label>
+                <label>Limit Refresh (Hz) <span class="tooltip-icon" data-tooltip="Max refresh rate in Hz (0 = unlimited)">?</span></label>
+                <input type="number" id="hw-limit-refresh" class="input" value="0" min="0" max="500">
+              </div>
+              <div class="form-group">
+                <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if DMA saturates internal Wi-Fi or audio glitches">?</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
-                    <input type="checkbox" id="hw-force-single-buffer">
+                    <input type="checkbox" id="hw-disable-pulsing">
                     <span class="slider"></span>
                   </label>
-                </div>
-              </div>
-            </div>
-
-            <!-- Raspberry Pi Linux Specific Options (Hidden on ESP32/ESP32-S3) -->
-            <div id="rpi-hardware-group" class="rpi-only" style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--glass-border);">
-              <h4 style="color: var(--accent-info); margin-bottom: 0.75rem;">🍓 Raspberry Pi 40-Pin GPIO Options</h4>
-              <div class="form-grid col-3">
-                <div class="form-group">
-                  <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
-                  <select id="hw-mapping" class="input">
-                    <option value="regular">Regular</option>
-                    <option value="regular-pi1">Regular Pi1</option>
-                    <option value="adafruit-hat">Adafruit HAT</option>
-                    <option value="adafruit-hat-pwm">Adafruit HAT PWM</option>
-                    <option value="compute-module">Compute Module</option>
-                  </select>
-                </div>
-                <div class="form-group">
-                  <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 4=4, Pi 5=5)">?</span></label>
-                  <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
-                </div>
-                <div class="form-group">
-                  <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if audio is glitching on Pi ALSA">?</span></label>
-                  <div style="display: flex; align-items: center; height: 100%;">
-                    <label class="switch">
-                      <input type="checkbox" id="hw-disable-pulsing">
-                      <span class="slider"></span>
-                    </label>
-                  </div>
                 </div>
               </div>
             </div>
@@ -575,15 +587,15 @@
             <p class="text-muted" data-i18n="ota_online_desc">Check GitHub Releases for new updates matching your Raspberry Pi architecture and update automatically.</p>
 
             <div class="ota-info-box" style="margin-bottom: 1rem;">
-              <div><span data-i18n="ota_cur_ver">Current Version:</span> <strong id="ota-current-version">v3.0.0</strong></div>
-              <div><span data-i18n="ota_sys_arch">System Architecture:</span> <strong id="ota-current-arch">aarch64</strong></div>
+              <div><span data-i18n="ota_cur_ver">Current Version:</span> <strong id="ota-current-version">--</strong></div>
+              <div><span data-i18n="ota_sys_arch">System Architecture:</span> <strong id="ota-current-arch">--</strong></div>
             </div>
 
             <div id="ota-online-card" style="display: none; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
               <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
                   <span id="ota-online-badge" class="badge badge-accent">Update Available</span>
-                  <strong id="ota-online-target-ver" style="margin-left: 0.5rem; font-size: 1.1rem;">v3.0.0-beta.3</strong>
+                  <strong id="ota-online-target-ver" style="margin-left: 0.5rem; font-size: 1.1rem;">--</strong>
                 </div>
                 <span id="ota-online-size" class="text-muted" style="font-size: 0.85rem;">15 MB</span>
               </div>

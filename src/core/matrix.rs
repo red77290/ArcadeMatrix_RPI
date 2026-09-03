@@ -7,6 +7,10 @@ pub trait MatrixBackend: Send + Sync {
     fn clear(&mut self);
     fn update(&mut self);
     fn set_brightness(&mut self, brightness: u8);
+    fn set_rotation(&mut self, _rotation: u8) {}
+    fn rotation(&self) -> u8 {
+        0
+    }
     fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32) {
         let (img_w, img_h) = img.dimensions();
         for iy in 0..img_h {
@@ -25,8 +29,9 @@ pub trait MatrixBackend: Send + Sync {
 }
 
 pub struct MockMatrix {
-    pub width: u32,
-    pub height: u32,
+    pub physical_width: u32,
+    pub physical_height: u32,
+    pub rotation: u8,
     pub brightness: u8,
     pub canvas: RgbImage,
 }
@@ -34,8 +39,9 @@ pub struct MockMatrix {
 impl MockMatrix {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
-            width,
-            height,
+            physical_width: width,
+            physical_height: height,
+            rotation: 0,
             brightness: 100,
             canvas: RgbImage::new(width, height),
         }
@@ -44,21 +50,57 @@ impl MockMatrix {
 
 impl MatrixBackend for MockMatrix {
     fn width(&self) -> u32 {
-        self.width
+        if self.rotation % 2 == 1 {
+            self.physical_height
+        } else {
+            self.physical_width
+        }
     }
 
     fn height(&self) -> u32 {
-        self.height
+        if self.rotation % 2 == 1 {
+            self.physical_width
+        } else {
+            self.physical_height
+        }
+    }
+
+    fn set_rotation(&mut self, rotation: u8) {
+        self.rotation = rotation % 4;
+    }
+
+    fn rotation(&self) -> u8 {
+        self.rotation
     }
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
-        if x >= 0 && x < self.width as i32 && y >= 0 && y < self.height as i32 {
+        let log_w = self.width() as i32;
+        let log_h = self.height() as i32;
+        if x < 0 || y < 0 || x >= log_w || y >= log_h {
+            return;
+        }
+
+        let (phys_x, phys_y) = match self.rotation {
+            1 => (self.physical_width as i32 - 1 - y, x),
+            2 => (
+                self.physical_width as i32 - 1 - x,
+                self.physical_height as i32 - 1 - y,
+            ),
+            3 => (y, self.physical_height as i32 - 1 - x),
+            _ => (x, y),
+        };
+
+        if phys_x >= 0
+            && phys_x < self.physical_width as i32
+            && phys_y >= 0
+            && phys_y < self.physical_height as i32
+        {
             let scale = self.brightness as f32 / 100.0;
             let r = (red as f32 * scale) as u8;
             let g = (green as f32 * scale) as u8;
             let b = (blue as f32 * scale) as u8;
             self.canvas
-                .put_pixel(x as u32, y as u32, image::Rgb([r, g, b]));
+                .put_pixel(phys_x as u32, phys_y as u32, image::Rgb([r, g, b]));
         }
     }
 
@@ -85,8 +127,9 @@ pub struct HardwareMatrix {
     matrix: LedMatrix,
     canvas: Option<LedCanvas>,
     brightness: u8,
-    width: u32,
-    height: u32,
+    physical_width: u32,
+    physical_height: u32,
+    rotation: u8,
     buffer: image::RgbImage,
 }
 
@@ -99,11 +142,6 @@ unsafe impl Sync for HardwareMatrix {}
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 extern "C" {
     fn led_matrix_set_brightness(matrix: *mut std::ffi::c_void, brightness: u8);
-    // Bulk pixel upload from the hzeller C API. Copies the whole RGB buffer in a
-    // single FFI crossing (the inner per-pixel loop runs in C++), instead of
-    // issuing one FFI call per pixel. This mirrors Python's canvas.SetImage()
-    // and is ~1000x fewer FFI crossings per frame, which keeps the render thread
-    // light enough that the web API and Wi-Fi DMA are no longer starved.
     fn set_image(
         canvas: *mut std::ffi::c_void,
         canvas_offset_x: std::ffi::c_int,
@@ -161,26 +199,9 @@ impl HardwareMatrix {
             }
         }
 
-        // Pass limit_refresh directly from config.json, no override.
-        // Python doesn't set this at all (defaults to 0 in the C++ lib).
         options.set_limit_refresh(limit_refresh);
-
-        // CRITICAL: the Rust wrapper's LedMatrixOptions::default() sets
-        // `show_refresh_rate = 1`, which makes the underlying hzeller C++ library
-        // printf() the panel refresh rate to STDOUT on *every* panel refresh
-        // (hundreds of Hz). Those writes use `\b` (backspace) control characters,
-        // so systemd-journald flags the whole stream as non-UTF8 `[N blob data]`,
-        // drowning every real log line, and the constant printf() burns CPU and can
-        // block on a full stdout pipe. We never want this in production, so force it
-        // off explicitly.
         options.set_refresh_rate(false);
 
-        // WORKAROUND for hzeller/rpi-rgb-led-matrix bug:
-        // The C API wrapper `led-matrix-c.cc` uses a macro `if (rt_opts->drop_privileges)`
-        // which ignores the value `0` (false), meaning `rt_options.set_drop_privileges(false)`
-        // is completely ignored and it defaults to dropping privileges to `daemon` (uid 1).
-        // To prevent this, we trick the library into dropping privileges to root (uid 0)
-        // by faking the SUDO_UID and SUDO_GID environment variables.
         std::env::set_var("SUDO_UID", "0");
         std::env::set_var("SUDO_GID", "0");
 
@@ -197,8 +218,9 @@ impl HardwareMatrix {
             matrix,
             canvas: Some(canvas),
             brightness,
-            width: w as u32,
-            height: h as u32,
+            physical_width: w as u32,
+            physical_height: h as u32,
+            rotation: 0,
             buffer: image::RgbImage::new(w as u32, h as u32),
         })
     }
@@ -207,17 +229,53 @@ impl HardwareMatrix {
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl MatrixBackend for HardwareMatrix {
     fn width(&self) -> u32 {
-        self.width
+        if self.rotation % 2 == 1 {
+            self.physical_height
+        } else {
+            self.physical_width
+        }
     }
 
     fn height(&self) -> u32 {
-        self.height
+        if self.rotation % 2 == 1 {
+            self.physical_width
+        } else {
+            self.physical_height
+        }
+    }
+
+    fn set_rotation(&mut self, rotation: u8) {
+        self.rotation = rotation % 4;
+    }
+
+    fn rotation(&self) -> u8 {
+        self.rotation
     }
 
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
-        if x >= 0 && y >= 0 && x < self.width as i32 && y < self.height as i32 {
+        let log_w = self.width() as i32;
+        let log_h = self.height() as i32;
+        if x < 0 || y < 0 || x >= log_w || y >= log_h {
+            return;
+        }
+
+        let (phys_x, phys_y) = match self.rotation {
+            1 => (self.physical_width as i32 - 1 - y, x),
+            2 => (
+                self.physical_width as i32 - 1 - x,
+                self.physical_height as i32 - 1 - y,
+            ),
+            3 => (y, self.physical_height as i32 - 1 - x),
+            _ => (x, y),
+        };
+
+        if phys_x >= 0
+            && phys_y >= 0
+            && phys_x < self.physical_width as i32
+            && phys_y < self.physical_height as i32
+        {
             self.buffer
-                .put_pixel(x as u32, y as u32, image::Rgb([red, green, blue]));
+                .put_pixel(phys_x as u32, phys_y as u32, image::Rgb([red, green, blue]));
         }
     }
 
@@ -225,14 +283,10 @@ impl MatrixBackend for HardwareMatrix {
         let (w, h) = img.dimensions();
         for dy in 0..h {
             let py = offset_y + dy as i32;
-            if py >= 0 && py < self.height as i32 {
-                for dx in 0..w {
-                    let px = offset_x + dx as i32;
-                    if px >= 0 && px < self.width as i32 {
-                        self.buffer
-                            .put_pixel(px as u32, py as u32, *img.get_pixel(dx, dy));
-                    }
-                }
+            for dx in 0..w {
+                let px = offset_x + dx as i32;
+                let c = img.get_pixel(dx, dy);
+                self.set_pixel(px, py, c[0], c[1], c[2]);
             }
         }
     }
@@ -254,8 +308,8 @@ impl MatrixBackend for HardwareMatrix {
                         0,
                         self.buffer.as_raw().as_ptr(),
                         self.buffer.len(),
-                        self.width as std::ffi::c_int,
-                        self.height as std::ffi::c_int,
+                        self.physical_width as std::ffi::c_int,
+                        self.physical_height as std::ffi::c_int,
                         0, // is_bgr = false
                     );
                 }
@@ -269,7 +323,7 @@ impl MatrixBackend for HardwareMatrix {
     fn set_brightness(&mut self, brightness: u8) {
         let new_b = brightness.min(100);
         if self.brightness == new_b {
-            return; // Avoid hammering the C++ library
+            return;
         }
         self.brightness = new_b;
 

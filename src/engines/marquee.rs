@@ -64,7 +64,10 @@ impl Engine for MarqueeEngine {
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn render(&mut self, context: &mut EngineContext) {
-        if let Some(img) = &self.image {
+        let lock = context.config.image_obj.lock();
+        if let Some(img) = lock.as_ref() {
+            self.render_image(&mut *context.matrix, img);
+        } else if let Some(img) = &self.image {
             self.render_image(&mut *context.matrix, img);
         }
     }
@@ -96,6 +99,8 @@ fn register_marquee_engine() -> EngineDescriptor {
             ..Default::default()
         },
         requirements: Requirements::default(),
+        available: true,
+        unavailable_reason: None,
         schema: ConfigSchema { fields: vec![] },
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             Box::new(MarqueeEngine::new())

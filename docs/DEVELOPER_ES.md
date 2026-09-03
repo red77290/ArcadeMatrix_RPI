@@ -68,6 +68,11 @@ pub trait Engine: Send + Sync {
     fn is_realtime(&self) -> bool { false }
     fn set_rotation_budget(&mut self, _budget: u32) {}
     fn self_paced(&self) -> bool { false }
+    fn allows_overlay(&self) -> bool { true }
+    fn allow_rotation(&self) -> bool { true }
+    fn pause(&mut self) { self.deactivate(); }
+    fn resume(&mut self) { self.activate(); }
+    fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
 ```
 
@@ -83,6 +88,11 @@ pub trait Engine: Send + Sync {
 | `is_realtime` | `false` | Si el motor anima solo en cierto estado en vivo y entonces necesita ~25 FPS. |
 | `set_rotation_budget` | no-op | Si el avance de rotación es por contador (p. ej. reproducir N GIFs). Recibe el valor numérico de la entrada. |
 | `self_paced` | `false` | Si el motor dirige su propio avance vía `is_finished` y NO debe ser forzado por el temporizador de duración. |
+| `allows_overlay` | `true` | Sobrescribir a `false` para alertas de emergencia en pantalla completa o motores que prohíben overlays (Fighter). |
+| `allow_rotation` | `true` | Sobrescribir a `false` para motores estrictamente basados en eventos/preferentes (ej. Marquee) excluidos de la rotación. |
+| `pause` | `deactivate()` | Hook invocado cuando es interrumpido temporalmente por una alerta de mayor prioridad en la `PreemptionStack`. |
+| `resume` | `activate()` | Hook invocado al reanudarse tras finalizar la interrupción prioritaria. |
+| `on_display_geometry_changed` | no-op | Hook invocado cuando la rotación/orientación del panel (modo Tate / 90° / 180° / 270°) cambia las dimensiones lógicas. |
 
 ---
 

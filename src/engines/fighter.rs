@@ -1,4 +1,5 @@
 use crate::core::matrix::MatrixBackend;
+use crate::engines::renderers::BaseRenderer;
 use byteorder::{LittleEndian, ReadBytesExt};
 use image::{Rgb, RgbImage};
 use rand::Rng;
@@ -209,13 +210,19 @@ impl FighterChar {
         };
 
         // Mandatory states with robust fallbacks
-        for action in &["walk", "attack", "hit", "win"] {
+        for action in &["walk", "stand", "attack", "hit", "win"] {
             if !try_load(action, &[&format!("{}.fgt", action)]) {
                 // Fallbacks
                 match *action {
                     "walk" => {
                         if !try_load("walk", &["stand.fgt"]) {
                             tracing::warn!("Failed to load walk.fgt or stand.fgt for {}", name);
+                            return None;
+                        }
+                    }
+                    "stand" => {
+                        if !try_load("stand", &["walk.fgt"]) {
+                            tracing::warn!("Failed to load stand.fgt or walk.fgt for {}", name);
                             return None;
                         }
                     }
@@ -276,9 +283,11 @@ struct Player {
     last_f: u128,
     dead: bool,
     dir: f32, // 1.0 (right) or -1.0 (left)
+    scale: i32,
 }
 
 pub struct FighterEngine {
+    base_renderer: BaseRenderer,
     matrix_width: u32,
     matrix_height: u32,
     p1: Option<Player>,
@@ -288,7 +297,9 @@ pub struct FighterEngine {
     last_move: u128,
     fight_end: u128,
     next_fight_time: u128,
+    faceoff_start: u128,
     interval_sec: u32,
+    speed_percent: u32,
     loading: bool,
     rx: Option<Receiver<(Player, Player)>>,
 }
@@ -303,6 +314,7 @@ fn now_ms() -> u128 {
 impl FighterEngine {
     pub fn new(width: u32, height: u32) -> Self {
         Self {
+            base_renderer: BaseRenderer::new(),
             matrix_width: width,
             matrix_height: height,
             p1: None,
@@ -312,7 +324,9 @@ impl FighterEngine {
             last_move: 0,
             fight_end: 0,
             next_fight_time: 0,
+            faceoff_start: 0,
             interval_sec: 10,
+            speed_percent: 100,
             loading: false,
             rx: None,
         }
@@ -320,6 +334,10 @@ impl FighterEngine {
 
     pub fn set_interval(&mut self, interval_sec: u32) {
         self.interval_sec = interval_sec.max(1);
+    }
+
+    pub fn set_speed(&mut self, speed_percent: u32) {
+        self.speed_percent = speed_percent.clamp(25, 200);
     }
 
     pub fn is_active(&self) -> bool {
@@ -334,8 +352,27 @@ impl FighterEngine {
         self.loading = false;
     }
 
-    fn load_index(dir: &str) -> HashMap<String, FighterIndexMeta> {
-        let index_path = Path::new(dir).join("index.json");
+    fn find_fighters_dir(name: &str) -> Option<std::path::PathBuf> {
+        let candidates = [
+            std::path::PathBuf::from(name),
+            std::path::PathBuf::from(format!("/opt/arcadematrix/{}", name)),
+            std::path::PathBuf::from(format!("/home/pi/ArcadeMatrix/{}", name)),
+            std::path::PathBuf::from(format!("/home/pi/ArcadeMatrix_RPi/{}", name)),
+            std::path::PathBuf::from(format!("data/{}", name)),
+            std::path::PathBuf::from(format!("release/sdCard/{}", name)),
+            std::path::PathBuf::from(format!("../{}", name)),
+            std::path::PathBuf::from(format!("../ArcadeMatrix/release/sdCard/{}", name)),
+        ];
+        for c in &candidates {
+            if c.join("index.json").exists() {
+                return Some(c.clone());
+            }
+        }
+        None
+    }
+
+    fn load_index(dir: &Path) -> HashMap<String, FighterIndexMeta> {
+        let index_path = dir.join("index.json");
         match std::fs::read_to_string(&index_path) {
             Ok(content) => {
                 match serde_json::from_str::<HashMap<String, FighterIndexMeta>>(&content) {
@@ -362,37 +399,32 @@ impl FighterEngine {
         let matrix_height = self.matrix_height;
 
         thread::spawn(move || {
-            let dir64 = "fighters_64";
-            let dir32 = "fighters_32";
+            let dir64 = Self::find_fighters_dir("fighters_64");
+            let dir32 = Self::find_fighters_dir("fighters_32");
 
-            // Pick the asset set that matches the panel height. A 64px (or taller)
-            // panel prefers fighters_64; anything shorter uses fighters_32. We only
-            // touch the other resolution as a last-resort fallback, so a 32px panel
-            // never logs spurious errors about the fighters_64 assets.
-            let (preferred, fallback) = if matrix_height >= 64 {
+            let is_tate = matrix_width < 48 || matrix_height > (matrix_width * 3) / 2;
+            // In TATE mode (vertical, e.g. 32x128), the limiting dimension horizontally is matrix_width!
+            let target_dim = if is_tate { matrix_width } else { matrix_height };
+            let (preferred, fallback) = if target_dim >= 64 {
                 (dir64, dir32)
             } else {
                 (dir32, dir64)
             };
 
-            let mut dir = preferred;
-            let mut index = Self::load_index(preferred);
-
-            if index.is_empty() {
-                let alt = Self::load_index(fallback);
-                if !alt.is_empty() {
-                    index = alt;
-                    dir = fallback;
-                }
+            let chosen_dir = preferred.or(fallback);
+            if chosen_dir.is_none() {
+                tracing::warn!(
+                    "FighterEngine: No valid index.json found (looked in candidates for {}px panel). Are the fighter sprite assets deployed?",
+                    target_dim
+                );
+                return;
             }
 
+            let dir_path = chosen_dir.unwrap();
+            let index = Self::load_index(&dir_path);
+
             if index.is_empty() {
-                tracing::warn!(
-                    "FighterEngine: No valid index.json found (looked in '{}' for a \
-                     {}px panel). Are the fighter sprite assets deployed?",
-                    preferred,
-                    matrix_height
-                );
+                tracing::warn!("FighterEngine: Empty index.json in {}", dir_path.display());
                 return;
             }
 
@@ -474,26 +506,53 @@ impl FighterEngine {
             };
 
             tracing::info!(
-                "🥊 FighterEngine: Match -> [P1: {}] (H:{}) vs [P2: {}] (H:{})",
+                "🥊 FighterEngine: Match -> [P1: {}] (H:{}) vs [P2: {}] (H:{}) from {}",
                 name1,
                 meta1.height,
                 name2,
-                meta2.height
+                meta2.height,
+                dir_path.display()
             );
 
-            let char1_dir = Path::new(dir).join(&name1);
-            let char2_dir = Path::new(dir).join(&name2);
+            let char1_dir = dir_path.join(&name1);
+            let char2_dir = dir_path.join(&name2);
 
             let c1 = FighterChar::load_char(&char1_dir, meta1.clone());
             let c2 = FighterChar::load_char(&char2_dir, meta2.clone());
-
             if let (Some(c1), Some(c2)) = (c1, c2) {
-                // Place P1 at 1 pixel from the top of the screen
-                let y1 = 1 - c1.meta.head_y as i32;
-                // Align ground line to P1's physical feet
-                let ground_y_screen = y1 + c1.meta.ground_y as i32;
-                // Place P2 on the exact same ground line
-                let y2 = ground_y_screen - c2.meta.ground_y as i32;
+                let is_32px = dir_path.to_string_lossy().contains("32");
+                let scale = if is_tate {
+                    if matrix_width >= 64 && is_32px {
+                        (matrix_width / 32) as i32
+                    } else {
+                        1
+                    }
+                } else {
+                    if matrix_height >= 64 && is_32px {
+                        (matrix_height / 32) as i32
+                    } else {
+                        1
+                    }
+                }
+                .max(1);
+
+                let (y1, y2) = if is_tate {
+                    // In TATE mode, fighters stand on the very bottom pixel of the screen: groundY = screenH - 1
+                    let ground_y_screen = matrix_height as i32 - 1;
+                    (
+                        ground_y_screen - (c1.meta.ground_y as i32 * scale),
+                        ground_y_screen - (c2.meta.ground_y as i32 * scale),
+                    )
+                } else {
+                    // Place P1 at 1 pixel from the top of the screen
+                    let y1 = (1 - c1.meta.head_y as i32) * scale;
+                    // Align ground line to P1's physical feet
+                    let ground_y_screen =
+                        (1 - c1.meta.head_y as i32) + (c1.meta.ground_y as i32 * scale);
+                    // Place P2 on the exact same ground line
+                    let y2 = ground_y_screen - (c2.meta.ground_y as i32 * scale);
+                    (y1, y2)
+                };
 
                 let mut mirrored_c2 = c2.clone();
                 for anim in mirrored_c2.anims.values_mut() {
@@ -512,13 +571,14 @@ impl FighterEngine {
 
                 let p1 = Player {
                     character: c1,
-                    x: -(meta1.width as f32),
+                    x: -(meta1.width as f32 * scale as f32),
                     y: y1,
                     state: "walk".to_string(),
                     frame_idx: 0,
                     last_f: now_ms(),
                     dead: false,
                     dir: 1.0,
+                    scale,
                 };
 
                 let p2 = Player {
@@ -530,6 +590,7 @@ impl FighterEngine {
                     last_f: now_ms(),
                     dead: false,
                     dir: -1.0,
+                    scale,
                 };
 
                 let _ = tx.send((p1, p2));
@@ -545,6 +606,33 @@ impl FighterEngine {
 
     pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
         let now = now_ms();
+        let mat_w = matrix.width();
+        let mat_h = matrix.height();
+
+        // Dynamically track display dimensions and handle dynamic rotation
+        if mat_w != self.matrix_width || mat_h != self.matrix_height {
+            self.matrix_width = mat_w;
+            self.matrix_height = mat_h;
+            if self.active {
+                // Adjust ground Y for active fighters when geometry rotates dynamically
+                if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
+                    let is_tate =
+                        self.matrix_width < 48 || self.matrix_height > (self.matrix_width * 3) / 2;
+                    let scale = p1.scale.max(1);
+                    if is_tate {
+                        let ground_y_screen = self.matrix_height as i32 - 1;
+                        p1.y = ground_y_screen - (p1.character.meta.ground_y as i32 * scale);
+                        p2.y = ground_y_screen - (p2.character.meta.ground_y as i32 * scale);
+                    } else {
+                        let y1 = (1 - p1.character.meta.head_y as i32) * scale;
+                        let ground_y_screen = (1 - p1.character.meta.head_y as i32)
+                            + (p1.character.meta.ground_y as i32 * scale);
+                        p1.y = y1;
+                        p2.y = ground_y_screen - (p2.character.meta.ground_y as i32 * scale);
+                    }
+                }
+            }
+        }
 
         if let Some(rx) = &self.rx {
             match rx.try_recv() {
@@ -556,6 +644,7 @@ impl FighterEngine {
                     self.rx = None;
                     self.last_move = now;
                     self.fight_end = 0;
+                    self.faceoff_start = 0;
                 }
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                     tracing::error!(
@@ -571,42 +660,88 @@ impl FighterEngine {
             }
         }
 
+        // Trigger combat start
+        if !self.active && !self.loading && now >= self.next_fight_time {
+            self.init_fight(self.matrix_height, self.interval_sec);
+        }
+
         if !self.active {
-            if !self.loading && now >= self.next_fight_time {
-                let h = self.matrix_height;
-                let i = self.interval_sec;
-                self.init_fight(h, i);
-            }
             return;
         }
 
         // Update animation frames
+        let speed = self.speed_percent;
         if let Some(ref mut p1) = self.p1 {
-            Self::update_anim(p1, now);
+            Self::update_anim(p1, now, speed);
         }
         if let Some(ref mut p2) = self.p2 {
-            Self::update_anim(p2, now);
+            Self::update_anim(p2, now, speed);
         }
 
-        // Movement & Logic
+        // Movement & Instant Engagement Logic (Natural Arcade Momentum)
         if let (Some(ref mut p1), Some(ref mut p2)) = (&mut self.p1, &mut self.p2) {
-            if p1.state == "walk" && p2.state == "walk" {
+            let is_tate =
+                self.matrix_width < 48 || self.matrix_height > (self.matrix_width * 3) / 2;
+            let scale = p1.scale.max(1) as f32;
+            let engage_dist = if is_tate {
+                (4.0 * scale).max(4.0)
+            } else if self.matrix_width >= 128 {
+                20.0 * scale
+            } else {
+                14.0 * scale
+            };
+            let center_x = self.matrix_width as f32 / 2.0;
+
+            let p1_target_x =
+                center_x - (engage_dist / 2.0) - (p1.character.meta.origin_x as f32 * scale);
+            let p2_target_x = center_x + (engage_dist / 2.0)
+                - ((p2.character.meta.width as f32 - 1.0 - p2.character.meta.origin_x as f32)
+                    * scale);
+
+            if (p1.state == "walk" || p1.state == "stand")
+                && (p2.state == "walk" || p2.state == "stand")
+                && !p1.dead
+                && !p2.dead
+            {
+                let step_interval = (30 * 100 / speed.clamp(25, 200)) as u128;
                 let elapsed = now.saturating_sub(self.last_move);
-                if elapsed >= 35 {
-                    let px_move = (elapsed / 35) as f32;
-                    p1.x += px_move;
-                    p2.x -= px_move;
-                    self.last_move += (px_move as u128) * 35;
+                if elapsed >= step_interval {
+                    let steps = (elapsed / step_interval) as f32;
+                    self.last_move += (steps as u128) * step_interval;
 
-                    let p1_world_origin = p1.x + p1.character.meta.origin_x as f32;
-                    let p2_world_origin =
-                        p2.x + (p2.character.meta.width as f32 - p2.character.meta.origin_x as f32);
-                    let dist = p2_world_origin - p1_world_origin;
+                    let step = (1.0 * scale).max(1.0);
+                    if p1.x < p1_target_x {
+                        p1.x = (p1.x + steps * step).min(p1_target_x);
+                    }
+                    if p2.x > p2_target_x {
+                        p2.x = (p2.x - steps * step).max(p2_target_x);
+                    }
+                }
 
-                    let scale = if self.matrix_height >= 64 { 2.0 } else { 1.0 };
-                    let engage_dist = 18.0 * scale;
+                // Switch to standing idle stance when reached center target (waiting for opponent)
+                if p1.x >= p1_target_x && p1.state == "walk" {
+                    p1.state = "stand".to_string();
+                    p1.frame_idx = 0;
+                    p1.last_f = now;
+                }
+                if p2.x <= p2_target_x && p2.state == "walk" {
+                    p2.state = "stand".to_string();
+                    p2.frame_idx = 0;
+                    p2.last_f = now;
+                }
 
-                    if dist <= engage_dist {
+                // Check if both combatants reached their center target and are facing each other
+                let p1_ready = p1.x >= p1_target_x;
+                let p2_ready = p2.x <= p2_target_x;
+
+                if p1_ready && p2_ready {
+                    if self.faceoff_start == 0 {
+                        self.faceoff_start = now;
+                    }
+
+                    let faceoff_duration = (350 * 100 / speed.clamp(25, 200)) as u128;
+                    if now.saturating_sub(self.faceoff_start) >= faceoff_duration {
+                        // Strike triggers after both fighters have met and stood face-to-face!
                         let mut rng = rand::thread_rng();
                         let p1_attacks = rng.gen_bool(0.5);
 
@@ -665,24 +800,28 @@ impl FighterEngine {
                 }
             }
 
+            let move_amt = 2.0 * scale;
             if p1.state == "fall" {
-                p1.x += p1.dir * -2.0;
+                p1.x += p1.dir * -move_amt;
             }
             if p2.state == "fall" {
-                p2.x += p2.dir * -2.0;
+                p2.x += p2.dir * -move_amt;
             }
 
             if self.fight_end == 0 && (p1.dead || p2.dead) {
                 self.fight_end = now;
             }
 
-            if self.fight_end > 0 && now.saturating_sub(self.fight_end) > 2000 {
+            if self.fight_end > 0 && now.saturating_sub(self.fight_end) > 3000 {
                 self.active = false;
+                self.p1 = None;
+                self.p2 = None;
+                self.faceoff_start = 0;
                 self.next_fight_time = now + (self.interval_sec as u128 * 1000);
             }
         }
 
-        // Draw (loser behind, winner in front)
+        // Draw players (loser behind, winner in front)
         if let (Some(p1), Some(p2)) = (&self.p1, &self.p2) {
             if p1.dead || p1.state == "hit" || p1.state == "fall" {
                 Self::draw_player(matrix, p1);
@@ -692,23 +831,158 @@ impl FighterEngine {
                 Self::draw_player(matrix, p1);
             }
         }
+
+        // Draw Health Bars & VS HUD
+        let screen_w = matrix.width() as i32;
+        let screen_h = matrix.height() as i32;
+        let is_tate = screen_w < 48 || screen_h > (screen_w * 3) / 2;
+
+        // In vertical (Tate) mode, only display HUD on 64px wide (e.g. 64x256) screens.
+        // In 32x128 (and narrower), do not display health bars or sprite names.
+        // In horizontal mode, display on screen_h >= 32.
+        let show_hud = if is_tate {
+            screen_w >= 64
+        } else {
+            screen_h >= 32
+        };
+
+        if show_hud {
+            let bar_w = 20.min((screen_w - 16) / 2);
+
+            if let (Some(p1), Some(p2)) = (&self.p1, &self.p2) {
+                // P1 Health Bar (Left)
+                let p1_col = if p1.state == "ko" || p1.dead {
+                    (180, 20, 20)
+                } else {
+                    (30, 220, 60)
+                };
+                for x in 2..(2 + bar_w) {
+                    matrix.set_pixel(x, 2, 50, 50, 60);
+                    matrix.set_pixel(x, 5, 50, 50, 60);
+                }
+                for y in 2..=5 {
+                    matrix.set_pixel(2, y, 50, 50, 60);
+                    matrix.set_pixel(1 + bar_w, y, 50, 50, 60);
+                }
+                let fill1_w = if p1.state == "ko" || p1.dead {
+                    1
+                } else {
+                    bar_w - 2
+                };
+                for x in 3..(3 + fill1_w) {
+                    matrix.set_pixel(x, 3, p1_col.0, p1_col.1, p1_col.2);
+                    matrix.set_pixel(x, 4, p1_col.0, p1_col.1, p1_col.2);
+                }
+
+                // VS Indicator (Center)
+                let vs_x = screen_w / 2 - 1;
+                matrix.set_pixel(vs_x, 3, 255, 60, 60);
+                matrix.set_pixel(vs_x + 1, 3, 255, 60, 60);
+                matrix.set_pixel(vs_x, 4, 255, 220, 0);
+                matrix.set_pixel(vs_x + 1, 4, 255, 220, 0);
+
+                // P2 Health Bar (Right)
+                let p2_col = if p2.state == "ko" || p2.dead {
+                    (180, 20, 20)
+                } else {
+                    (30, 220, 60)
+                };
+                let p2_bar_x = screen_w - 2 - bar_w;
+                for x in p2_bar_x..(p2_bar_x + bar_w) {
+                    matrix.set_pixel(x, 2, 50, 50, 60);
+                    matrix.set_pixel(x, 5, 50, 50, 60);
+                }
+                for y in 2..=5 {
+                    matrix.set_pixel(p2_bar_x, y, 50, 50, 60);
+                    matrix.set_pixel(p2_bar_x + bar_w - 1, y, 50, 50, 60);
+                }
+                let fill2_w = if p2.state == "ko" || p2.dead {
+                    1
+                } else {
+                    bar_w - 2
+                };
+                for x in (p2_bar_x + 1)..(p2_bar_x + 1 + fill2_w) {
+                    matrix.set_pixel(x, 3, p2_col.0, p2_col.1, p2_col.2);
+                    matrix.set_pixel(x, 4, p2_col.0, p2_col.1, p2_col.2);
+                }
+
+                // Draw MUGEN arcade fighter tags under their respective health bars:
+                // Only on tall 64x256 screens (is_tate && screen_w >= 64 && screen_h >= 200) or high horizontal (screen_h >= 64)
+                let show_tags =
+                    (is_tate && screen_w >= 64 && screen_h >= 200) || (!is_tate && screen_h >= 64);
+                if show_tags {
+                    let p1_tag: String = p1
+                        .character
+                        .name
+                        .chars()
+                        .take(3)
+                        .collect::<String>()
+                        .to_uppercase();
+                    let p2_tag: String = p2
+                        .character
+                        .name
+                        .chars()
+                        .take(3)
+                        .collect::<String>()
+                        .to_uppercase();
+
+                    // P1 tag aligned on the left directly under P1 bar
+                    self.base_renderer.render_text(
+                        matrix,
+                        &p1_tag,
+                        -1,
+                        1,
+                        2,
+                        8,
+                        Some((255, 215, 0)),
+                        None,
+                    );
+
+                    // P2 tag aligned on the right directly under P2 bar
+                    let p2_tag_w = p2_tag.len() as i32 * 6 - 1;
+                    let p2_tag_x = screen_w - 2 - p2_tag_w;
+                    self.base_renderer.render_text(
+                        matrix,
+                        &p2_tag,
+                        -1,
+                        1,
+                        p2_tag_x,
+                        8,
+                        Some((0, 200, 255)),
+                        None,
+                    );
+                }
+            }
+        }
     }
 
-    fn update_anim(p: &mut Player, now: u128) {
+    fn update_anim(p: &mut Player, now: u128, speed_percent: u32) {
         if let Some(anim) = p.character.get_sprite(&p.state) {
-            let mut delay =
+            let raw_delay =
                 anim.delays[p.frame_idx.min(anim.delays.len().saturating_sub(1))] as u128;
-            if delay < 30 {
-                delay = 30;
+            let mut delay = (raw_delay * 100) / (speed_percent.clamp(25, 200) as u128);
+            if p.state != "stand" && p.state != "win" && p.state != "walk" {
+                // Snappy combat strikes while maintaining legible animation timing
+                delay = (delay * 9) / 10;
+                let min_combat = (40 * 100) / (speed_percent.clamp(25, 200) as u128);
+                if delay < min_combat {
+                    delay = min_combat;
+                }
+            } else {
+                // Natural pacing for walk, stand, and victory poses
+                let min_idle = (50 * 100) / (speed_percent.clamp(25, 200) as u128);
+                if delay < min_idle {
+                    delay = min_idle;
+                }
             }
 
-            if now.saturating_sub(p.last_f) > delay {
+            if now.saturating_sub(p.last_f) >= delay {
                 p.frame_idx += 1;
                 p.last_f = now;
 
                 if p.frame_idx >= anim.frames.len() {
                     let s = p.state.as_str();
-                    if s == "walk" {
+                    if s == "walk" || s == "stand" {
                         p.frame_idx = 0;
                     } else if s.starts_with("attack")
                         || s.starts_with("special")
@@ -725,7 +999,7 @@ impl FighterEngine {
                 }
 
                 if p.state.starts_with("special") || p.state.starts_with("super") {
-                    p.x += p.dir * 2.0;
+                    p.x += p.dir * (1.0 * speed_percent as f32 / 100.0);
                 }
             }
         }
@@ -741,17 +1015,21 @@ impl FighterEngine {
             let h = frame.height() as i32;
             let mat_w = matrix.width() as i32;
             let mat_h = matrix.height() as i32;
+            let scale = p.scale.max(1);
 
-            let y_min = (0 - start_y).max(0);
-            let y_max = (mat_h - start_y).min(h);
-            let x_min = (0 - start_x).max(0);
-            let x_max = (mat_w - start_x).min(w);
-
-            for y in y_min..y_max {
-                for x in x_min..x_max {
+            for y in 0..h {
+                for x in 0..w {
                     let px = frame.get_pixel(x as u32, y as u32);
                     if px[0] > 0 || px[1] > 0 || px[2] > 0 {
-                        matrix.set_pixel(start_x + x, start_y + y, px[0], px[1], px[2]);
+                        for dy in 0..scale {
+                            for dx in 0..scale {
+                                let draw_x = start_x + (x * scale) + dx;
+                                let draw_y = start_y + (y * scale) + dy;
+                                if draw_x >= 0 && draw_x < mat_w && draw_y >= 0 && draw_y < mat_h {
+                                    matrix.set_pixel(draw_x, draw_y, px[0], px[1], px[2]);
+                                }
+                            }
+                        }
                     }
                 }
             }

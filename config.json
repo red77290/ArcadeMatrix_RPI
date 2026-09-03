@@ -19,7 +19,10 @@
     "pwm_bits": 11,
     "pwm_lsb_nanoseconds": 130,
     "disable_hardware_pulsing": false,
-    "mapping": "regular"
+    "mapping": "regular",
+    "rotation": 0,
+    "transition_effect": "vortex",
+    "transition_duration_ms": 400
   },
   "wifi": {
     "ssid": "",
@@ -41,29 +44,56 @@
   "system": {
     "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",
     "format_24h": true,
-    "lang": "en",
+    "lang": "fr",
+    "temp_unit": "C",
     "night_mode_enabled": false,
     "turn_off_at": "23:00",
     "wake_up_at": "07:00",
     "night_brightness": 10,
     "day_brightness": 100,
     "idle_fighter_enabled": true,
-    "idle_fighter_interval": 10
+    "idle_fighter_interval": 10,
+    "idle_fighter_speed": 100
   },
   "instances": [
+    {
+      "instance_id": "default_dashboard",
+      "engine_id": "dashboard",
+      "config": {
+        "clock_mode": "1",
+        "show_world_clock": "true",
+        "offset_y": "0",
+        "show_markets": "true",
+        "weather_city": "Paris, FR",
+        "format_24h": "system",
+        "world_clocks": "NYC,TYO,LON",
+        "show_sysinfo": "true",
+        "lang": "system",
+        "show_clock": "true",
+        "show_date": "true",
+        "show_seconds": "true",
+        "tracked_markets": "BTC,ETH,SOL,NVDA",
+        "theme": "0",
+        "temp_unit": "system",
+        "smooth_seconds": "true",
+        "timezone": "system",
+        "show_weather": "true",
+        "offset_x": "0"
+      }
+    },
     {
       "instance_id": "default_clock",
       "engine_id": "clock",
       "config": {
-        "timezone": "Europe/Paris",
         "color_1": "#FFFFFF",
-        "font": "PressStart2P.ttf",
+        "timezone": "Europe/Paris",
         "format": "%H:%M:%S",
-        "offset_y": "0",
-        "size": "2",
         "color_2": "#FFFFFF",
+        "offset_x": "0",
+        "offset_y": "0",
+        "font": "PressStart2P.ttf",
         "theme": "0",
-        "offset_x": "0"
+        "size": "2"
       }
     },
     {
@@ -71,23 +101,129 @@
       "engine_id": "weather",
       "config": {
         "offset_x": "0",
-        "api_key": "",
+        "city": "Paris, FR",
         "units": "metric",
-        "offset_y": "0",
-        "city": ""
+        "api_key": "",
+        "offset_y": "0"
+      }
+    },
+    {
+      "instance_id": "default_crypto",
+      "engine_id": "crypto",
+      "config": {
+        "page_seconds": "5",
+        "cache_ttl_min": "1",
+        "chart_timeframe": "daily",
+        "currency": "USD",
+        "show_chart": "true",
+        "symbols": "BTC,ETH"
+      }
+    },
+    {
+      "instance_id": "default_stock",
+      "engine_id": "stock",
+      "config": {
+        "cache_ttl_min": "1",
+        "page_seconds": "5",
+        "symbols": "AAPL,TSLA,NVDA",
+        "currency": "USD",
+        "show_chart": "true",
+        "chart_timeframe": "daily"
+      }
+    },
+    {
+      "instance_id": "default_gifs",
+      "engine_id": "gifs",
+      "config": {
+        "playlists": ""
+      }
+    },
+    {
+      "instance_id": "default_sysinfo",
+      "engine_id": "system_info",
+      "config": {
+        "offset_x": "0",
+        "theme": "0",
+        "temp_unit": "C",
+        "show_cpu": "true",
+        "show_ram": "true",
+        "show_temp": "true",
+        "show_uptime": "true",
+        "offset_y": "0"
+      }
+    },
+    {
+      "instance_id": "default_gnews",
+      "engine_id": "gnews",
+      "config": {
+        "force_refresh": "false",
+        "keywords": "",
+        "show_beacon": "true",
+        "show_progress_dots": "true",
+        "requests_per_day": "10",
+        "display_mode": "smooth_scroll",
+        "api_key": "",
+        "lang": "auto",
+        "scroll_pause_end_ms": "1000",
+        "show_source": "true",
+        "show_category_badge": "true",
+        "scroll_speed": "3",
+        "scroll_pause_start_ms": "1200",
+        "max_articles": "5",
+        "show_time_ago": "true",
+        "country": "auto",
+        "article_duration_sec": "12",
+        "theme": "category_dynamic",
+        "cache_ttl_min": "30",
+        "category": "technology"
       }
     }
   ],
   "rotation": [
     {
+      "instance_id": "default_dashboard",
+      "duration_sec": 30,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
       "instance_id": "default_clock",
-      "duration_sec": 60,
+      "duration_sec": 20,
       "overlays": {
         "fighter": true
       }
     },
     {
       "instance_id": "default_weather",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_crypto",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_stock",
+      "duration_sec": 15,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_gifs",
+      "duration_sec": 30,
+      "overlays": {
+        "fighter": true
+      }
+    },
+    {
+      "instance_id": "default_gnews",
       "duration_sec": 15,
       "overlays": {
         "fighter": true

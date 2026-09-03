@@ -8,6 +8,7 @@ export const translations = {
     fighter_desc: "Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.",
     fighter_enabled: "Enabled",
     fighter_interval: "Interval between fights (seconds)",
+    fighter_speed: "Animation Speed",
     fighter_save: "Save Fighter Settings",
     nav_system: "System",
     ota_drop: "Drop firmware binary here or click to browse",
@@ -27,6 +28,8 @@ export const translations = {
     preview_live_btn: "👁️ Preview Live",
     config_saved_live: "Configuration saved & applied live!",
     preview_success: "Screen is now displaying live on the matrix!",
+    system_prefs_saved: "System preferences saved & applied live!",
+    system_prefs_error: "Failed to save system preferences",
     screen_name_help: "Custom friendly name displayed in tabs and the rotation playlist.",
     no_config_available: "No configuration available for this engine.",
     cancel_btn: "Cancel",
@@ -83,6 +86,44 @@ export const translations = {
     theme_hud_bars: "HUD Bars & Gauges",
     theme_cyberpunk_neon: "Cyberpunk Neon",
     theme_compact_grid: "Compact Grid (2x2)",
+    
+    // GNews & Topics I18n
+    gnews_name: "GNews Live Feed",
+    cat_general: "General (Top Stories)",
+    cat_world: "World (International)",
+    cat_nation: "National News",
+    cat_business: "Business & Economy",
+    cat_technology: "Technology & Cyber",
+    cat_entertainment: "Entertainment & Arts",
+    cat_sports: "Sports",
+    cat_science: "Science & Space",
+    cat_health: "Health & Medicine",
+    theme_dynamic_category_colors: "Dynamic Category Colors",
+    theme_category_dynamic: "Dynamic Category Colors",
+    theme_breaking_crimson: "Breaking Crimson",
+    theme_cyberpunk_neo: "Cyberpunk Neo",
+    theme_monochrome_paper: "Monochrome Paper",
+    opt_display_mode_smooth_scroll: "Smooth Horizontal Scroll",
+    opt_display_mode_serpentine: "Serpentine Snake Flow",
+    opt_display_mode_vertical_crawl: "Vertical Crawl",
+    opt_display_mode_static_paged: "Static Word-Wrapped Paging",
+    field_api_key: "API Key",
+    field_category: "News Categories",
+    field_keywords: "Search Keywords",
+    field_lang: "Language",
+    field_country: "Country",
+    field_max_articles: "Max Articles",
+    field_cache_ttl_min: "Cache TTL (min)",
+    field_display_mode: "Display Mode",
+    field_scroll_speed: "Scroll Speed",
+    field_scroll_pause_start_ms: "Start Pause (ms)",
+    field_scroll_pause_end_ms: "End Pause (ms)",
+    field_article_duration_sec: "Article Duration (s)",
+    field_show_category_badge: "Show Category Badge",
+    field_show_source: "Show Source Name",
+    field_show_time_ago: "Show Time Ago",
+    field_show_beacon: "Show Live Beacon",
+    field_show_progress_dots: "Show Progress Dots",
     
     add_screen_title: "Add New Screen to Display",
     add_screen_desc: "Select any engine plugin from the library to create a new customizable screen instance on your LED Matrix.",
@@ -193,6 +234,61 @@ export const translations = {
     dir_ttb: "Top to Bottom (TTB)",
     dir_btt: "Bottom to Top (BTT)",
     dir_static: "Static (No Scroll)",
+
+    // System Tabs & General Preferences
+    tab_general: "🌐 General",
+    tab_hardware: "⚙️ Hardware",
+    tab_night: "🌙 Night Mode",
+    tab_network: "📡 Network",
+    tab_mqtt: "🔄 MQTT & API",
+    tab_ota: "🚀 Updates",
+    gen_title: "🌐 System & Regional Preferences",
+    gen_desc: "Configure device timezone, language, time formatting (24h/12h), temperature units and background overlays.",
+    gen_timezone_label: "Timezone / Region",
+    gen_language_label: "Language",
+    gen_timeformat_label: "Time Format",
+    gen_opt_24h: "24 Hours (23:00)",
+    gen_opt_12h: "12 Hours (11:00 PM)",
+    gen_unit_label: "Temperature Unit",
+    gen_unit_c: "Celsius (°C)",
+    gen_unit_f: "Fahrenheit (°F)",
+    gen_idle_fighter_enable: "Enable Idle Fighter Overlay",
+    gen_idle_fighter_interval: "Interval between fights (seconds)",
+    gen_idle_fighter_speed: "Fighter Speed",
+    gen_btn_save: "💾 Save System Preferences",
+
+    // TATE / YOKO & Quick Presets
+    tab_yoko: "Horizontal (Landscape / YOKO)",
+    tab_tate: "Vertical (Portrait / TATE)",
+    gif_auto_switch_title: "Auto-Switching Detection:",
+    gif_auto_switch_desc: "ArcadeMatrix automatically switches: in Horizontal (Landscape / YOKO) mode, only horizontal GIF folders are played. In Vertical (Portrait / TATE) mode, only vertical GIF folders are played.",
+    gif_no_yoko: "No horizontal GIF folders found in /gifs",
+    gif_no_tate: "No vertical GIF folders found in /gifs_tate",
+    folders_count: "folders",
+    select_all_btn: "Select All",
+    clear_btn: "Clear",
+    quick_presets_label: "Quick Suggestions:",
+    modal_gif_orientation_label: "GIF Orientation Library:",
+    all_folders_opt: "All folders (Auto Horizontal / Vertical)",
+    gif_modal_help: "Selected folders or 'all' will automatically switch according to the active rotation mode.",
+
+    // Screen Orientation & Transitions
+    hw_orientation_title: "Screen Orientation & Rotation Transitions",
+    hw_orientation_desc: "Configure matrix screen rotation (Landscape / Portrait TATE) and visual animation transition effects between screens.",
+    hw_screen_rotation_label: "Screen Rotation / Mounting Offset",
+    hw_rot_0: "0° - Normal (Landscape / YOKO)",
+    hw_rot_90: "90° - Portrait Clockwise (TATE)",
+    hw_rot_180: "180° - Inverted Landscape",
+    hw_rot_270: "270° - Portrait Counter-Clockwise (TATE)",
+    hw_rotation_transition_label: "Rotation Transition Effect",
+    hw_transition_duration_label: "Transition Duration (ms)",
+    hw_trans_vortex: "✨ Particle Vortex",
+    hw_trans_glitch: "⚡ Cyberpunk Glitch",
+    hw_trans_slide: "💫 Smooth Slide",
+    hw_trans_zoom: "🌀 Tunnel Zoom",
+    hw_trans_matrix: "🌊 Matrix Rain",
+    hw_trans_random: "🎲 Random (Every rotation)",
+    hw_trans_none: "Instant Cut (None)",
   },
   fr: {
     nav_dashboard: "Tableau de bord",
@@ -203,6 +299,7 @@ export const translations = {
     fighter_desc: "Sprites de combattants animés superposés sur les écrans de rotation en veille. À activer par écran depuis le panneau Rotation.",
     fighter_enabled: "Activé",
     fighter_interval: "Intervalle entre les combats (secondes)",
+    fighter_speed: "Vitesse d'Animation",
     fighter_save: "Enregistrer les paramètres Combattant",
     nav_system: "Système",
     ota_drop: "Glissez le binaire ici ou cliquez pour parcourir",
@@ -221,7 +318,9 @@ export const translations = {
     save_screen_config_btn: "💾 Enregistrer la configuration de l'écran",
     preview_live_btn: "👁️ Afficher en direct (Live)",
     config_saved_live: "Configuration enregistrée et appliquée à chaud !",
-    preview_success: "Écran affiché en direct sur la matrice LED !",
+    preview_success: "L'écran est maintenant affiché en direct sur la matrice !",
+    system_prefs_saved: "Préférences système enregistrées & appliquées en direct !",
+    system_prefs_error: "Échec de l'enregistrement des préférences système",
     screen_name_help: "Nom personnalisé affiché dans les onglets et la playlist de rotation.",
     no_config_available: "Aucune configuration disponible pour ce moteur.",
     cancel_btn: "Annuler",
@@ -278,6 +377,44 @@ export const translations = {
     theme_hud_bars: "Jauges HUD & Barres",
     theme_cyberpunk_neon: "Cyberpunk Néon",
     theme_compact_grid: "Grille Compacte (2x2)",
+    
+    // GNews & Topics I18n
+    gnews_name: "Actualités GNews en Direct",
+    cat_general: "Général (À la une)",
+    cat_world: "Monde (International)",
+    cat_nation: "National (France / Local)",
+    cat_business: "Économie & Finance",
+    cat_technology: "Technologie & Numérique",
+    cat_entertainment: "Divertissement & Culture",
+    cat_sports: "Sports",
+    cat_science: "Sciences & Espace",
+    cat_health: "Santé & Médecine",
+    theme_dynamic_category_colors: "Couleurs Dynamiques par Catégorie",
+    theme_category_dynamic: "Couleurs Dynamiques par Catégorie",
+    theme_breaking_crimson: "Alerte Rouge Cramoisi",
+    theme_cyberpunk_neo: "Cyberpunk Néo Cyan",
+    theme_monochrome_paper: "Papier Journal Monochrome",
+    opt_display_mode_smooth_scroll: "Défilement Horizontal Fluide",
+    opt_display_mode_serpentine: "Défilement Serpentin",
+    opt_display_mode_vertical_crawl: "Défilement Vertical",
+    opt_display_mode_static_paged: "Affichage Fixe Page par Page",
+    field_api_key: "Clé API GNews",
+    field_category: "Catégories d'Actualités",
+    field_keywords: "Mots-Clés de Recherche",
+    field_lang: "Langue des Articles",
+    field_country: "Édition du Pays",
+    field_max_articles: "Nombre Max d'Articles",
+    field_cache_ttl_min: "Durée du Cache (min)",
+    field_display_mode: "Mode d'Affichage",
+    field_scroll_speed: "Vitesse de Défilement",
+    field_scroll_pause_start_ms: "Pause Initiale (ms)",
+    field_scroll_pause_end_ms: "Pause Finale (ms)",
+    field_article_duration_sec: "Durée par Article (s)",
+    field_show_category_badge: "Afficher le Badge Catégorie",
+    field_show_source: "Afficher la Source",
+    field_show_time_ago: "Afficher l'Heure Relative",
+    field_show_beacon: "Afficher le Témoin Direct",
+    field_show_progress_dots: "Afficher les Points de Progression",
     
     add_screen_title: "Ajouter un nouvel écran à l'affichage",
     add_screen_desc: "Sélectionnez un plugin du catalogue pour créer un nouvel écran personnalisable sur votre matrice LED.",
@@ -388,6 +525,61 @@ export const translations = {
     dir_ttb: "Haut vers Bas (TTB)",
     dir_btt: "Bas vers Haut (BTT)",
     dir_static: "Statique (Sans défilement)",
+
+    // Onglets Système & Préférences Générales
+    tab_general: "🌐 Général",
+    tab_hardware: "⚙️ Matériel",
+    tab_night: "🌙 Mode Nuit",
+    tab_network: "📡 Réseau",
+    tab_mqtt: "🔄 MQTT & API",
+    tab_ota: "🚀 Mises à jour",
+    gen_title: "🌐 Préférences Système & Régionales",
+    gen_desc: "Configurez le fuseau horaire, la langue, le format horaire (24h/12h), l'unité de température et les animations d'arrière-plan.",
+    gen_timezone_label: "Fuseau Horaire / Région",
+    gen_language_label: "Langue",
+    gen_timeformat_label: "Format de l'Heure",
+    gen_opt_24h: "24 Heures (23:00)",
+    gen_opt_12h: "12 Heures (11:00 PM)",
+    gen_unit_label: "Unité de Température",
+    gen_unit_c: "Celsius (°C)",
+    gen_unit_f: "Fahrenheit (°F)",
+    gen_idle_fighter_enable: "Activer l'Overlay Street Fighter",
+    gen_idle_fighter_interval: "Intervalle entre les combats (secondes)",
+    gen_idle_fighter_speed: "Vitesse Combattant",
+    gen_btn_save: "💾 Enregistrer les Préférences",
+
+    // TATE / YOKO & Sélections Rapides
+    tab_yoko: "Horizontal (Paysage / YOKO)",
+    tab_tate: "Vertical (Portrait / TATE)",
+    gif_auto_switch_title: "Détection & Switch Automatique :",
+    gif_auto_switch_desc: "L'ArcadeMatrix bascule automatiquement : en affichage Horizontal (Paysage / YOKO), seuls les dossiers horizontaux sont joués. En affichage Vertical (Portrait / TATE), seuls les dossiers verticaux sont joués.",
+    gif_no_yoko: "Aucun dossier horizontal trouvé dans /gifs",
+    gif_no_tate: "Aucun dossier vertical trouvé dans /gifs_tate",
+    folders_count: "dossiers",
+    select_all_btn: "Tout cocher",
+    clear_btn: "Décocher",
+    quick_presets_label: "Suggestions rapides :",
+    modal_gif_orientation_label: "Bibliothèque d'orientation GIF :",
+    all_folders_opt: "Tous les dossiers (Auto Horizontal / Vertical)",
+    gif_modal_help: "Les dossiers choisis ou 'all' basculeront automatiquement selon l'orientation active.",
+
+    // Screen Orientation & Transitions
+    hw_orientation_title: "Orientation de l'Écran & Transitions",
+    hw_orientation_desc: "Configurez l'orientation de la matrice (Paysage / Portrait TATE) et les effets de transition visuelle entre les écrans.",
+    hw_screen_rotation_label: "Orientation de l'Écran / Décalage",
+    hw_rot_0: "0° - Normal (Paysage / YOKO)",
+    hw_rot_90: "90° - Portrait Horaire (TATE)",
+    hw_rot_180: "180° - Paysage Inversé",
+    hw_rot_270: "270° - Portrait Anti-Horaire (TATE)",
+    hw_rotation_transition_label: "Effet de Transition de Rotation",
+    hw_transition_duration_label: "Durée de la Transition (ms)",
+    hw_trans_vortex: "✨ Vortex de Particules",
+    hw_trans_glitch: "⚡ Glitch Cyberpunk",
+    hw_trans_slide: "💫 Glissement Fluide",
+    hw_trans_zoom: "🌀 Zoom Tunnel",
+    hw_trans_matrix: "🌊 Pluie Matrix",
+    hw_trans_random: "🎲 Aléatoire (À chaque rotation)",
+    hw_trans_none: "Coupure Instantanée (Aucun)",
   },
   es: {
     nav_dashboard: "Panel",
@@ -398,6 +590,7 @@ export const translations = {
     fighter_desc: "Sprites de luchadores animados superpuestos sobre las pantallas de rotación inactivas. Actívalo por pantalla desde el panel de Rotación.",
     fighter_enabled: "Activado",
     fighter_interval: "Intervalo entre combates (segundos)",
+    fighter_speed: "Velocidad de Animación",
     fighter_save: "Guardar ajustes de Luchador",
     nav_system: "Sistema",
     ota_drop: "Arrastra el binario aquí o haz clic para buscar",
@@ -473,6 +666,44 @@ export const translations = {
     theme_hud_bars: "Barras y Jaujas HUD",
     theme_cyberpunk_neon: "Cyberpunk Neón",
     theme_compact_grid: "Cuadrícula Compacta (2x2)",
+    
+    // GNews & Topics I18n
+    gnews_name: "Noticias GNews en Vivo",
+    cat_general: "General (Destacadas)",
+    cat_world: "Mundo (Internacional)",
+    cat_nation: "Nacional (Local)",
+    cat_business: "Economía y Finanzas",
+    cat_technology: "Tecnología y Digital",
+    cat_entertainment: "Entretenimiento y Cultura",
+    cat_sports: "Deportes",
+    cat_science: "Ciencia y Espacio",
+    cat_health: "Salud y Medicina",
+    theme_dynamic_category_colors: "Colores Dinámicos por Categoría",
+    theme_category_dynamic: "Colores Dinámicos por Categoría",
+    theme_breaking_crimson: "Alerta Rojo Carmesí",
+    theme_cyberpunk_neo: "Cyberpunk Neo Cian",
+    theme_monochrome_paper: "Papel Periódico Monocromo",
+    opt_display_mode_smooth_scroll: "Desplazamiento Horizontal Fluido",
+    opt_display_mode_serpentine: "Desplazamiento Serpentina",
+    opt_display_mode_vertical_crawl: "Desplazamiento Vertical",
+    opt_display_mode_static_paged: "Visualización Fija por Páginas",
+    field_api_key: "Clave API GNews",
+    field_category: "Categorías de Noticias",
+    field_keywords: "Palabras Clave de Búsqueda",
+    field_lang: "Idioma de los Artículos",
+    field_country: "Edición del País",
+    field_max_articles: "Máx Artículos",
+    field_cache_ttl_min: "Caché TTL (min)",
+    field_display_mode: "Modo de Visualización",
+    field_scroll_speed: "Velocidad de Desplazamiento",
+    field_scroll_pause_start_ms: "Pausa Inicial (ms)",
+    field_scroll_pause_end_ms: "Pausa Final (ms)",
+    field_article_duration_sec: "Duración por Artículo (s)",
+    field_show_category_badge: "Mostrar Etiqueta de Categoría",
+    field_show_source: "Mostrar Fuente",
+    field_show_time_ago: "Mostrar Tiempo Transcurrido",
+    field_show_beacon: "Mostrar Baliza En Vivo",
+    field_show_progress_dots: "Mostrar Puntos de Progreso",
     
     add_screen_title: "Añadir nueva pantalla a la visualización",
     add_screen_desc: "Selecciona un plugin del catálogo para crear una nueva pantalla personalizable en tu matriz LED.",
@@ -583,6 +814,61 @@ export const translations = {
     dir_ttb: "Arriba a Abajo (TTB)",
     dir_btt: "Abajo a Arriba (BTT)",
     dir_static: "Estático (Sin desplazamiento)",
+
+    // Pestañas del Sistema y Preferencias Generales
+    tab_general: "🌐 General",
+    tab_hardware: "⚙️ Hardware",
+    tab_night: "🌙 Modo Noche",
+    tab_network: "📡 Red",
+    tab_mqtt: "🔄 MQTT y API",
+    tab_ota: "🚀 Actualizaciones",
+    gen_title: "🌐 Preferencias del Sistema y Regionales",
+    gen_desc: "Configure la zona horaria, el idioma, el formato de hora (24h/12h), las unidades de temperatura y las superposiciones.",
+    gen_timezone_label: "Zona Horaria / Región",
+    gen_language_label: "Idioma",
+    gen_timeformat_label: "Formato de Hora",
+    gen_opt_24h: "24 Horas (23:00)",
+    gen_opt_12h: "12 Horas (11:00 PM)",
+    gen_unit_label: "Unidad de Temperatura",
+    gen_unit_c: "Celsius (°C)",
+    gen_unit_f: "Fahrenheit (°F)",
+    gen_idle_fighter_enable: "Habilitar Superposición Street Fighter",
+    gen_idle_fighter_interval: "Intervalo entre combates (segundos)",
+    gen_idle_fighter_speed: "Velocidad Luchador",
+    gen_btn_save: "💾 Guardar Preferencias del Sistema",
+
+    // TATE / YOKO & Selección Rápida
+    tab_yoko: "Horizontal (Paisaje / YOKO)",
+    tab_tate: "Vertical (Retrato / TATE)",
+    gif_auto_switch_title: "Detección y Cambio Automático:",
+    gif_auto_switch_desc: "ArcadeMatrix cambia automáticamente: en modo Horizontal (Paisaje / YOKO), solo se reproducen carpetas horizontales. En modo Vertical (Retrato / TATE), solo se reproducen carpetas verticales.",
+    gif_no_yoko: "No se encontraron carpetas horizontales en /gifs",
+    gif_no_tate: "No se encontraron carpetas verticales en /gifs_tate",
+    folders_count: "carpetas",
+    select_all_btn: "Seleccionar todo",
+    clear_btn: "Deseleccionar",
+    quick_presets_label: "Sugerencias rápidas:",
+    modal_gif_orientation_label: "Biblioteca de orientación GIF:",
+    all_folders_opt: "Todas las carpetas (Auto Horizontal / Vertical)",
+    gif_modal_help: "Las carpetas seleccionadas o 'all' cambiarán automáticamente según la orientación activa.",
+
+    // Screen Orientation & Transitions
+    hw_orientation_title: "Orientación de Pantalla y Transiciones",
+    hw_orientation_desc: "Configura la orientación de la matriz (Paisaje / Retrato TATE) y los efectos de transición visual entre pantallas.",
+    hw_screen_rotation_label: "Orientación de Pantalla / Montaje",
+    hw_rot_0: "0° - Normal (Paisaje / YOKO)",
+    hw_rot_90: "90° - Retrato Horario (TATE)",
+    hw_rot_180: "180° - Paisaje Invertido",
+    hw_rot_270: "270° - Retrato Antihorario (TATE)",
+    hw_rotation_transition_label: "Efecto de Transición de Rotación",
+    hw_transition_duration_label: "Duración de la Transición (ms)",
+    hw_trans_vortex: "✨ Vórtice de Partículas",
+    hw_trans_glitch: "⚡ Glitch Cyberpunk",
+    hw_trans_slide: "💫 Deslizamiento Suave",
+    hw_trans_zoom: "🌀 Zoom Túnel",
+    hw_trans_matrix: "🌊 Lluvia Matrix",
+    hw_trans_random: "🎲 Aleatorio (En cada rotación)",
+    hw_trans_none: "Corte Instantáneo (Ninguno)",
   }
 };
 
@@ -605,7 +891,7 @@ export function setLanguage(lang) {
   // Text content translation
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
-    if (dict[key]) {
+    if (dict[key] !== undefined) {
       el.textContent = dict[key];
     }
   });
@@ -613,9 +899,38 @@ export function setLanguage(lang) {
   // Tooltip translation
   document.querySelectorAll('[data-i18n-tooltip]').forEach(el => {
     const key = el.getAttribute('data-i18n-tooltip');
-    if (dict[key]) {
+    if (dict[key] !== undefined) {
       el.setAttribute('data-tooltip', dict[key]);
       el.setAttribute('tabindex', '0'); // For mobile focus
     }
   });
+
+  // Placeholder translation
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    const key = el.getAttribute('data-i18n-placeholder');
+    if (dict[key] !== undefined) {
+      el.placeholder = dict[key];
+    }
+  });
+
+  // Title attribute translation
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    const key = el.getAttribute('data-i18n-title');
+    if (dict[key] !== undefined) {
+      el.title = dict[key];
+    }
+  });
+
+  // Synchronize dropdown selectors
+  const topSel = document.getElementById('lang-selector');
+  if (topSel && topSel.value !== lang) topSel.value = lang;
+  const sysSel = document.getElementById('sys-lang');
+  if (sysSel && sysSel.value !== lang) sysSel.value = lang;
+
+  // Live re-render of dynamic components (engine catalog, tabs, rotation playlist)
+  if (window.renderDynamicDisplay) {
+    try {
+      window.renderDynamicDisplay();
+    } catch (_) {}
+  }
 }

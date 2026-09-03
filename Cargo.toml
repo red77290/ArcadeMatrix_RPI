@@ -69,6 +69,7 @@ mime_guess = "2.0.5"
 bdf-parser = "0.1.0"
 linkme = "0.3.37"
 actix-cors = "0.7.1"
+arc-swap = "1.7"
 
 [dev-dependencies]
 tempfile = "3"

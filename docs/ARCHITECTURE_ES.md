@@ -526,59 +526,32 @@ sequenceDiagram
 
 ---
 
-## 11. Display Arbiter: resolución de prioridades multifuente
+## 11. Pipeline Canónico de Pantalla: Arbiter y DisplayRuntime
 
-La rotación no es lo único que puede poseer la pantalla. Los marquees (frontends de arcade), banners MQTT, mensajes de un disparo y el reproductor GIF compiten por ella. El `DisplayArbiter` lo resuelve por **prioridad**, de modo que el Core nunca contiene lógica de negocio `if source == "mqtt"` en el bucle de render.
-
-```mermaid
-classDiagram
-    class DisplayArbiter {
-        +Vec~DisplayRequest~ requests
-        +submit_request(req)
-        +cancel_request(source)
-        +clear_expired()
-        +evaluate() Option~DisplayRequest~
-    }
-    class DisplayRequest {
-        +str source
-        +DisplayPriority priority
-        +RequestLifecycle lifecycle
-        +bool preemptive
-        +str instance_id
-        +Option~Duration~ timeout
-        +Instant created_at
-    }
-    class DisplayPriority {
-        <<enum>>
-        Rotation = 10
-        Gif = 20
-        Marquee = 30
-        Visualizer = 40
-        Mqtt = 100
-    }
-    class RequestLifecycle {
-        <<enum>>
-        OneShot
-        Timed
-        UntilCancelled
-        Persistent
-    }
-    DisplayArbiter "1" --> "*" DisplayRequest
-    DisplayRequest --> DisplayPriority
-    DisplayRequest --> RequestLifecycle
-```
-
-En cada frame, el bucle de render envía/cancela solicitudes según el estado en vivo, luego llama a `evaluate()`, que descarta las solicitudes expiradas y devuelve la superviviente de **mayor prioridad**. `ROTATION` es una base `Persistent`, no preventiva (prioridad 10) siempre presente; cualquier otra cosa (MQTT=100, Marquee=30, GIF=20…) puede tomar el control temporalmente.
+La rotación no es lo único que puede poseer la matriz. Los marquees (frontends de arcade), alertas MQTT, mensajes únicos y el reproductor GIF compiten por la salida en pantalla. El `DisplayArbiter` y el `DisplayRuntime` separan estrictamente la intención de arbitraje del ciclo de vida de ejecución:
 
 ```mermaid
-flowchart LR
-    subgraph Frame
-        S["submit/cancel requests"] --> E["evaluate()"]
-        E --> CE["clear_expired()"]
-        CE --> MAX["max_by priority"]
-    end
-    MAX --> WIN["winning source renders this frame"]
+flowchart TD
+    PROD["Productores (Rotación, MQTT, Marquee, GIF)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
+    ARB -->|DisplayDecision| DRT["DisplayRuntime (Ciclo de Vida, FSM)"]
+    DRT -->|EngineHandle (4 bytes)| ERT["EngineRuntime (HandleRegistry, O(1))"]
+    ERT -->|Instancia motor| ENG["Engine.update() / Engine.render()"]
+    ENG --> FB["Framebuffer Base"]
+    FB --> OM["OverlayManager (Fighter)"]
+    OM --> MX["MatrixBackend (hzeller)"]
 ```
+
+### 11.1 DisplayArbiter (Evaluador de Prioridades Sin Estado)
+- **Capacidad Acotada**: Matriz fija `[Option<DisplayRequest>; 8]` con evaluación en $O(\text{MAX\_REQUESTS})$.
+- **Cero Asignaciones y Cero Mutexes**: Se ejecuta sin bloqueos y sin asignaciones en el hilo de render.
+- **Identidad de Intención**: Definida estrictamente por `source_id + request_id + engine_handle`. Si una solicitud entrante coincide con la intención activa, se preserva `created_at`; de lo contrario, se asigna una nueva marca de tiempo.
+- **Saturación Determinista**: Si los 8 slots están ocupados, una solicitud entrante desaloja el slot de menor prioridad si es estrictamente mayor, o es rechazada de forma determinista.
+
+### 11.2 DisplayRuntime y PreemptionStack
+- **Propietario Exclusivo del Ciclo de Vida**: `DisplayRuntime` es el único componente autorizado para invocar `activate()`, `deactivate()`, `pause()` y `resume()`.
+- **Pila de Preferencia (Preemption Stack)**: Pila de profundidad acotada `PreemptionStack<4>` que almacena registros compactos `PreemptionEntry` (20 bytes).
+- **Transiciones Transaccionales**: La resolución del handle destino y la capacidad de la pila se validan *antes* de realizar operaciones destructivas. Si una preferencia falla, la sesión activa actual permanece intacta.
+- **Reanudación Exacta y Limpieza de Huérfanos**: Al finalizar una preferencia, el runtime desapila, verifica si la intención sumergida que coincide con `source_id + request_id + engine_handle` sigue presente en el Arbiter, y desactiva limpiamente sesiones intermedias huérfanas para reanudar la base válida.
 
 ---
 

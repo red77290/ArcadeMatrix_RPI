@@ -5,6 +5,7 @@ use tracing::{info, warn};
 #[derive(Clone, Debug)]
 pub struct FetchedArticle {
     pub title: String,
+    pub description: String,
     pub source: String,
     pub category: String,
     pub published_epoch: u64,
@@ -207,12 +208,41 @@ impl GNewsProvider {
             .replace("&lt;", "<")
             .replace("&gt;", ">")
             .replace("&nbsp;", " ")
+            .replace("&laquo;", "«")
+            .replace("&raquo;", "»")
+            .replace("&#171;", "«")
+            .replace("&#187;", "»")
+            .replace("&eacute;", "é")
+            .replace("&egrave;", "è")
+            .replace("&agrave;", "à")
+            .replace("&ccedil;", "ç")
+            .replace("&ecirc;", "ê")
+            .replace("&euml;", "ë")
+            .replace("&ocirc;", "ô")
+            .replace("&icirc;", "î")
+            .replace("&iuml;", "ï")
+            .replace("&ucirc;", "û")
+            .replace("&ugrave;", "ù")
+            .replace("&Eacute;", "É")
+            .replace("&Egrave;", "È")
+            .replace("&Agrave;", "À")
+            .replace("&Ccedil;", "Ç")
+            .replace("&#233;", "é")
+            .replace("&#232;", "è")
+            .replace("&#224;", "à")
+            .replace("&#231;", "ç")
+            .replace("&#234;", "ê")
             .replace("&#8217;", "'")
             .replace("&#8216;", "'")
             .replace("&#8220;", "\"")
             .replace("&#8221;", "\"")
             .replace("&#8211;", "-")
             .replace("&#8212;", "-")
+            .replace("’", "'")
+            .replace("“", "\"")
+            .replace("”", "\"")
+            .replace("«", "\"")
+            .replace("»", "\"")
             .trim()
             .to_string()
     }
@@ -234,6 +264,7 @@ impl GNewsProvider {
             "status": status,
             "articles": articles.iter().map(|a| serde_json::json!({
                 "title": a.title,
+                "description": a.description,
                 "source": a.source,
                 "category": a.category,
                 "published_epoch": a.published_epoch,
@@ -273,6 +304,11 @@ impl GNewsProvider {
         let mut list = Vec::new();
         for item in articles_arr {
             let title = item.get("title")?.as_str()?.to_string();
+            let description = item
+                .get("description")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let source = item.get("source")?.as_str()?.to_string();
             let category = item.get("category")?.as_str()?.to_string();
             let published_epoch = item
@@ -281,6 +317,7 @@ impl GNewsProvider {
                 .unwrap_or(0);
             list.push(FetchedArticle {
                 title,
+                description,
                 source,
                 category,
                 published_epoch,
@@ -313,6 +350,17 @@ impl GNewsProvider {
             if title.is_empty() {
                 continue;
             }
+            let raw_desc = item
+                .get("description")
+                .or_else(|| item.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let mut clean_desc = Self::clean_text(raw_desc);
+            if let Some(pos) = clean_desc.rfind("[+") {
+                clean_desc.truncate(pos);
+                clean_desc = clean_desc.trim().to_string();
+            }
+
             let source = item
                 .get("source")
                 .and_then(|s| s.get("name"))
@@ -321,6 +369,7 @@ impl GNewsProvider {
 
             list.push(FetchedArticle {
                 title: Self::clean_text(title),
+                description: clean_desc,
                 source: Self::clean_text(source),
                 category: def_cat.to_string(),
                 published_epoch: 0,
@@ -346,11 +395,13 @@ mod tests {
             "articles": [
                 {
                     "title": "Quantum Computing Milestone",
+                    "description": "Researchers achieve new breakthrough in quantum processing.",
                     "source": { "name": "TechCrunch" },
                     "publishedAt": "2026-09-02T08:00:00Z"
                 },
                 {
                     "title": "New Telescope Discovery",
+                    "description": "Astronomers spot distant exoplanet with water vapor.",
                     "source": { "name": "Nature" },
                     "publishedAt": "2026-09-02T08:15:00Z"
                 }
@@ -360,6 +411,10 @@ mod tests {
         let parsed = GNewsProvider::parse_articles(&sample, "technology").unwrap();
         assert_eq!(parsed.len(), 2);
         assert_eq!(parsed[0].title, "Quantum Computing Milestone");
+        assert_eq!(
+            parsed[0].description,
+            "Researchers achieve new breakthrough in quantum processing."
+        );
         assert_eq!(parsed[0].source, "TechCrunch");
         assert_eq!(parsed[0].category, "technology");
     }

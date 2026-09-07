@@ -24,10 +24,22 @@ pub enum ScrollState {
 #[derive(Clone, Debug)]
 pub struct GNewsArticle {
     pub title: String,
+    pub description: String,
     pub source: String,
     pub category: String,
     pub published_epoch: u64,
     pub badge_color: (u8, u8, u8),
+}
+
+impl GNewsArticle {
+    pub fn headline(&self) -> String {
+        let desc = self.description.trim();
+        if desc.is_empty() {
+            self.title.clone()
+        } else {
+            format!("{} — {}", self.title, desc)
+        }
+    }
 }
 
 pub struct GNewsEngine {
@@ -111,6 +123,7 @@ impl GNewsEngine {
                     let badge_color = Self::get_category_color(&a.category);
                     loaded_articles.push(GNewsArticle {
                         title: a.title,
+                        description: a.description,
                         source: a.source,
                         category: a.category,
                         published_epoch: a.published_epoch,
@@ -435,64 +448,45 @@ impl GNewsEngine {
             (((clip_max_y - body_y) / line_spacing).max(2)) as usize
         };
 
-        let sep_spaces = 4;
-        let total_units = t_len + sep_spaces;
-        let total_pixel_len = (total_units * char_w) as i32;
-        let track_len = (num_rows as i32) * w;
-
-        let mut loop_pixel_len = total_pixel_len;
-        while loop_pixel_len < track_len {
-            loop_pixel_len += total_pixel_len;
-        }
+        let chars_per_row = ((w / char_w).max(1)) as usize;
+        let needed_rows = (t_len + chars_per_row - 1) / chars_per_row;
+        let active_rows = needed_rows.min(num_rows).max(1);
 
         let s = scroll_offset;
-        let glyphs_on_track = (track_len / char_w as i32) + 4;
+        let char_step = s.div_euclid(char_w);
+        let pixel_shift = s.rem_euclid(char_w);
 
-        for i in 0..glyphs_on_track {
-            let u = (i * char_w as i32 + (s.rem_euclid(loop_pixel_len))).rem_euclid(loop_pixel_len);
-            if u >= track_len {
+        for r in 0..active_rows {
+            let cy = body_y + (r as i32 * line_spacing);
+            if cy + 7 <= clip_min_y || cy >= clip_max_y {
                 continue;
             }
 
-            let r = (u / w) as usize;
-            if r >= num_rows {
-                continue;
-            }
+            let row_base_char = (r * chars_per_row) as i32 + char_step;
 
-            let rem = u % w;
-            let display_row = num_rows - 1 - r;
-            let cy = body_y + (display_row as i32 * line_spacing);
+            for col in 0..=(chars_per_row as i32) {
+                let cx = clip_min_x + col * char_w - pixel_shift;
+                if cx + 5 < clip_min_x || cx >= clip_max_x {
+                    continue;
+                }
 
-            let cx = if (display_row % 2) == 0 {
-                clip_max_x - rem - char_w as i32
-            } else {
-                clip_min_x + rem
-            };
-
-            let char_idx = (i as usize) % total_units;
-            let c = if char_idx < t_len {
-                title_chars[char_idx]
-            } else {
-                ' '
-            };
-
-            if c != ' '
-                && cy + 7 > clip_min_y
-                && cy < clip_max_y
-                && cx + 5 >= clip_min_x
-                && cx < clip_max_x
-            {
-                draw_char_clipped(
-                    matrix,
-                    c,
-                    cx,
-                    cy,
-                    clip_min_x,
-                    clip_max_x,
-                    clip_min_y,
-                    clip_max_y,
-                    (255, 255, 255),
-                );
+                let char_idx = row_base_char + col;
+                if char_idx >= 0 && (char_idx as usize) < t_len {
+                    let c = title_chars[char_idx as usize];
+                    if c != ' ' {
+                        draw_char_clipped(
+                            matrix,
+                            c,
+                            cx,
+                            cy,
+                            clip_min_x,
+                            clip_max_x,
+                            clip_min_y,
+                            clip_max_y,
+                            (255, 255, 255),
+                        );
+                    }
+                }
             }
         }
     }
@@ -635,6 +629,7 @@ impl GNewsEngine {
                                 0,
                                 GNewsArticle {
                                     title: a.title,
+                                    description: a.description,
                                     source: a.source,
                                     category: a.category,
                                     published_epoch: a.published_epoch,
@@ -650,6 +645,7 @@ impl GNewsEngine {
                         .iter()
                         .map(|art| crate::api::gnews::FetchedArticle {
                             title: art.title.clone(),
+                            description: art.description.clone(),
                             source: art.source.clone(),
                             category: art.category.clone(),
                             published_epoch: art.published_epoch,
@@ -676,6 +672,7 @@ impl GNewsEngine {
                     .iter()
                     .map(|art| crate::api::gnews::FetchedArticle {
                         title: art.title.clone(),
+                        description: art.description.clone(),
                         source: art.source.clone(),
                         category: art.category.clone(),
                         published_epoch: art.published_epoch,
@@ -918,16 +915,17 @@ impl Engine for GNewsEngine {
         }
 
         let article = &self.articles[self.current_index];
+        let headline = article.headline();
         let mw = ctx.matrix.width();
         let mh = ctx.matrix.height();
         let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
         let cache_invalid = self.cached_article_index != self.current_index
-            || self.cached_article_title != article.title
+            || self.cached_article_title != headline
             || self.cached_display_mode != self.display_mode;
 
         if cache_invalid {
-            self.cached_title_chars = article.title.chars().collect();
+            self.cached_title_chars = headline.chars().collect();
             let mode = self.display_mode.as_str();
             let line_spacing: i32 = 9;
 
@@ -939,12 +937,24 @@ impl Engine for GNewsEngine {
 
                 match mode {
                     "serpentine" => {
-                        let text_len = (self.cached_title_chars.len() as i32) * 6;
-                        self.cached_max_scroll = text_len + 24;
+                        let t_len = self.cached_title_chars.len();
+                        let avail_w = ((mw as i32) - 4).max(1) as usize;
+                        let chars_per_row = (avail_w / 6).max(1);
+                        let needed_rows = if t_len == 0 {
+                            1
+                        } else {
+                            (t_len + chars_per_row - 1) / chars_per_row
+                        };
+                        if needed_rows <= num_rows {
+                            self.cached_max_scroll = 0;
+                        } else {
+                            let overflow = (t_len - (num_rows * chars_per_row) + 3) as i32;
+                            self.cached_max_scroll = overflow * 6;
+                        }
                         self.cached_display_lines.clear();
                     }
                     "vertical_crawl" => {
-                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let lines = Self::wrap_text_to_lines(&headline, max_w);
                         let total_h = lines.len() as i32 * line_spacing;
                         self.cached_max_scroll = if total_h > viewport_h {
                             (total_h - viewport_h) + 12
@@ -954,14 +964,14 @@ impl Engine for GNewsEngine {
                         self.cached_display_lines = lines;
                     }
                     "static_paged" => {
-                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let lines = Self::wrap_text_to_lines(&headline, max_w);
                         self.cached_max_scroll = 0;
                         self.cached_display_lines = lines;
                     }
                     _ => {
                         // Default: "smooth_scroll"
                         // Multi-line block filling entire height, scrolling horizontally Right -> Left
-                        let lines = Self::distribute_text_to_rows(&article.title, num_rows);
+                        let lines = Self::distribute_text_to_rows(&headline, num_rows);
                         let max_line_w = lines.iter().map(|l| measure_text(l)).max().unwrap_or(0);
                         self.cached_max_scroll = (mw as i32) + max_line_w + 12;
                         self.cached_display_lines = lines;
@@ -977,14 +987,25 @@ impl Engine for GNewsEngine {
 
                 match mode {
                     "serpentine" => {
-                        let text_len = (self.cached_title_chars.len() as i32) * 6;
-                        let track_len = (num_rows as i32) * (mw as i32);
-                        self.cached_max_scroll = (track_len + text_len).max(track_len * 2);
+                        let t_len = self.cached_title_chars.len();
+                        let avail_w = ((mw as i32) - 4).max(1) as usize;
+                        let chars_per_row = (avail_w / 6).max(1);
+                        let needed_rows = if t_len == 0 {
+                            1
+                        } else {
+                            (t_len + chars_per_row - 1) / chars_per_row
+                        };
+                        if needed_rows <= num_rows {
+                            self.cached_max_scroll = 0;
+                        } else {
+                            let overflow = (t_len - (num_rows * chars_per_row) + 3) as i32;
+                            self.cached_max_scroll = overflow * 6;
+                        }
                         self.cached_display_lines.clear();
                     }
                     "vertical_crawl" => {
                         let max_w = (mw as i32) - 8;
-                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let lines = Self::wrap_text_to_lines(&headline, max_w);
                         let total_h = lines.len() as i32 * line_spacing;
                         let viewport_h = ((mh as i32) - 16).max(10);
                         self.cached_max_scroll = if total_h > viewport_h {
@@ -996,13 +1017,14 @@ impl Engine for GNewsEngine {
                     }
                     "static_paged" => {
                         let max_w = (mw as i32) - 8;
-                        let lines = Self::wrap_text_to_lines(&article.title, max_w);
+                        let lines = Self::wrap_text_to_lines(&headline, max_w);
+                        let total_h = lines.len() as i32 * line_spacing;
                         self.cached_max_scroll = 0;
                         self.cached_display_lines = lines;
                     }
                     _ => {
                         // "smooth_scroll" on horizontal display
-                        let text_w = measure_text(&article.title);
+                        let text_w = measure_text(&headline);
                         self.cached_max_scroll = text_w + 12;
                         self.cached_display_lines.clear();
                     }
@@ -1010,7 +1032,7 @@ impl Engine for GNewsEngine {
             }
 
             self.cached_article_index = self.current_index;
-            self.cached_article_title = article.title.clone();
+            self.cached_article_title = headline;
             self.cached_display_mode = self.display_mode.clone();
         }
 
@@ -1457,7 +1479,7 @@ impl Engine for GNewsEngine {
                 if mh >= 64 && mw >= 256 {
                     draw_text_scaled(
                         matrix,
-                        &article.title,
+                        &self.cached_article_title,
                         start_x,
                         body_y,
                         0,
@@ -1470,7 +1492,7 @@ impl Engine for GNewsEngine {
                 } else {
                     draw_text_clipped(
                         matrix,
-                        &article.title,
+                        &self.cached_article_title,
                         start_x,
                         body_y,
                         0,
@@ -1560,7 +1582,7 @@ impl Engine for GNewsEngine {
                 let start_x = 2 - self.scroll_pixel_offset;
                 draw_text_clipped(
                     matrix,
-                    &article.title,
+                    &self.cached_article_title,
                     start_x,
                     15,
                     0,

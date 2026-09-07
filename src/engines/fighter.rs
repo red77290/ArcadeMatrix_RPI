@@ -269,6 +269,36 @@ impl FighterChar {
         Some(Self { name, meta, anims })
     }
 
+    pub fn compute_stand_bounds(&self) -> (i32, i32) {
+        if let Some(sprite) = self.anims.get("stand").or_else(|| self.anims.get("walk")) {
+            if let Some(frame) = sprite.frames.first() {
+                let w = frame.width();
+                let h = frame.height();
+                let mut min_x = w as i32;
+                let mut max_x = -1;
+                for y in 0..h {
+                    for x in 0..w {
+                        let px = frame.get_pixel(x, y);
+                        if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                            min_x = min_x.min(x as i32);
+                            max_x = max_x.max(x as i32);
+                        }
+                    }
+                }
+                if max_x >= min_x {
+                    let origin_x = self.meta.origin_x as i32;
+                    let front = (max_x - origin_x).max(4);
+                    let back = (origin_x - min_x).max(4);
+                    return (front, back);
+                }
+            }
+        }
+        let h = self.meta.height as i32;
+        let front = (h * 35 / 100).max(6);
+        let back = (h * 25 / 100).max(6);
+        (front, back)
+    }
+
     pub fn get_sprite(&self, state: &str) -> Option<&FighterSprite> {
         self.anims.get(state).or_else(|| self.anims.get("walk"))
     }
@@ -284,6 +314,8 @@ struct Player {
     dead: bool,
     dir: f32, // 1.0 (right) or -1.0 (left)
     scale: i32,
+    front_extent: i32,
+    back_extent: i32,
 }
 
 pub struct FighterEngine {
@@ -569,6 +601,9 @@ impl FighterEngine {
                     }
                 }
 
+                let (p1_front, p1_back) = c1.compute_stand_bounds();
+                let (p2_front, p2_back) = c2.compute_stand_bounds();
+
                 let p1 = Player {
                     character: c1,
                     x: -(meta1.width as f32 * scale as f32),
@@ -579,6 +614,8 @@ impl FighterEngine {
                     dead: false,
                     dir: 1.0,
                     scale,
+                    front_extent: p1_front,
+                    back_extent: p1_back,
                 };
 
                 let p2 = Player {
@@ -591,6 +628,8 @@ impl FighterEngine {
                     dead: false,
                     dir: -1.0,
                     scale,
+                    front_extent: p2_front,
+                    back_extent: p2_back,
                 };
 
                 let _ = tx.send((p1, p2));
@@ -683,13 +722,14 @@ impl FighterEngine {
             let is_tate =
                 self.matrix_width < 48 || self.matrix_height > (self.matrix_width * 3) / 2;
             let scale = p1.scale.max(1) as f32;
-            let engage_dist = if is_tate {
-                (4.0 * scale).max(4.0)
+            let gap = if is_tate {
+                (2.0 * scale).max(1.0)
             } else if self.matrix_width >= 128 {
-                20.0 * scale
+                4.0 * scale
             } else {
-                14.0 * scale
+                3.0 * scale
             };
+            let engage_dist = (p1.front_extent as f32 + p2.front_extent as f32) * scale + gap;
             let center_x = self.matrix_width as f32 / 2.0;
 
             let p1_target_x =

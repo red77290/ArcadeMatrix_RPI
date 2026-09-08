@@ -303,51 +303,6 @@ fn test_clock_font_size_responsiveness_32x64() {
 }
 
 #[test]
-fn test_font_diagnostics() {
-    let font_files = [
-        "PressStart2P.ttf",
-        "PixelifySans.ttf",
-        "Jersey10.ttf",
-        "Silkscreen.ttf",
-        "Tiny5.ttf",
-        "VT323.ttf",
-        "DotGothic16.ttf",
-        "Cozette.ttf",
-    ];
-
-    let mut out = String::new();
-    for font_name in font_files {
-        let renderer = BaseRenderer::from_font_path(font_name);
-        let font = renderer.font();
-        out.push_str(&format!("\n=== FONT: {} ===\n", font_name));
-        for size in 1..=5 {
-            let (pixels, dw, dh) = font.get_pixel_map("12", size as f32);
-            let mut min_px = 9999;
-            let mut max_px = -9999;
-            let mut min_py = 9999;
-            let mut max_py = -9999;
-            let mut count = 0;
-            for cp in &pixels {
-                for &(x, y) in cp {
-                    count += 1;
-                    min_px = min_px.min(x);
-                    max_px = max_px.max(x);
-                    min_py = min_py.min(y);
-                    max_py = max_py.max(y);
-                }
-            }
-            let actual_w = if count > 0 { max_px - min_px + 1 } else { 0 };
-            let actual_h = if count > 0 { max_py - min_py + 1 } else { 0 };
-            out.push_str(&format!(
-                "Size {}: dw={}, dh={} | actual_w={} (min_x={}, max_x={}), actual_h={} (min_y={}, max_y={})\n",
-                size, dw, dh, actual_w, min_px, max_px, actual_h, min_py, max_py
-            ));
-        }
-    }
-    std::fs::write("/Users/red1l/.gemini/antigravity-ide/brain/c864c1de-90fd-4daa-94bc-0f8b74bf9e5b/scratch/font_diag.txt", out).unwrap();
-}
-
-#[test]
 fn test_tate_seconds_same_size_as_hours_minutes() {
     let renderer = BaseRenderer::new();
     let mut matrix = MockMatrix::new(64, 128);

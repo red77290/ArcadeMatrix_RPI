@@ -512,6 +512,7 @@ impl ArcadeMatrixApp {
                         orientation_manager.geometry(),
                         &mut engine_runtime,
                     );
+                    overlay_manager.on_display_geometry_changed(orientation_manager.geometry());
                 }
                 tracing::info!(
                     "Display orientation/rotation updated to {}° in real-time.",

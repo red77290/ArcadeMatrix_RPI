@@ -87,6 +87,10 @@ impl Engine for WeatherEngine {
         self.last_fetch = None; // Force refresh on activation
     }
 
+    fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {
+        self.panorama = None;
+    }
+
     fn update(&mut self, _context: &mut EngineContext) {
         // Handle logic that doesn't draw
     }
@@ -216,6 +220,107 @@ impl Engine for WeatherEngine {
             let view = imageops::crop_imm(pano, view_x, 0, mw, mh);
             let view_img = view.to_image();
             context.matrix.draw_image(&view_img, 0, 0);
+        }
+
+        // Render dynamic scrolling condition in Tate / vertical layout when text overflows
+        let is_wide = mw >= 128;
+        let is_tall = mh >= 64;
+        let is_vertical = !(is_wide && is_tall)
+            && !(is_wide && !is_tall)
+            && !(mw >= 256 && mh >= 64)
+            && !(mw <= 64 && mh <= 32);
+
+        if is_vertical && !self.forecasts.is_empty() {
+            let desc_y = if mh >= 120 {
+                self.offset_y + (mh as i32 / 5) + 32
+            } else if mh >= 96 {
+                self.offset_y + 50
+            } else {
+                self.offset_y + 40
+            };
+
+            let elapsed_ms = self.scroll_start.elapsed().as_millis() as u64;
+            let cycle_ms = (slide_dur + trans_dur) * 1000 * num_slides;
+            let t_ms = elapsed_ms % cycle_ms;
+            let cur_idx = (t_ms / ((slide_dur + trans_dur) * 1000)) as usize % self.forecasts.len();
+            let local_ms = t_ms % ((slide_dur + trans_dur) * 1000);
+
+            let font = self.base_renderer.font();
+            let cur_slide = &self.forecasts[cur_idx];
+            let (_, cur_w, _) = font.get_pixel_map(&cur_slide.condition, 1.0);
+
+            let color_desc = (210, 210, 210);
+
+            if local_ms < slide_dur * 1000 {
+                // Stationary slide
+                if cur_w > mw as i32 - 4 {
+                    let overflow = cur_w - (mw as i32 - 4);
+                    let x = if local_ms < 1000 {
+                        2 + self.offset_x
+                    } else if local_ms < 4200 {
+                        let p = (local_ms - 1000) as f32 / 3200.0;
+                        2 + self.offset_x - (p * overflow as f32) as i32
+                    } else {
+                        2 + self.offset_x - overflow
+                    };
+                    BaseRenderer::draw_text_clipped(
+                        context.matrix,
+                        &cur_slide.condition,
+                        &font,
+                        1.0,
+                        x,
+                        desc_y,
+                        0,
+                        mw as i32,
+                        color_desc,
+                        (0, 0, 0),
+                    );
+                }
+            } else {
+                // Transitioning slide
+                let trans_ms = local_ms - slide_dur * 1000;
+                let progress = trans_ms as f32 / (trans_dur * 1000) as f32;
+                let ease = progress * progress * (3.0 - 2.0 * progress);
+                let ease_dx = (ease * mw as f32) as i32;
+
+                // Outgoing slide condition
+                if cur_w > mw as i32 - 4 {
+                    let overflow = cur_w - (mw as i32 - 4);
+                    let end_x = 2 + self.offset_x - overflow;
+                    BaseRenderer::draw_text_clipped(
+                        context.matrix,
+                        &cur_slide.condition,
+                        &font,
+                        1.0,
+                        end_x - ease_dx,
+                        desc_y,
+                        0,
+                        mw as i32,
+                        color_desc,
+                        (0, 0, 0),
+                    );
+                }
+
+                // Incoming slide condition
+                let next_idx = (cur_idx + 1) % self.forecasts.len();
+                let next_slide = &self.forecasts[next_idx];
+                let (_, next_w, _) = font.get_pixel_map(&next_slide.condition, 1.0);
+                if next_w > mw as i32 - 4 {
+                    let in_x = (2 + self.offset_x) + (mw as i32 - ease_dx);
+                    BaseRenderer::draw_text_clipped(
+                        context.matrix,
+                        &next_slide.condition,
+                        &font,
+                        1.0,
+                        in_x,
+                        desc_y,
+                        0,
+                        mw as i32,
+                        color_desc,
+                        (0, 0, 0),
+                    );
+                }
+            }
         }
     }
 
@@ -551,8 +656,20 @@ impl WeatherEngine {
                 }
             } else {
                 // --- 64x64 or Vertical Layout ---
+                let (icon_y, desc_y, min_y, max_y) = if mh >= 120 {
+                    (
+                        offset_y + (mh as i32 / 5),
+                        offset_y + (mh as i32 / 5) + 32,
+                        offset_y + (3 * mh as i32 / 5),
+                        offset_y + (3 * mh as i32 / 5) + 14,
+                    )
+                } else if mh >= 96 {
+                    (offset_y + 20, offset_y + 50, offset_y + 64, offset_y + 76)
+                } else {
+                    (offset_y + 14, offset_y + 40, offset_y + 49, offset_y + 57)
+                };
+
                 let icon_x = base_x as i32 + (mw as i32 - 24) / 2 + offset_x;
-                let icon_y = offset_y + 14;
                 self.draw_icon(&mut panorama, &slide.icon, icon_x, icon_y);
 
                 let (_, label_w, _) = font.get_pixel_map(&slide.label, 1.0);
@@ -568,15 +685,19 @@ impl WeatherEngine {
 
                 if !slide.condition.is_empty() {
                     let (_, desc_w, _) = font.get_pixel_map(&slide.condition, 1.0);
-                    let desc_x = base_x as i32 + (mw as i32 - desc_w) / 2 + offset_x;
-                    self.draw_arcade_text(
-                        &mut panorama,
-                        &slide.condition,
-                        desc_x,
-                        offset_y + 40,
-                        color_desc,
-                        1.0,
-                    );
+                    // If condition fits within the display width, draw it static and centered in panorama.
+                    // If it overflows, leave it out of panorama so render() draws it with horizontal scrolling!
+                    if desc_w <= mw as i32 - 4 {
+                        let desc_x = base_x as i32 + (mw as i32 - desc_w) / 2 + offset_x;
+                        self.draw_arcade_text(
+                            &mut panorama,
+                            &slide.condition,
+                            desc_x,
+                            desc_y,
+                            color_desc,
+                            1.0,
+                        );
+                    }
                 }
 
                 let (_, min_w, _) = font.get_pixel_map(&slide.temp_min, 1.0);
@@ -585,7 +706,7 @@ impl WeatherEngine {
                     &mut panorama,
                     &slide.temp_min,
                     min_x,
-                    offset_y + 49,
+                    min_y,
                     color_morning,
                     1.0,
                 );
@@ -596,7 +717,7 @@ impl WeatherEngine {
                     &mut panorama,
                     &slide.temp_max,
                     max_x,
-                    offset_y + 57,
+                    max_y,
                     color_afternoon,
                     1.0,
                 );

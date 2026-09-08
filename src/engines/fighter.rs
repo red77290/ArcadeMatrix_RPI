@@ -384,6 +384,62 @@ impl FighterEngine {
         self.loading = false;
     }
 
+    pub fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        self.matrix_width = geometry.logical_width;
+        self.matrix_height = geometry.logical_height;
+        if self.active {
+            let is_tate =
+                self.matrix_width < 48 || self.matrix_height > (self.matrix_width * 3) / 2;
+            let (mut p1_scale, mut p1_ground_y, mut p1_head_y) = (1, 32, 0);
+            if let Some(ref mut p1) = self.p1 {
+                let is_32px = p1.character.meta.width <= 32;
+                let scale = if is_tate {
+                    if self.matrix_width >= 96 && is_32px {
+                        (self.matrix_width / 64) as i32
+                    } else {
+                        1
+                    }
+                } else if self.matrix_height >= 64 && is_32px {
+                    (self.matrix_height / 32) as i32
+                } else {
+                    1
+                }
+                .max(1);
+                p1.scale = scale;
+                p1_scale = scale;
+                p1_ground_y = p1.character.meta.ground_y as i32;
+                p1_head_y = p1.character.meta.head_y as i32;
+                p1.y = if is_tate {
+                    (self.matrix_height as i32 - 1) - (p1_ground_y * scale)
+                } else {
+                    (1 - p1_head_y) * scale
+                };
+            }
+            if let Some(ref mut p2) = self.p2 {
+                let is_32px = p2.character.meta.width <= 32;
+                let scale = if is_tate {
+                    if self.matrix_width >= 96 && is_32px {
+                        (self.matrix_width / 64) as i32
+                    } else {
+                        1
+                    }
+                } else if self.matrix_height >= 64 && is_32px {
+                    (self.matrix_height / 32) as i32
+                } else {
+                    1
+                }
+                .max(1);
+                p2.scale = scale;
+                p2.y = if is_tate {
+                    (self.matrix_height as i32 - 1) - (p2.character.meta.ground_y as i32 * scale)
+                } else {
+                    let ground_y = (1 - p1_head_y) + (p1_ground_y * p1_scale);
+                    ground_y - (p2.character.meta.ground_y as i32 * scale)
+                };
+            }
+        }
+    }
+
     fn find_fighters_dir(name: &str) -> Option<std::path::PathBuf> {
         let candidates = [
             std::path::PathBuf::from(name),
@@ -435,8 +491,17 @@ impl FighterEngine {
             let dir32 = Self::find_fighters_dir("fighters_32");
 
             let is_tate = matrix_width < 48 || matrix_height > (matrix_width * 3) / 2;
-            // In TATE mode (vertical, e.g. 32x128), the limiting dimension horizontally is matrix_width!
-            let target_dim = if is_tate { matrix_width } else { matrix_height };
+            // In TATE mode (vertical, e.g. 32x128, 64x128), two fighters side-by-side need 32px sprites
+            // unless the panel is exceptionally wide (>= 128).
+            let target_dim = if is_tate {
+                if matrix_width >= 128 {
+                    64
+                } else {
+                    32
+                }
+            } else {
+                matrix_height
+            };
             let (preferred, fallback) = if target_dim >= 64 {
                 (dir64, dir32)
             } else {
@@ -554,17 +619,15 @@ impl FighterEngine {
             if let (Some(c1), Some(c2)) = (c1, c2) {
                 let is_32px = dir_path.to_string_lossy().contains("32");
                 let scale = if is_tate {
-                    if matrix_width >= 64 && is_32px {
-                        (matrix_width / 32) as i32
+                    if matrix_width >= 96 && is_32px {
+                        (matrix_width / 64) as i32
                     } else {
                         1
                     }
+                } else if matrix_height >= 64 && is_32px {
+                    (matrix_height / 32) as i32
                 } else {
-                    if matrix_height >= 64 && is_32px {
-                        (matrix_height / 32) as i32
-                    } else {
-                        1
-                    }
+                    1
                 }
                 .max(1);
 

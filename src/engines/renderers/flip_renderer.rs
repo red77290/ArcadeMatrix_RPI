@@ -123,6 +123,99 @@ impl FlipRenderer {
         }
     }
 
+    fn draw_single_card(
+        matrix: &mut dyn MatrixBackend,
+        cx: i32,
+        cy: i32,
+        panel_w: i32,
+        panel_h: i32,
+        cur_pixels: &Vec<Vec<(i32, i32)>>,
+        prev_pixels: &Vec<Vec<(i32, i32)>>,
+        cur_ox: i32,
+        cur_oy: i32,
+        prev_ox: i32,
+        prev_oy: i32,
+        frame: u8,
+    ) {
+        let top_end = panel_h / 2 - 1;
+        let bot_start = panel_h / 2;
+        let bot_end = panel_h - 1;
+
+        if frame == 0 {
+            Self::draw_flap(
+                matrix, cx, cy, panel_w, panel_h, cur_pixels, cur_ox, cur_oy, 0, top_end, 0,
+                top_end, false,
+            );
+            Self::draw_flap(
+                matrix, cx, cy, panel_w, panel_h, cur_pixels, cur_ox, cur_oy, bot_start, bot_end,
+                bot_start, bot_end, false,
+            );
+        } else {
+            Self::draw_flap(
+                matrix, cx, cy, panel_w, panel_h, cur_pixels, cur_ox, cur_oy, 0, top_end, 0,
+                top_end, false,
+            );
+            Self::draw_flap(
+                matrix,
+                cx,
+                cy,
+                panel_w,
+                panel_h,
+                prev_pixels,
+                prev_ox,
+                prev_oy,
+                bot_start,
+                bot_end,
+                bot_start,
+                bot_end,
+                false,
+            );
+
+            let shrink = if frame <= 4 { frame } else { 8 - frame } as i32;
+            let shrink_px = (shrink as f32 / 4.0 * (panel_h as f32 / 2.0)) as i32;
+
+            if frame <= 4 {
+                Self::draw_flap(
+                    matrix,
+                    cx,
+                    cy,
+                    panel_w,
+                    panel_h,
+                    prev_pixels,
+                    prev_ox,
+                    prev_oy,
+                    shrink_px,
+                    top_end,
+                    0,
+                    top_end,
+                    true,
+                );
+            } else {
+                Self::draw_flap(
+                    matrix,
+                    cx,
+                    cy,
+                    panel_w,
+                    panel_h,
+                    cur_pixels,
+                    cur_ox,
+                    cur_oy,
+                    bot_start,
+                    bot_end - shrink_px,
+                    bot_start,
+                    bot_end,
+                    true,
+                );
+            }
+        }
+
+        // Center black line for split-flap mechanism
+        let mid_y = cy + panel_h / 2;
+        for dx in 0..panel_w {
+            matrix.set_pixel(cx + dx, mid_y, 0, 0, 0);
+        }
+    }
+
     pub fn render(
         &mut self,
         matrix: &mut dyn MatrixBackend,
@@ -147,165 +240,184 @@ impl FlipRenderer {
             }
         }
 
-        let (panel_w, panel_h, spacing) = self.get_layout(font, scale);
+        let is_tate = w < 48 || h > (w * 3) / 2;
+        if is_tate {
+            // Stacked Portrait Layout matching ESP32
+            let digit_indices: Vec<usize> = chars
+                .iter()
+                .enumerate()
+                .filter(|(_, &c)| c.is_ascii_digit())
+                .map(|(i, _)| i)
+                .collect();
 
-        let mut total_w = 0;
-        for &ch in &chars {
-            if ch == ':' || ch == '/' || ch == '.' || ch == '-' {
-                total_w += 2 + spacing;
+            let spacing = 2;
+            let max_w = (w - 4 - spacing) / 2;
+            let tier_count = if h >= 120 && digit_indices.len() >= 6 {
+                3
             } else {
-                total_w += panel_w + spacing;
+                2
+            };
+            let max_h = (h / tier_count) - 4;
+
+            let panel_w = max_w.clamp(6, 28);
+            let panel_h = max_h.clamp(8, 40);
+
+            let total_tier_w = panel_w * 2 + spacing;
+            let start_x = (w - total_tier_w) / 2 + offset_x;
+
+            let tier_y = if tier_count == 3 {
+                [
+                    (h / 6) - (panel_h / 2) + offset_y,
+                    (h / 2) - (panel_h / 2) + offset_y,
+                    (5 * h / 6) - (panel_h / 2) + offset_y,
+                ]
+            } else {
+                [
+                    (h / 4) - (panel_h / 2) + offset_y + 2,
+                    (3 * h / 4) - (panel_h / 2) + offset_y - 2,
+                    0,
+                ]
+            };
+
+            for tier in 0..tier_count as usize {
+                let d_start = tier * 2;
+                if d_start + 1 < digit_indices.len() {
+                    let idx0 = digit_indices[d_start];
+                    let idx1 = digit_indices[d_start + 1];
+
+                    // Card 0
+                    let cur0 = chars[idx0];
+                    let prev0 = self.prev_chars[idx0];
+                    let frame0 = self.flip_frame[idx0];
+                    let (cur_p0, cur_w0, cur_h0) = self.get_pixel_map(font, scale, cur0).clone();
+                    let (prev_p0, prev_w0, prev_h0) =
+                        self.get_pixel_map(font, scale, prev0).clone();
+                    Self::draw_single_card(
+                        matrix,
+                        start_x,
+                        tier_y[tier],
+                        panel_w,
+                        panel_h,
+                        &cur_p0,
+                        &prev_p0,
+                        (panel_w - cur_w0) / 2,
+                        (panel_h - cur_h0) / 2,
+                        (panel_w - prev_w0) / 2,
+                        (panel_h - prev_h0) / 2,
+                        frame0,
+                    );
+                    if frame0 > 0 {
+                        self.flip_frame[idx0] += 1;
+                        if self.flip_frame[idx0] > 8 {
+                            self.flip_frame[idx0] = 0;
+                        }
+                    }
+
+                    // Card 1
+                    let cur1 = chars[idx1];
+                    let prev1 = self.prev_chars[idx1];
+                    let frame1 = self.flip_frame[idx1];
+                    let (cur_p1, cur_w1, cur_h1) = self.get_pixel_map(font, scale, cur1).clone();
+                    let (prev_p1, prev_w1, prev_h1) =
+                        self.get_pixel_map(font, scale, prev1).clone();
+                    Self::draw_single_card(
+                        matrix,
+                        start_x + panel_w + spacing,
+                        tier_y[tier],
+                        panel_w,
+                        panel_h,
+                        &cur_p1,
+                        &prev_p1,
+                        (panel_w - cur_w1) / 2,
+                        (panel_h - cur_h1) / 2,
+                        (panel_w - prev_w1) / 2,
+                        (panel_h - prev_h1) / 2,
+                        frame1,
+                    );
+                    if frame1 > 0 {
+                        self.flip_frame[idx1] += 1;
+                        if self.flip_frame[idx1] > 8 {
+                            self.flip_frame[idx1] = 0;
+                        }
+                    }
+                }
             }
-        }
-        if !chars.is_empty() {
-            total_w -= spacing;
-        }
 
-        let start_x = (w - total_w) / 2 + offset_x;
-        let start_y = (h - panel_h) / 2 + offset_y;
-        let top_end = panel_h / 2 - 1;
-        let bot_start = panel_h / 2;
-        let bot_end = panel_h - 1;
+            if tier_count == 2 {
+                // Center pulsing colon
+                let dot_x = (w / 2) - 1 + offset_x;
+                let dot_y1 = (h / 2) - 3 + offset_y;
+                let dot_y2 = (h / 2) + 2 + offset_y;
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        matrix.set_pixel(dot_x + dx, dot_y1 + dy, 255, 255, 255);
+                        matrix.set_pixel(dot_x + dx, dot_y2 + dy, 255, 255, 255);
+                    }
+                }
+            }
+        } else {
+            // Horizontal Landscape Layout
+            let (panel_w, panel_h, spacing) = self.get_layout(font, scale);
 
-        let mut cx = start_x;
-        for (i, &cur) in chars.iter().enumerate() {
-            let prev = self.prev_chars[i];
-            let frame = self.flip_frame[i];
-
-            if cur == ':' || cur == '/' || cur == '.' || cur == '-' {
-                matrix.set_pixel(cx, start_y + panel_h / 3, 255, 255, 255);
-                matrix.set_pixel(cx + 1, start_y + panel_h / 3, 255, 255, 255);
-                matrix.set_pixel(cx, start_y + 2 * panel_h / 3, 255, 255, 255);
-                matrix.set_pixel(cx + 1, start_y + 2 * panel_h / 3, 255, 255, 255);
-                cx += 2 + spacing;
-            } else {
-                let (cur_pixels, cur_w, cur_h) = self.get_pixel_map(font, scale, cur).clone();
-                let (prev_pixels, prev_w, prev_h) = self.get_pixel_map(font, scale, prev).clone();
-                let cur_ox = (panel_w - cur_w) / 2;
-                let cur_oy = (panel_h - cur_h) / 2;
-                let prev_ox = (panel_w - prev_w) / 2;
-                let prev_oy = (panel_h - prev_h) / 2;
-
-                if frame == 0 {
-                    // Static display of current character
-                    Self::draw_flap(
-                        matrix,
-                        cx,
-                        start_y,
-                        panel_w,
-                        panel_h,
-                        &cur_pixels,
-                        cur_ox,
-                        cur_oy,
-                        0,
-                        top_end,
-                        0,
-                        top_end,
-                        false,
-                    );
-                    Self::draw_flap(
-                        matrix,
-                        cx,
-                        start_y,
-                        panel_w,
-                        panel_h,
-                        &cur_pixels,
-                        cur_ox,
-                        cur_oy,
-                        bot_start,
-                        bot_end,
-                        bot_start,
-                        bot_end,
-                        false,
-                    );
+            let mut total_w = 0;
+            for &ch in &chars {
+                if ch == ':' || ch == '/' || ch == '.' || ch == '-' {
+                    total_w += 2 + spacing;
                 } else {
-                    // Animating
-                    // 1. Draw static TOP half of NEW character
-                    Self::draw_flap(
+                    total_w += panel_w + spacing;
+                }
+            }
+            if !chars.is_empty() {
+                total_w -= spacing;
+            }
+
+            let start_x = (w - total_w) / 2 + offset_x;
+            let start_y = (h - panel_h) / 2 + offset_y;
+
+            let mut cx = start_x;
+            for (i, &cur) in chars.iter().enumerate() {
+                let prev = self.prev_chars[i];
+                let frame = self.flip_frame[i];
+
+                if cur == ':' || cur == '/' || cur == '.' || cur == '-' {
+                    matrix.set_pixel(cx, start_y + panel_h / 3, 255, 255, 255);
+                    matrix.set_pixel(cx + 1, start_y + panel_h / 3, 255, 255, 255);
+                    matrix.set_pixel(cx, start_y + 2 * panel_h / 3, 255, 255, 255);
+                    matrix.set_pixel(cx + 1, start_y + 2 * panel_h / 3, 255, 255, 255);
+                    cx += 2 + spacing;
+                } else {
+                    let (cur_pixels, cur_w, cur_h) = self.get_pixel_map(font, scale, cur).clone();
+                    let (prev_pixels, prev_w, prev_h) =
+                        self.get_pixel_map(font, scale, prev).clone();
+                    let cur_ox = (panel_w - cur_w) / 2;
+                    let cur_oy = (panel_h - cur_h) / 2;
+                    let prev_ox = (panel_w - prev_w) / 2;
+                    let prev_oy = (panel_h - prev_h) / 2;
+
+                    Self::draw_single_card(
                         matrix,
                         cx,
                         start_y,
                         panel_w,
                         panel_h,
                         &cur_pixels,
+                        &prev_pixels,
                         cur_ox,
                         cur_oy,
-                        0,
-                        top_end,
-                        0,
-                        top_end,
-                        false,
-                    );
-
-                    // 2. Draw static BOT half of OLD character
-                    Self::draw_flap(
-                        matrix,
-                        cx,
-                        start_y,
-                        panel_w,
-                        panel_h,
-                        &prev_pixels,
                         prev_ox,
                         prev_oy,
-                        bot_start,
-                        bot_end,
-                        bot_start,
-                        bot_end,
-                        false,
+                        frame,
                     );
 
-                    let shrink = if frame <= 4 { frame } else { 8 - frame } as i32;
-                    let shrink_px = (shrink as f32 / 4.0 * (panel_h as f32 / 2.0)) as i32;
-
-                    if frame <= 4 {
-                        // 3a. Draw falling TOP half of OLD character
-                        Self::draw_flap(
-                            matrix,
-                            cx,
-                            start_y,
-                            panel_w,
-                            panel_h,
-                            &prev_pixels,
-                            prev_ox,
-                            prev_oy,
-                            shrink_px,
-                            top_end,
-                            0,
-                            top_end,
-                            true,
-                        );
-                    } else {
-                        // 3b. Draw falling BOT half of NEW character
-                        Self::draw_flap(
-                            matrix,
-                            cx,
-                            start_y,
-                            panel_w,
-                            panel_h,
-                            &cur_pixels,
-                            cur_ox,
-                            cur_oy,
-                            bot_start,
-                            bot_end - shrink_px,
-                            bot_start,
-                            bot_end,
-                            true,
-                        );
+                    if frame > 0 {
+                        self.flip_frame[i] += 1;
+                        if self.flip_frame[i] > 8 {
+                            self.flip_frame[i] = 0;
+                        }
                     }
 
-                    self.flip_frame[i] += 1;
-                    if self.flip_frame[i] > 8 {
-                        self.flip_frame[i] = 0;
-                    }
+                    cx += panel_w + spacing;
                 }
-
-                // Draw center black line for the split flap mechanism
-                let mid_y = start_y + panel_h / 2;
-                for dx in 0..panel_w {
-                    matrix.set_pixel(cx + dx, mid_y, 0, 0, 0);
-                }
-
-                cx += panel_w + spacing;
             }
         }
 

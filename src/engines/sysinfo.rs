@@ -245,6 +245,8 @@ impl Engine for SysInfoEngine {
         self.sample_metrics();
     }
 
+    fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {}
+
     fn render(&mut self, context: &mut EngineContext) {
         let matrix = &mut *context.matrix;
         matrix.clear();
@@ -292,13 +294,36 @@ impl Engine for SysInfoEngine {
 
         let is_tate = w < 48 || h > (w * 3) / 2;
         if is_tate {
+            if self.theme == 1 {
+                let cyan = (0, 240, 255);
+                let purple = (200, 50, 255);
+                for ix in 0..4 {
+                    matrix.set_pixel(ix, 0, cyan.0, cyan.1, cyan.2);
+                    matrix.set_pixel(w - 1 - ix, 0, cyan.0, cyan.1, cyan.2);
+                    matrix.set_pixel(ix, h - 1, purple.0, purple.1, purple.2);
+                    matrix.set_pixel(w - 1 - ix, h - 1, purple.0, purple.1, purple.2);
+                }
+                for iy in 0..4 {
+                    matrix.set_pixel(0, iy, cyan.0, cyan.1, cyan.2);
+                    matrix.set_pixel(w - 1, iy, cyan.0, cyan.1, cyan.2);
+                    matrix.set_pixel(0, h - 1 - iy, purple.0, purple.1, purple.2);
+                    matrix.set_pixel(w - 1, h - 1 - iy, purple.0, purple.1, purple.2);
+                }
+            }
+
+            let tate_label_col = if self.theme == 1 {
+                (0, 240, 255)
+            } else {
+                label_col
+            };
+
             // Portrait / Tate Stacked Layout (e.g. 32x64, 32x128, 64x128, matching ESP32)
             let step_y = h / 4;
             let base_y = 2 + self.offset_y;
 
             // Row 1: CPU
             if self.show_cpu {
-                Self::draw_bitmap_string(matrix, "CPU", 2 + self.offset_x, base_y, label_col);
+                Self::draw_bitmap_string(matrix, "CPU", 2 + self.offset_x, base_y, tate_label_col);
                 let cpu_s = format!("{:.0}%", cpu);
                 let cx = w - (cpu_s.len() as i32 * 6 + 2) + self.offset_x;
                 Self::draw_bitmap_string(matrix, &cpu_s, cx, base_y, cpu_col);
@@ -316,7 +341,7 @@ impl Engine for SysInfoEngine {
             // Row 2: RAM
             if self.show_ram {
                 let y2 = base_y + step_y;
-                Self::draw_bitmap_string(matrix, "RAM", 2 + self.offset_x, y2, label_col);
+                Self::draw_bitmap_string(matrix, "RAM", 2 + self.offset_x, y2, tate_label_col);
                 let ram_s = format!("{:.0}%", ram);
                 let rx = w - (ram_s.len() as i32 * 6 + 2) + self.offset_x;
                 Self::draw_bitmap_string(matrix, &ram_s, rx, y2, ram_col);
@@ -326,7 +351,7 @@ impl Engine for SysInfoEngine {
             // Row 3: TEMP
             if self.show_temp {
                 let y3 = base_y + step_y * 2;
-                Self::draw_bitmap_string(matrix, "TMP", 2 + self.offset_x, y3, label_col);
+                Self::draw_bitmap_string(matrix, "TMP", 2 + self.offset_x, y3, tate_label_col);
                 let tx = w - (t_str.len() as i32 * 6 + 2) + self.offset_x;
                 Self::draw_bitmap_string(matrix, &t_str, tx, y3, temp_col);
                 let temp_pct = ((temp - 20.0) * (100.0 / 60.0)).clamp(0.0, 100.0);
@@ -344,7 +369,7 @@ impl Engine for SysInfoEngine {
             // Row 4: UPTIME
             if self.show_uptime {
                 let y4 = base_y + step_y * 3;
-                Self::draw_bitmap_string(matrix, "UPT", 2 + self.offset_x, y4, label_col);
+                Self::draw_bitmap_string(matrix, "UPT", 2 + self.offset_x, y4, tate_label_col);
                 let ux = w - (up_str.len() as i32 * 6 + 2) + self.offset_x;
                 Self::draw_bitmap_string(matrix, &up_str, ux, y4, (0, 190, 255));
             }

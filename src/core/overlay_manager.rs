@@ -78,4 +78,9 @@ impl OverlayManager {
         }
         self.fighter_active = false;
     }
+
+    /// Propagates display geometry/rotation updates to active overlays.
+    pub fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        self.fighter.on_display_geometry_changed(geometry);
+    }
 }

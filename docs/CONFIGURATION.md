@@ -96,6 +96,9 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 
 The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) over SSH from the Web UI (`POST /api/mqtt/install`) with target OS selection or auto-detection, and its logs fetched with `POST /api/mqtt/logs`.
 
+> [!NOTE]
+> For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.
+
 ---
 
 ## 6. API Security (`api_auth_enabled` / `api_token`)

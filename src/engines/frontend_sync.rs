@@ -91,9 +91,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                     let clean_game =
                                         crate::core::dmd_cache::clean_system_name(&raw_game);
 
-                                    let is_system_event = json["type"].as_str() == Some("system")
-                                        || clean_game.is_empty()
-                                        || clean_game.eq_ignore_ascii_case(&clean_sys);
+                                    let is_playing = json["status"].as_str() == Some("playing");
+                                    let is_system_event = !is_playing
+                                        && (json["type"].as_str() == Some("system")
+                                            || clean_game.is_empty()
+                                            || clean_game.eq_ignore_ascii_case(&clean_sys));
 
                                     let system = if !clean_sys.is_empty() {
                                         clean_sys

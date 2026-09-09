@@ -96,6 +96,9 @@ Vous pouvez aussi pousser des identifiants à l'exécution avec `POST /api/wifi 
 
 Le démon de synchronisation peut être installé sur la console (Recalbox, Batocera, RetroPie) via SSH depuis la Web UI (`POST /api/mqtt/install`) avec sélection ou détection automatique de l'OS cible, et ses journaux récupérés avec `POST /api/mqtt/logs`.
 
+> [!NOTE]
+> Pour Batocera, la version **v33 ou supérieure** est requise pour le changement dynamique de marquee pendant la navigation (hooks `game-selected` et `system-selected`). Batocera v32 et versions antérieures ne déclenchent que les événements de lancement/arrêt de jeu. Recalbox est supporté sur toutes ses versions.
+
 ---
 
 ## 6. Sécurité de l'API (`api_auth_enabled` / `api_token`)

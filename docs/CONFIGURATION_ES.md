@@ -96,6 +96,9 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 
 El daemon de sincronización puede instalarse en la consola (Recalbox, Batocera, RetroPie) por SSH desde la interfaz Web (`POST /api/mqtt/install`) con selección o autodetección del sistema operativo, y sus logs pueden obtenerse con `POST /api/mqtt/logs`.
 
+> [!NOTE]
+> Para Batocera, se requiere la versión **v33 o superior** para el cambio dinámico de marquesinas durante la navegación (hooks `game-selected` y `system-selected`). Batocera v32 y versiones anteriores solo activan eventos de inicio/parada de juego. Recalbox es compatible en todas sus versiones.
+
 ---
 
 ## 6. Seguridad de la API (`api_auth_enabled` / `api_token`)

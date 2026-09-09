@@ -355,6 +355,29 @@ EOF
             tracing::info!("Installing for Batocera...");
             let hook_path = "/userdata/system/scripts/arcadematrix_mqtt.sh";
 
+            // Check Batocera version
+            if let Ok(mut channel) = sess.channel_session() {
+                if channel.exec("cat /usr/share/batocera/batocera.version 2>/dev/null || cat /etc/batocera-version 2>/dev/null || true").is_ok() {
+                    let mut version_str = String::new();
+                    let _ = channel.read_to_string(&mut version_str);
+                    let _ = channel.wait_close();
+                    let trimmed = version_str.trim();
+                    if !trimmed.is_empty() {
+                        tracing::info!("Detected Batocera version: {}", trimmed);
+                        if let Some(first_tok) = trimmed.split_whitespace().next() {
+                            if let Ok(ver_num) = first_tok.parse::<u32>() {
+                                if ver_num < 33 {
+                                    tracing::warn!(
+                                        "Batocera version {} is < 33. EmulationStation dynamic marquee browsing (game-selected) requires Batocera v33+. Game launch/stop events will still work.",
+                                        ver_num
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // 1. Clean up legacy daemons, shims, and custom.sh lines
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
@@ -442,6 +465,23 @@ clean_name() {{
         -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }}
 
+extract_system() {{
+    _sys="$1"
+    _rom="$2"
+    _base="$3"
+    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
+        if echo "$_rom" | grep -q '/roms/'; then
+            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
+        elif [ -n "$_rom" ]; then
+            basename "$(dirname "$_rom")"
+        else
+            echo "$_sys"
+        fi
+    else
+        echo "$_sys"
+    fi
+}}
+
 EVENT="$1"
 shift
 
@@ -468,6 +508,7 @@ case "$EVENT" in
             ROM_PATH="$1"
         fi
         GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
         PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
@@ -492,6 +533,7 @@ case "$EVENT" in
         if [ -n "$ROM_PATH" ]; then
             GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
         fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
         PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
@@ -517,6 +559,7 @@ case "$EVENT" in
         else
             GAME_CLEAN=""
         fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
         PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
@@ -547,6 +590,7 @@ case "$EVENT" in
         else
             GAME_CLEAN=""
         fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
         PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
@@ -565,6 +609,7 @@ case "$EVENT" in
         if [ -n "$ROM_PATH" ]; then
             GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
         fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
         PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"

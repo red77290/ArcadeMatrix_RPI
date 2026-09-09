@@ -3,95 +3,81 @@ use std::io::Read;
 use std::net::TcpStream;
 use std::time::Duration;
 
-pub fn install_sync_script(
-    target_ip: &str,
-    matrix_ip: &str,
-    custom_user: Option<String>,
-    custom_pass: Option<String>,
-) -> Result<String, String> {
-    let tcp = TcpStream::connect_timeout(
-        &format!("{}:22", target_ip).parse().unwrap(),
-        Duration::from_secs(5),
-    )
-    .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TargetOS {
+    Recalbox,
+    Batocera,
+    RetroPie,
+}
 
-    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake()
-        .map_err(|e| format!("SSH handshake failed: {}", e))?;
-
-    let mut targets = vec![
-        (
-            "Recalbox",
-            "root".to_string(),
-            "recalboxroot".to_string(),
-            "/recalbox/share/userscripts",
-        ),
-        (
-            "Batocera",
-            "root".to_string(),
-            "linux".to_string(),
-            "/userdata/system/scripts",
-        ),
-    ];
-
-    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        if !u.is_empty() && !p.is_empty() {
-            // Insert custom targets at the beginning so they are tried first
-            targets.insert(
-                0,
-                (
-                    "Custom (Batocera path)",
-                    u.clone(),
-                    p.clone(),
-                    "/userdata/system/scripts",
-                ),
-            );
-            targets.insert(
-                0,
-                (
-                    "Custom (Recalbox path)",
-                    u,
-                    p,
-                    "/recalbox/share/userscripts",
-                ),
-            );
+impl TargetOS {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "recalbox" => Some(TargetOS::Recalbox),
+            "batocera" => Some(TargetOS::Batocera),
+            "retropie" | "retro-pie" => Some(TargetOS::RetroPie),
+            _ => None,
         }
     }
 
-    let mut connected = false;
-    let mut system_name = "";
-    let mut target_dir = "";
-
-    for (sys_name, user, pwd, t_dir) in targets.iter() {
-        tracing::info!(
-            "Trying to connect to {} as {} (OS: {})...",
-            target_ip,
-            user,
-            sys_name
-        );
-        if sess.userauth_password(user, pwd).is_ok() {
-            connected = true;
-            system_name = sys_name;
-            target_dir = t_dir;
-            break;
+    pub fn name(&self) -> &'static str {
+        match self {
+            TargetOS::Recalbox => "Recalbox",
+            TargetOS::Batocera => "Batocera",
+            TargetOS::RetroPie => "RetroPie",
         }
     }
 
-    if !connected {
-        return Err(
-            "Failed to authenticate. Is it Recalbox (pwd: recalboxroot) or Batocera (pwd: linux)?"
-                .to_string(),
-        );
+    pub fn topic(&self) -> &'static str {
+        match self {
+            TargetOS::Recalbox => "system/playing/recalbox",
+            TargetOS::Batocera => "system/playing/batocera",
+            TargetOS::RetroPie => "system/playing/retropie",
+        }
     }
 
-    let daemon_code = format!(
+    pub fn log_path(&self) -> &'static str {
+        match self {
+            TargetOS::Recalbox => "/recalbox/share/userscripts/daemon.log",
+            TargetOS::Batocera => "/userdata/system/scripts/daemon.log",
+            TargetOS::RetroPie => "/opt/retropie/configs/all/daemon.log",
+        }
+    }
+}
+
+fn detect_os_remotely(sess: &Session) -> Option<TargetOS> {
+    let mut channel = match sess.channel_session() {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
+    let cmd = "if [ -d /opt/retropie ]; then echo RETROPIE; elif [ -d /userdata/system ]; then echo BATOCERA; elif [ -d /recalbox/share ]; then echo RECALBOX; else echo UNKNOWN; fi";
+    if channel.exec(cmd).is_err() {
+        return None;
+    }
+    let mut out = String::new();
+    channel.read_to_string(&mut out).ok();
+    channel.wait_close().ok();
+    let trimmed = out.trim();
+    if trimmed.contains("RETROPIE") {
+        Some(TargetOS::RetroPie)
+    } else if trimmed.contains("BATOCERA") {
+        Some(TargetOS::Batocera)
+    } else if trimmed.contains("RECALBOX") {
+        Some(TargetOS::Recalbox)
+    } else {
+        None
+    }
+}
+
+fn generate_daemon_code(matrix_ip: &str, topic: &str) -> String {
+    format!(
         r#"import subprocess
 import time
 import os
+import json
 
 BROKER = "{}"
-TOPIC = "recalbox/system/playing"
+TOPIC = "{}"
 
 def parse_statefile():
     game = None
@@ -141,7 +127,7 @@ def main():
         sys.exit(1)
         
     print("Daemon started (lightweight)!", flush=True)
-    time.sleep(5)
+    time.sleep(3)
     last_state_key = None
     last_sent_key = None
     pending_since = 0
@@ -178,15 +164,15 @@ def main():
                 if current_key[2] == "stopped":
                     msg = '{{"status": "stopped"}}'
                 elif current_key[0] is None:
-                    msg = '{{"status": "browsing", "system": "' + str(current_key[1]) + '", "type": "system"}}'
+                    msg = json.dumps({{"status": "browsing", "system": str(current_key[1]), "type": "system"}})
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    msg = '{{"status": "' + current_key[2] + '", "game": "' + gbase + '", "system": "' + str(current_key[1]) + '"}}'
+                    msg = json.dumps({{"status": current_key[2], "game": gbase, "system": str(current_key[1])}})
 
                 try:
                     subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
-                except subprocess.TimeoutExpired:
+                except Exception:
                     pass
         except Exception as e:
             print("Error: " + str(e), flush=True)
@@ -196,62 +182,253 @@ def main():
 if __name__ == "__main__":
     main()
 "#,
-        matrix_ip
-    );
+        matrix_ip, topic
+    )
+}
 
-    if system_name == "Batocera" {
-        tracing::info!("Creating directory {}...", target_dir);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!(
-                    "mkdir -p {} /userdata/system/configs/emulationstation/scripts",
-                    target_dir
-                ))
-                .ok();
-            channel.wait_close().ok();
+pub fn install_sync_script(
+    target_ip: &str,
+    matrix_ip: &str,
+    custom_user: Option<String>,
+    custom_pass: Option<String>,
+    target_os: Option<String>,
+) -> Result<String, String> {
+    let tcp = TcpStream::connect_timeout(
+        &format!("{}:22", target_ip).parse().unwrap(),
+        Duration::from_secs(5),
+    )
+    .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+
+    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH handshake failed: {}", e))?;
+
+    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
+
+    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
+
+    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
+        if !u.is_empty() && !p.is_empty() {
+            auth_candidates.push(("Custom", u, p));
         }
+    }
 
-        tracing::info!("Cleaning up previous scripts...");
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/scripts/arcadematrix_mqtt.sh")
-                .ok();
-            channel.wait_close().ok();
+    match explicit_os {
+        Some(TargetOS::RetroPie) => {
+            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
+            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
         }
-
-        let daemon_path = "/userdata/system/arcadematrix_daemon.py";
-        tracing::info!("Uploading script to {}...", daemon_path);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!(
-                    "cat > {} << 'EOF'\n{}\nEOF\n",
-                    daemon_path, daemon_code
-                ))
-                .ok();
-            channel.wait_close().ok();
+        Some(TargetOS::Recalbox) => {
+            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
         }
+        Some(TargetOS::Batocera) => {
+            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
+        }
+        None => {
+            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
+            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
+            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
+            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
+        }
+    }
 
-        let hook_path = "/userdata/system/scripts/arcadematrix_hook.sh";
-        let hook_code = r#"#!/bin/sh
-EVENT="$(basename "$0")"
+    let mut authenticated = false;
+    for (label, user, pwd) in &auth_candidates {
+        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
+        if sess.userauth_password(user, pwd).is_ok() {
+            authenticated = true;
+            break;
+        }
+    }
+
+    if !authenticated {
+        return Err(
+            "Failed to authenticate via SSH. Check your credentials or target OS selection."
+                .to_string(),
+        );
+    }
+
+    let os = if let Some(resolved) = explicit_os {
+        resolved
+    } else {
+        match detect_os_remotely(&sess) {
+            Some(detected) => detected,
+            None => {
+                return Err("Failed to auto-detect gaming OS (checked /recalbox/share, /userdata/system, /opt/retropie). Please select OS explicitly.".to_string());
+            }
+        }
+    };
+
+    tracing::info!("Target OS identified as: {}", os.name());
+    let daemon_code = generate_daemon_code(matrix_ip, os.topic());
+
+    match os {
+        TargetOS::RetroPie => {
+            tracing::info!("Installing for RetroPie...");
+            let daemon_path = "/opt/retropie/configs/all/arcadematrix_daemon.py";
+            let onstart_path = "/opt/retropie/configs/all/runcommand-onstart.sh";
+            let onend_path = "/opt/retropie/configs/all/runcommand-onend.sh";
+            let autostart_path = "/opt/retropie/configs/all/autostart.sh";
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec("pkill -f arcadematrix_daemon.py || true; if ! command -v mosquitto_pub >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y mosquitto-clients || true; fi").ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\n",
+                        daemon_path, daemon_code, daemon_path
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
+
+            let onstart_hook = r#"
+# ArcadeMatrix Runcommand Hook
 SYSTEM="$1"
-ROMPATH="$2"
-GAMENAME="$3"
+EMULATOR="$2"
+ROMPATH="$3"
+cat > /tmp/es_state.inf << EOF
+SystemId=$SYSTEM
+GamePath=$ROMPATH
+State=playing
+EOF
+"#;
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                let cmd = format!(
+                    "touch {path} && if ! grep -q 'ArcadeMatrix Runcommand Hook' {path}; then cat >> {path} << 'EOF'\n{hook}\nEOF\nfi\nchmod +x {path}\n",
+                    path = onstart_path,
+                    hook = onstart_hook
+                );
+                channel.exec(&cmd).ok();
+                channel.wait_close().ok();
+            }
 
-case "$EVENT" in
+            let onend_hook = r#"
+# ArcadeMatrix Runcommand Hook
+cat > /tmp/es_state.inf << EOF
+SystemId=
+GamePath=
+State=stopped
+EOF
+"#;
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                let cmd = format!(
+                    "touch {path} && if ! grep -q 'ArcadeMatrix Runcommand Hook' {path}; then cat >> {path} << 'EOF'\n{hook}\nEOF\nfi\nchmod +x {path}\n",
+                    path = onend_path,
+                    hook = onend_hook
+                );
+                channel.exec(&cmd).ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                let cmd = format!(
+                    "if [ -f {auto} ] && ! grep -q 'arcadematrix_daemon.py' {auto}; then sed -i '/emulationstation/i python3 {daemon} > /opt/retropie/configs/all/daemon.log 2>&1 &' {auto}; fi\n",
+                    auto = autostart_path,
+                    daemon = daemon_path
+                );
+                channel.exec(&cmd).ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "nohup python3 {} > /opt/retropie/configs/all/daemon.log 2>&1 &",
+                        daemon_path
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
+        }
+        TargetOS::Batocera => {
+            tracing::info!("Installing for Batocera...");
+            let target_dir = "/userdata/system/scripts";
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "mkdir -p {} /userdata/system/configs/emulationstation/scripts",
+                        target_dir
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/scripts/arcadematrix_mqtt.sh")
+                    .ok();
+                channel.wait_close().ok();
+            }
+
+            let daemon_path = "/userdata/system/arcadematrix_daemon.py";
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "cat > {} << 'EOF'\n{}\nEOF\n",
+                        daemon_path, daemon_code
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
+
+            let hook_path = "/userdata/system/scripts/arcadematrix_hook.sh";
+            let hook_code = r#"#!/bin/sh
+EVENT="$1"
+if [ -z "$EVENT" ]; then
+    EVENT="$(basename "$0")"
+fi
+SYSTEM="$2"
+ROMPATH="$3"
+
+case "$(basename "$0")" in
+    game-start|game_start|gameStart)
+        EVENT="game-start"
+        SYSTEM="$1"
+        ROMPATH="$2"
+        ;;
+    game-end|game_end|gameStop)
+        EVENT="game-end"
+        SYSTEM="$1"
+        ROMPATH="$2"
+        ;;
     game-selected)
-        STATE="browsing"
-        ;;
-    game-start)
-        STATE="playing"
-        ;;
-    game-end)
-        STATE="stopped"
+        EVENT="game-selected"
+        SYSTEM="$1"
+        ROMPATH="$2"
         ;;
     system-selected)
+        EVENT="system-selected"
+        SYSTEM="$1"
+        ;;
+    *)
+        ;;
+esac
+
+case "$EVENT" in
+    game-selected|gameSelected)
+        STATE="browsing"
+        ;;
+    game-start|gameStart)
+        STATE="playing"
+        ;;
+    game-end|gameStop)
+        STATE="stopped"
+        ;;
+    system-selected|systemSelected)
         STATE="browsing"
         ROMPATH=""
         ;;
@@ -266,21 +443,19 @@ GamePath=$ROMPATH
 State=$STATE
 EOF
 "#;
-        tracing::info!("Installing Batocera event hooks...");
-        {
-            let mut channel = sess.channel_session().unwrap();
-            let install_hooks_cmd = format!(
-                "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\nfor evt in game-selected game-start game-end system-selected; do ln -sf {} /userdata/system/scripts/$evt; ln -sf {} /userdata/system/configs/emulationstation/scripts/$evt; done\n",
-                hook_path, hook_code, hook_path, hook_path, hook_path
-            );
-            channel.exec(&install_hooks_cmd).ok();
-            channel.wait_close().ok();
-        }
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                let install_hooks_cmd = format!(
+                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\nfor evt in game-selected game-start game-end system-selected; do ln -sf {} /userdata/system/scripts/$evt; ln -sf {} /userdata/system/configs/emulationstation/scripts/$evt; done\n",
+                    hook_path, hook_code, hook_path, hook_path, hook_path
+                );
+                channel.exec(&install_hooks_cmd).ok();
+                channel.wait_close().ok();
+            }
 
-        tracing::info!("Configuring custom.sh on Batocera...");
-        {
-            let mut channel = sess.channel_session().unwrap();
-            let setup_cmd = r#"
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                let setup_cmd = r#"
 if [ ! -f /userdata/system/custom.sh ]; then
     echo '#!/bin/sh' > /userdata/system/custom.sh
     echo '[ "$1" = "start" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
@@ -291,86 +466,90 @@ else
     fi
 fi
 "#;
-            channel.exec(setup_cmd).ok();
-            channel.wait_close().ok();
+                channel.exec(setup_cmd).ok();
+                channel.wait_close().ok();
+            }
         }
-    } else {
-        let launcher_code = r#"#!/bin/sh
+        TargetOS::Recalbox => {
+            tracing::info!("Installing for Recalbox...");
+            let target_dir = "/recalbox/share/userscripts";
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("mkdir -p {}", target_dir)).ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!(
+                    "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
+                    target_dir
+                )).ok();
+                channel.wait_close().ok();
+            }
+
+            let daemon_path = "/recalbox/share/arcadematrix_daemon.py";
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "cat > {} << 'EOF'\n{}\nEOF\n",
+                        daemon_path, daemon_code
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
+
+            let launcher_code = r#"#!/bin/sh
 if [ -z "$1" ] || [ "$1" = "-action" -a "$2" = "start" ]; then
     pkill -f arcadematrix_daemon.py || true
     python3 /recalbox/share/arcadematrix_daemon.py > /recalbox/share/userscripts/daemon.log 2>&1 &
 fi
 "#;
+            let launcher_path = format!("{}/arcadematrix_launcher(permanent).sh", target_dir);
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!(
+                        "cat > '{}' << 'EOF'\n{}\nEOF\nchmod +x '{}'",
+                        launcher_path, launcher_code, launcher_path
+                    ))
+                    .ok();
+                channel.wait_close().ok();
+            }
 
-        tracing::info!("Creating directory {}...", target_dir);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel.exec(&format!("mkdir -p {}", target_dir)).ok();
-            channel.wait_close().ok();
-        }
-
-        tracing::info!("Cleaning up ALL legacy scripts...");
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel.exec(&format!(
-                "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
-                target_dir
-            )).ok();
-            channel.wait_close().ok();
-        }
-
-        let daemon_path = "/recalbox/share/arcadematrix_daemon.py";
-        tracing::info!("Uploading script to {}...", daemon_path);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!(
-                    "cat > {} << 'EOF'\n{}\nEOF\n",
-                    daemon_path, daemon_code
-                ))
-                .ok();
-            channel.wait_close().ok();
-        }
-
-        let launcher_path = format!("{}/arcadematrix_launcher(permanent).sh", target_dir);
-        tracing::info!("Uploading script to {}...", launcher_path);
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!(
-                    "cat > '{}' << 'EOF'\n{}\nEOF\nchmod +x '{}'",
-                    launcher_path, launcher_code, launcher_path
-                ))
-                .ok();
-            channel.wait_close().ok();
-        }
-
-        {
-            let mut channel = sess.channel_session().unwrap();
-            channel
-                .exec(&format!("rm -f {}/arcadematrix_mqtt.sh", target_dir))
-                .ok();
-            channel.wait_close().ok();
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!("rm -f {}/arcadematrix_mqtt.sh", target_dir))
+                    .ok();
+                channel.wait_close().ok();
+            }
         }
     }
 
-    tracing::info!("Rebooting target system...");
-    {
-        let mut channel = sess.channel_session().unwrap();
+    if os != TargetOS::RetroPie {
+        tracing::info!("Rebooting target system...");
+        let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
         channel.exec("sleep 1 && reboot").ok();
         channel.wait_close().ok();
+        Ok(format!(
+            "Successfully installed! {} is now rebooting...",
+            os.name()
+        ))
+    } else {
+        Ok(format!(
+            "Successfully installed! {} daemon is running.",
+            os.name()
+        ))
     }
-
-    Ok(format!(
-        "Successfully installed! {} is now rebooting...",
-        system_name
-    ))
 }
 
 pub fn fetch_sync_logs(
     target_ip: &str,
     custom_user: Option<String>,
     custom_pass: Option<String>,
+    target_os: Option<String>,
 ) -> Result<String, String> {
     let tcp = TcpStream::connect_timeout(
         &format!("{}:22", target_ip).parse().unwrap(),
@@ -383,65 +562,64 @@ pub fn fetch_sync_logs(
     sess.handshake()
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
-    let mut targets = vec![
-        (
-            "Recalbox",
-            "root".to_string(),
-            "recalboxroot".to_string(),
-            "/recalbox/share/userscripts/daemon.log",
-        ),
-        (
-            "Batocera",
-            "root".to_string(),
-            "linux".to_string(),
-            "/userdata/system/scripts/daemon.log",
-        ),
-    ];
+    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
+
+    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
 
     if let (Some(u), Some(p)) = (custom_user, custom_pass) {
         if !u.is_empty() && !p.is_empty() {
-            targets.insert(
-                0,
-                (
-                    "Custom (Batocera path)",
-                    u.clone(),
-                    p.clone(),
-                    "/userdata/system/scripts/daemon.log",
-                ),
-            );
-            targets.insert(
-                0,
-                (
-                    "Custom (Recalbox path)",
-                    u,
-                    p,
-                    "/recalbox/share/userscripts/daemon.log",
-                ),
-            );
+            auth_candidates.push(("Custom", u, p));
         }
     }
 
-    let mut connected = false;
-    let mut log_path = "";
+    match explicit_os {
+        Some(TargetOS::RetroPie) => {
+            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
+            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
+        }
+        Some(TargetOS::Recalbox) => {
+            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
+        }
+        Some(TargetOS::Batocera) => {
+            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
+        }
+        None => {
+            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
+            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
+            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
+            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
+        }
+    }
 
-    for (_sys_name, user, pwd, path) in targets.iter() {
+    let mut authenticated = false;
+    for (label, user, pwd) in &auth_candidates {
+        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
         if sess.userauth_password(user, pwd).is_ok() {
-            connected = true;
-            log_path = path;
+            authenticated = true;
             break;
         }
     }
 
-    if !connected {
-        return Err("Failed to authenticate via SSH. Check credentials.".to_string());
+    if !authenticated {
+        return Err(
+            "Failed to authenticate via SSH. Check credentials or OS selection.".to_string(),
+        );
     }
+
+    let os = if let Some(resolved) = explicit_os {
+        resolved
+    } else {
+        detect_os_remotely(&sess).unwrap_or(TargetOS::Recalbox)
+    };
+
+    let log_path = os.log_path();
 
     let mut channel = sess
         .channel_session()
         .map_err(|_| "Failed to open SSH channel")?;
     channel
         .exec(&format!(
-            "tail -n 100 {} || echo 'Log file not found or empty'",
+            "tail -n 100 {} 2>/dev/null || echo 'Log file not found or empty'",
             log_path
         ))
         .map_err(|_| "Failed to execute command on target")?;

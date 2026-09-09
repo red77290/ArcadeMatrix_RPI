@@ -557,6 +557,10 @@ impl ArcadeMatrixApp {
 
             match forced_mode {
                 crate::core::types::ForcedEngineMode::Message => {
+                    if marquee_sync.active {
+                        arbiter.cancel_request(DisplaySourceId::Marquee, 0);
+                        marquee_sync.update(false, 0, EngineHandle::NULL);
+                    }
                     if let Some(ref payload) = producer_snap.message_payload {
                         let is_new = match &last_message_payload {
                             Some(last) => !std::sync::Arc::ptr_eq(last, payload),
@@ -565,17 +569,17 @@ impl ArcadeMatrixApp {
                         if is_new {
                             last_message_payload = Some(std::sync::Arc::clone(payload));
                             let req_id = mqtt_req_gen.next_id();
-                            let duration_ms = if payload.timeout_seconds > 0 {
-                                payload.timeout_seconds * 1000
+                            let (lifecycle, duration_ms) = if payload.timeout_seconds > 0 {
+                                (RequestLifecycle::Transient, payload.timeout_seconds * 1000)
                             } else {
-                                5000
+                                (RequestLifecycle::Persistent, 0)
                             };
                             let req = DisplayRequest::new(
                                 DisplaySourceId::Mqtt,
                                 req_id,
                                 snapshot.mqtt_handle,
                                 DisplaySourceId::Mqtt as u8,
-                                RequestLifecycle::Transient,
+                                lifecycle,
                                 true,
                                 duration_ms,
                             );
@@ -585,13 +589,18 @@ impl ArcadeMatrixApp {
                     }
                 }
                 crate::core::types::ForcedEngineMode::Marquee => {
+                    if message_sync.active {
+                        arbiter.cancel_request(DisplaySourceId::Mqtt, 0);
+                        message_sync.update(false, 0, EngineHandle::NULL);
+                        last_message_payload = None;
+                    }
                     if !marquee_sync.active {
                         let req_id = marquee_req_gen.next_id();
                         let req = DisplayRequest::new(
                             DisplaySourceId::Marquee,
                             req_id,
                             snapshot.marquee_handle,
-                            DisplaySourceId::Marquee as u8,
+                            DisplaySourceId::Mqtt as u8,
                             RequestLifecycle::Persistent,
                             true,
                             0,

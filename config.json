@@ -37,9 +37,7 @@
     "port": 1883,
     "user": "",
     "pass": "",
-    "device_name": "arcadematrix",
-    "topic_batocera": "batocera",
-    "topic_recalbox": "recalbox"
+    "device_name": "arcadematrix"
   },
   "system": {
     "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",

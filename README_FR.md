@@ -153,19 +153,19 @@ L'interface est exactement la même que sur la version ESP32, avec les contrôle
 
 ## 🕹️ Intégration Recalbox & Batocera (Pixelcade Marquees)
 
-ArcadeMatrix prend en charge les marquees dynamiques **style Pixelcade** lorsque vous sélectionnez ou lancez un jeu sur votre Recalbox ou Batocera !
+ArcadeMatrix prend en charge les marquees dynamiques **style Pixelcade** lorsque vous sélectionnez ou lancez un jeu sur votre console Recalbox, Batocera ou RetroPie !
 
 Quand vous parcourez vos listes de jeux, le Raspberry Pi télécharge les marquees officielles Pixelcade depuis GitHub **en arrière-plan et en temps réel**, les met en cache sur votre carte SD et les affiche sur votre matrice LED. Si un jeu n'a pas d'image, il affichera un élégant texte animé de repli.
 
 ### Installation automatique (recommandée)
-Allez dans l'onglet **MQTT** de l'interface Web ArcadeMatrix, saisissez l'IP de votre Recalbox/Batocera ainsi que son mot de passe root (par défaut `recalboxroot` ou `linux`) et cliquez sur **Install Sync Script**. Cela injectera automatiquement le daemon via SSH.
+Allez dans l'onglet **MQTT** de l'interface Web ArcadeMatrix, choisissez l'OS de votre console (`Détection auto`, `Recalbox`, `Batocera` ou `RetroPie`), saisissez l'IP de la console ainsi que ses identifiants et cliquez sur **Install Sync Script**. Cela injectera automatiquement le daemon via SSH.
 
-### Installation manuelle (Recalbox)
+### Installation manuelle (Recalbox / Batocera / RetroPie)
 Si vous préférez l'installation manuelle, ou si l'installation réseau échoue :
-1. Ouvrez le fichier `tools/recalbox_setup_mqtt.sh` inclus dans le projet.
-2. Modifiez la ligne `MQTT_BROKER="192.168.1.xxx"` et définissez l'IP du Raspberry Pi qui fait tourner la matrice LED.
-3. Copiez le fichier `tools/recalbox_setup_mqtt.sh` vers votre Recalbox (par ex. dans `/recalbox/share/`).
-4. Connectez-vous en SSH à votre Recalbox et exécutez : `bash /recalbox/share/recalbox_setup_mqtt.sh`.
+1. Ouvrez ou copiez `tools/rpi_emulationstation_base_os_setup.sh` (ou `tools/recalbox_setup_mqtt.sh`).
+2. Copiez le fichier sur votre console (ex : via `scp`).
+3. Connectez-vous en SSH à votre console et exécutez : `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
+4. Saisissez l'IP de votre ArcadeMatrix et choisissez votre système cible dans le menu interactif.
 
 ### Comment fonctionne l'architecture du daemon ?
 Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Rust ultra-léger en arrière-plan**.

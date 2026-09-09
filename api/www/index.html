@@ -526,12 +526,21 @@
             
             <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
             
-            <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera Sync</h4>
+            <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera / RetroPie Sync</h4>
             <p class="text-muted" style="font-size: 0.9em;" data-i18n="recalbox_desc">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
+            <div class="form-group" style="margin-top: 1rem;">
+              <label style="display:block; margin-bottom:0.35rem;">Target Gaming OS</label>
+              <select id="hw-mqtt-target-os" class="input" style="font-weight: 600;">
+                <option value="auto">Auto-Detect (Remote Scan)</option>
+                <option value="recalbox">Recalbox (/recalbox/share)</option>
+                <option value="batocera">Batocera (/userdata/system)</option>
+                <option value="retropie">RetroPie (/opt/retropie)</option>
+              </select>
+            </div>
             <div class="form-group" style="margin-top: 1rem;">
               <label class="toggle-btn" style="display:inline-flex; align-items:center; cursor:pointer;">
                 <input type="checkbox" id="hw-mqtt-custom-auth" style="margin-right:0.5rem; accent-color:var(--primary);">
-                <span data-i18n="recalbox_custom_auth">Use custom SSH credentials (Default: root / recalboxroot)</span>
+                <span data-i18n="recalbox_custom_auth">Use custom SSH credentials</span>
               </label>
             </div>
             <div id="mqtt-custom-auth-fields" class="form-grid" style="display: none; margin-top: 0.5rem; margin-bottom: 1rem;">

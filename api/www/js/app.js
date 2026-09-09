@@ -515,6 +515,25 @@ function initNetworkSettings() {
       });
     }
 
+    const targetOsSelect = document.getElementById('hw-mqtt-target-os');
+    if (targetOsSelect) {
+      targetOsSelect.addEventListener('change', () => {
+        const osVal = targetOsSelect.value;
+        const userInput = document.getElementById('hw-mqtt-ssh-user');
+        const passInput = document.getElementById('hw-mqtt-ssh-pass');
+        if (osVal === 'retropie') {
+          if (userInput) userInput.placeholder = 'pi';
+          if (passInput) passInput.placeholder = 'raspberry';
+        } else if (osVal === 'batocera') {
+          if (userInput) userInput.placeholder = 'root';
+          if (passInput) passInput.placeholder = 'linux';
+        } else {
+          if (userInput) userInput.placeholder = 'root';
+          if (passInput) passInput.placeholder = 'recalboxroot';
+        }
+      });
+    }
+
     btnInstallMqtt.addEventListener('click', async () => {
       const ip = document.getElementById('hw-mqtt-ip').value;
       if (!ip) {
@@ -522,17 +541,18 @@ function initNetworkSettings() {
         return;
       }
       
+      const os = targetOsSelect ? targetOsSelect.value : 'auto';
       let user = null;
       let pass = null;
       if (cbCustomAuth && cbCustomAuth.checked) {
-        user = document.getElementById('hw-mqtt-ssh-user').value || 'root';
+        user = document.getElementById('hw-mqtt-ssh-user').value || (os === 'retropie' ? 'pi' : 'root');
         pass = document.getElementById('hw-mqtt-ssh-pass').value;
       }
 
       btnInstallMqtt.disabled = true;
       btnInstallMqtt.textContent = 'Installing...';
       try {
-        await API.postAuth('/api/mqtt/install', { ip, user, pass });
+        await API.postAuth('/api/mqtt/install', { ip, os, user, pass });
         window.showToast('MQTT Sync Script Installed!', 'success');
       } catch (e) {
         window.showToast('Failed to install script', 'error');
@@ -551,10 +571,11 @@ function initNetworkSettings() {
           return;
         }
 
+        const os = targetOsSelect ? targetOsSelect.value : 'auto';
         let user = null;
         let pass = null;
         if (cbCustomAuth && cbCustomAuth.checked) {
-          user = document.getElementById('hw-mqtt-ssh-user').value || 'root';
+          user = document.getElementById('hw-mqtt-ssh-user').value || (os === 'retropie' ? 'pi' : 'root');
           pass = document.getElementById('hw-mqtt-ssh-pass').value;
         }
 
@@ -567,7 +588,7 @@ function initNetworkSettings() {
         }
         
         try {
-          const res = await API.postAuth('/api/mqtt/logs', { ip, user, pass });
+          const res = await API.postAuth('/api/mqtt/logs', { ip, os, user, pass });
           if (logOutput) {
             logOutput.textContent = res.logs || 'No logs returned.';
           }
@@ -598,9 +619,13 @@ function initNetworkSettings() {
         pass: document.getElementById('hw-mqtt-pass').value,
       };
       try {
-        await API.post('/api/system', { mqtt });
+        const res = await API.post('/api/system', { mqtt });
         if (window.__sysConfig) window.__sysConfig.mqtt = mqtt;
-        window.showToast('MQTT Settings Saved!', 'success');
+        if (res && res.status === 'rebooting') {
+          window.showToast('MQTT Settings Saved! Restarting...', 'info');
+        } else {
+          window.showToast('MQTT Settings Saved!', 'success');
+        }
       } catch (e) {
         window.showToast('Failed to save MQTT Settings', 'error');
       }

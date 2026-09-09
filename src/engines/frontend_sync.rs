@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
 
+pub const MQTT_TOPIC_WILDCARD: &str = "system/playing/#";
+
 static MQTT_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn format_game_name(game: &str) -> String {
@@ -43,6 +45,16 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         // (games that don't exist on Pixelcade) is preserved across multiple events!
         let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new("data/marquees"));
 
+        // Show "WAITING FOR MARQUEE" upon connection until first event is received
+        let msg_payload = crate::engines::message::MessagePayload::new(
+            "WAITING FOR MARQUEE".to_string(),
+            "#ffaa00",
+            1,
+            "left",
+            0,
+        );
+        config.set_message_payload(Some(msg_payload));
+
         loop {
             let mut mqttoptions = MqttOptions::new("arcadematrix_rpi", &broker, port);
             mqttoptions.set_keep_alive(Duration::from_secs(60));
@@ -53,8 +65,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
 
             let (client, mut connection) = Client::new(mqttoptions, 10);
 
-            if let Err(e) = client.subscribe("recalbox/system/playing", QoS::AtMostOnce) {
-                error!("Failed to subscribe to Recalbox MQTT topic: {}", e);
+            if let Err(e) = client.subscribe(MQTT_TOPIC_WILDCARD, QoS::AtMostOnce) {
+                error!(
+                    "Failed to subscribe to MQTT topic {}: {}",
+                    MQTT_TOPIC_WILDCARD, e
+                );
                 std::thread::sleep(Duration::from_secs(5));
                 continue;
             }
@@ -63,7 +78,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 match notification {
                     Ok(Event::Incoming(Packet::Publish(publish))) => {
                         if let Ok(payload) = String::from_utf8(publish.payload.to_vec()) {
-                            info!("MQTT Recalbox game payload: {}", payload);
+                            info!("MQTT game payload: {}", payload);
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload) {
                                 let status = json["status"].as_str().unwrap_or("stopped");
                                 if status != "stopped" {
@@ -206,8 +221,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         });
                                     }
                                 } else if status == "stopped" {
-                                    config.clear_forced_engine();
-                                    *config.image_obj.lock() = None;
+                                    // User requirement: "ensuite le dernier event reste affiché indéfiniment jusqu'au prochain event"
+                                    // Keep the last marquee displayed on screen indefinitely.
+                                    info!("Received stopped event, keeping last marquee displayed until next event.");
                                 }
                             }
                         }

@@ -203,7 +203,7 @@ async fn post_system(
     if needs_reload {
         data.config.reload_flag.store(true, Ordering::Relaxed);
     }
-    HttpResponse::Ok().json(json!({"status": "ok"}))
+    HttpResponse::Ok().json(json!({"status": if needs_reload { "rebooting" } else { "ok" }}))
 }
 
 #[get("/api/instances")]
@@ -552,6 +552,8 @@ async fn post_marquee(
         return e;
     }
     let mut bytes = Vec::new();
+    let mut file_ext = String::new();
+
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(f) => f,
@@ -560,6 +562,18 @@ async fn post_marquee(
                     .json(json!({"status": "error", "message": format!("Upload error: {}", e)}))
             }
         };
+
+        if file_ext.is_empty() {
+            if let Some(cd) = field.content_disposition() {
+                if let Some(fname) = cd.get_filename() {
+                    let p = std::path::Path::new(fname);
+                    if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
+                        file_ext = format!(".{}", ext.to_lowercase());
+                    }
+                }
+            }
+        }
+
         while let Some(chunk) = field.next().await {
             match chunk {
                 Ok(d) => bytes.extend_from_slice(&d),
@@ -570,16 +584,44 @@ async fn post_marquee(
             }
         }
     }
-    match image::load_from_memory(&bytes) {
-        Ok(img) => {
-            *data.config.image_obj.lock() = Some(img.to_rgb8());
-            data.config
-                .set_forced_engine_mode(crate::core::types::ForcedEngineMode::Marquee);
-            HttpResponse::Ok().json(json!({"status": "ok"}))
-        }
-        Err(e) => HttpResponse::BadRequest()
-            .json(json!({"status": "error", "message": format!("Invalid image: {}", e)})),
+
+    if bytes.is_empty() {
+        return HttpResponse::BadRequest()
+            .json(json!({"status": "error", "message": "No file received"}));
     }
+
+    if file_ext.is_empty() {
+        if bytes.starts_with(b"GIF8") {
+            file_ext = ".gif".to_string();
+        } else if bytes.starts_with(b"\x89PNG") {
+            file_ext = ".png".to_string();
+        } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            file_ext = ".jpg".to_string();
+        } else {
+            file_ext = ".gif".to_string();
+        }
+    }
+
+    let marquee_dir = std::path::Path::new("data/marquees");
+    if let Err(e) = std::fs::create_dir_all(marquee_dir) {
+        return HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": format!("Failed to create marquee directory: {}", e)}));
+    }
+
+    let dest_path = marquee_dir.join(format!("custom_marquee{}", file_ext));
+    if let Err(e) = std::fs::write(&dest_path, &bytes) {
+        return HttpResponse::InternalServerError().json(
+            json!({"status": "error", "message": format!("Failed to save marquee file: {}", e)}),
+        );
+    }
+
+    // Clear stale static image buffer so MarqueeEngine loads and animates the new file
+    *data.config.image_obj.lock() = None;
+    data.config
+        .set_forced_engine_mode(crate::core::types::ForcedEngineMode::Marquee);
+
+    HttpResponse::Ok()
+        .json(json!({"status": "ok", "message": "Marquee file uploaded and displayed"}))
 }
 
 #[post("/api/mqtt/install")]
@@ -608,10 +650,14 @@ async fn post_mqtt_install(
         .get("pass")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let target_os = body
+        .get("os")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let matrix_ip = get_local_ip();
 
     let res = web::block(move || {
-        crate::core::ssh_installer::install_sync_script(&ip, &matrix_ip, user, pass)
+        crate::core::ssh_installer::install_sync_script(&ip, &matrix_ip, user, pass, target_os)
     })
     .await;
 
@@ -649,9 +695,14 @@ async fn post_mqtt_logs(
         .get("pass")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let target_os = body
+        .get("os")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     let res =
-        web::block(move || crate::core::ssh_installer::fetch_sync_logs(&ip, user, pass)).await;
+        web::block(move || crate::core::ssh_installer::fetch_sync_logs(&ip, user, pass, target_os))
+            .await;
 
     match res {
         Ok(Ok(logs)) => HttpResponse::Ok().json(json!({"status": "ok", "logs": logs})),

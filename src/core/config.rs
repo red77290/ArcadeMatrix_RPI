@@ -125,8 +125,6 @@ pub struct MqttConfig {
     pub user: String,
     pub pass: String,
     pub device_name: String,
-    pub topic_batocera: String,
-    pub topic_recalbox: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,8 +231,6 @@ impl Default for MqttConfig {
             user: "".to_string(),
             pass: "".to_string(),
             device_name: "arcadematrix".to_string(),
-            topic_batocera: "batocera".to_string(),
-            topic_recalbox: "recalbox".to_string(),
         }
     }
 }

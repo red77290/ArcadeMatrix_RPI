@@ -13,35 +13,30 @@ used by both this project's `engines/fighter.py` **and** the ESP32 sibling proje
 package mechanism between the two independent codebases. See `mugen_extractor/README.md` for full
 usage.
 
-## `recalbox_setup_mqtt.sh`
+## `rpi_emulationstation_base_os_setup.sh` (and `recalbox_setup_mqtt.sh`)
 
-A standalone shell script you copy onto your Recalbox and run **directly on the device over SSH**
+A standalone shell script you copy onto your retro gaming console (Recalbox, Batocera, or RetroPie) and run **directly on the device over SSH**
 (not from your PC) to install the "now playing" MQTT daemon:
 
-1. `ssh root@<recalbox-ip>` (password: `recalboxroot`)
-2. Edit the `MQTT_BROKER` variable at the top of this script to your Raspberry Pi's IP (the one
-   running ArcadeMatrix_RPi and the LED matrix).
-3. Copy/paste the script onto the Recalbox (e.g. `scp tools/recalbox_setup_mqtt.sh root@<recalbox-ip>:/tmp/` then `ssh root@<recalbox-ip> "sh /tmp/recalbox_setup_mqtt.sh"`).
-4. Reboot the Recalbox when prompted.
+1. `ssh <user>@<console-ip>` (e.g., `root@<ip>` with password `recalboxroot` for Recalbox, `root`/`linux` for Batocera, `pi`/`raspberry` for RetroPie).
+2. Run the script:
+   ```bash
+   sh /tmp/rpi_emulationstation_base_os_setup.sh
+   ```
+3. Enter your ArcadeMatrix device's IP (ESP32 or Raspberry Pi) when prompted.
+4. Select your target system:
+   - `1: Auto-Detect`
+   - `2: Recalbox`
+   - `3: Batocera`
+   - `4: RetroPie`
+5. The script automatically installs the daemon, hooks into the OS lifecycle (EmulationStation scripts, services, or runcommand hooks), and reboots when prompted.
 
 What it installs:
-- A small Python daemon (`/recalbox/share/arcadematrix_daemon.py`) that polls
-  `/tmp/es_state.inf` (EmulationStation's live state file) every 100ms, debounces rapid
-  navigation (150ms), and publishes `{"status": "playing"|"browsing", "game": "<rom basename>",
-  "system": "<SystemId>"}` over MQTT on `recalbox/system/playing` via `mosquitto_pub` - this is
-  what `main.py`'s `_on_mqtt_message()` and `core/dmd_cache.py` consume to show a live marquee.
-- A launcher script (`/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh`) that
-  EmulationStation calls on startup to keep the daemon running across reboots.
+- A small Python daemon (`arcadematrix_daemon.py`) that monitors game launch/stop events and publishes `{"status": "playing"|"browsing"|"stopped", "game": "<rom basename>", "system": "<SystemId>"}` over MQTT on `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera`, or `system/playing/retropie`) via `mosquitto_pub`.
+- Startup integration keeping the daemon active across reboots.
 
-**Note for users who also have an ESP32 ArcadeMatrix device**: this exact daemon/wire-protocol was
-ported to a friendlier, cross-platform (Windows/macOS/Linux) installer in the ESP32 project's
-`ArcadeMatrix/tools/recalbox_daemon/` (`install.sh`/`install.ps1`, run from your PC instead of
-manually over SSH). Either installer publishes the same MQTT format, so **one install serves both
-an RPi and an ESP32 device simultaneously** if both subscribe to the same broker. If you only run
-this RPi project, this script is all you need; the other repo's installer is just a more automated
-way to deploy the same thing (worth adopting even here, if you'd rather not SSH in by hand -
-`ArcadeMatrix/tools/recalbox_daemon/install.sh` works against a Recalbox regardless of which
-project's frontend it's paired with).
+**Note for users who also have an ESP32 ArcadeMatrix device**:
+This daemon and topic standard (`system/playing/#`) are 100% identical and compatible across both ESP32 and Raspberry Pi versions. A single installation on your console serves both devices simultaneously. You can also run the PC-side automated installer (`tools/install.sh` / `tools/install.ps1`).
 
 **Normally this happens automatically via the web UI's SSH install feature** (`core/ssh_installer.py`,
 triggered from the Settings page) - this script is the manual fallback for when you'd rather not

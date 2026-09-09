@@ -442,8 +442,8 @@ paths:
       tags: [Integrations]
       summary: Install the game-sync script on a console over SSH
       description: >
-        SSHes into a Batocera/Recalbox console at `ip` and installs the script
-        that publishes the running game to this matrix. Returns the install log.
+        SSHes into a Recalbox, Batocera, or RetroPie console at `ip` and installs the script
+        that publishes the running game to this matrix on topic `system/playing/<os>`. Returns the install log.
       requestBody:
         required: true
         content:
@@ -458,6 +458,10 @@ paths:
                   type: string
                 pass:
                   type: string
+                os:
+                  type: string
+                  enum: [auto, recalbox, batocera, retropie]
+                  default: auto
       responses:
         '200':
           description: Install log
@@ -497,6 +501,10 @@ paths:
                   type: string
                 pass:
                   type: string
+                os:
+                  type: string
+                  enum: [auto, recalbox, batocera, retropie]
+                  default: auto
       responses:
         '200':
           description: Log text
@@ -1031,8 +1039,4 @@ components:
         pass:
           type: string
         device_name:
-          type: string
-        topic_batocera:
-          type: string
-        topic_recalbox:
           type: string

@@ -92,6 +92,7 @@ jobs:
   build-image:
     name: Build Precompiled SD Image (${{ matrix.arch }})
     needs: test
+    if: github.event_name == 'workflow_dispatch' || (!contains(github.ref_name, '-') && !contains(github.ref_name, 'beta'))
     runs-on: ubuntu-22.04
     permissions:
       contents: write

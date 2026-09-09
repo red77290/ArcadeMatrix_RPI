@@ -153,19 +153,19 @@ The interface is exactly the same as the ESP32 version, offering Dashboard contr
 
 ## 🕹️ Recalbox & Batocera Integration (Pixelcade Marquees)
 
-ArcadeMatrix supports dynamic **Pixelcade-style** marquees when you select or play a game on your Recalbox or Batocera!
+ArcadeMatrix supports dynamic **Pixelcade-style** marquees when you select or play a game on your Recalbox, Batocera, or RetroPie console!
 
 As you browse your game lists, the Raspberry Pi will download official Pixelcade marquees from GitHub **in the background and in real-time**, cache them on your SD card, and display them on your LED matrix. If a game has no image, it will display an elegant animated text fallback.
 
 ### Automatic Installation (Recommended)
-Go to the **MQTT** tab in the ArcadeMatrix Web UI, enter the IP of your Recalbox/Batocera along with its root password (default `recalboxroot` or `linux`), and click **Install Sync Script**. This will automatically inject the daemon via SSH.
+Go to the **MQTT** tab in the ArcadeMatrix Web UI, select your console OS (`Auto-Detect`, `Recalbox`, `Batocera`, or `RetroPie`), enter the console's IP along with credentials, and click **Install Sync Script**. This will automatically inject the daemon via SSH.
 
-### Manual Installation (Recalbox)
+### Manual Installation (Recalbox / Batocera / RetroPie)
 If you prefer manual installation, or if the network install fails:
-1. Open the `tools/recalbox_setup_mqtt.sh` file included in the project.
-2. Edit the line `MQTT_BROKER="192.168.1.xxx"` and set the IP of the Raspberry Pi running the LED Matrix.
-3. Copy the `tools/recalbox_setup_mqtt.sh` file to your Recalbox (e.g., in `/recalbox/share/`).
-4. SSH into your Recalbox and run: `bash /recalbox/share/recalbox_setup_mqtt.sh`.
+1. Open or copy `tools/rpi_emulationstation_base_os_setup.sh` (or `tools/recalbox_setup_mqtt.sh`).
+2. Copy the script to your console (e.g., via `scp`).
+3. SSH into your console and run: `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
+4. Enter your ArcadeMatrix IP and select your target OS from the interactive menu.
 
 ### How does the Daemon architecture work?
 Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Rust Daemon in the background**.

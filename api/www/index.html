@@ -495,12 +495,21 @@
         <div id="sys-tab-mqtt" class="tab-pane">
           <div class="card glass shadow" style="margin-bottom: 2rem;">
             <h3 data-i18n="mqtt_title">MQTT Integration</h3>
-            <div class="form-group">
-              <label data-i18n="mqtt_enable">Enable MQTT</label>
-              <select id="hw-mqtt-enable" class="input">
-                <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
-                <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
-              </select>
+            <div class="form-grid">
+              <div class="form-group">
+                <label data-i18n="mqtt_enable">Enable MQTT</label>
+                <select id="hw-mqtt-enable" class="input">
+                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label data-i18n="mqtt_overlay">Fighter Overlay</label>
+                <select id="hw-mqtt-overlay" class="input">
+                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                </select>
+              </div>
             </div>
             <div class="form-grid">
               <div class="form-group">

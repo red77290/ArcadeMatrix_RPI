@@ -353,120 +353,152 @@ EOF
         }
         TargetOS::Batocera => {
             tracing::info!("Installing for Batocera...");
-            let target_dir = "/userdata/system/scripts";
+            let hook_path = "/userdata/system/scripts/arcadematrix_mqtt.sh";
+
+            // 1. Clean up legacy daemons, shims, and custom.sh lines
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
                 channel
-                    .exec(&format!(
-                        "mkdir -p {} /userdata/system/configs/emulationstation/scripts",
-                        target_dir
-                    ))
+                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh; rm -f /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected; rm -f /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected; if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
                     .ok();
                 channel.wait_close().ok();
             }
 
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/scripts/arcadematrix_mqtt.sh")
-                    .ok();
-                channel.wait_close().ok();
-            }
+            // 2. Install one-shot shell hook publishing via mosquitto_pub
+            let hook_code = format!(
+                r#"#!/bin/sh
+BROKER="{broker}"
+TOPIC="system/playing/batocera"
+LOG_FILE="/userdata/system/scripts/daemon.log"
 
-            let daemon_path = "/userdata/system/arcadematrix_daemon.py";
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "cat > {} << 'EOF'\n{}\nEOF\n",
-                        daemon_path, daemon_code
-                    ))
-                    .ok();
-                channel.wait_close().ok();
-            }
+clean_name() {{
+    echo "$1" | sed -E \
+        -e 's/^[Aa]rcade [Mm]anufacturer //' \
+        -e 's/^[Aa]rcade [Ss]ystem //' \
+        -e 's/^[Aa]rcade [Gg]enre //' \
+        -e 's/^[Aa]rcade [Cc]ollection //' \
+        -e 's/^[Mm]anufacturer //' \
+        -e 's/^[Ss]ystem //' \
+        -e 's/^[Gg]enre //' \
+        -e 's/^[Cc]ollection //' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}}
 
-            let hook_path = "/userdata/system/scripts/arcadematrix_hook.sh";
-            let hook_code = r#"#!/bin/sh
 EVENT="$1"
-if [ -z "$EVENT" ]; then
-    EVENT="$(basename "$0")"
-fi
-SYSTEM="$2"
-ROMPATH="$3"
+shift
 
-case "$(basename "$0")" in
-    game-start|game_start|gameStart)
-        EVENT="game-start"
-        SYSTEM="$1"
-        ROMPATH="$2"
-        ;;
-    game-end|game_end|gameStop)
-        EVENT="game-end"
-        SYSTEM="$1"
-        ROMPATH="$2"
-        ;;
-    game-selected)
-        EVENT="game-selected"
-        SYSTEM="$1"
-        ROMPATH="$2"
-        ;;
-    system-selected)
-        EVENT="system-selected"
-        SYSTEM="$1"
-        ;;
-    *)
-        ;;
-esac
+if [ -z "$EVENT" ] || [ ! -z "${{EVENT##game*}}" -a ! -z "${{EVENT##system*}}" ]; then
+    PARENT_DIR="$(basename "$(dirname "$0")")"
+    case "$PARENT_DIR" in
+        game-selected|system-selected|game-start|game-end)
+            exec /userdata/system/scripts/arcadematrix_mqtt.sh "$PARENT_DIR" "$EVENT" "$@"
+            ;;
+    esac
+fi
+
+if ! command -v mosquitto_pub >/dev/null 2>&1; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] ERROR: mosquitto_pub not found in PATH" >> "$LOG_FILE"
+    exit 1
+fi
 
 case "$EVENT" in
+    gameStart)
+        SYS_NAME="$1"
+        if [ -n "$4" ]; then
+            ROM_PATH="$4"
+        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
+            ROM_PATH="$2"
+        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+        else
+            ROM_PATH="$1"
+        fi
+        GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
+        ;;
+
+    gameStop)
+        PAYLOAD="{{\"status\": \"stopped\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
+        ;;
+
     game-selected|gameSelected)
-        STATE="browsing"
+        SYS_NAME="$1"
+        ROM_PATH="$2"
+        TITLE="$3"
+        if echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+            TITLE="$3"
+        fi
+        if [ -n "$TITLE" ]; then
+            GAME_CLEAN=$(clean_name "$TITLE")
+        else
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        fi
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
         ;;
-    game-start|gameStart)
-        STATE="playing"
-        ;;
-    game-end|gameStop)
-        STATE="stopped"
-        ;;
+
     system-selected|systemSelected)
-        STATE="browsing"
-        ROMPATH=""
+        SYS_CLEAN=$(clean_name "$1")
+        PAYLOAD="{{\"status\": \"browsing\", \"system\": \"$SYS_CLEAN\", \"type\": \"system\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: system-selected | Sys: $1 | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
         ;;
+
+    game-start)
+        SYS_NAME="$1"
+        ROM_PATH="$2"
+        TITLE="$3"
+        if echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+            TITLE="$3"
+        fi
+        if [ -n "$TITLE" ]; then
+            GAME_CLEAN=$(clean_name "$TITLE")
+        else
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        fi
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
+        ;;
+
+    game-end)
+        PAYLOAD="{{\"status\": \"stopped\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Sent: $PAYLOAD" >> "$LOG_FILE"
+        mosquitto_pub -h "$BROKER" -t "$TOPIC" -m "$PAYLOAD" >> "$LOG_FILE" 2>&1 &
+        ;;
+
     *)
-        STATE="browsing"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Unhandled Event: $EVENT | Args: $*" >> "$LOG_FILE"
         ;;
 esac
-
-cat > /tmp/es_state.inf << EOF
-SystemId=$SYSTEM
-GamePath=$ROMPATH
-State=$STATE
-EOF
-"#;
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                let install_hooks_cmd = format!(
-                    "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\nfor evt in game-selected game-start game-end system-selected; do ln -sf {} /userdata/system/scripts/$evt; ln -sf {} /userdata/system/configs/emulationstation/scripts/$evt; done\n",
-                    hook_path, hook_code, hook_path, hook_path, hook_path
-                );
-                channel.exec(&install_hooks_cmd).ok();
-                channel.wait_close().ok();
-            }
+"#,
+                broker = matrix_ip
+            );
 
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                let setup_cmd = r#"
-if [ ! -f /userdata/system/custom.sh ]; then
-    echo '#!/bin/sh' > /userdata/system/custom.sh
-    echo '[ "$1" = "start" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
-    chmod +x /userdata/system/custom.sh
-else
-    if ! grep -q 'arcadematrix_daemon.py' /userdata/system/custom.sh; then
-        echo '[ "$1" = "start" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
-    fi
-fi
-"#;
-                channel.exec(setup_cmd).ok();
+                channel
+                    .exec(&format!(
+                        "cat > {path} << 'EOF'\n{code}\nEOF\nchmod +x {path}\nfor evt in game-selected system-selected game-start game-end; do dir=\"/userdata/system/configs/emulationstation/scripts/$evt\"; mkdir -p \"$dir\"; cat > \"$dir/arcadematrix_mqtt.sh\" << 'EOFEVT'\n#!/bin/sh\n/userdata/system/scripts/arcadematrix_mqtt.sh \"$evt\" \"$@\"\nEOFEVT\nchmod +x \"$dir/arcadematrix_mqtt.sh\"; done\n",
+                        path = hook_path,
+                        code = hook_code
+                    ))
+                    .ok();
                 channel.wait_close().ok();
             }
         }

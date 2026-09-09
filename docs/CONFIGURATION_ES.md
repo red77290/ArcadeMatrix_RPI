@@ -91,6 +91,7 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `user` | `String` | Usuario del broker (opcional). |
 | `pass` | `String` | Contraseña del broker (opcional). |
 | `device_name` | `String` | Identificador publicado por este dispositivo. |
+| `allow_overlay` | `bool` | Permite overlays decorativos (ej. Street Fighter) sobre las pantallas MQTT/marquee (por defecto `false`). |
 | *(auto-suscripción)* | `system/playing/#` | Se suscribe automáticamente a todos los sistemas retro compatibles: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
 
 El daemon de sincronización puede instalarse en la consola (Recalbox, Batocera, RetroPie) por SSH desde la interfaz Web (`POST /api/mqtt/install`) con selección o autodetección del sistema operativo, y sus logs pueden obtenerse con `POST /api/mqtt/logs`.

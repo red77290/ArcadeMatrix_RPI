@@ -125,6 +125,7 @@ pub struct MqttConfig {
     pub user: String,
     pub pass: String,
     pub device_name: String,
+    pub allow_overlay: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,6 +232,7 @@ impl Default for MqttConfig {
             user: "".to_string(),
             pass: "".to_string(),
             device_name: "arcadematrix".to_string(),
+            allow_overlay: false,
         }
     }
 }

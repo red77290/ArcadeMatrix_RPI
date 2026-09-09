@@ -613,6 +613,7 @@ function initNetworkSettings() {
       const mqtt = {
         ...base,
         enabled: document.getElementById('hw-mqtt-enable').value === '1',
+        allow_overlay: document.getElementById('hw-mqtt-overlay').value === '1',
         broker: document.getElementById('hw-mqtt-broker').value,
         port: parseInt(document.getElementById('hw-mqtt-port').value, 10) || 1883,
         user: document.getElementById('hw-mqtt-user').value,
@@ -763,6 +764,7 @@ async function initSettings() {
 
     // MQTT (nested mqtt.*)
     setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
+    setVal('hw-mqtt-overlay', mqtt.allow_overlay ? '1' : '0');
     setVal('hw-mqtt-broker', mqtt.broker);
     setVal('hw-mqtt-port', mqtt.port);
     setVal('hw-mqtt-user', mqtt.user || '');

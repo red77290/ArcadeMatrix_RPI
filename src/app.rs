@@ -261,6 +261,7 @@ struct ResolvedRotationEntry {
 struct RuntimeSnapshot {
     rotation: Vec<ResolvedRotationEntry>,
     system: crate::core::config::SystemConfig,
+    mqtt: crate::core::config::MqttConfig,
     display_rotation: u8,
     mqtt_handle: EngineHandle,
     marquee_handle: EngineHandle,
@@ -319,6 +320,7 @@ fn build_runtime_snapshot(
     RuntimeSnapshot {
         rotation,
         system: settings.system.clone(),
+        mqtt: settings.mqtt.clone(),
         display_rotation: normalize_rotation(settings.matrix.rotation),
         mqtt_handle,
         marquee_handle,
@@ -669,7 +671,20 @@ impl ArcadeMatrixApp {
             }
 
             // 5. Configure & Composite Overlay
-            if allows_overlay && !snapshot.rotation.is_empty() {
+            if decision.source_id == DisplaySourceId::Mqtt
+                || decision.source_id == DisplaySourceId::Marquee
+            {
+                if snapshot.mqtt.allow_overlay {
+                    let mut ov = crate::core::config::OverlayConfig::default();
+                    ov.fighter = true;
+                    overlay_manager.configure(&ov, &snapshot.system);
+                } else {
+                    overlay_manager.configure(
+                        &crate::core::config::OverlayConfig::default(),
+                        &snapshot.system,
+                    );
+                }
+            } else if allows_overlay && !snapshot.rotation.is_empty() {
                 let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
                 let rot_entry = &snapshot.rotation[curr_idx];
                 overlay_manager.configure(&rot_entry.overlays, &snapshot.system);

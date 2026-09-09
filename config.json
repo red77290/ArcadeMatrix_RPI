@@ -37,7 +37,8 @@
     "port": 1883,
     "user": "",
     "pass": "",
-    "device_name": "arcadematrix"
+    "device_name": "arcadematrix",
+    "allow_overlay": false
   },
   "system": {
     "timezone": "CET-1CEST,M3.5.0,M10.5.0/3",

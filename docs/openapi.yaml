@@ -1040,3 +1040,5 @@ components:
           type: string
         device_name:
           type: string
+        allow_overlay:
+          type: boolean

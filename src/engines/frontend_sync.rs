@@ -48,9 +48,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         // Show "WAITING FOR MARQUEE" upon connection until first event is received
         let msg_payload = crate::engines::message::MessagePayload::new(
             "WAITING FOR MARQUEE".to_string(),
-            "#ffaa00",
+            "#ffffff",
             1,
-            "left",
+            "none",
             0,
         );
         config.set_message_payload(Some(msg_payload));

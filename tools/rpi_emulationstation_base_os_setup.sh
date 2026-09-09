@@ -272,7 +272,8 @@ clean_name() {
         -e 's/^[Mm]anufacturer //' \
         -e 's/^[Ss]ystem //' \
         -e 's/^[Gg]enre //' \
-        -e 's/^[Cc]ollection //' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+        -e 's/^[Cc]ollection //' \
+        -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 EVENT="$1"

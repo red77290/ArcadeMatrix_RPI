@@ -122,11 +122,41 @@ impl DmdCache {
             }
         }
 
+        let mut negative_cache = HashSet::new();
+        let neg_path = path.join(".negative_cache");
+        if let Ok(file) = File::open(&neg_path) {
+            for line in BufReader::new(file).lines().flatten() {
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    negative_cache.insert(trimmed.to_string());
+                }
+            }
+        }
+
         Self {
             cache_dir: path,
-            negative_cache: Mutex::new(HashSet::new()),
+            negative_cache: Mutex::new(negative_cache),
             http_client,
             system_mappings,
+        }
+    }
+
+    pub fn is_negative_cached(&self, system: &str, game: &str) -> bool {
+        let key = format!("{}/{}", system, game);
+        self.negative_cache.lock().contains(&key)
+    }
+
+    fn insert_negative_cache(&self, key: String) {
+        let mut lock = self.negative_cache.lock();
+        if lock.insert(key.clone()) {
+            let neg_path = self.cache_dir.join(".negative_cache");
+            if let Ok(mut file) = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(neg_path)
+            {
+                let _ = writeln!(file, "{}", key);
+            }
         }
     }
 
@@ -255,7 +285,7 @@ impl DmdCache {
             // Don't blacklist on a transient outage: a genuine 404 is permanent,
             // but a network failure must be retried once connectivity returns.
         } else {
-            self.negative_cache.lock().insert(key);
+            self.insert_negative_cache(key);
         }
         None
     }
@@ -344,7 +374,7 @@ impl DmdCache {
             // Don't blacklist on a transient outage: a genuine 404 is permanent,
             // but a network failure must be retried once connectivity returns.
         } else {
-            self.negative_cache.lock().insert(key);
+            self.insert_negative_cache(key);
         }
         None
     }

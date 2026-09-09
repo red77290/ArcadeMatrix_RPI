@@ -179,6 +179,21 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                             }
                                         }
 
+                                        // If game is known to have no custom marquee, display system marquee immediately
+                                        if dmd_cache.is_negative_cached(&system, &game) {
+                                            if let Some(path) =
+                                                dmd_cache.get_cached_system_path(&system)
+                                            {
+                                                if let Ok(img) = image::open(&path) {
+                                                    *config.image_obj.lock() = Some(img.to_rgb8());
+                                                    config.set_forced_engine_mode(
+                                                        crate::core::types::ForcedEngineMode::Marquee,
+                                                    );
+                                                    continue;
+                                                }
+                                            }
+                                        }
+
                                         let mut text_to_show = clean_name.clone();
                                         if text_to_show.len() > 10 {
                                             text_to_show = format!(" {} ", text_to_show);
@@ -198,9 +213,6 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         std::thread::spawn(move || {
                                             let path_opt = cache_clone
                                                 .download_marquee(&system, &game)
-                                                .or_else(|| {
-                                                    cache_clone.download_system_marquee(&game)
-                                                })
                                                 .or_else(|| {
                                                     cache_clone.download_system_marquee(&system)
                                                 });

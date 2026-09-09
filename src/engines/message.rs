@@ -33,7 +33,7 @@ impl MessagePayload {
             color: color.to_string(),
             size,
             direction: direction.to_string(),
-            speed: 50,
+            speed: 40,
             timeout_seconds,
         }
     }
@@ -68,6 +68,7 @@ pub struct MessageEngine {
     base_renderer: BaseRenderer,
     offset_x: f32,
     offset_y: f32,
+    move_accumulator: f32,
     text: String,
     color: String,
     parsed_color: (u8, u8, u8),
@@ -87,12 +88,13 @@ impl MessageEngine {
             base_renderer: BaseRenderer::new(),
             offset_x: 64.0,
             offset_y: 0.0,
+            move_accumulator: 0.0,
             text: String::new(),
             color: "#ffffff".to_string(),
             parsed_color: (255, 255, 255),
             size: 1,
             direction: ScrollDirection::Rtl,
-            speed: 50,
+            speed: 40,
             text_w: 0,
             text_h: 0,
             cached_pixels: Vec::new(),
@@ -102,6 +104,7 @@ impl MessageEngine {
     }
 
     pub fn reset_state(&mut self, width: f32, height: f32) {
+        self.move_accumulator = 0.0;
         let font = self.base_renderer.font();
         let (pixels, _, _) = font.get_pixel_map(&self.text, self.size as f32);
         let mut text_w = 0;
@@ -286,42 +289,54 @@ impl Engine for MessageEngine {
             .unwrap_or(Duration::ZERO);
         self.last_update = Some(now);
 
-        let move_px = (dt.as_millis() as f32) / (self.speed.max(1) as f32);
-        let mat_w = context.matrix.width() as f32;
-        let mat_h = context.matrix.height() as f32;
+        let step_ms = self.speed.max(1) as f32;
+        self.move_accumulator += dt.as_secs_f32() * 1000.0;
+        let steps = (self.move_accumulator / step_ms) as i32;
+        if steps > 0 {
+            self.move_accumulator -= (steps as f32) * step_ms;
+            let move_px = steps as f32;
+            let mat_w = context.matrix.width() as f32;
+            let mat_h = context.matrix.height() as f32;
 
-        match self.direction {
-            ScrollDirection::Rtl => {
-                self.offset_x -= move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
-                if self.offset_x < -(self.text_w as f32) {
-                    self.offset_x = mat_w;
+            match self.direction {
+                ScrollDirection::Rtl => {
+                    self.offset_x -= move_px;
+                    self.offset_y =
+                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                    if self.offset_x < -(self.text_w as f32) {
+                        self.offset_x = mat_w;
+                    }
                 }
-            }
-            ScrollDirection::Ltr => {
-                self.offset_x += move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
-                if self.offset_x > mat_w {
-                    self.offset_x = -(self.text_w as f32);
+                ScrollDirection::Ltr => {
+                    self.offset_x += move_px;
+                    self.offset_y =
+                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                    if self.offset_x > mat_w {
+                        self.offset_x = -(self.text_w as f32);
+                    }
                 }
-            }
-            ScrollDirection::Ttb => {
-                self.offset_y += move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                if self.offset_y > mat_h {
-                    self.offset_y = -(self.text_h as f32);
+                ScrollDirection::Ttb => {
+                    self.offset_y += move_px;
+                    self.offset_x =
+                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                    if self.offset_y > mat_h {
+                        self.offset_y = -(self.text_h as f32);
+                    }
                 }
-            }
-            ScrollDirection::Btt => {
-                self.offset_y -= move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                if self.offset_y < -(self.text_h as f32) {
-                    self.offset_y = mat_h;
+                ScrollDirection::Btt => {
+                    self.offset_y -= move_px;
+                    self.offset_x =
+                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                    if self.offset_y < -(self.text_h as f32) {
+                        self.offset_y = mat_h;
+                    }
                 }
-            }
-            ScrollDirection::None => {
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                ScrollDirection::None => {
+                    self.offset_x =
+                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                    self.offset_y =
+                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                }
             }
         }
     }

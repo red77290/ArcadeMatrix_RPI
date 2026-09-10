@@ -6,7 +6,8 @@ use crate::core::engine_contract::{
 use crate::core::matrix::MatrixBackend;
 use crate::engines::dashboard::font::{draw_text_clipped, draw_text_scaled};
 use crate::engines::renderers::{
-    draw_fast_hline, draw_fast_vline, draw_round_rect, draw_sparkline, fill_round_rect,
+    draw_fast_hline, draw_fast_vline, draw_round_rect, draw_scrolling_text, draw_sparkline,
+    fill_round_rect,
 };
 use linkme::distributed_slice;
 use std::collections::HashMap;
@@ -42,6 +43,9 @@ pub struct StockEngine {
     show_chart: bool,
     chart_timeframe: Timeframe,
     page_seconds: u64,
+    symbol_start_time: Instant,
+    last_rendered_symbol: String,
+    last_rendered_page: StockPage,
 }
 
 impl StockEngine {
@@ -59,6 +63,9 @@ impl StockEngine {
             show_chart: true,
             chart_timeframe: Timeframe::Daily,
             page_seconds: 5,
+            symbol_start_time: Instant::now(),
+            last_rendered_symbol: String::new(),
+            last_rendered_page: StockPage::Info,
         }
     }
 
@@ -271,6 +278,7 @@ impl StockEngine {
         pct_str: &str,
         badge_color: (u8, u8, u8),
         cached_img: Option<&image::RgbaImage>,
+        elapsed_ms: u128,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -285,13 +293,53 @@ impl StockEngine {
         draw_stock_icon(matrix, symbol, icon_x, icon_y, 16, cached_img);
 
         if m_w < 48 {
-            draw_glcd_text(matrix, symbol, 18, 2, (255, 255, 255));
-            draw_glcd_text(matrix, price_str, 2, 12, (0, 220, 255));
-            draw_glcd_text(matrix, pct_str, 2, 22, badge_color);
+            draw_scrolling_text(
+                matrix,
+                symbol,
+                18,
+                m_w - 1,
+                2,
+                1,
+                (255, 255, 255),
+                elapsed_ms,
+                false,
+            );
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                2,
+                m_w - 1,
+                12,
+                1,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
+            draw_scrolling_text(
+                matrix,
+                pct_str,
+                2,
+                m_w - 1,
+                22,
+                1,
+                badge_color,
+                elapsed_ms,
+                false,
+            );
         } else {
             draw_glcd_text(matrix, symbol, 20, 4, (255, 255, 255));
             let price_x = 20 + symbol.len() as i32 * 6 + 6;
-            draw_glcd_text(matrix, price_str, price_x, 4, (0, 220, 255));
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                price_x,
+                m_w - 1,
+                4,
+                1,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
             draw_glcd_text(matrix, pct_str, 20, 18, badge_color);
         }
     }
@@ -302,20 +350,61 @@ impl StockEngine {
         symbol: &str,
         price_str: &str,
         history_opt: Option<&PriceHistory>,
+        elapsed_ms: u128,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
         let tf_label = self.chart_timeframe.label();
-
         let header_str = format!("{} {}", symbol, tf_label);
-        draw_glcd_text(matrix, &header_str, 2, 1, (255, 255, 255));
+        let header_w = header_str.len() as i32 * 6 - 1;
 
-        let mut price_x = m_w - (price_str.len() as i32 * 6 + 2);
-        let min_price_x = 2 + (symbol.len() as i32 + 4) * 6;
-        if price_x < min_price_x {
-            price_x = min_price_x;
+        if m_w < 48 {
+            let min_price_x = 2 + header_w + 3;
+            if min_price_x < m_w - 6 {
+                draw_glcd_text(matrix, &header_str, 2, 1, (255, 255, 255));
+                draw_scrolling_text(
+                    matrix,
+                    price_str,
+                    min_price_x,
+                    m_w - 1,
+                    1,
+                    1,
+                    (0, 220, 255),
+                    elapsed_ms,
+                    false,
+                );
+            } else {
+                draw_scrolling_text(
+                    matrix,
+                    &header_str,
+                    2,
+                    m_w - 1,
+                    1,
+                    1,
+                    (255, 255, 255),
+                    elapsed_ms,
+                    false,
+                );
+            }
+        } else {
+            draw_glcd_text(matrix, &header_str, 2, 1, (255, 255, 255));
+            let mut price_x = m_w - (price_str.len() as i32 * 6 + 2);
+            let min_price_x = 2 + (symbol.len() as i32 + 4) * 6;
+            if price_x < min_price_x {
+                price_x = min_price_x;
+            }
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                price_x,
+                m_w - 1,
+                1,
+                1,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
         }
-        draw_glcd_text(matrix, price_str, price_x, 1, (0, 220, 255));
 
         let spark_x = 2;
         let spark_y = 11;
@@ -353,6 +442,7 @@ impl StockEngine {
         change: f64,
         cached_img: Option<&image::RgbaImage>,
         history_opt: Option<&PriceHistory>,
+        elapsed_ms: u128,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -361,23 +451,51 @@ impl StockEngine {
         if m_w >= 48 {
             draw_stock_icon(matrix, symbol, 2, 2, 16, cached_img);
 
-            draw_glcd_text(matrix, symbol, 20, 2, (255, 255, 255));
-
-            let mut tf_x = m_w - (tf_label.len() as i32 * 6 + 2);
-            let min_tf_x = 20 + symbol.len() as i32 * 6 + 4;
-            if tf_x < min_tf_x {
-                tf_x = min_tf_x;
-            }
+            let tf_w = tf_label.len() as i32 * 6 - 1;
+            let tf_x = m_w - (tf_w + 2);
             draw_glcd_text(matrix, tf_label, tf_x, 2, (140, 140, 140));
 
-            draw_glcd_text(matrix, price_str, 20, 10, (0, 220, 255));
+            let sym_max_x = tf_x - 3;
+            draw_scrolling_text(
+                matrix,
+                symbol,
+                20,
+                sym_max_x,
+                2,
+                1,
+                (255, 255, 255),
+                elapsed_ms,
+                false,
+            );
+
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                20,
+                m_w - 2,
+                10,
+                1,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
 
             let pct_text = if success && price > 0.0 {
                 format!("{}{}", if change >= 0.0 { "^" } else { "v" }, pct_str)
             } else {
                 pct_str.to_string()
             };
-            draw_glcd_text(matrix, &pct_text, 2, 19, badge_color);
+            draw_scrolling_text(
+                matrix,
+                &pct_text,
+                2,
+                m_w - 2,
+                19,
+                1,
+                badge_color,
+                elapsed_ms,
+                false,
+            );
 
             draw_fast_hline(matrix, 2, 28, m_w - 4, (50, 50, 50));
 
@@ -413,9 +531,39 @@ impl StockEngine {
             // Narrow Tate 32px
             draw_stock_icon(matrix, symbol, 1, 1, 8, cached_img);
 
-            draw_glcd_text(matrix, symbol, 11, 2, (255, 255, 255));
-            draw_glcd_text(matrix, price_str, 1, 11, (0, 220, 255));
-            draw_glcd_text(matrix, pct_str, 1, 20, badge_color);
+            draw_scrolling_text(
+                matrix,
+                symbol,
+                11,
+                m_w - 1,
+                2,
+                1,
+                (255, 255, 255),
+                elapsed_ms,
+                false,
+            );
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                1,
+                m_w - 1,
+                11,
+                1,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
+            draw_scrolling_text(
+                matrix,
+                pct_str,
+                1,
+                m_w - 1,
+                20,
+                1,
+                badge_color,
+                elapsed_ms,
+                false,
+            );
 
             draw_fast_hline(matrix, 1, 28, m_w - 2, (50, 50, 50));
 
@@ -462,6 +610,7 @@ impl StockEngine {
         change: f64,
         cached_img: Option<&image::RgbaImage>,
         history_opt: Option<&PriceHistory>,
+        elapsed_ms: u128,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -470,19 +619,49 @@ impl StockEngine {
 
         draw_stock_icon(matrix, symbol, 4, 4, 16, cached_img);
 
-        draw_glcd_text(matrix, symbol, 24, 4, (255, 255, 255));
+        let div_x = 58;
+        draw_fast_vline(matrix, div_x, 4, m_h - 8, (50, 50, 50));
+
+        draw_scrolling_text(
+            matrix,
+            symbol,
+            24,
+            div_x - 2,
+            4,
+            1,
+            (255, 255, 255),
+            elapsed_ms,
+            false,
+        );
         draw_glcd_text(matrix, tf_label, 24, 13, (140, 140, 140));
-        draw_glcd_text(matrix, price_str, 4, 24, (0, 220, 255));
+        draw_scrolling_text(
+            matrix,
+            price_str,
+            4,
+            div_x - 2,
+            24,
+            1,
+            (0, 220, 255),
+            elapsed_ms,
+            false,
+        );
 
         let pct_text = if success && price > 0.0 {
             format!("{} {}", if change >= 0.0 { "^" } else { "v" }, pct_str)
         } else {
             pct_str.to_string()
         };
-        draw_glcd_text(matrix, &pct_text, 4, 35, badge_color);
-
-        let div_x = 58;
-        draw_fast_vline(matrix, div_x, 4, m_h - 8, (50, 50, 50));
+        draw_scrolling_text(
+            matrix,
+            &pct_text,
+            4,
+            div_x - 2,
+            35,
+            1,
+            badge_color,
+            elapsed_ms,
+            false,
+        );
 
         let spark_x = 62;
         let spark_y = 6;
@@ -525,6 +704,7 @@ impl StockEngine {
         price: f64,
         change: f64,
         cached_img: Option<&image::RgbaImage>,
+        elapsed_ms: u128,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -550,12 +730,18 @@ impl StockEngine {
 
             draw_stock_icon(matrix, symbol, icon_x, icon_y, icon_size, cached_img);
 
-            let mut sym_x = (m_w - symbol.len() as i32 * 6) / 2;
-            if sym_x < 0 {
-                sym_x = 0;
-            }
             let sym_y = icon_y + icon_size + if use_big_price { 3 } else { 4 };
-            draw_glcd_text(matrix, symbol, sym_x, sym_y, (255, 255, 255));
+            draw_scrolling_text(
+                matrix,
+                symbol,
+                2,
+                m_w - 2,
+                sym_y,
+                1,
+                (255, 255, 255),
+                elapsed_ms,
+                true,
+            );
 
             let mut price_y = sym_y + 8 + 4;
             if use_big_price {
@@ -563,8 +749,17 @@ impl StockEngine {
                 draw_glcd_text_scaled(matrix, price_str, px, price_y, 2, (0, 220, 255));
                 price_y += 16 + 4;
             } else {
-                let px = ((m_w - price_len * 6) / 2).max(0);
-                draw_glcd_text(matrix, price_str, px, price_y, (0, 220, 255));
+                draw_scrolling_text(
+                    matrix,
+                    price_str,
+                    2,
+                    m_w - 2,
+                    price_y,
+                    1,
+                    (0, 220, 255),
+                    elapsed_ms,
+                    true,
+                );
                 price_y += 8 + 4;
             }
 
@@ -622,8 +817,28 @@ impl StockEngine {
                 4
             };
 
-            draw_glcd_text_scaled(matrix, symbol, text_x, start_y, 2, (255, 255, 255));
-            draw_glcd_text_scaled(matrix, price_str, text_x, start_y + 19, 2, (0, 220, 255));
+            draw_scrolling_text(
+                matrix,
+                symbol,
+                text_x,
+                m_w - 2,
+                start_y,
+                2,
+                (255, 255, 255),
+                elapsed_ms,
+                false,
+            );
+            draw_scrolling_text(
+                matrix,
+                price_str,
+                text_x,
+                m_w - 2,
+                start_y + 19,
+                2,
+                (0, 220, 255),
+                elapsed_ms,
+                false,
+            );
 
             let pct_y = start_y + 38;
             let arrow_len = if success && price > 0.0 { 2 } else { 0 };
@@ -727,6 +942,10 @@ impl Engine for StockEngine {
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
 
+    fn is_realtime(&self) -> bool {
+        true
+    }
+
     fn render(&mut self, context: &mut EngineContext) {
         if self.symbols.is_empty() {
             return;
@@ -756,6 +975,15 @@ impl Engine for StockEngine {
         }
 
         let symbol = self.symbols[self.current_index % self.symbols.len()].clone();
+        let page_changed = self.current_page != self.last_rendered_page;
+        let symbol_changed = symbol != self.last_rendered_symbol;
+        if symbol_changed || page_changed {
+            self.symbol_start_time = Instant::now();
+            self.last_rendered_symbol = symbol.clone();
+            self.last_rendered_page = self.current_page;
+        }
+        let elapsed_ms = self.symbol_start_time.elapsed().as_millis();
+
         let (price, change, success, image_url) =
             self.fetch_quote(&symbol, self.cache_ttl_min as u64);
         let history_opt = if self.show_chart {
@@ -792,6 +1020,7 @@ impl Engine for StockEngine {
                     price,
                     change,
                     loaded_icon.as_ref(),
+                    elapsed_ms,
                 );
             } else {
                 self.render_quote(
@@ -801,6 +1030,7 @@ impl Engine for StockEngine {
                     &pct_str,
                     badge_color,
                     loaded_icon.as_ref(),
+                    elapsed_ms,
                 );
             }
         } else if height >= 64 {
@@ -816,6 +1046,7 @@ impl Engine for StockEngine {
                     change,
                     loaded_icon.as_ref(),
                     history_opt.as_ref(),
+                    elapsed_ms,
                 );
             } else {
                 self.render_unified_wide(
@@ -829,6 +1060,7 @@ impl Engine for StockEngine {
                     change,
                     loaded_icon.as_ref(),
                     history_opt.as_ref(),
+                    elapsed_ms,
                 );
             }
         } else if self.current_page == StockPage::Info {
@@ -839,9 +1071,16 @@ impl Engine for StockEngine {
                 &pct_str,
                 badge_color,
                 loaded_icon.as_ref(),
+                elapsed_ms,
             );
         } else {
-            self.render_chart(matrix, &symbol, &price_str, history_opt.as_ref());
+            self.render_chart(
+                matrix,
+                &symbol,
+                &price_str,
+                history_opt.as_ref(),
+                elapsed_ms,
+            );
         }
     }
 }
@@ -1082,5 +1321,36 @@ mod tests {
         engine.render(&mut ctx_wide);
         engine.show_chart = false;
         engine.render(&mut ctx_wide);
+    }
+
+    #[test]
+    fn test_stock_overflow_scrolling() {
+        let mut engine = StockEngine::new(32, 64);
+        engine.symbols = vec!["GOOGLE".to_string()];
+        engine.cache.insert(
+            "GOOGLE".to_string(),
+            CachedQuote {
+                price: 1850.50,
+                change_24h: 2.15,
+                last_fetch: Instant::now(),
+                has_data: true,
+                image_url: None,
+            },
+        );
+
+        let config = crate::core::config::Config::new("config.json");
+        let mut matrix = MockMatrix::new(32, 64);
+        let mut context = EngineContext {
+            matrix: &mut matrix,
+            config: &config,
+        };
+
+        // Render at t=0 (during pause)
+        engine.render(&mut context);
+        assert!(engine.is_realtime());
+
+        // Fast-forward symbol_start_time by 2000ms (scrolling active)
+        engine.symbol_start_time = Instant::now() - Duration::from_millis(2000);
+        engine.render(&mut context);
     }
 }

@@ -542,12 +542,11 @@ async fn post_wifi(
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
-#[post("/api/marquee")]
-async fn post_marquee(
+async fn handle_file_upload(
     req: HttpRequest,
     data: web::Data<AppState>,
     mut payload: Multipart,
-) -> impl Responder {
+) -> HttpResponse {
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
@@ -559,7 +558,7 @@ async fn post_marquee(
             Ok(f) => f,
             Err(e) => {
                 return HttpResponse::BadRequest()
-                    .json(json!({"status": "error", "message": format!("Upload error: {}", e)}))
+                    .json(json!({"status": "error", "message": format!("Upload error: {}", e)}));
             }
         };
 
@@ -578,8 +577,9 @@ async fn post_marquee(
             match chunk {
                 Ok(d) => bytes.extend_from_slice(&d),
                 Err(e) => {
-                    return HttpResponse::BadRequest()
-                        .json(json!({"status": "error", "message": format!("Chunk error: {}", e)}))
+                    return HttpResponse::BadRequest().json(
+                        json!({"status": "error", "message": format!("Chunk error: {}", e)}),
+                    );
                 }
             }
         }
@@ -602,26 +602,73 @@ async fn post_marquee(
         }
     }
 
-    let marquee_dir = std::path::Path::new("data/marquees");
-    if let Err(e) = std::fs::create_dir_all(marquee_dir) {
-        return HttpResponse::InternalServerError()
-            .json(json!({"status": "error", "message": format!("Failed to create marquee directory: {}", e)}));
-    }
-
-    let dest_path = marquee_dir.join(format!("custom_marquee{}", file_ext));
-    if let Err(e) = std::fs::write(&dest_path, &bytes) {
+    let is_marquee =
+        req.path().contains("marquee") || req.query_string().contains("target=marquee");
+    let target_dir = if is_marquee {
+        std::path::Path::new("data/marquees")
+    } else {
+        std::path::Path::new("data/uploads")
+    };
+    if let Err(e) = std::fs::create_dir_all(target_dir) {
         return HttpResponse::InternalServerError().json(
-            json!({"status": "error", "message": format!("Failed to save marquee file: {}", e)}),
+            json!({"status": "error", "message": format!("Failed to create directory: {}", e)}),
         );
     }
 
-    // Clear stale static image buffer so MarqueeEngine loads and animates the new file
-    *data.config.image_obj.lock() = None;
-    data.config
-        .set_forced_engine_mode(crate::core::types::ForcedEngineMode::Marquee);
+    if is_marquee {
+        // Enforce single-file overwrite: clear existing marquee files
+        if let Ok(entries) = std::fs::read_dir(target_dir) {
+            for entry in entries.flatten() {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 
-    HttpResponse::Ok()
-        .json(json!({"status": "ok", "message": "Marquee file uploaded and displayed"}))
+    let dest_path = if is_marquee {
+        target_dir.join(format!("marquee{}", file_ext))
+    } else {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        target_dir.join(format!("asset_{}{}", ts, file_ext))
+    };
+
+    if let Err(e) = std::fs::write(&dest_path, &bytes) {
+        return HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": format!("Failed to save file: {}", e)}));
+    }
+
+    // Clear stale static image buffer if marquee
+    if is_marquee {
+        *data.config.image_obj.lock() = None;
+        // Do NOT set ForcedEngineMode::Marquee: Marquee runs normally in the rotation loop
+    }
+
+    HttpResponse::Ok().json(json!({
+        "status": "ok",
+        "success": true,
+        "path": dest_path.to_string_lossy().to_string(),
+        "message": "File uploaded successfully"
+    }))
+}
+
+#[post("/api/marquee")]
+async fn post_marquee(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    payload: Multipart,
+) -> impl Responder {
+    handle_file_upload(req, data, payload).await
+}
+
+#[post("/api/upload")]
+async fn post_upload(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    payload: Multipart,
+) -> impl Responder {
+    handle_file_upload(req, data, payload).await
 }
 
 #[post("/api/mqtt/install")]
@@ -1221,6 +1268,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_timezones)
             .service(post_wifi)
             .service(post_marquee)
+            .service(post_upload)
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
             .service(crate::api::ota::get_version)

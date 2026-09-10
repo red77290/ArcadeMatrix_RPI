@@ -173,7 +173,7 @@ impl ConfigSanitizer {
                             }
                         }
                     }
-                    ConfigType::String => {}
+                    ConfigType::String | ConfigType::FileAsset => {}
                 }
             }
 

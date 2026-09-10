@@ -186,11 +186,17 @@ export function isColorField(f) {
 }
 
 export function isOptionsField(f) {
+  if (isFileAssetField(f)) return false;
   const t = f.field_type !== undefined ? f.field_type : f.type;
   return t === 4 || t === 7 || t === '4' || t === '7' ||
          t === 'Options' || t === 'OPTIONS' || t === 'options' ||
          t === 'Enum' || t === 'ENUM' || t === 'enum' ||
          t === 'List' || t === 'LIST' || t === 'list';
+}
+
+export function isFileAssetField(f) {
+  const t = f.field_type !== undefined ? f.field_type : f.type;
+  return t === 8 || t === '8' || t === 'FileAsset' || t === 'FILE_ASSET' || t === 'file_asset';
 }
 
 // Format options with localization
@@ -491,13 +497,22 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
     } else {
       // Dynamic fallback for any schema
       const primaryField = (fields && fields.length > 0) ? (
-        fields.find(f => isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) ||
-        fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f))
+        fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
+        fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
+        fields.find(f => isFileAssetField(f))
       ) : null;
 
       if (primaryField) {
         const fLabel = primaryField.label || primaryField.id;
-        if (isOptionsField(primaryField) || (primaryField.options && primaryField.options.length > 0)) {
+        if (isFileAssetField(primaryField)) {
+          initialVariant = primaryField.default_value || '';
+          variantHtml = `
+            <div class="form-group" style="margin-top: 1rem;">
+              <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+              <div id="modal-file-asset-slot"></div>
+            </div>
+          `;
+        } else if (isOptionsField(primaryField) || (primaryField.options && primaryField.options.length > 0)) {
           const opts = parseOptions(primaryField.options);
           initialVariant = primaryField.default_value || (opts.length > 0 ? opts[0].value : '');
           const optsHtml = opts.map(o => `<option value="${o.value}" ${String(o.value) === String(initialVariant) ? 'selected' : ''}>${formatOptLabel(primaryField.id, o.value, o.label)}</option>`).join('');
@@ -593,6 +608,12 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       currentEngineId = engSelect.value;
       renderModalContent();
     };
+
+    const modalAssetSlot = overlay.querySelector('#modal-file-asset-slot');
+    if (modalAssetSlot && primaryField && isFileAssetField(primaryField)) {
+      const widget = buildFileAssetWidget(primaryField, 'modal', initialVariant);
+      modalAssetSlot.appendChild(widget);
+    }
 
     const variantEl = overlay.querySelector('#modal-field-variant');
     const idInput = overlay.querySelector('#modal-input-id');
@@ -717,6 +738,8 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           initialConfig.symbols = variantEl.value || 'AAPL,TSLA';
         } else if (engId === 'dashboard') {
           initialConfig.theme = parseInt(variantEl.value) || 0;
+        } else if (primaryField) {
+          initialConfig[primaryField.id] = variantEl.value;
         }
       }
 
@@ -1089,22 +1112,12 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
         </div>
       </div>
       <div class="engine-card-actions">
-        <button class="btn btn-primary btn-add-loop" style="font-weight:600;">➕ ${t('add_to_rotation_btn', 'Add to Loop')}</button>
-        <button class="btn btn-config" style="background: rgba(255,255,255,0.08); color: #fff;">⚙️ ${t('configure_btn', 'Configure')}</button>
+        <button class="btn btn-primary btn-add-loop" style="font-weight:600; width: 100%;">➕ ${t('add_to_rotation_btn', 'Add to Loop')}</button>
       </div>
     `;
 
     card.querySelector('.btn-add-loop').onclick = () => {
       showAddScreenModal(eng.id, descriptors, instancesList, true);
-    };
-
-    card.querySelector('.btn-config').onclick = () => {
-      const existing = instancesList.find(i => i.engine_id === eng.id);
-      if (existing) {
-        window.switchToScreenTab(existing.instance_id);
-      } else {
-        showAddScreenModal(eng.id, descriptors, instancesList, false);
-      }
     };
 
     grid.appendChild(card);
@@ -1302,6 +1315,199 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
 
   textInput.addEventListener('input', syncTagsFromInput);
   container.appendChild(textInput);
+  return container;
+}
+
+// Helper: Build Generic Asset Upload Widget for ConfigType::FILE_ASSET fields
+export function buildFileAssetWidget(field, instId, initVal) {
+  const container = document.createElement('div');
+  container.className = 'file-asset-widget';
+  container.style = 'margin-top: 0.25rem; width: 100%;';
+
+  const textInput = document.createElement('input');
+  textInput.type = 'hidden';
+  textInput.id = (instId === 'modal') ? 'modal-field-variant' : `cfg-dyn-${instId}-${field.id}`;
+  textInput.value = initVal || (field.default_value || '');
+  container.appendChild(textInput);
+
+  const dropZone = document.createElement('div');
+  dropZone.className = 'drop-zone file-asset-drop-zone';
+  dropZone.style = 'padding: 1rem; border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; text-align: center; cursor: pointer; transition: all 0.2s; background: rgba(0,0,0,0.2);';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.style.display = 'none';
+
+  let acceptExts = 'image/png, image/jpeg, image/gif';
+  if (field.options) {
+    const parsed = parseOptions(field.options);
+    if (parsed.length > 0) {
+      acceptExts = parsed.map(o => o.value).join(',');
+    } else if (typeof field.options === 'string') {
+      acceptExts = field.options;
+    }
+  }
+  fileInput.accept = acceptExts;
+  container.appendChild(fileInput);
+
+  const iconDiv = document.createElement('div');
+  iconDiv.style = 'font-size: 1.6rem; margin-bottom: 0.25rem;';
+  iconDiv.innerHTML = '🖼️';
+
+  const titleDiv = document.createElement('div');
+  titleDiv.style = 'font-size: 0.85rem; font-weight: 600; color: var(--text-primary, #fff);';
+  titleDiv.innerText = t('file_drop_or_browse', 'Drop file here or click to browse');
+
+  const descDiv = document.createElement('div');
+  descDiv.style = 'font-size: 0.75rem; color: var(--text-muted, #94a3b8); margin-top: 0.2rem;';
+  descDiv.innerText = `${t('accepted_types', 'Accepted:')} ${acceptExts}`;
+
+  const badgeDiv = document.createElement('div');
+  badgeDiv.style = 'margin-top: 0.5rem; font-size: 0.75rem; font-family: monospace; background: rgba(255,255,255,0.08); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-block; word-break: break-all;';
+  badgeDiv.innerText = textInput.value ? `📄 ${textInput.value}` : t('no_file_uploaded', 'No file uploaded yet');
+
+  const previewWrap = document.createElement('div');
+  previewWrap.style = 'margin-top: 0.5rem;';
+  const previewImg = document.createElement('img');
+  previewImg.style = 'max-height: 56px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); display: none;';
+  previewImg.onerror = () => { previewImg.style.display = 'none'; };
+  if (textInput.value && (textInput.value.endsWith('.gif') || textInput.value.endsWith('.png') || textInput.value.endsWith('.jpg') || textInput.value.endsWith('.jpeg'))) {
+    previewImg.src = textInput.value.startsWith('/') ? textInput.value : '/' + textInput.value;
+    previewImg.style.display = 'inline-block';
+  }
+  previewWrap.appendChild(previewImg);
+
+  const browseBtn = document.createElement('button');
+  browseBtn.type = 'button';
+  browseBtn.className = 'btn btn-secondary btn-sm';
+  browseBtn.style = 'margin-top: 0.5rem; font-size: 0.75rem; pointer-events: none;';
+  browseBtn.innerHTML = '📁 ' + t('browse_file_btn', 'Browse File');
+
+  dropZone.appendChild(iconDiv);
+  dropZone.appendChild(titleDiv);
+  dropZone.appendChild(descDiv);
+  dropZone.appendChild(badgeDiv);
+  dropZone.appendChild(previewWrap);
+  dropZone.appendChild(browseBtn);
+
+  dropZone.onclick = () => fileInput.click();
+  dropZone.ondragover = (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--primary, #3b82f6)';
+    dropZone.style.background = 'rgba(59,130,246,0.1)';
+  };
+  dropZone.ondragleave = () => {
+    dropZone.style.borderColor = 'rgba(255,255,255,0.2)';
+    dropZone.style.background = 'rgba(0,0,0,0.2)';
+  };
+  dropZone.ondrop = (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'rgba(255,255,255,0.2)';
+    dropZone.style.background = 'rgba(0,0,0,0.2)';
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files[0]);
+    }
+  };
+  fileInput.onchange = () => {
+    if (fileInput.files && fileInput.files.length > 0) {
+      handleUpload(fileInput.files[0]);
+    }
+  };
+
+  async function handleUpload(file) {
+    if (!file) return;
+    titleDiv.innerText = t('uploading_file', 'Uploading asset...');
+    if (file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        previewImg.src = ev.target.result;
+        previewImg.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    let uploadFile = file;
+
+    // For static images, client-side pre-resize ensures optimal performance on ESP & RPi
+    if (file.type && file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.gif')) {
+      try {
+        const fitModeEl = document.getElementById(`cfg-dyn-${instId}-fit_mode`) || 
+                          document.querySelector(`[id$="-fit_mode"]`);
+        const fitMode = fitModeEl ? (fitModeEl.value || 'fit') : 'fit';
+        const panelW = (window.__sysConfig?.matrix?.width * (window.__sysConfig?.matrix?.chain_length || 1)) || 128;
+        const panelH = window.__sysConfig?.matrix?.height || 32;
+
+        const resizedBlob = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = panelW;
+            canvas.height = panelH;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, panelW, panelH);
+
+            const sw = img.width;
+            const sh = img.height;
+            if (fitMode === 'stretch') {
+              ctx.drawImage(img, 0, 0, panelW, panelH);
+            } else if (fitMode === 'center') {
+              const dx = Math.round((panelW - sw) / 2);
+              const dy = Math.round((panelH - sh) / 2);
+              ctx.drawImage(img, dx, dy, sw, sh);
+            } else { // 'fit'
+              const ratio = Math.min(panelW / sw, panelH / sh);
+              const dw = Math.round(sw * ratio);
+              const dh = Math.round(sh * ratio);
+              const dx = Math.round((panelW - dw) / 2);
+              const dy = Math.round((panelH - dh) / 2);
+              ctx.drawImage(img, dx, dy, dw, dh);
+            }
+            canvas.toBlob((b) => {
+              if (b) resolve(b);
+              else reject(new Error('Canvas blob failed'));
+            }, 'image/png');
+          };
+          img.onerror = () => reject(new Error('Image decode failed'));
+          img.src = URL.createObjectURL(file);
+        });
+
+        if (resizedBlob) {
+          uploadFile = new File([resizedBlob], 'marquee.png', { type: 'image/png' });
+        }
+      } catch (err) {
+        console.warn('Client-side resize skipped:', err);
+      }
+    }
+
+    const uploadEndpoint = field.options_endpoint || '/api/upload';
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('image', uploadFile);
+
+    try {
+      const res = await fetch(uploadEndpoint, {
+        method: 'POST',
+        headers: (typeof authHeaders === 'function') ? authHeaders() : {},
+        body: formData
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const savedPath = data.path || textInput.value;
+      textInput.value = savedPath;
+      badgeDiv.innerText = `📄 ${savedPath}`;
+      titleDiv.innerText = t('file_drop_or_browse', 'Drop file here or click to browse');
+      textInput.dispatchEvent(new Event('change', { bubbles: true }));
+      if (typeof window.showToast === 'function') {
+        window.showToast(t('asset_uploaded_success', 'Asset uploaded successfully!'), 'success');
+      }
+    } catch (err) {
+      titleDiv.innerText = t('upload_failed', 'Upload failed. Click to retry.');
+      if (typeof window.showToast === 'function') {
+        window.showToast(t('upload_error', 'Upload failed: ') + (err.message || err), 'error');
+      }
+    }
+  }
+
+  container.appendChild(dropZone);
   return container;
 }
 
@@ -1642,8 +1848,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           let currentVal = configMap[field.id] !== undefined ? configMap[field.id] : field.default_value;
           if (currentVal === undefined || currentVal === null) currentVal = '';
 
+          // 0. Generic File Asset (Upload / Drag & Drop)
+          if (isFileAssetField(field)) {
+             input = buildFileAssetWidget(field, instance.instance_id, currentVal);
+          }
           // 1. Timezone or Options Endpoint (using cached requests)
-          if (field.id === 'timezone' || field.options_endpoint === '/api/timezones') {
+          else if (field.id === 'timezone' || field.options_endpoint === '/api/timezones') {
               input = document.createElement('select');
               input.className = 'input';
               input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
@@ -1729,7 +1939,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           
           if (input) {
              formGroup.appendChild(input);
-             if (!isBooleanField(field) && !isColorField(field) && !isNumberField(field) && !field.options_endpoint) {
+             if (!isBooleanField(field) && !isColorField(field) && !isNumberField(field) && !isFileAssetField(field) && !field.options_endpoint) {
                const quickPresets = attachQuickPresets(input, field.id);
                if (quickPresets) formGroup.appendChild(quickPresets);
              }

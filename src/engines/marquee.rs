@@ -23,7 +23,7 @@ pub struct MarqueeEngine {
 impl MarqueeEngine {
     pub fn new() -> Self {
         Self {
-            file_path: "data/marquees/custom_marquee.gif".to_string(),
+            file_path: "data/marquees/marquee.gif".to_string(),
             speed_multiplier: 1.0,
             fit_mode: "fit".to_string(),
             frames: Vec::new(),
@@ -88,11 +88,12 @@ impl MarqueeEngine {
             }
         }
         let candidates = [
+            "data/marquees/marquee.gif",
+            "data/marquees/marquee.png",
+            "data/marquees/marquee.jpg",
             "data/marquees/custom_marquee.gif",
             "data/marquees/custom_marquee.png",
             "data/marquees/custom_marquee.jpg",
-            "data/marquees/marquee.gif",
-            "data/marquees/marquee.png",
         ];
         for c in &candidates {
             let p = PathBuf::from(c);
@@ -113,22 +114,34 @@ impl MarqueeEngine {
             return;
         }
 
-        let scale_x = mw / iw;
-        let scale_y = mh / ih;
-        let scale = scale_x.min(scale_y);
-
-        if scale > 1 {
-            let new_w = iw * scale;
-            let new_h = ih * scale;
-            let scaled =
-                image::imageops::resize(image, new_w, new_h, image::imageops::FilterType::Nearest);
-            let offset_x = (mw - new_w) / 2;
-            let offset_y = (mh - new_h) / 2;
-            matrix.draw_image(&scaled, offset_x as i32, offset_y as i32);
-        } else {
-            let offset_x = if mw > iw { (mw - iw) / 2 } else { 0 };
-            let offset_y = if mh > ih { (mh - ih) / 2 } else { 0 };
-            matrix.draw_image(image, offset_x as i32, offset_y as i32);
+        match self.fit_mode.to_lowercase().as_str() {
+            "stretch" => {
+                let scaled =
+                    image::imageops::resize(image, mw, mh, image::imageops::FilterType::Nearest);
+                matrix.draw_image(&scaled, 0, 0);
+            }
+            "center" => {
+                let offset_x = (mw as i32 - iw as i32) / 2;
+                let offset_y = (mh as i32 - ih as i32) / 2;
+                matrix.draw_image(image, offset_x, offset_y);
+            }
+            _ => {
+                // "fit" (default): scale to fit within (mw, mh) preserving aspect ratio
+                let ratio_w = mw as f32 / iw as f32;
+                let ratio_h = mh as f32 / ih as f32;
+                let ratio = ratio_w.min(ratio_h);
+                let new_w = ((iw as f32 * ratio).round() as u32).clamp(1, mw);
+                let new_h = ((ih as f32 * ratio).round() as u32).clamp(1, mh);
+                let scaled = image::imageops::resize(
+                    image,
+                    new_w,
+                    new_h,
+                    image::imageops::FilterType::Nearest,
+                );
+                let offset_x = (mw as i32 - new_w as i32) / 2;
+                let offset_y = (mh as i32 - new_h as i32) / 2;
+                matrix.draw_image(&scaled, offset_x, offset_y);
+            }
         }
     }
 }
@@ -183,6 +196,7 @@ impl Engine for MarqueeEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
+        context.matrix.clear();
         let lock = context.config.image_obj.lock();
         if let Some(img) = lock.as_ref() {
             self.render_image(&mut *context.matrix, img);
@@ -220,7 +234,7 @@ impl Engine for MarqueeEngine {
     }
 
     fn self_paced(&self) -> bool {
-        true
+        false
     }
 }
 
@@ -248,10 +262,15 @@ fn register_marquee_engine() -> EngineDescriptor {
             fields: vec![
                 ConfigField {
                     id: "file_path",
-                    field_type: ConfigType::String,
+                    field_type: ConfigType::FileAsset,
                     label: "Marquee File",
                     description: "Path to marquee GIF or image file",
-                    default_value: "data/marquees/custom_marquee.gif",
+                    default_value: "data/marquees/marquee.gif",
+                    options: Some(vec![crate::core::engine_contract::ConfigOption {
+                        label: "Allowed Extensions",
+                        value: ".gif,.png,.jpg,.jpeg",
+                    }]),
+                    options_endpoint: Some("/api/upload?target=marquee"),
                     validation_policy: ValidationPolicy::Accept,
                     ..Default::default()
                 },

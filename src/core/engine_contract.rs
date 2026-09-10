@@ -30,6 +30,7 @@ pub enum ConfigType {
     Float,
     String,
     Options,
+    FileAsset,
 }
 
 #[derive(Debug, Clone, Serialize)]

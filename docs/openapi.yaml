@@ -408,6 +408,42 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/upload:
+    post:
+      tags: [System]
+      summary: Upload an asset file with single-file overwrite
+      description: >
+        multipart/form-data upload. Saves file into target storage folder (e.g. data/marquees/)
+        with single-file overwrite. Returns resolved file path.
+      parameters:
+        - name: target
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Upload destination category (e.g. marquee)
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          $ref: '#/components/responses/StatusOk'
+        '400':
+          description: Invalid or unreadable image
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/marquee:
     post:
       tags: [Integrations]

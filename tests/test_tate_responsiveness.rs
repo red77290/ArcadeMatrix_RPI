@@ -461,3 +461,81 @@ fn test_minute_clocks_ignore_seconds_stability() {
         "SlotMachineClock must trigger spinning when minute advances"
     );
 }
+
+#[test]
+fn test_pacman_progressive_eat_and_reveal() {
+    let base = BaseRenderer::new();
+    let font = base.font();
+
+    // 1. Landscape mode (64x32)
+    let mut matrix = MockMatrix::new(64, 32);
+    let mut pacman = PacmanClock::new();
+    pacman.render(&mut matrix, "12:34", 12, 34, &font, 1);
+
+    // Trigger transition to 12:35
+    pacman.render(&mut matrix, "12:35", 12, 35, &font, 1);
+    assert!(pacman.is_transitioning());
+
+    // Step a few frames into transition
+    for _ in 0..15 {
+        pacman.render(&mut matrix, "12:35", 12, 35, &font, 1);
+    }
+    assert!(pacman.is_transitioning());
+
+    // Check that pixels ahead of pacman and on canvas are lit (progressive eat)
+    let mut lit_ahead = 0;
+    for y in 0..32 {
+        for x in 32..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                lit_ahead += 1;
+            }
+        }
+    }
+    assert!(
+        lit_ahead > 10,
+        "Pixels ahead of Pacman must remain visible to be eaten progressively"
+    );
+
+    // 2. Tate / Vertical mode (32x64)
+    let mut matrix_tate = MockMatrix::new(32, 64);
+    let mut pacman_tate = PacmanClock::new();
+    pacman_tate.render(&mut matrix_tate, "12:34", 12, 34, &font, 1);
+    // Trigger transition
+    pacman_tate.render(&mut matrix_tate, "12:35", 12, 35, &font, 1);
+    assert!(pacman_tate.is_transitioning());
+
+    // Step into Tier 1 (Hours line)
+    for _ in 0..10 {
+        pacman_tate.render(&mut matrix_tate, "12:35", 12, 35, &font, 1);
+    }
+    assert!(pacman_tate.is_transitioning());
+
+    // In Tate mode, hours (top) and minutes (bottom) should have lit pixels
+    let mut top_lit = 0;
+    let mut bot_lit = 0;
+    for y in 0..32 {
+        for x in 0..32 {
+            let px = matrix_tate.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                top_lit += 1;
+            }
+        }
+    }
+    for y in 32..64 {
+        for x in 0..32 {
+            let px = matrix_tate.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                bot_lit += 1;
+            }
+        }
+    }
+    assert!(
+        top_lit > 10,
+        "Top tier (hours) must be rendering in vertical mode"
+    );
+    assert!(
+        bot_lit > 10,
+        "Bottom tier (minutes) must be rendering in vertical mode"
+    );
+}

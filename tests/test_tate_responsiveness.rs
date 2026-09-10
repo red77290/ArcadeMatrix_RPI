@@ -130,7 +130,7 @@ fn test_subclocks_tate_responsiveness() {
         // 4. SlotMachineClock
         matrix.clear();
         let mut slot = SlotMachineClock::new();
-        slot.render(&mut matrix, "12:34", &font, 1);
+        slot.render(&mut matrix, "12:34", 12, 34, &font, 1);
         let mut slot_lit = 0;
         for y in 0..h {
             for x in 0..w {
@@ -376,5 +376,166 @@ fn test_tate_seconds_same_size_as_hours_minutes() {
         s_color, h_color,
         "Seconds color ({:?}) must match hours color ({:?})",
         s_color, h_color
+    );
+}
+
+#[test]
+fn test_minute_clocks_ignore_seconds_stability() {
+    let base = BaseRenderer::new();
+    let font = base.font();
+    let mut matrix = MockMatrix::new(64, 32);
+
+    // 1. PacmanClock stability across seconds
+    let mut pacman = PacmanClock::new();
+    pacman.render(&mut matrix, "12:34:00", 12, 34, &font, 1);
+    assert!(
+        !pacman.is_transitioning(),
+        "PacmanClock should not be transitioning initially"
+    );
+
+    for sec in 1..=10 {
+        let time_str = format!("12:34:{:02}", sec);
+        pacman.render(&mut matrix, &time_str, 12, 34, &font, 1);
+        assert!(
+            !pacman.is_transitioning(),
+            "PacmanClock must not trigger animation on second change ({})",
+            time_str
+        );
+    }
+    let mut pac_lit = 0;
+    for y in 0..32 {
+        for x in 0..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                pac_lit += 1;
+            }
+        }
+    }
+    assert!(
+        pac_lit > 20,
+        "PacmanClock must display static digits without constant animation lock"
+    );
+
+    // Minute advance should trigger transition
+    pacman.render(&mut matrix, "12:35:00", 12, 35, &font, 1);
+    assert!(
+        pacman.is_transitioning(),
+        "PacmanClock must trigger transition when minute advances"
+    );
+
+    // 2. SlotMachineClock stability across seconds
+    let mut slot = SlotMachineClock::new();
+    slot.render(&mut matrix, "12:34:00", 12, 34, &font, 1);
+    assert!(
+        !slot.is_spinning(),
+        "SlotMachineClock should not be spinning initially"
+    );
+
+    for sec in 1..=10 {
+        let time_str = format!("12:34:{:02}", sec);
+        slot.render(&mut matrix, &time_str, 12, 34, &font, 1);
+        assert!(
+            !slot.is_spinning(),
+            "SlotMachineClock must not trigger spinning on second change ({})",
+            time_str
+        );
+    }
+    let mut slot_lit = 0;
+    for y in 0..32 {
+        for x in 0..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                slot_lit += 1;
+            }
+        }
+    }
+    assert!(
+        slot_lit > 20,
+        "SlotMachineClock must display static digits without constant spinning lock"
+    );
+
+    // Minute advance should trigger spinning
+    slot.render(&mut matrix, "12:35:00", 12, 35, &font, 1);
+    assert!(
+        slot.is_spinning(),
+        "SlotMachineClock must trigger spinning when minute advances"
+    );
+}
+
+#[test]
+fn test_pacman_progressive_eat_and_reveal() {
+    let base = BaseRenderer::new();
+    let font = base.font();
+
+    // 1. Landscape mode (64x32)
+    let mut matrix = MockMatrix::new(64, 32);
+    let mut pacman = PacmanClock::new();
+    pacman.render(&mut matrix, "12:34", 12, 34, &font, 1);
+
+    // Trigger transition to 12:35
+    pacman.render(&mut matrix, "12:35", 12, 35, &font, 1);
+    assert!(pacman.is_transitioning());
+
+    // Step a few frames into transition
+    for _ in 0..15 {
+        pacman.render(&mut matrix, "12:35", 12, 35, &font, 1);
+    }
+    assert!(pacman.is_transitioning());
+
+    // Check that pixels ahead of pacman and on canvas are lit (progressive eat)
+    let mut lit_ahead = 0;
+    for y in 0..32 {
+        for x in 32..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                lit_ahead += 1;
+            }
+        }
+    }
+    assert!(
+        lit_ahead > 10,
+        "Pixels ahead of Pacman must remain visible to be eaten progressively"
+    );
+
+    // 2. Tate / Vertical mode (32x64)
+    let mut matrix_tate = MockMatrix::new(32, 64);
+    let mut pacman_tate = PacmanClock::new();
+    pacman_tate.render(&mut matrix_tate, "12:34", 12, 34, &font, 1);
+    // Trigger transition
+    pacman_tate.render(&mut matrix_tate, "12:35", 12, 35, &font, 1);
+    assert!(pacman_tate.is_transitioning());
+
+    // Step into Tier 1 (Hours line)
+    for _ in 0..10 {
+        pacman_tate.render(&mut matrix_tate, "12:35", 12, 35, &font, 1);
+    }
+    assert!(pacman_tate.is_transitioning());
+
+    // In Tate mode, hours (top) and minutes (bottom) should have lit pixels
+    let mut top_lit = 0;
+    let mut bot_lit = 0;
+    for y in 0..32 {
+        for x in 0..32 {
+            let px = matrix_tate.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                top_lit += 1;
+            }
+        }
+    }
+    for y in 32..64 {
+        for x in 0..32 {
+            let px = matrix_tate.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                bot_lit += 1;
+            }
+        }
+    }
+    assert!(
+        top_lit > 10,
+        "Top tier (hours) must be rendering in vertical mode"
+    );
+    assert!(
+        bot_lit > 10,
+        "Bottom tier (minutes) must be rendering in vertical mode"
     );
 }

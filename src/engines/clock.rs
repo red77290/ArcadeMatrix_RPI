@@ -468,9 +468,10 @@ impl Engine for ClockEngine {
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, effective_size),
-            28 => self
-                .slot_machine
-                .render(matrix, &time_str, &font, effective_size),
+            28 => {
+                self.slot_machine
+                    .render(matrix, &time_str, hours, minutes, &font, effective_size)
+            }
             29 => self
                 .tetris_gb
                 .render(matrix, &time_str, &font, effective_size),

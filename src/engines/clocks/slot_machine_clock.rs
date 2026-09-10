@@ -4,6 +4,7 @@ use crate::engines::renderers::BaseRenderer;
 
 pub struct SlotMachineClock {
     last_minute: i32,
+    last_hour: i32,
     anim_frame: u32,
     spinning: bool,
     spin_speed: f32,
@@ -16,6 +17,7 @@ impl SlotMachineClock {
     pub fn new() -> Self {
         Self {
             last_minute: -1,
+            last_hour: -1,
             anim_frame: 0,
             spinning: false,
             spin_speed: 0.0,
@@ -25,10 +27,16 @@ impl SlotMachineClock {
         }
     }
 
+    pub fn is_spinning(&self) -> bool {
+        self.spinning
+    }
+
     pub fn render(
         &mut self,
         matrix: &mut dyn MatrixBackend,
         time_str: &str,
+        hours: u32,
+        minutes: u32,
         font: &ArcadeFont<'_>,
         scale: u32,
     ) {
@@ -36,17 +44,15 @@ impl SlotMachineClock {
         let h = matrix.height() as i32;
         self.anim_frame += 1;
 
-        let now_min: i32 = time_str
-            .split(':')
-            .nth(1)
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        let now_h = hours as i32;
+        let now_min = minutes as i32;
 
         if self.last_minute == -1 {
             self.last_minute = now_min;
+            self.last_hour = now_h;
             self.current_time = time_str.to_string();
             self.target_time = time_str.to_string();
-        } else if (self.last_minute != now_min || self.current_time != time_str) && !self.spinning {
+        } else if (self.last_minute != now_min || self.last_hour != now_h) && !self.spinning {
             self.spinning = true;
             self.spin_speed = 15.0;
             self.target_time = time_str.to_string();
@@ -78,6 +84,7 @@ impl SlotMachineClock {
                 self.spinning = false;
                 self.current_time = self.target_time.clone();
                 self.last_minute = now_min;
+                self.last_hour = now_h;
                 self.y_offset = 0.0;
             }
         }
@@ -226,7 +233,12 @@ impl SlotMachineClock {
             );
         } else {
             // Horizontal Landscape Layout
-            let (_, tw, th) = font.get_pixel_map(&self.current_time, scale as f32);
+            let display_str = if self.spinning {
+                &self.target_time
+            } else {
+                &self.current_time
+            };
+            let (_, tw, th) = font.get_pixel_map(display_str, scale as f32);
             let tx = (w - tw) / 2;
             let ty = (h - th) / 2;
 
@@ -234,9 +246,14 @@ impl SlotMachineClock {
 
             if self.spinning {
                 let blur_y = ty + (self.y_offset as i32 % (th * 2));
+                let (blur_top, blur_bot) = if self.target_time.len() > 5 {
+                    ("88:88:88", "00:00:00")
+                } else {
+                    ("88:88", "00:00")
+                };
                 BaseRenderer::draw_text_at(
                     matrix,
-                    "88:88",
+                    blur_top,
                     font,
                     scale as f32,
                     tx,
@@ -246,7 +263,7 @@ impl SlotMachineClock {
                 );
                 BaseRenderer::draw_text_at(
                     matrix,
-                    "00:00",
+                    blur_bot,
                     font,
                     scale as f32,
                     tx,

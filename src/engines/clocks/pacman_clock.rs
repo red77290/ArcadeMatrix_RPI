@@ -7,6 +7,7 @@ pub struct PacmanClock {
     direction: f32,
     anim_frame: u32,
     last_minute: i32,
+    last_hour: i32,
     transitioning: bool,
     old_time_str: String,
     new_time_str: String,
@@ -21,6 +22,7 @@ impl PacmanClock {
             direction: 1.0,
             anim_frame: 0,
             last_minute: -1,
+            last_hour: -1,
             transitioning: false,
             old_time_str: String::new(),
             new_time_str: String::new(),
@@ -29,11 +31,15 @@ impl PacmanClock {
         }
     }
 
+    pub fn is_transitioning(&self) -> bool {
+        self.transitioning
+    }
+
     pub fn render(
         &mut self,
         matrix: &mut dyn MatrixBackend,
         time_str: &str,
-        _hours: u32,
+        hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
         scale: u32,
@@ -42,15 +48,15 @@ impl PacmanClock {
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
+        let now_h = hours as i32;
         let now_min = minutes as i32;
 
         if self.last_minute == -1 {
             self.last_minute = now_min;
+            self.last_hour = now_h;
             self.old_time_str = time_str.to_string();
             self.new_time_str = time_str.to_string();
-        } else if (self.last_minute != now_min || self.old_time_str != time_str)
-            && !self.transitioning
-        {
+        } else if (self.last_minute != now_min || self.last_hour != now_h) && !self.transitioning {
             self.transitioning = true;
             self.old_time_str = self.new_time_str.clone();
             self.new_time_str = time_str.to_string();
@@ -175,30 +181,13 @@ impl PacmanClock {
                     [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
 
                 if self.pac_x < leg_len {
-                    // Tier 1: Hours line (Left -> Right)
-                    let current_pac_x = -self.radius as f32 * 2.0 + self.pac_x;
+                    let current_pac_x = (-self.radius as f32 * 2.0 + self.pac_x) as i32;
+                    let reveal_x =
+                        (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
 
-                    BaseRenderer::draw_text_at(
-                        matrix,
-                        &h_old,
-                        font,
-                        active_scale as f32,
-                        tx,
-                        ty_h,
-                        (100, 100, 100),
-                        (0, 0, 0),
-                    );
-                    for x in 0..current_pac_x as i32 {
-                        for y in (ty_h - 2)..=(ty_h + text_h + 2) {
-                            matrix.set_pixel(x, y, 0, 0, 0);
-                        }
-                    }
-
-                    let reveal_x = (current_pac_x as i32
-                        - (self.radius * 3 + 4 * ghost_spacing as i32))
-                        .max(0);
+                    // 1. Draw new hours behind reveal wave (0..reveal_x)
                     if reveal_x > 0 {
-                        BaseRenderer::draw_text_at(
+                        Self::draw_clipped_text(
                             matrix,
                             &h_new,
                             font,
@@ -207,12 +196,25 @@ impl PacmanClock {
                             ty_h,
                             (255, 255, 255),
                             (0, 0, 0),
+                            0,
+                            reveal_x,
                         );
-                        for x in reveal_x..w as i32 {
-                            for y in (ty_h - 2)..=(ty_h + text_h + 2) {
-                                matrix.set_pixel(x, y, 0, 0, 0);
-                            }
-                        }
+                    }
+
+                    // 2. Draw old hours ahead of Pacman (current_pac_x..w)
+                    if current_pac_x < w as i32 {
+                        Self::draw_clipped_text(
+                            matrix,
+                            &h_old,
+                            font,
+                            active_scale as f32,
+                            tx,
+                            ty_h,
+                            (100, 100, 100),
+                            (0, 0, 0),
+                            current_pac_x.max(0),
+                            w as i32,
+                        );
                     }
 
                     for &dx in &dot_x {
@@ -321,9 +323,10 @@ impl PacmanClock {
                         self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
                     }
                 } else {
-                    // Tier 3: Minutes line (Left -> Right)
                     let progress = self.pac_x - 2.0 * leg_len;
-                    let current_pac_x = -self.radius as f32 * 2.0 + progress;
+                    let current_pac_x = (-self.radius as f32 * 2.0 + progress) as i32;
+                    let reveal_x =
+                        (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
 
                     BaseRenderer::draw_text_at(
                         matrix,
@@ -335,41 +338,10 @@ impl PacmanClock {
                         (255, 255, 255),
                         (0, 0, 0),
                     );
-                    for &dx in &dot_x {
-                        for oy in -1..=0 {
-                            for ox in -1..=0 {
-                                matrix.set_pixel(
-                                    dx + ox,
-                                    dot_y + oy,
-                                    dot_color.0,
-                                    dot_color.1,
-                                    dot_color.2,
-                                );
-                            }
-                        }
-                    }
 
-                    BaseRenderer::draw_text_at(
-                        matrix,
-                        &m_old,
-                        font,
-                        active_scale as f32,
-                        tx,
-                        ty_m,
-                        (100, 100, 100),
-                        (0, 0, 0),
-                    );
-                    for x in 0..current_pac_x as i32 {
-                        for y in (ty_m - 2)..=(ty_m + text_h + 2) {
-                            matrix.set_pixel(x, y, 0, 0, 0);
-                        }
-                    }
-
-                    let reveal_x = (current_pac_x as i32
-                        - (self.radius * 3 + 4 * ghost_spacing as i32))
-                        .max(0);
+                    // 1. Draw new minutes behind reveal wave (0..reveal_x)
                     if reveal_x > 0 {
-                        BaseRenderer::draw_text_at(
+                        Self::draw_clipped_text(
                             matrix,
                             &m_new,
                             font,
@@ -378,12 +350,25 @@ impl PacmanClock {
                             ty_m,
                             (255, 255, 255),
                             (0, 0, 0),
+                            0,
+                            reveal_x,
                         );
-                        for x in reveal_x..w as i32 {
-                            for y in (ty_m - 2)..=(ty_m + text_h + 2) {
-                                matrix.set_pixel(x, y, 0, 0, 0);
-                            }
-                        }
+                    }
+
+                    // 2. Draw old minutes ahead of Pacman (current_pac_x..w)
+                    if current_pac_x < w as i32 {
+                        Self::draw_clipped_text(
+                            matrix,
+                            &m_old,
+                            font,
+                            active_scale as f32,
+                            tx,
+                            ty_m,
+                            (100, 100, 100),
+                            (0, 0, 0),
+                            current_pac_x.max(0),
+                            w as i32,
+                        );
                     }
 
                     self.draw_pacman(
@@ -409,6 +394,7 @@ impl PacmanClock {
                 if self.pac_x >= max_path {
                     self.transitioning = false;
                     self.last_minute = now_min;
+                    self.last_hour = now_h;
                     self.old_time_str = self.new_time_str.clone();
                 }
             }
@@ -460,28 +446,6 @@ impl PacmanClock {
             let tx = (w as i32 - text_w) / 2;
             let ty = (h as i32 - text_h) / 2;
 
-            // Draw old time (being "eaten" — visible only ahead of pac-man)
-            BaseRenderer::draw_text_at(
-                matrix,
-                &self.old_time_str.clone(),
-                font,
-                active_scale as f32,
-                tx,
-                ty,
-                (100, 100, 100),
-                (0, 0, 0),
-            );
-
-            // Black mask over eaten portion (left of pac-man)
-            for x in 0..self.pac_x as i32 {
-                for y in 0..h as i32 {
-                    matrix.set_pixel(x, y, 0, 0, 0);
-                }
-            }
-
-            // Draw new time (revealed behind pac-man)
-            let reveal_x = (self.pac_x as i32 - self.radius * 4).max(0);
-
             let (new_pixels, _, _) = font.get_pixel_map(&self.new_time_str, active_scale as f32);
             let mut new_w = 0;
             let mut new_h = 0;
@@ -494,21 +458,40 @@ impl PacmanClock {
             let new_tx = (w as i32 - new_w) / 2;
             let new_ty = (h as i32 - new_h) / 2;
 
-            BaseRenderer::draw_text_at(
-                matrix,
-                &self.new_time_str.clone(),
-                font,
-                active_scale as f32,
-                new_tx,
-                new_ty,
-                (255, 255, 255),
-                (0, 0, 0),
-            );
-            // Black mask over unrevealed portion (right of reveal wave)
-            for x in reveal_x..w as i32 {
-                for y in 0..h as i32 {
-                    matrix.set_pixel(x, y, 0, 0, 0);
-                }
+            let current_pac_x = self.pac_x as i32;
+            let ghost_spacing = self.radius as f32 * 2.2;
+            let reveal_x = (current_pac_x - (self.radius * 3 + 4 * ghost_spacing as i32)).max(0);
+
+            // 1. Draw new time behind reveal wave (0..reveal_x)
+            if reveal_x > 0 {
+                Self::draw_clipped_text(
+                    matrix,
+                    &self.new_time_str,
+                    font,
+                    active_scale as f32,
+                    new_tx,
+                    new_ty,
+                    (255, 255, 255),
+                    (0, 0, 0),
+                    0,
+                    reveal_x,
+                );
+            }
+
+            // 2. Draw old time ahead of Pacman (current_pac_x..w)
+            if current_pac_x < w as i32 {
+                Self::draw_clipped_text(
+                    matrix,
+                    &self.old_time_str,
+                    font,
+                    active_scale as f32,
+                    tx,
+                    ty,
+                    (100, 100, 100),
+                    (0, 0, 0),
+                    current_pac_x.max(0),
+                    w as i32,
+                );
             }
 
             // Mouth animation
@@ -545,7 +528,71 @@ impl PacmanClock {
             if self.pac_x >= w + self.radius as f32 * 3.0 {
                 self.transitioning = false;
                 self.last_minute = now_min;
+                self.last_hour = now_h;
                 self.old_time_str = self.new_time_str.clone();
+            }
+        }
+    }
+
+    fn draw_clipped_text(
+        matrix: &mut dyn MatrixBackend,
+        text: &str,
+        font: &ArcadeFont<'_>,
+        size: f32,
+        x: i32,
+        y: i32,
+        primary: (u8, u8, u8),
+        secondary: (u8, u8, u8),
+        clip_min_x: i32,
+        clip_max_x: i32,
+    ) {
+        if clip_min_x >= clip_max_x {
+            return;
+        }
+        let (pixels_by_char, _, _) = font.get_pixel_map(text, size);
+        let offset = (size as i32).max(1);
+
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                let px = x + gx;
+                let py = y + gy;
+                if px < clip_min_x || px >= clip_max_x {
+                    continue;
+                }
+                for i in 1..=offset {
+                    if px - i >= clip_min_x && px - i < clip_max_x {
+                        matrix.set_pixel(px - i, py, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px + i >= clip_min_x && px + i < clip_max_x {
+                        matrix.set_pixel(px + i, py, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px >= clip_min_x && px < clip_max_x {
+                        matrix.set_pixel(px, py - i, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px, py + i, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px + i >= clip_min_x && px + i < clip_max_x {
+                        matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px - i >= clip_min_x && px - i < clip_max_x {
+                        matrix.set_pixel(px - i, py - i, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px + i >= clip_min_x && px + i < clip_max_x {
+                        matrix.set_pixel(px + i, py - i, secondary.0, secondary.1, secondary.2);
+                    }
+                    if px - i >= clip_min_x && px - i < clip_max_x {
+                        matrix.set_pixel(px - i, py + i, secondary.0, secondary.1, secondary.2);
+                    }
+                }
+            }
+        }
+
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                let px = x + gx;
+                let py = y + gy;
+                if px >= clip_min_x && px < clip_max_x {
+                    matrix.set_pixel(px, py, primary.0, primary.1, primary.2);
+                }
             }
         }
     }

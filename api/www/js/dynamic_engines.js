@@ -1424,6 +1424,8 @@ export function buildFileAssetWidget(field, instId, initVal) {
         previewImg.style.display = 'inline-block';
       };
       reader.readAsDataURL(file);
+    }
+
     let uploadFile = file;
 
     // For static images, client-side pre-resize ensures optimal performance on ESP & RPi

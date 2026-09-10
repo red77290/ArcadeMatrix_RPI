@@ -7,6 +7,7 @@ pub struct PacmanClock {
     direction: f32,
     anim_frame: u32,
     last_minute: i32,
+    last_hour: i32,
     transitioning: bool,
     old_time_str: String,
     new_time_str: String,
@@ -21,6 +22,7 @@ impl PacmanClock {
             direction: 1.0,
             anim_frame: 0,
             last_minute: -1,
+            last_hour: -1,
             transitioning: false,
             old_time_str: String::new(),
             new_time_str: String::new(),
@@ -29,11 +31,15 @@ impl PacmanClock {
         }
     }
 
+    pub fn is_transitioning(&self) -> bool {
+        self.transitioning
+    }
+
     pub fn render(
         &mut self,
         matrix: &mut dyn MatrixBackend,
         time_str: &str,
-        _hours: u32,
+        hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
         scale: u32,
@@ -42,15 +48,15 @@ impl PacmanClock {
         let h = matrix.height() as f32;
         self.anim_frame += 1;
 
+        let now_h = hours as i32;
         let now_min = minutes as i32;
 
         if self.last_minute == -1 {
             self.last_minute = now_min;
+            self.last_hour = now_h;
             self.old_time_str = time_str.to_string();
             self.new_time_str = time_str.to_string();
-        } else if (self.last_minute != now_min || self.old_time_str != time_str)
-            && !self.transitioning
-        {
+        } else if (self.last_minute != now_min || self.last_hour != now_h) && !self.transitioning {
             self.transitioning = true;
             self.old_time_str = self.new_time_str.clone();
             self.new_time_str = time_str.to_string();
@@ -409,6 +415,7 @@ impl PacmanClock {
                 if self.pac_x >= max_path {
                     self.transitioning = false;
                     self.last_minute = now_min;
+                    self.last_hour = now_h;
                     self.old_time_str = self.new_time_str.clone();
                 }
             }
@@ -545,6 +552,7 @@ impl PacmanClock {
             if self.pac_x >= w + self.radius as f32 * 3.0 {
                 self.transitioning = false;
                 self.last_minute = now_min;
+                self.last_hour = now_h;
                 self.old_time_str = self.new_time_str.clone();
             }
         }

@@ -130,7 +130,7 @@ fn test_subclocks_tate_responsiveness() {
         // 4. SlotMachineClock
         matrix.clear();
         let mut slot = SlotMachineClock::new();
-        slot.render(&mut matrix, "12:34", &font, 1);
+        slot.render(&mut matrix, "12:34", 12, 34, &font, 1);
         let mut slot_lit = 0;
         for y in 0..h {
             for x in 0..w {
@@ -376,5 +376,88 @@ fn test_tate_seconds_same_size_as_hours_minutes() {
         s_color, h_color,
         "Seconds color ({:?}) must match hours color ({:?})",
         s_color, h_color
+    );
+}
+
+#[test]
+fn test_minute_clocks_ignore_seconds_stability() {
+    let base = BaseRenderer::new();
+    let font = base.font();
+    let mut matrix = MockMatrix::new(64, 32);
+
+    // 1. PacmanClock stability across seconds
+    let mut pacman = PacmanClock::new();
+    pacman.render(&mut matrix, "12:34:00", 12, 34, &font, 1);
+    assert!(
+        !pacman.is_transitioning(),
+        "PacmanClock should not be transitioning initially"
+    );
+
+    for sec in 1..=10 {
+        let time_str = format!("12:34:{:02}", sec);
+        pacman.render(&mut matrix, &time_str, 12, 34, &font, 1);
+        assert!(
+            !pacman.is_transitioning(),
+            "PacmanClock must not trigger animation on second change ({})",
+            time_str
+        );
+    }
+    let mut pac_lit = 0;
+    for y in 0..32 {
+        for x in 0..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                pac_lit += 1;
+            }
+        }
+    }
+    assert!(
+        pac_lit > 20,
+        "PacmanClock must display static digits without constant animation lock"
+    );
+
+    // Minute advance should trigger transition
+    pacman.render(&mut matrix, "12:35:00", 12, 35, &font, 1);
+    assert!(
+        pacman.is_transitioning(),
+        "PacmanClock must trigger transition when minute advances"
+    );
+
+    // 2. SlotMachineClock stability across seconds
+    let mut slot = SlotMachineClock::new();
+    slot.render(&mut matrix, "12:34:00", 12, 34, &font, 1);
+    assert!(
+        !slot.is_spinning(),
+        "SlotMachineClock should not be spinning initially"
+    );
+
+    for sec in 1..=10 {
+        let time_str = format!("12:34:{:02}", sec);
+        slot.render(&mut matrix, &time_str, 12, 34, &font, 1);
+        assert!(
+            !slot.is_spinning(),
+            "SlotMachineClock must not trigger spinning on second change ({})",
+            time_str
+        );
+    }
+    let mut slot_lit = 0;
+    for y in 0..32 {
+        for x in 0..64 {
+            let px = matrix.canvas.get_pixel(x, y);
+            if px[0] > 0 || px[1] > 0 || px[2] > 0 {
+                slot_lit += 1;
+            }
+        }
+    }
+    assert!(
+        slot_lit > 20,
+        "SlotMachineClock must display static digits without constant spinning lock"
+    );
+
+    // Minute advance should trigger spinning
+    slot.render(&mut matrix, "12:35:00", 12, 35, &font, 1);
+    assert!(
+        slot.is_spinning(),
+        "SlotMachineClock must trigger spinning when minute advances"
     );
 }

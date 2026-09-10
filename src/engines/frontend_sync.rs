@@ -4,6 +4,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info};
 
+pub const MQTT_TOPIC_WILDCARD: &str = "system/playing/#";
+
 static MQTT_REQUEST_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 pub fn format_game_name(game: &str) -> String {
@@ -43,6 +45,16 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         // (games that don't exist on Pixelcade) is preserved across multiple events!
         let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new("data/marquees"));
 
+        // Show "WAITING FOR MARQUEE" upon connection until first event is received
+        let msg_payload = crate::engines::message::MessagePayload::new(
+            "WAITING FOR MARQUEE".to_string(),
+            "#ffffff",
+            1,
+            "none",
+            0,
+        );
+        config.set_message_payload(Some(msg_payload));
+
         loop {
             let mut mqttoptions = MqttOptions::new("arcadematrix_rpi", &broker, port);
             mqttoptions.set_keep_alive(Duration::from_secs(60));
@@ -53,8 +65,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
 
             let (client, mut connection) = Client::new(mqttoptions, 10);
 
-            if let Err(e) = client.subscribe("recalbox/system/playing", QoS::AtMostOnce) {
-                error!("Failed to subscribe to Recalbox MQTT topic: {}", e);
+            if let Err(e) = client.subscribe(MQTT_TOPIC_WILDCARD, QoS::AtMostOnce) {
+                error!(
+                    "Failed to subscribe to MQTT topic {}: {}",
+                    MQTT_TOPIC_WILDCARD, e
+                );
                 std::thread::sleep(Duration::from_secs(5));
                 continue;
             }
@@ -63,7 +78,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 match notification {
                     Ok(Event::Incoming(Packet::Publish(publish))) => {
                         if let Ok(payload) = String::from_utf8(publish.payload.to_vec()) {
-                            info!("MQTT Recalbox game payload: {}", payload);
+                            info!("MQTT game payload: {}", payload);
                             if let Ok(json) = serde_json::from_str::<serde_json::Value>(&payload) {
                                 let status = json["status"].as_str().unwrap_or("stopped");
                                 if status != "stopped" {
@@ -76,9 +91,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                     let clean_game =
                                         crate::core::dmd_cache::clean_system_name(&raw_game);
 
-                                    let is_system_event = json["type"].as_str() == Some("system")
-                                        || clean_game.is_empty()
-                                        || clean_game.eq_ignore_ascii_case(&clean_sys);
+                                    let is_playing = json["status"].as_str() == Some("playing");
+                                    let is_system_event = !is_playing
+                                        && (json["type"].as_str() == Some("system")
+                                            || clean_game.is_empty()
+                                            || clean_game.eq_ignore_ascii_case(&clean_sys));
 
                                     let system = if !clean_sys.is_empty() {
                                         clean_sys
@@ -102,8 +119,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         {
                                             if let Ok(img) = image::open(&path) {
                                                 *config.image_obj.lock() = Some(img.to_rgb8());
-                                                *config.force_engine.lock() =
-                                                    Some("marquee".to_string());
+                                                config.set_forced_engine_mode(
+                                                    crate::core::types::ForcedEngineMode::Marquee,
+                                                );
                                                 continue;
                                             }
                                         }
@@ -123,9 +141,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() =
-                                            Some(serde_json::to_value(msg_payload).unwrap());
-                                        *config.force_engine.lock() = Some("message".to_string());
+                                        config.set_message_payload(Some(msg_payload));
 
                                         let config_clone = Arc::clone(&config);
                                         let cache_clone = Arc::clone(&dmd_cache);
@@ -140,8 +156,9 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                     {
                                                         *config_clone.image_obj.lock() =
                                                             Some(img.to_rgb8());
-                                                        *config_clone.force_engine.lock() =
-                                                            Some("marquee".to_string());
+                                                        config_clone.set_forced_engine_mode(
+                                                            crate::core::types::ForcedEngineMode::Marquee,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -157,9 +174,25 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                         {
                                             if let Ok(img) = image::open(&path) {
                                                 *config.image_obj.lock() = Some(img.to_rgb8());
-                                                *config.force_engine.lock() =
-                                                    Some("marquee".to_string());
+                                                config.set_forced_engine_mode(
+                                                    crate::core::types::ForcedEngineMode::Marquee,
+                                                );
                                                 continue;
+                                            }
+                                        }
+
+                                        // If game is known to have no custom marquee, display system marquee immediately
+                                        if dmd_cache.is_negative_cached(&system, &game) {
+                                            if let Some(path) =
+                                                dmd_cache.get_cached_system_path(&system)
+                                            {
+                                                if let Ok(img) = image::open(&path) {
+                                                    *config.image_obj.lock() = Some(img.to_rgb8());
+                                                    config.set_forced_engine_mode(
+                                                        crate::core::types::ForcedEngineMode::Marquee,
+                                                    );
+                                                    continue;
+                                                }
                                             }
                                         }
 
@@ -175,18 +208,13 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                 if clean_name.len() > 8 { "left" } else { "none" },
                                                 0,
                                             );
-                                        *config.message_payload.lock() =
-                                            Some(serde_json::to_value(msg_payload).unwrap());
-                                        *config.force_engine.lock() = Some("message".to_string());
+                                        config.set_message_payload(Some(msg_payload));
 
                                         let config_clone = Arc::clone(&config);
                                         let cache_clone = Arc::clone(&dmd_cache);
                                         std::thread::spawn(move || {
                                             let path_opt = cache_clone
                                                 .download_marquee(&system, &game)
-                                                .or_else(|| {
-                                                    cache_clone.download_system_marquee(&game)
-                                                })
                                                 .or_else(|| {
                                                     cache_clone.download_system_marquee(&system)
                                                 });
@@ -198,16 +226,18 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                                     {
                                                         *config_clone.image_obj.lock() =
                                                             Some(img.to_rgb8());
-                                                        *config_clone.force_engine.lock() =
-                                                            Some("marquee".to_string());
+                                                        config_clone.set_forced_engine_mode(
+                                                            crate::core::types::ForcedEngineMode::Marquee,
+                                                        );
                                                     }
                                                 }
                                             }
                                         });
                                     }
                                 } else if status == "stopped" {
-                                    *config.force_engine.lock() = None;
-                                    *config.image_obj.lock() = None;
+                                    // User requirement: "ensuite le dernier event reste affiché indéfiniment jusqu'au prochain event"
+                                    // Keep the last marquee displayed on screen indefinitely.
+                                    info!("Received stopped event, keeping last marquee displayed until next event.");
                                 }
                             }
                         }

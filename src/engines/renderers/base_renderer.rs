@@ -26,10 +26,9 @@ impl<'a> ArcadeFont<'a> {
                 let scale = Scale::uniform(8.0 * size);
                 let v_metrics = font.v_metrics(scale);
                 let glyphs: Vec<_> = font
-                    .layout(text, scale, rusttype::point(0.0, v_metrics.ascent))
+                    .layout(text, scale, rusttype::point(0.0, v_metrics.ascent.round()))
                     .collect();
                 let mut pixels_by_char = Vec::new();
-                let mut max_x = 0;
                 for glyph in &glyphs {
                     let mut char_pixels = Vec::new();
                     if let Some(bb) = glyph.pixel_bounding_box() {
@@ -40,15 +39,44 @@ impl<'a> ArcadeFont<'a> {
                                 char_pixels.push((px, py));
                             }
                         });
-                        max_x = max_x.max(bb.max.x);
                     }
                     pixels_by_char.push(char_pixels);
                 }
-                (
-                    pixels_by_char,
-                    max_x,
-                    (v_metrics.ascent - v_metrics.descent) as i32,
-                )
+
+                // Normalize visual bounding box across all rendered characters
+                let mut min_x = i32::MAX;
+                let mut max_x = i32::MIN;
+                let mut min_y = i32::MAX;
+                let mut max_y = i32::MIN;
+                let mut has_pixels = false;
+
+                for char_pixels in &pixels_by_char {
+                    for &(px, py) in char_pixels {
+                        min_x = min_x.min(px);
+                        max_x = max_x.max(px);
+                        min_y = min_y.min(py);
+                        max_y = max_y.max(py);
+                        has_pixels = true;
+                    }
+                }
+
+                if has_pixels {
+                    for char_pixels in &mut pixels_by_char {
+                        for (px, py) in char_pixels.iter_mut() {
+                            *px -= min_x;
+                            *py -= min_y;
+                        }
+                    }
+                    let actual_w = max_x - min_x + 1;
+                    let actual_h = max_y - min_y + 1;
+                    (pixels_by_char, actual_w, actual_h)
+                } else {
+                    (
+                        pixels_by_char,
+                        0,
+                        (v_metrics.ascent - v_metrics.descent) as i32,
+                    )
+                }
             }
             ArcadeFont::Bdf(font) => {
                 let mut pixels_by_char = Vec::new();
@@ -102,11 +130,41 @@ impl<'a> ArcadeFont<'a> {
                     }
                     pixels_by_char.push(char_pixels);
                 }
-                (
-                    pixels_by_char,
-                    cur_x * scale_int,
-                    (ascent + descent) * scale_int,
-                )
+
+                // Normalize visual bounding box
+                let mut min_x = i32::MAX;
+                let mut max_x = i32::MIN;
+                let mut min_y = i32::MAX;
+                let mut max_y = i32::MIN;
+                let mut has_pixels = false;
+
+                for char_pixels in &pixels_by_char {
+                    for &(px, py) in char_pixels {
+                        min_x = min_x.min(px);
+                        max_x = max_x.max(px);
+                        min_y = min_y.min(py);
+                        max_y = max_y.max(py);
+                        has_pixels = true;
+                    }
+                }
+
+                if has_pixels {
+                    for char_pixels in &mut pixels_by_char {
+                        for (px, py) in char_pixels.iter_mut() {
+                            *px -= min_x;
+                            *py -= min_y;
+                        }
+                    }
+                    let actual_w = max_x - min_x + 1;
+                    let actual_h = max_y - min_y + 1;
+                    (pixels_by_char, actual_w, actual_h)
+                } else {
+                    (
+                        pixels_by_char,
+                        cur_x * scale_int,
+                        (ascent + descent) * scale_int,
+                    )
+                }
             }
         }
     }
@@ -180,6 +238,124 @@ impl BaseRenderer {
         }
     }
 
+    pub fn draw_themed_text_at(
+        &self,
+        matrix: &mut dyn MatrixBackend,
+        text: &str,
+        theme_id: i32,
+        size: u32,
+        start_x: i32,
+        start_y: i32,
+        color1_override: Option<(u8, u8, u8)>,
+        color2_override: Option<(u8, u8, u8)>,
+    ) {
+        let theme = get_theme_info(theme_id);
+        let primary = color1_override.unwrap_or(theme.primary_color);
+        let secondary = color2_override.unwrap_or(theme.secondary_color);
+
+        let font = self.font();
+        let (pixels_by_char, _, _) = font.get_pixel_map(text, size as f32);
+
+        let is_logo_theme = theme_id == 0 || theme_id == 1 || theme_id == 3; // Nintendo, Capcom, Sega
+        let is_3d_theme = theme_id >= 4 && theme_id <= 17;
+        let is_flip_theme = theme_id == 19;
+        let is_matrix_theme = theme_id == 18 || theme_id == 21;
+
+        let effect_depth = if size >= 5 { 2 } else { 1 };
+        let shadow_depth = effect_depth + 1;
+
+        if is_3d_theme {
+            // 1. 3D extrusion in secondary color
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = start_x + gx;
+                    let py = start_y + gy;
+                    for i in 1..=shadow_depth {
+                        matrix.set_pixel(px + i, py + i, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px + i - 1, py + i, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px + i, py + i - 1, secondary.0, secondary.1, secondary.2);
+                    }
+                }
+            }
+
+            // 2. 8-way black carve-out outline (distance 1) separating face from 3D shadow
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = start_x + gx;
+                    let py = start_y + gy;
+                    for dy in -1..=1 {
+                        for dx in -1..=1 {
+                            if dx != 0 || dy != 0 {
+                                matrix.set_pixel(px + dx, py + dy, 0, 0, 0);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if is_logo_theme {
+            // 4-way outline
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = start_x + gx;
+                    let py = start_y + gy;
+                    for i in 1..=effect_depth {
+                        matrix.set_pixel(px + i, py, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px - i, py, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px, py + i, secondary.0, secondary.1, secondary.2);
+                        matrix.set_pixel(px, py - i, secondary.0, secondary.1, secondary.2);
+                    }
+                }
+            }
+        } else if is_matrix_theme {
+            // 4-way crisp black halo around text
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = start_x + gx;
+                    let py = start_y + gy;
+                    matrix.set_pixel(px + 1, py, 0, 0, 0);
+                    matrix.set_pixel(px - 1, py, 0, 0, 0);
+                    matrix.set_pixel(px, py + 1, 0, 0, 0);
+                    matrix.set_pixel(px, py - 1, 0, 0, 0);
+                }
+            }
+        } else if !is_flip_theme {
+            for char_pixels in &pixels_by_char {
+                for &(gx, gy) in char_pixels {
+                    let px = start_x + gx;
+                    let py = start_y + gy;
+                    matrix.set_pixel(
+                        px + effect_depth,
+                        py + effect_depth,
+                        secondary.0,
+                        secondary.1,
+                        secondary.2,
+                    );
+                    matrix.set_pixel(
+                        px + effect_depth - 1,
+                        py + effect_depth,
+                        secondary.0,
+                        secondary.1,
+                        secondary.2,
+                    );
+                    matrix.set_pixel(
+                        px + effect_depth,
+                        py + effect_depth - 1,
+                        secondary.0,
+                        secondary.1,
+                        secondary.2,
+                    );
+                }
+            }
+        }
+
+        // 3. Primary glyph face on top of everything
+        for char_pixels in &pixels_by_char {
+            for &(gx, gy) in char_pixels {
+                matrix.set_pixel(start_x + gx, start_y + gy, primary.0, primary.1, primary.2);
+            }
+        }
+    }
+
     pub fn render_text(
         &self,
         matrix: &mut dyn MatrixBackend,
@@ -191,98 +367,154 @@ impl BaseRenderer {
         color1_override: Option<(u8, u8, u8)>,
         color2_override: Option<(u8, u8, u8)>,
     ) {
-        let theme = get_theme_info(theme_id);
-        let primary = color1_override.unwrap_or(theme.primary_color);
-        let secondary = color2_override.unwrap_or(theme.secondary_color);
+        let font = self.font();
+        let w = matrix.width() as i32;
+        let h = matrix.height() as i32;
 
-        let font_owned: Option<Font<'_>>;
-        let font = if let Some(bdf) = &self.custom_bdf_font {
-            ArcadeFont::Bdf(bdf)
+        let mut effective_size = size.max(1);
+        while effective_size > 1 {
+            let (_, text_width, text_height) = font.get_pixel_map(text, effective_size as f32);
+            if text_width <= w && text_height <= h {
+                break;
+            }
+            effective_size -= 1;
+        }
+
+        let (_, text_width, text_height) = font.get_pixel_map(text, effective_size as f32);
+
+        let start_x = (w - text_width) / 2 + offset_x;
+        let start_y = (h - text_height) / 2 + offset_y;
+
+        self.draw_themed_text_at(
+            matrix,
+            text,
+            theme_id,
+            effective_size,
+            start_x,
+            start_y,
+            color1_override,
+            color2_override,
+        );
+    }
+
+    pub fn render_tate_time(
+        &self,
+        matrix: &mut dyn MatrixBackend,
+        hours: u32,
+        minutes: u32,
+        seconds: u32,
+        theme_id: i32,
+        custom_size: u32,
+        offset_x: i32,
+        offset_y: i32,
+        color1_override: Option<(u8, u8, u8)>,
+        color2_override: Option<(u8, u8, u8)>,
+    ) {
+        let w = matrix.width() as i32;
+        let h = matrix.height() as i32;
+
+        let font = self.font();
+        let h_str = format!("{:02}", hours);
+        let m_str = format!("{:02}", minutes);
+        let s_str = format!("{:02}", seconds);
+
+        let tier_count = if h >= 128 { 3 } else { 2 };
+        let max_tier_h = h / tier_count;
+
+        // Find the maximum scale <= requested size that fits within display bounds
+        let target_size = if custom_size > 0 { custom_size } else { 4 };
+        let mut scale = target_size;
+        while scale > 1 {
+            let (_, dw, dh) = font.get_pixel_map(&h_str, scale as f32);
+            if dw <= w && dh <= max_tier_h {
+                break;
+            }
+            scale -= 1;
+        }
+
+        let (_, h_w, h_h) = font.get_pixel_map(&h_str, scale as f32);
+        let (_, m_w, m_h) = font.get_pixel_map(&m_str, scale as f32);
+        let (_, s_w, s_h) = font.get_pixel_map(&s_str, scale as f32);
+
+        let draw_x_h = (w - h_w) / 2 + offset_x;
+        let draw_x_m = (w - m_w) / 2 + offset_x;
+        let draw_x_s = (w - s_w) / 2 + offset_x;
+
+        if h >= 128 {
+            // 3 Tiers (Hours, Minutes, Seconds)
+            let y_h = (h / 6) - (h_h / 2) + offset_y;
+            let y_m = (h / 2) - (m_h / 2) + offset_y;
+            let y_s = (5 * h / 6) - (s_h / 2) + offset_y;
+
+            self.draw_themed_text_at(
+                matrix,
+                &h_str,
+                theme_id,
+                scale,
+                draw_x_h,
+                y_h,
+                color1_override,
+                color2_override,
+            );
+            self.draw_themed_text_at(
+                matrix,
+                &m_str,
+                theme_id,
+                scale,
+                draw_x_m,
+                y_m,
+                color1_override,
+                color2_override,
+            );
+
+            // Seconds tier (exact same scale, alignment, and color as hours and minutes)
+            self.draw_themed_text_at(
+                matrix,
+                &s_str,
+                theme_id,
+                scale,
+                draw_x_s,
+                y_s,
+                color1_override,
+                color2_override,
+            );
         } else {
-            match &self.custom_font_bytes {
-                Some(bytes) => {
-                    font_owned = Font::try_from_bytes(bytes.as_ref());
-                    ArcadeFont::Ttf(
-                        font_owned
-                            .as_ref()
-                            .unwrap_or_else(|| get_embedded_font())
-                            .clone(),
-                    )
+            // 2 Tiers (Hours top, Minutes bottom, pulsing dots in center)
+            let y_h = (h / 4) - (h_h / 2) + offset_y + 2;
+            let y_m = (3 * h / 4) - (m_h / 2) + offset_y - 2;
+
+            self.draw_themed_text_at(
+                matrix,
+                &h_str,
+                theme_id,
+                scale,
+                draw_x_h,
+                y_h,
+                color1_override,
+                color2_override,
+            );
+            self.draw_themed_text_at(
+                matrix,
+                &m_str,
+                theme_id,
+                scale,
+                draw_x_m,
+                y_m,
+                color1_override,
+                color2_override,
+            );
+
+            // Center Pulsing Colon
+            let dot_x = (w / 2) - 1 + offset_x;
+            let dot_y1 = (h / 2) - 3 + offset_y;
+            let dot_y2 = (h / 2) + 2 + offset_y;
+            let theme = get_theme_info(theme_id);
+            let primary = color1_override.unwrap_or(theme.primary_color);
+            for dy in 0..2 {
+                for dx in 0..2 {
+                    matrix.set_pixel(dot_x + dx, dot_y1 + dy, primary.0, primary.1, primary.2);
+                    matrix.set_pixel(dot_x + dx, dot_y2 + dy, primary.0, primary.1, primary.2);
                 }
-                None => ArcadeFont::Ttf(get_embedded_font().clone()),
-            }
-        };
-
-        let (pixels_by_char, text_width, text_height) = font.get_pixel_map(text, size as f32);
-
-        let start_x = (matrix.width() as i32 - text_width) / 2 + offset_x;
-        let start_y = (matrix.height() as i32 - text_height) / 2 + offset_y;
-
-        let effect_depth = if size >= 5 { 2 } else { 1 };
-        let shadow_depth = effect_depth + 1;
-        let is_logo_theme = theme_id == 0 || theme_id == 1 || theme_id == 3; // Nintendo, Capcom, Sega
-        let is_3d_theme = theme_id >= 4 && theme_id <= 17;
-        let is_flip_theme = theme_id == 19;
-        let is_matrix_theme = theme_id == 18 || theme_id == 21;
-
-        let scale = (size as i32).max(1);
-        let offset = scale.max(1);
-        let shadow_depth = offset + 1;
-
-        // Draw Shadows/Outlines
-        for char_pixels in &pixels_by_char {
-            for &(gx, gy) in char_pixels {
-                let px = start_x + gx;
-                let py = start_y + gy;
-
-                if is_3d_theme {
-                    // Huge Solid 3D Extrusion starting at d=2 to avoid carve-out spikes!
-                    for d in 2..=(shadow_depth + 1) {
-                        matrix.set_pixel(px + d, py + d, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px + d - 1, py + d, secondary.0, secondary.1, secondary.2);
-                        matrix.set_pixel(px + d, py + d - 1, secondary.0, secondary.1, secondary.2);
-                    }
-                } else if is_logo_theme {
-                    // 4-way Normal Outline
-                    matrix.set_pixel(px + offset, py, secondary.0, secondary.1, secondary.2);
-                    matrix.set_pixel(px - offset, py, secondary.0, secondary.1, secondary.2);
-                    matrix.set_pixel(px, py + offset, secondary.0, secondary.1, secondary.2);
-                    matrix.set_pixel(px, py - offset, secondary.0, secondary.1, secondary.2);
-                } else if is_matrix_theme {
-                    // 4-way crisp black halo around text
-                    matrix.set_pixel(px + 1, py, 0, 0, 0);
-                    matrix.set_pixel(px - 1, py, 0, 0, 0);
-                    matrix.set_pixel(px, py + 1, 0, 0, 0);
-                    matrix.set_pixel(px, py - 1, 0, 0, 0);
-                } else if !is_flip_theme {
-                    matrix.set_pixel(
-                        px + offset,
-                        py + offset,
-                        secondary.0,
-                        secondary.1,
-                        secondary.2,
-                    );
-                }
-            }
-        }
-
-        if is_3d_theme {
-            // 4-way black carve-out (Fixes colors and color bleed without creating spikes)
-            for char_pixels in &pixels_by_char {
-                for &(gx, gy) in char_pixels {
-                    let px = start_x + gx;
-                    let py = start_y + gy;
-                    matrix.set_pixel(px - 1, py, 0, 0, 0);
-                    matrix.set_pixel(px + 1, py, 0, 0, 0);
-                    matrix.set_pixel(px, py - 1, 0, 0, 0);
-                    matrix.set_pixel(px, py + 1, 0, 0, 0);
-                }
-            }
-        }
-
-        for char_pixels in &pixels_by_char {
-            for &(gx, gy) in char_pixels {
-                matrix.set_pixel(start_x + gx, start_y + gy, primary.0, primary.1, primary.2);
             }
         }
     }

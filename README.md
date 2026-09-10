@@ -31,15 +31,18 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 ---
 
-## 🌟 Features (RPi Exclusives vs ESP32)
+## 🌟 Features (RPi Exclusives & ESP32 Alignment)
 
+* 🎯 **Canonical Display Arbiter & Preemption Engine**: Bounded $O(1)$ zero-allocation decision pipeline with multi-source priority arbitration (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, exact intent matching, and resilient orphan cleanup.
+* 🧭 **Dynamic Orientation & Tate Mode (`OrientationManager`)**: Multi-angle manual and responsive rotation (0°, 90°, 180°, 270°) with automatic layout classification (`LayoutClass`) and reactive versioning.
 * 🔄 **Over-The-Air (OTA) Firmware Update**: Update the single standalone Rust binary directly from the Web UI without re-flashing your SD Card image! *(Failsafe Recovery: If an OTA update ever breaks your system, plug your SD card into a PC and drop a valid firmware named `arcadematrix_recovery.bin` at the root of either the `bootfs` partition or the `DATA` partition. It will automatically install on the next boot!)*
 * 🚀 **Rust Native Performance**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
 * 🎵 **Spotify Live Now Playing (`spotify`)**: Real-time display of current Spotify playback with full-color album artwork, animated track/artist marquee, progress bar, and animated audio equalizer.
 * 📡 **Google Cast & Nest (`google_cast`)**: Automatic mDNS discovery of Google Home / Nest Audio speakers on your LAN with real-time media title, artist, album art, and volume metadata.
 * 🖥️ **System Monitor (`sysinfo`)**: Real-time monitoring of CPU usage (%), RAM (%), SoC temperature (°C/°F), and system Uptime with colored gauges and customizable visual themes.
-* 🥊 **M.U.G.E.N Fighter Engine (`fighter`)**: Authentic retro fighting game sprites (Street Fighter, KOF, DBZ, Marvel...) decoded in RGB565 with zero stutter, playable standalone or as an overlay over your clocks.
+* 🥊 **M.U.G.E.N Fighter Engine (`fighter`)**: Authentic retro fighting game sprites decoded in RGB565 with zero stutter, playable standalone or as an overlay over your clocks, featuring live configurable animation speeds (25%–200%).
 * 📈 **Real-Time Crypto & Stock Tickers (`crypto`, `stock`)**: Live price quotes, 24h % badges, and historical sparkline charts from CoinGecko, Binance, and Yahoo Finance with smart caching.
+* 📰 **Live Breaking News & GNews Ticker (`gnews`)**: Real-time top headlines and breaking news with topic categories (Tech, World, Business, Science, Sports...), live pulsing broadcast beacon, customizable sub-pixel 60 FPS scrolling ticker, and multi-language/localization filtering!
 * 🌦️ **Dynamic Weather (`weather`)**: Live weather conditions, current temperature, multi-day forecasts, and animated retro icons powered by OpenWeatherMap.
 * ⏰ **Massive Animated Clock Selection (`clock`)**: Interactive clocks including Arcade, Binary, Cyberpunk, Flip, Word, as well as **Pac-Man**, **Tetris**, **SlotMachine**, **Pong**, and **Versus (Mugen)** clocks!
 * **Dynamically Loadable Fonts (`.ttf`)**: Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
@@ -150,19 +153,22 @@ The interface is exactly the same as the ESP32 version, offering Dashboard contr
 
 ## 🕹️ Recalbox & Batocera Integration (Pixelcade Marquees)
 
-ArcadeMatrix supports dynamic **Pixelcade-style** marquees when you select or play a game on your Recalbox or Batocera!
+ArcadeMatrix supports dynamic **Pixelcade-style** marquees when you select or play a game on your Recalbox, Batocera, or RetroPie console!
+
+> [!IMPORTANT]
+> **Batocera version requirement:** Dynamic marquee switching while browsing games and systems requires **Batocera v33 or newer** (Batocera introduced the EmulationStation `game-selected` and `system-selected` script hooks in v33). On Batocera v32 and earlier, only game launch and stop events (`game-start`, `game-end`) are supported. Recalbox is fully supported across all versions via its native state polling daemon.
 
 As you browse your game lists, the Raspberry Pi will download official Pixelcade marquees from GitHub **in the background and in real-time**, cache them on your SD card, and display them on your LED matrix. If a game has no image, it will display an elegant animated text fallback.
 
 ### Automatic Installation (Recommended)
-Go to the **MQTT** tab in the ArcadeMatrix Web UI, enter the IP of your Recalbox/Batocera along with its root password (default `recalboxroot` or `linux`), and click **Install Sync Script**. This will automatically inject the daemon via SSH.
+Go to the **MQTT** tab in the ArcadeMatrix Web UI, select your console OS (`Auto-Detect`, `Recalbox`, `Batocera`, or `RetroPie`), enter the console's IP along with credentials, and click **Install Sync Script**. This will automatically inject the daemon via SSH.
 
-### Manual Installation (Recalbox)
+### Manual Installation (Recalbox / Batocera / RetroPie)
 If you prefer manual installation, or if the network install fails:
-1. Open the `tools/recalbox_setup_mqtt.sh` file included in the project.
-2. Edit the line `MQTT_BROKER="192.168.1.xxx"` and set the IP of the Raspberry Pi running the LED Matrix.
-3. Copy the `tools/recalbox_setup_mqtt.sh` file to your Recalbox (e.g., in `/recalbox/share/`).
-4. SSH into your Recalbox and run: `bash /recalbox/share/recalbox_setup_mqtt.sh`.
+1. Open or copy `tools/rpi_emulationstation_base_os_setup.sh` (or `tools/recalbox_setup_mqtt.sh`).
+2. Copy the script to your console (e.g., via `scp`).
+3. SSH into your console and run: `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
+4. Enter your ArcadeMatrix IP and select your target OS from the interactive menu.
 
 ### How does the Daemon architecture work?
 Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Rust Daemon in the background**.

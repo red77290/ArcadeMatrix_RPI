@@ -31,15 +31,18 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ---
 
-## 🌟 Fonctionnalités (exclusivités RPi vs ESP32)
+## 🌟 Fonctionnalités (Exclusivités RPi & Alignement ESP32)
 
+* 🎯 **Moteur d'Arbitrage et de Préemption Canonique (`DisplayArbiter`)** : pipeline de décision borné en $O(1)$ zéro-allocation avec arbitrage de priorité (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identité d'intention stricte et nettoyage résilient des sessions orphelines.
+* 🧭 **Orientation Réactive & Mode Tate (`OrientationManager`)** : gestion multi-angles manuelle (0°, 90°, 180°, 270°) avec classification automatique du gabarit (`LayoutClass`) et versioning réactif (`DisplayGeometry`).
 * 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, branchez votre carte SD sur un PC et déposez un firmware valide nommé `arcadematrix_recovery.bin` à la racine de la partition `bootfs` OU de la partition `DATA`. Il s'installera automatiquement au prochain démarrage !)*
 * 🚀 **Performances Rust natives** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
 * 🎵 **Spotify Now Playing (`spotify`)** : affichage en direct du morceau en cours de lecture avec pochette d'album en couleur, défilement artiste/titre, barre de progression et égaliseur audio animé.
 * 📡 **Google Cast & Nest (`google_cast`)** : découverte automatique mDNS de vos enceintes Google Home / Nest Audio et affichage en direct des médias et flux audio diffusés.
 * 🖥️ **Moniteur Système (`sysinfo`)** : surveillance en direct de l'utilisation CPU (%), RAM (%), température SoC (°C/°F) et Uptime avec jauges colorées et thèmes visuels.
-* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques (Street Fighter, KOF, DBZ, Marvel...) extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay discret sur vos horloges.
+* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay avec réglage de la vitesse d'animation en temps réel (25% à 200%).
 * 📈 **Tickers & Graphiques Crypto / Bourse (`crypto`, `stock`)** : cotations en direct, variations % sur 24h et courbes sparklines historiques depuis CoinGecko, Binance et Yahoo Finance avec cache intelligent.
+* 📰 **Actualités & Ticker GNews en Direct (`gnews`)** : flux de grands titres et dépêches d'actualités filtrés par catégories (Tech, Monde, Économie, Science, Sport...), témoin lumineux de direct clignotant, défilement sous-pixel fluide à 60 FPS et filtrage multi-langue/région !
 * 🌦️ **Météo dynamique (`weather`)** : météo en direct, température actuelle, prévisions multi-jours et icônes rétro animées via OpenWeatherMap.
 * ⏰ **Sélection massive d'horloges animées (`clock`)** : horloges interactives comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** et **Versus (Mugen)** !
 * **Polices chargeables dynamiquement (`.ttf`)** : déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
@@ -150,19 +153,22 @@ L'interface est exactement la même que sur la version ESP32, avec les contrôle
 
 ## 🕹️ Intégration Recalbox & Batocera (Pixelcade Marquees)
 
-ArcadeMatrix prend en charge les marquees dynamiques **style Pixelcade** lorsque vous sélectionnez ou lancez un jeu sur votre Recalbox ou Batocera !
+ArcadeMatrix prend en charge les marquees dynamiques **style Pixelcade** lorsque vous sélectionnez ou lancez un jeu sur votre console Recalbox, Batocera ou RetroPie !
+
+> [!IMPORTANT]
+> **Version minimale de Batocera requise :** La synchronisation dynamique des marquees pendant la navigation dans les listes de jeux et de systèmes requiert **Batocera v33 ou supérieur** (Batocera a introduit les hooks de script EmulationStation `game-selected` et `system-selected` à partir de la version 33). Sur Batocera v32 et versions antérieures, seuls les événements de lancement et d'arrêt de jeu (`game-start`, `game-end`) sont supportés. Recalbox est intégralement pris en charge sur toutes ses versions grâce à son démon de scrutation d'état natif.
 
 Quand vous parcourez vos listes de jeux, le Raspberry Pi télécharge les marquees officielles Pixelcade depuis GitHub **en arrière-plan et en temps réel**, les met en cache sur votre carte SD et les affiche sur votre matrice LED. Si un jeu n'a pas d'image, il affichera un élégant texte animé de repli.
 
 ### Installation automatique (recommandée)
-Allez dans l'onglet **MQTT** de l'interface Web ArcadeMatrix, saisissez l'IP de votre Recalbox/Batocera ainsi que son mot de passe root (par défaut `recalboxroot` ou `linux`) et cliquez sur **Install Sync Script**. Cela injectera automatiquement le daemon via SSH.
+Allez dans l'onglet **MQTT** de l'interface Web ArcadeMatrix, choisissez l'OS de votre console (`Détection auto`, `Recalbox`, `Batocera` ou `RetroPie`), saisissez l'IP de la console ainsi que ses identifiants et cliquez sur **Install Sync Script**. Cela injectera automatiquement le daemon via SSH.
 
-### Installation manuelle (Recalbox)
+### Installation manuelle (Recalbox / Batocera / RetroPie)
 Si vous préférez l'installation manuelle, ou si l'installation réseau échoue :
-1. Ouvrez le fichier `tools/recalbox_setup_mqtt.sh` inclus dans le projet.
-2. Modifiez la ligne `MQTT_BROKER="192.168.1.xxx"` et définissez l'IP du Raspberry Pi qui fait tourner la matrice LED.
-3. Copiez le fichier `tools/recalbox_setup_mqtt.sh` vers votre Recalbox (par ex. dans `/recalbox/share/`).
-4. Connectez-vous en SSH à votre Recalbox et exécutez : `bash /recalbox/share/recalbox_setup_mqtt.sh`.
+1. Ouvrez ou copiez `tools/rpi_emulationstation_base_os_setup.sh` (ou `tools/recalbox_setup_mqtt.sh`).
+2. Copiez le fichier sur votre console (ex : via `scp`).
+3. Connectez-vous en SSH à votre console et exécutez : `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
+4. Saisissez l'IP de votre ArcadeMatrix et choisissez votre système cible dans le menu interactif.
 
 ### Comment fonctionne l'architecture du daemon ?
 Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Rust ultra-léger en arrière-plan**.

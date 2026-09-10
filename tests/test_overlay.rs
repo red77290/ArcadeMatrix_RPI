@@ -25,8 +25,8 @@ fn test_capabilities_defaults_and_overrides() {
     let marquee_desc = EngineRegistry::get_descriptor("marquee");
     if let Some(desc) = marquee_desc {
         assert!(
-            !desc.capabilities.allow_rotation,
-            "MarqueeEngine must have allow_rotation = false"
+            desc.capabilities.allow_rotation,
+            "MarqueeEngine (Gameroom Marquee) must have allow_rotation = true"
         );
         assert!(
             !desc.capabilities.allows_overlay,

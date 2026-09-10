@@ -59,28 +59,362 @@ impl PacmanClock {
             self.new_time_str = time_str.to_string();
         }
 
+        let is_tate = (w < 48.0) || (h > (w * 1.5));
+        let active_scale = if is_tate {
+            let max_tier_h = ((h as i32 / 2) - 10).max(1);
+            let mut s = scale.max(1) as i32;
+            while s > 1 {
+                let (_, bw, bh) = font.get_pixel_map("88", s as f32);
+                if bw <= w as i32 && bh <= max_tier_h {
+                    break;
+                }
+                s -= 1;
+            }
+            s as u32
+        } else {
+            scale.max(1)
+        };
+
         // Measure font height to ensure Pacman is scaled larger than the digits
         let active_str = if self.transitioning {
             &self.old_time_str
         } else {
             &self.new_time_str
         };
-        let (pixels, _, _) = font.get_pixel_map(active_str, scale as f32);
+        let (pixels, _, _) =
+            font.get_pixel_map(if is_tate { "88" } else { active_str }, active_scale as f32);
         let mut text_h = 0;
+        let mut text_w = 0;
         for char_pixels in &pixels {
-            for &(_, py) in char_pixels {
+            for &(px, py) in char_pixels {
+                text_w = text_w.max(px + 1);
                 text_h = text_h.max(py + 1);
             }
         }
+        let max_pac_radius = if is_tate {
+            ((w as i32 / 2) - 2).min((h as i32 / 4) - 2)
+        } else {
+            (h as i32 / 2) - 1
+        };
         let target_r = ((text_h as f32 * 0.70) as i32) + 1;
-        self.radius = target_r.max(4).min((h as i32 / 2) - 1);
+        self.radius = target_r.max(3).min(max_pac_radius);
         self.speed = (0.8 * w / 64.0).max(0.6);
 
         let py = (h / 2.0) as i32;
 
-        if !self.transitioning {
+        if is_tate {
+            // Stacked Portrait Layout (HH on top, MM on bottom)
+            let (h_new, m_new) = if self.new_time_str.contains(':') {
+                let mut parts = self.new_time_str.split(':');
+                (
+                    parts.next().unwrap_or("00").to_string(),
+                    parts.next().unwrap_or("00").to_string(),
+                )
+            } else {
+                ("00".to_string(), "00".to_string())
+            };
+            let (h_old, m_old) = if self.old_time_str.contains(':') {
+                let mut parts = self.old_time_str.split(':');
+                (
+                    parts.next().unwrap_or("00").to_string(),
+                    parts.next().unwrap_or("00").to_string(),
+                )
+            } else {
+                ("00".to_string(), "00".to_string())
+            };
+
+            let tx = (w as i32 - text_w) / 2;
+            let ty_h = (h as i32 / 4) - (text_h / 2);
+            let ty_m = (3 * h as i32 / 4) - (text_h / 2);
+            let dot_y = (h as i32) / 2;
+            let dot_x = [w as i32 / 4, w as i32 / 2, 3 * w as i32 / 4];
+            let dot_color = (255, 183, 174);
+
+            let ghost_spacing = self.radius as f32 * 2.2;
+            let leg_len = w + self.radius as f32 * 4.0 + 4.0 * ghost_spacing;
+            let max_path = 3.0 * leg_len;
+
+            if !self.transitioning {
+                BaseRenderer::draw_text_at(
+                    matrix,
+                    &h_new,
+                    font,
+                    active_scale as f32,
+                    tx,
+                    ty_h,
+                    (255, 255, 255),
+                    (0, 0, 0),
+                );
+                BaseRenderer::draw_text_at(
+                    matrix,
+                    &m_new,
+                    font,
+                    active_scale as f32,
+                    tx,
+                    ty_m,
+                    (255, 255, 255),
+                    (0, 0, 0),
+                );
+                for &dx in &dot_x {
+                    for oy in -1..=0 {
+                        for ox in -1..=0 {
+                            matrix.set_pixel(
+                                dx + ox,
+                                dot_y + oy,
+                                dot_color.0,
+                                dot_color.1,
+                                dot_color.2,
+                            );
+                        }
+                    }
+                }
+            } else {
+                self.pac_x += self.speed;
+                let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
+                let ghost_colors: [(u8, u8, u8); 4] =
+                    [(255, 0, 0), (255, 184, 255), (0, 255, 255), (255, 184, 82)];
+
+                if self.pac_x < leg_len {
+                    // Tier 1: Hours line (Left -> Right)
+                    let current_pac_x = -self.radius as f32 * 2.0 + self.pac_x;
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &h_old,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_h,
+                        (100, 100, 100),
+                        (0, 0, 0),
+                    );
+                    for x in 0..current_pac_x as i32 {
+                        for y in (ty_h - 2)..=(ty_h + text_h + 2) {
+                            matrix.set_pixel(x, y, 0, 0, 0);
+                        }
+                    }
+
+                    let reveal_x = (current_pac_x as i32
+                        - (self.radius * 3 + 4 * ghost_spacing as i32))
+                        .max(0);
+                    if reveal_x > 0 {
+                        BaseRenderer::draw_text_at(
+                            matrix,
+                            &h_new,
+                            font,
+                            active_scale as f32,
+                            tx,
+                            ty_h,
+                            (255, 255, 255),
+                            (0, 0, 0),
+                        );
+                        for x in reveal_x..w as i32 {
+                            for y in (ty_h - 2)..=(ty_h + text_h + 2) {
+                                matrix.set_pixel(x, y, 0, 0, 0);
+                            }
+                        }
+                    }
+
+                    for &dx in &dot_x {
+                        for oy in -1..=0 {
+                            for ox in -1..=0 {
+                                matrix.set_pixel(
+                                    dx + ox,
+                                    dot_y + oy,
+                                    dot_color.0,
+                                    dot_color.1,
+                                    dot_color.2,
+                                );
+                            }
+                        }
+                    }
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &m_old,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_m,
+                        (100, 100, 100),
+                        (0, 0, 0),
+                    );
+
+                    self.draw_pacman(
+                        matrix,
+                        current_pac_x as i32,
+                        ty_h + text_h / 2,
+                        self.radius,
+                        mouth_angle,
+                        true,
+                    );
+                    for (i, &gc) in ghost_colors.iter().enumerate() {
+                        let gx = current_pac_x as i32
+                            - (self.radius * 2 + 3)
+                            - (i as i32 * ghost_spacing as i32);
+                        let gy = ty_h
+                            + text_h / 2
+                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
+                                * (self.radius as f32 / 3.0)) as i32;
+                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                    }
+                } else if self.pac_x < 2.0 * leg_len {
+                    // Tier 2: Middle dots (Right -> Left)
+                    let progress = self.pac_x - leg_len;
+                    let current_pac_x = (w + self.radius as f32 * 2.0) - progress;
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &h_new,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_h,
+                        (255, 255, 255),
+                        (0, 0, 0),
+                    );
+
+                    for &dx in &dot_x {
+                        if (dx as f32) < (current_pac_x - self.radius as f32)
+                            || (dx as f32)
+                                > (current_pac_x + self.radius as f32 * 3.0 + 4.0 * ghost_spacing)
+                        {
+                            for oy in -1..=0 {
+                                for ox in -1..=0 {
+                                    matrix.set_pixel(
+                                        dx + ox,
+                                        dot_y + oy,
+                                        dot_color.0,
+                                        dot_color.1,
+                                        dot_color.2,
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &m_old,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_m,
+                        (100, 100, 100),
+                        (0, 0, 0),
+                    );
+
+                    self.draw_pacman(
+                        matrix,
+                        current_pac_x as i32,
+                        dot_y,
+                        self.radius,
+                        mouth_angle,
+                        false,
+                    );
+                    for (i, &gc) in ghost_colors.iter().enumerate() {
+                        let gx = current_pac_x as i32
+                            + (self.radius * 2 + 3)
+                            + (i as i32 * ghost_spacing as i32);
+                        let gy = dot_y
+                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
+                                * (self.radius as f32 / 3.0)) as i32;
+                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                    }
+                } else {
+                    // Tier 3: Minutes line (Left -> Right)
+                    let progress = self.pac_x - 2.0 * leg_len;
+                    let current_pac_x = -self.radius as f32 * 2.0 + progress;
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &h_new,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_h,
+                        (255, 255, 255),
+                        (0, 0, 0),
+                    );
+                    for &dx in &dot_x {
+                        for oy in -1..=0 {
+                            for ox in -1..=0 {
+                                matrix.set_pixel(
+                                    dx + ox,
+                                    dot_y + oy,
+                                    dot_color.0,
+                                    dot_color.1,
+                                    dot_color.2,
+                                );
+                            }
+                        }
+                    }
+
+                    BaseRenderer::draw_text_at(
+                        matrix,
+                        &m_old,
+                        font,
+                        active_scale as f32,
+                        tx,
+                        ty_m,
+                        (100, 100, 100),
+                        (0, 0, 0),
+                    );
+                    for x in 0..current_pac_x as i32 {
+                        for y in (ty_m - 2)..=(ty_m + text_h + 2) {
+                            matrix.set_pixel(x, y, 0, 0, 0);
+                        }
+                    }
+
+                    let reveal_x = (current_pac_x as i32
+                        - (self.radius * 3 + 4 * ghost_spacing as i32))
+                        .max(0);
+                    if reveal_x > 0 {
+                        BaseRenderer::draw_text_at(
+                            matrix,
+                            &m_new,
+                            font,
+                            active_scale as f32,
+                            tx,
+                            ty_m,
+                            (255, 255, 255),
+                            (0, 0, 0),
+                        );
+                        for x in reveal_x..w as i32 {
+                            for y in (ty_m - 2)..=(ty_m + text_h + 2) {
+                                matrix.set_pixel(x, y, 0, 0, 0);
+                            }
+                        }
+                    }
+
+                    self.draw_pacman(
+                        matrix,
+                        current_pac_x as i32,
+                        ty_m + text_h / 2,
+                        self.radius,
+                        mouth_angle,
+                        true,
+                    );
+                    for (i, &gc) in ghost_colors.iter().enumerate() {
+                        let gx = current_pac_x as i32
+                            - (self.radius * 2 + 3)
+                            - (i as i32 * ghost_spacing as i32);
+                        let gy = ty_m
+                            + text_h / 2
+                            + ((self.anim_frame as f32 * 0.4 + i as f32).sin()
+                                * (self.radius as f32 / 3.0)) as i32;
+                        self.draw_ghost(matrix, gx, gy, self.radius - 1, gc, self.anim_frame);
+                    }
+                }
+
+                if self.pac_x >= max_path {
+                    self.transitioning = false;
+                    self.last_minute = now_min;
+                    self.old_time_str = self.new_time_str.clone();
+                }
+            }
+        } else if !self.transitioning {
             // Static display: draw time in center + scattered pellets
-            let (pixels, _, _) = font.get_pixel_map(&self.new_time_str, scale as f32);
+            let (pixels, _, _) = font.get_pixel_map(&self.new_time_str, active_scale as f32);
             let mut text_w = 0;
             let mut text_h = 0;
             for char_pixels in &pixels {
@@ -96,7 +430,7 @@ impl PacmanClock {
                 matrix,
                 &self.new_time_str.clone(),
                 font,
-                scale as f32,
+                active_scale as f32,
                 tx,
                 ty,
                 (255, 255, 255),
@@ -114,7 +448,7 @@ impl PacmanClock {
             // Transition animation
             self.pac_x += self.speed;
 
-            let (pixels, _, _) = font.get_pixel_map(&self.old_time_str, scale as f32);
+            let (pixels, _, _) = font.get_pixel_map(&self.old_time_str, active_scale as f32);
             let mut text_w = 0;
             let mut text_h = 0;
             for char_pixels in &pixels {
@@ -131,7 +465,7 @@ impl PacmanClock {
                 matrix,
                 &self.old_time_str.clone(),
                 font,
-                scale as f32,
+                active_scale as f32,
                 tx,
                 ty,
                 (100, 100, 100),
@@ -148,7 +482,7 @@ impl PacmanClock {
             // Draw new time (revealed behind pac-man)
             let reveal_x = (self.pac_x as i32 - self.radius * 4).max(0);
 
-            let (new_pixels, _, _) = font.get_pixel_map(&self.new_time_str, scale as f32);
+            let (new_pixels, _, _) = font.get_pixel_map(&self.new_time_str, active_scale as f32);
             let mut new_w = 0;
             let mut new_h = 0;
             for char_pixels in &new_pixels {
@@ -164,7 +498,7 @@ impl PacmanClock {
                 matrix,
                 &self.new_time_str.clone(),
                 font,
-                scale as f32,
+                active_scale as f32,
                 new_tx,
                 new_ty,
                 (255, 255, 255),
@@ -181,7 +515,14 @@ impl PacmanClock {
             let mouth_angle = ((self.anim_frame as f32 * 0.5).sin().abs() * 45.0) as i32;
 
             // Draw Pac-Man
-            self.draw_pacman(matrix, self.pac_x as i32, py, self.radius, mouth_angle);
+            self.draw_pacman(
+                matrix,
+                self.pac_x as i32,
+                py,
+                self.radius,
+                mouth_angle,
+                true,
+            );
 
             // Draw ghosts trailing behind
             let ghost_colors: [(u8, u8, u8); 4] =
@@ -200,8 +541,6 @@ impl PacmanClock {
                 );
             }
 
-            // (No extra pellets ahead of pacman to match Python exactly)
-
             // Check if transition is done
             if self.pac_x >= w + self.radius as f32 * 3.0 {
                 self.transitioning = false;
@@ -218,16 +557,18 @@ impl PacmanClock {
         cy: i32,
         r: i32,
         mouth_deg: i32,
+        facing_right: bool,
     ) {
         for dy in -r..=r {
             for dx in -r..=r {
                 if dx * dx + dy * dy > r * r {
                     continue;
                 }
-                // Simple mouth open: skip the wedge sector
-                // mouth_deg is half-angle of opening in "degrees" (0..45)
-                // Use pixel math: avoid pixels in front-upper and front-lower wedge
-                let in_mouth = dx > 0 && dy.abs() * 45 < dx * mouth_deg;
+                let in_mouth = if facing_right {
+                    dx > 0 && dy.abs() * 45 < dx * mouth_deg
+                } else {
+                    dx < 0 && dy.abs() * 45 < (-dx) * mouth_deg
+                };
                 if !in_mouth {
                     matrix.set_pixel(cx + dx, cy + dy, 255, 255, 0);
                 }

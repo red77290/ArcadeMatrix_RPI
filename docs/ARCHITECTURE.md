@@ -526,59 +526,32 @@ sequenceDiagram
 
 ---
 
-## 11. The Display Arbiter: Multi-Source Priority Resolution
+## 11. The Canonical Display Pipeline: Arbiter & DisplayRuntime
 
-The rotation is not the only thing that can own the screen. Marquees (arcade frontends), MQTT banners, one-shot messages and the GIF player all compete for it. The `DisplayArbiter` resolves this by **priority**, so the Core never contains `if source == "mqtt"` business logic in the render loop.
-
-```mermaid
-classDiagram
-    class DisplayArbiter {
-        +Vec~DisplayRequest~ requests
-        +submit_request(req)
-        +cancel_request(source)
-        +clear_expired()
-        +evaluate() Option~DisplayRequest~
-    }
-    class DisplayRequest {
-        +str source
-        +DisplayPriority priority
-        +RequestLifecycle lifecycle
-        +bool preemptive
-        +str instance_id
-        +Option~Duration~ timeout
-        +Instant created_at
-    }
-    class DisplayPriority {
-        <<enum>>
-        Rotation = 10
-        Gif = 20
-        Marquee = 30
-        Visualizer = 40
-        Mqtt = 100
-    }
-    class RequestLifecycle {
-        <<enum>>
-        OneShot
-        Timed
-        UntilCancelled
-        Persistent
-    }
-    DisplayArbiter "1" --> "*" DisplayRequest
-    DisplayRequest --> DisplayPriority
-    DisplayRequest --> RequestLifecycle
-```
-
-Each frame the render loop submits/cancels requests based on live state, then calls `evaluate()`, which drops expired requests and returns the **highest-priority** survivor. `ROTATION` is a `Persistent`, non-preemptive baseline (priority 10) that always exists; anything else (MQTT=100, Marquee=30, GIF=20, …) can temporarily take over.
+The rotation is not the only thing that can own the screen. Marquees (arcade frontends), MQTT alerts, one-shot messages and the GIF player all compete for matrix display output. The `DisplayArbiter` and `DisplayRuntime` strictly separate arbitration intent from execution lifecycle:
 
 ```mermaid
-flowchart LR
-    subgraph Frame
-        S["submit/cancel requests"] --> E["evaluate()"]
-        E --> CE["clear_expired()"]
-        CE --> MAX["max_by priority"]
-    end
-    MAX --> WIN["winning source renders this frame"]
+flowchart TD
+    PROD["Producers (Rotation, MQTT, Marquee, GIF)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
+    ARB -->|DisplayDecision| DRT["DisplayRuntime (Session Lifecycle, FSM)"]
+    DRT -->|EngineHandle (4 bytes)| ERT["EngineRuntime (HandleRegistry, O(1))"]
+    ERT -->|Engine instance| ENG["Engine.update() / Engine.render()"]
+    ENG --> FB["Base Framebuffer"]
+    FB --> OM["OverlayManager (Fighter)"]
+    OM --> MX["MatrixBackend (hzeller)"]
 ```
+
+### 11.1 DisplayArbiter (Stateless Priority Evaluator)
+- **Bounded Capacity**: Fixed array `[Option<DisplayRequest>; 8]` with $O(\text{MAX\_REQUESTS})$ evaluation.
+- **Zero Allocations & Mutexes**: Runs lock-free and allocation-free on the render thread.
+- **Intent Identity**: Defined strictly by `source_id + request_id + engine_handle`. If an incoming request matches the active intent, `created_at` is preserved; otherwise, a fresh timestamp is assigned.
+- **Deterministic Saturation**: If all 8 slots are occupied, an incoming request evicts the lowest-priority slot if strictly higher priority, otherwise it is deterministically rejected.
+
+### 11.2 DisplayRuntime & PreemptionStack
+- **Exclusive Lifecycle Owner**: `DisplayRuntime` is the single component permitted to call `activate()`, `deactivate()`, `pause()`, and `resume()`.
+- **Preemption Stack**: Fixed-depth bounded stack `PreemptionStack<4>` storing POD `PreemptionEntry` records (20 bytes).
+- **Transactional Transitions**: Target handle resolution and stack capacity are verified *before* performing any lifecycle operations. If a preemption fails (stack full or invalid handle), the current session remains completely intact.
+- **Exact Resume & Orphan Cleanup**: On preemption finish, the runtime unwinds the stack, validates whether the submerged intent matching `source_id + request_id + engine_handle` is still present in the Arbiter, and cleanly deactivates orphaned intermediate sessions to resume the valid baseline.
 
 ---
 

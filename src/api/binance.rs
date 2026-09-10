@@ -6,16 +6,33 @@ pub struct BinanceProvider;
 
 impl CryptoProvider for BinanceProvider {
     fn fetch_quote(&self, symbol: &str) -> Option<(f64, f64, Option<String>)> {
+        self.fetch_quote_currency(symbol, "USD")
+    }
+
+    fn fetch_quote_currency(
+        &self,
+        symbol: &str,
+        currency: &str,
+    ) -> Option<(f64, f64, Option<String>)> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(3))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .build()
             .ok()?;
 
-        let mut binance_symbol = symbol.to_uppercase();
-        if !binance_symbol.ends_with("USDT") && !binance_symbol.ends_with("USD") {
-            binance_symbol.push_str("USDT");
-        }
+        let upper_sym = symbol.to_uppercase();
+        let pair_suffix = match currency.to_uppercase().as_str() {
+            "EUR" => "EUR",
+            "GBP" => "GBP",
+            "JPY" => "JPY",
+            _ => "USDT",
+        };
+
+        let binance_symbol = if upper_sym.ends_with(pair_suffix) {
+            upper_sym
+        } else {
+            format!("{}{}", upper_sym, pair_suffix)
+        };
 
         let url = format!(
             "https://api.binance.com/api/v3/ticker/24hr?symbol={}",
@@ -28,8 +45,8 @@ impl CryptoProvider for BinanceProvider {
                 if let Ok(json) = res.json::<serde_json::Value>() {
                     if let Some((price, change)) = Self::parse(&json) {
                         info!(
-                            "[Binance] Quote for {}: ${:.4} ({:.2}%)",
-                            symbol, price, change
+                            "[Binance] Quote for {} ({}): {:.4} ({:.2}%)",
+                            symbol, currency, price, change
                         );
                         return Some((price, change, None));
                     }
@@ -49,16 +66,34 @@ impl CryptoProvider for BinanceProvider {
     }
 
     fn fetch_history(&self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
+        self.fetch_history_currency(symbol, tf, "USD")
+    }
+
+    fn fetch_history_currency(
+        &self,
+        symbol: &str,
+        tf: Timeframe,
+        currency: &str,
+    ) -> Option<PriceHistory> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(3))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
             .build()
             .ok()?;
 
-        let mut binance_symbol = symbol.to_uppercase();
-        if !binance_symbol.ends_with("USDT") && !binance_symbol.ends_with("USD") {
-            binance_symbol.push_str("USDT");
-        }
+        let upper_sym = symbol.to_uppercase();
+        let pair_suffix = match currency.to_uppercase().as_str() {
+            "EUR" => "EUR",
+            "GBP" => "GBP",
+            "JPY" => "JPY",
+            _ => "USDT",
+        };
+
+        let binance_symbol = if upper_sym.ends_with(pair_suffix) {
+            upper_sym
+        } else {
+            format!("{}{}", upper_sym, pair_suffix)
+        };
 
         let (interval, limit) = match tf {
             Timeframe::Hourly => ("1m", 60),

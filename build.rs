@@ -8,23 +8,44 @@ fn main() {
         std::env::var("TARGET").unwrap_or_default()
     );
 
-    // Single Source of Truth version detection: VERSION file -> Cargo.toml -> CI tag override
-    let mut version = std::fs::read_to_string("VERSION")
+    // Dynamic Version detection: CI Tag (GITHUB_REF_NAME) -> Git describe tag -> Cargo.toml -> VERSION file
+    let mut version = std::env::var("GITHUB_REF_NAME")
         .ok()
-        .map(|s| s.trim().trim_start_matches('v').to_string())
-        .filter(|s| !s.is_empty());
+        .filter(|s| s.starts_with('v') || s.chars().next().is_some_and(|c| c.is_ascii_digit()))
+        .map(|s| s.trim_start_matches('v').to_string());
+
+    if version.is_none() {
+        if let Ok(output) = std::process::Command::new("git")
+            .args(["describe", "--tags", "--always"])
+            .output()
+        {
+            if output.status.success() {
+                let git_tag = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !git_tag.is_empty() {
+                    let clean = git_tag.trim_start_matches('v');
+                    if let Some(pos) = clean.find('-') {
+                        let base = &clean[..pos];
+                        version = Some(format!("{base}-dev"));
+                    } else {
+                        version = Some(clean.to_string());
+                    }
+                }
+            }
+        }
+    }
 
     if version.is_none() {
         version = Some(env!("CARGO_PKG_VERSION").to_string());
     }
 
-    if let Ok(ci_tag) = std::env::var("GITHUB_REF_NAME") {
-        if ci_tag.starts_with('v') {
-            version = Some(ci_tag.trim_start_matches('v').to_string());
-        }
+    if version.is_none() {
+        version = std::fs::read_to_string("VERSION")
+            .ok()
+            .map(|s| s.trim().trim_start_matches('v').to_string())
+            .filter(|s| !s.is_empty());
     }
 
-    let final_version = version.unwrap_or_else(|| "3.0.0".to_string());
+    let final_version = version.unwrap_or_else(|| "0.0.0".to_string());
     println!("cargo:rustc-env=APP_VERSION={final_version}");
 
     // Short git commit hash of the built tree, so a running binary can be traced

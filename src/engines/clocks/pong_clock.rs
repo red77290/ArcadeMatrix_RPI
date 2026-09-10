@@ -228,8 +228,21 @@ impl PongClock {
         let score_left_str = format!("{:02}", self.score_left);
         let score_right_str = format!("{:02}", self.score_right);
 
+        let max_tier_w = ((w / 2.0 - 8.0) as i32).max(1);
+        let max_tier_h = ((h / 3.0) as i32).max(1);
+        let mut effective_scale = scale.max(1);
+        while effective_scale > 1 {
+            let (_, dw, dh) = font.get_pixel_map("88", effective_scale as f32);
+            if dw <= max_tier_w && dh <= max_tier_h {
+                break;
+            }
+            effective_scale -= 1;
+        }
+        let y_margin = ((h / 8.0) as i32).max(4);
+        let spacing = if w < 48.0 { 2 } else { 6 };
+
         // Get exact width for left score
-        let (left_pixels, _, _) = font.get_pixel_map(&score_left_str, scale as f32);
+        let (left_pixels, _, _) = font.get_pixel_map(&score_left_str, effective_scale as f32);
         let mut left_w = 0;
         for char_pixels in &left_pixels {
             for &(px, _) in char_pixels {
@@ -242,9 +255,9 @@ impl PongClock {
             matrix,
             &score_left_str,
             font,
-            scale as f32,
-            (w / 2.0) as i32 - left_w - 4,
-            4,
+            effective_scale as f32,
+            (w / 2.0) as i32 - left_w - spacing,
+            y_margin,
             (200, 200, 200),
             (0, 0, 0),
         );
@@ -254,9 +267,9 @@ impl PongClock {
             matrix,
             &score_right_str,
             font,
-            scale as f32,
-            (w / 2.0) as i32 + 6,
-            4,
+            effective_scale as f32,
+            (w / 2.0) as i32 + spacing,
+            y_margin,
             (200, 200, 200),
             (0, 0, 0),
         );

@@ -2,6 +2,7 @@ import { API } from './api.js';
 import { translations, t } from './i18n.js';
 
 export const GLOBAL_TIMEZONES = [
+  { value: "system", label: "System Default / Fuseau Système" },
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
   { value: "Europe/London", label: "Europe/London (UTC+0/+1)" },
   { value: "Europe/Dublin", label: "Europe/Dublin (UTC+0/+1)" },
@@ -95,7 +96,36 @@ export const THEME_ID_MAP = {
   "pong": "Pong", "binary": "Binary", "slot_machine": "Slot Machine"
 };
 
-// Global in-memory cache to prevent multiple round-trips to the ESP32
+export function getEngineMeta(descOrMeta) {
+  const meta = (descOrMeta && descOrMeta.metadata) ? descOrMeta.metadata : (descOrMeta || {});
+  const id = String(meta.id || '').toLowerCase();
+  const name = meta.name || (id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'Display Engine');
+  const cat = String(meta.category || '').toLowerCase();
+  
+  let icon = meta.icon || '';
+  if (!icon) {
+    if (id === 'dashboard' || cat === 'dashboard') icon = '📊';
+    else if (id.includes('clock') || cat.includes('time')) icon = '⏰';
+    else if (id.includes('weather') || cat.includes('weather')) icon = '🌤️';
+    else if (id.includes('crypto') || cat.includes('crypto')) icon = '🪙';
+    else if (id.includes('stock') || cat.includes('stock') || cat.includes('finance')) icon = '📈';
+    else if (id.includes('gif') || cat.includes('animation') || cat.includes('media_anim')) icon = '🎞️';
+    else if (id.includes('sys') || cat.includes('system') || cat.includes('info')) icon = '🖥️';
+    else if (id.includes('date') || cat.includes('calendar')) icon = '📅';
+    else if (id.includes('spotify')) icon = '🟢';
+    else if (id.includes('cast') || id.includes('music') || cat.includes('audio')) icon = '🎵';
+    else if (id.includes('marquee')) icon = '📜';
+    else if (id.includes('msg') || id.includes('message') || cat.includes('text')) icon = '💬';
+    else if (cat.includes('game') || cat.includes('retro')) icon = '🕹️';
+    else if (cat.includes('sensor')) icon = '🌡️';
+    else icon = '🧩';
+  }
+  
+  const desc = meta.description || `${name} display engine plugin for ArcadeMatrix.`;
+  return { id, name, category: cat, icon, desc, version: meta.version || '1.0.0' };
+}
+
+// Global in-memory cache to prevent multiple round-trips
 const endpointCache = new Map();
 
 async function fetchCachedEndpoint(url) {
@@ -156,11 +186,17 @@ export function isColorField(f) {
 }
 
 export function isOptionsField(f) {
+  if (isFileAssetField(f)) return false;
   const t = f.field_type !== undefined ? f.field_type : f.type;
   return t === 4 || t === 7 || t === '4' || t === '7' ||
          t === 'Options' || t === 'OPTIONS' || t === 'options' ||
          t === 'Enum' || t === 'ENUM' || t === 'enum' ||
          t === 'List' || t === 'LIST' || t === 'list';
+}
+
+export function isFileAssetField(f) {
+  const t = f.field_type !== undefined ? f.field_type : f.type;
+  return t === 8 || t === '8' || t === 'FileAsset' || t === 'FILE_ASSET' || t === 'file_asset';
 }
 
 // Format options with localization
@@ -233,65 +269,76 @@ export function formatOptLabel(fieldId, val, raw) {
     const themeKey = `theme_${tName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     return dict[themeKey] || tName;
   }
+  // 9. Categories (GNews and general topics)
+  if (fieldId === 'category' || fieldId === 'categories') {
+    const catKey = `cat_${lower}`;
+    if (dict[catKey]) return dict[catKey];
+  }
+  // 10. Display modes
+  if (fieldId === 'display_mode') {
+    const dmKey = `opt_display_mode_${lower}`;
+    if (dict[dmKey]) return dict[dmKey];
+  }
   return raw || val;
 }
 
-// --- Dynamic Screen Naming & Resolution ---
+// --- Dynamic Screen Naming & Resolution (100% Schema-Driven) ---
 export function resolveScreenInfo(instance, engineDesc) {
   const cfg = (instance && instance.config) ? instance.config : {};
-  const engId = (instance && instance.engine_id) ? instance.engine_id.toLowerCase() : '';
-  const icon = (engineDesc && engineDesc.metadata && engineDesc.metadata.icon) ? engineDesc.metadata.icon : '📺';
-  const engName = (engineDesc && engineDesc.metadata && engineDesc.metadata.name) ? engineDesc.metadata.name : (instance ? instance.engine_id : 'Screen');
+  const meta = getEngineMeta(engineDesc || { id: instance?.engine_id });
+  const icon = meta.icon;
+  const engName = meta.name;
   
   if (cfg.screen_title && String(cfg.screen_title).trim().length > 0) {
     const custom = String(cfg.screen_title).trim();
     return { icon, title: custom, subtitle: engName, full: `${icon} ${custom}`, isCustom: true };
   }
   
-  if (engId === 'clock') {
-    const themeVal = String(cfg.clock_theme !== undefined ? cfg.clock_theme : (cfg.theme || '0')).toLowerCase();
-    const tName = THEME_ID_MAP[themeVal] || (themeVal.charAt(0).toUpperCase() + themeVal.slice(1));
-    const clockLabel = t('clock_name', 'Clock');
-    return { icon, title: `${clockLabel} (${tName})`, subtitle: tName, full: `${icon} ${clockLabel} (${tName})` };
+  // Dynamically look for the most descriptive field in instance.config
+  const fields = getSchemaFields(engineDesc);
+  let bestValueLabel = '';
+  
+  if (fields && fields.length > 0) {
+    const keyFieldNames = [
+      'theme', 'clock_theme', 'style', 'mode', 'clock_mode',
+      'city', 'location', 'folder', 'playlist', 'coins', 'symbols', 'symbol',
+      'text', 'message', 'format', 'date_format'
+    ];
+    
+    let chosenField = null;
+    for (const key of keyFieldNames) {
+      const match = fields.find(f => f.id === key || f.id.toLowerCase().includes(key));
+      if (match && cfg[match.id] !== undefined && String(cfg[match.id]).trim().length > 0) {
+        chosenField = match;
+        break;
+      }
+    }
+    
+    if (!chosenField) {
+      chosenField = fields.find(f => isOptionsField(f) && cfg[f.id] !== undefined && String(cfg[f.id]).trim().length > 0);
+    }
+    
+    if (chosenField) {
+      const rawVal = String(cfg[chosenField.id]).trim();
+      if (chosenField.options) {
+        const opts = parseOptions(chosenField.options);
+        const matchOpt = opts.find(o => String(o.value) === rawVal);
+        bestValueLabel = matchOpt ? matchOpt.label : formatOptLabel(chosenField.id, rawVal);
+      } else {
+        bestValueLabel = formatOptLabel(chosenField.id, rawVal);
+      }
+      if (bestValueLabel.length > 20) {
+        bestValueLabel = bestValueLabel.substring(0, 17) + '...';
+      }
+    }
   }
-  if (engId === 'weather') {
-    const city = cfg.city || cfg.location || '';
-    const wLabel = t('weather_name', 'Weather');
-    const name = city ? `${wLabel} (${city})` : wLabel;
-    return { icon, title: name, subtitle: city || 'OpenWeatherMap', full: `${icon} ${name}` };
+  
+  if (bestValueLabel) {
+    return { icon, title: `${engName} (${bestValueLabel})`, subtitle: bestValueLabel, full: `${icon} ${engName} (${bestValueLabel})` };
   }
-  if (engId === 'gifs') {
-    const folder = cfg.folder || 'all';
-    const cleanFolder = folder.replace('/gifs/', '').replace('/gifs', 'all');
-    return { icon, title: `GIFs (${cleanFolder})`, subtitle: cleanFolder, full: `${icon} GIFs (${cleanFolder})` };
-  }
-  if (engId === 'crypto') {
-    const coins = cfg.coins || 'BTC';
-    return { icon, title: `Crypto (${coins})`, subtitle: coins, full: `${icon} Crypto (${coins})` };
-  }
-  if (engId === 'stock') {
-    const symbols = cfg.symbols || 'AAPL';
-    const sLabel = t('stock_name', 'Stock');
-    return { icon, title: `${sLabel} (${symbols})`, subtitle: symbols, full: `${icon} ${sLabel} (${symbols})` };
-  }
-  if (engId === 'google_cast') {
-    return { icon: '🎵', title: 'Google Cast (Nest)', subtitle: 'LAN Auto-Discovery', full: '🎵 Google Cast (Nest)' };
-  }
-  if (engId === 'spotify') {
-    return { icon: '🟢', title: 'Spotify Player', subtitle: 'Official API', full: '🟢 Spotify Player' };
-  }
-  if (engId === 'system_info' || engId === 'sysinfo') {
-    const sLabel = t('sysinfo_name', 'System Info');
-    const th = String(cfg.theme !== undefined ? cfg.theme : '0');
-    const thName = th === '1' ? t('theme_cyberpunk_neon', 'Cyberpunk Neon') : (th === '2' ? t('theme_compact_grid', 'Compact Grid') : t('theme_hud_bars', 'HUD Bars'));
-    return { icon: '📊', title: `${sLabel} (${thName})`, subtitle: thName, full: `📊 ${sLabel} (${thName})` };
-  }
-  if (engId === 'message') {
-    const txt = (cfg.text && cfg.text.length > 14) ? (cfg.text.substring(0, 11) + '...') : (cfg.text || 'ArcadeMatrix');
-    const mLabel = t('message_name', 'Message');
-    return { icon: '💬', title: `${mLabel} (${txt})`, subtitle: txt, full: `💬 ${mLabel} (${txt})` };
-  }
-  return { icon, title: `${engName} (${instance.instance_id})`, subtitle: instance.instance_id, full: `${icon} ${engName} (${instance.instance_id})` };
+  
+  const instId = instance?.instance_id || 'default';
+  return { icon, title: `${engName} (${instId})`, subtitle: instId, full: `${icon} ${engName} (${instId})` };
 }
 
 window.switchToScreenTab = function(instanceId) {
@@ -318,7 +365,7 @@ window.switchToScreenTab = function(instanceId) {
   }
 };
 
-// Modal for 1-Click Interactive Screen Creation
+// Modal for 1-Click Interactive Screen Creation (100% Schema-Driven)
 export function showAddScreenModal(selectedEngineId, descriptors, instancesList, defaultAddToRotation = true) {
   const existingModal = document.getElementById('add-screen-modal-overlay');
   if (existingModal) existingModal.remove();
@@ -334,7 +381,8 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
   overlay.className = 'modal-overlay';
 
   function generateSuggestedId(engId, variant) {
-    const base = variant ? `${engId}_${variant}`.toLowerCase().replace(/[^a-z0-9]/g, '_') : `${engId}_1`.toLowerCase();
+    const cleanVariant = variant ? String(variant).toLowerCase().replace(/[^a-z0-9]/g, '_').replace(/^_+|_+$/g, '') : '';
+    const base = cleanVariant ? `${engId}_${cleanVariant}` : `${engId}_1`;
     let candidate = base;
     let counter = 1;
     while (instancesList.some(i => i.instance_id === candidate)) {
@@ -344,11 +392,13 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
     return candidate;
   }
 
-  function renderModalContent() {
+  async function renderModalContent() {
     currentDesc = enginesMap[currentEngineId] || descriptors[0];
     const engId = currentEngineId.toLowerCase();
-    const icon = (currentDesc.metadata && currentDesc.metadata.icon) ? currentDesc.metadata.icon : '📺';
-    const name = (currentDesc.metadata && currentDesc.metadata.name) ? currentDesc.metadata.name : currentEngineId;
+    const meta = getEngineMeta(currentDesc);
+    const icon = meta.icon;
+    const name = meta.name;
+    const fields = getSchemaFields(currentDesc);
 
     let variantHtml = '';
     let initialVariant = '';
@@ -359,16 +409,16 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
           <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="23" selected>${t('theme_tetris', '🎮 Tetris Clock')}</option>
-            <option value="21">${t('theme_matrix', '💻 Matrix Rain Clock')}</option>
-            <option value="27">${t('theme_versus', '🥊 Capcom / Versus Clock')}</option>
-            <option value="26">${t('theme_pacman', '🟡 Pac-Man Clock')}</option>
-            <option value="19">${t('theme_flip', '⏱️ Flip Clock')}</option>
-            <option value="24">${t('theme_word', '🔤 Word Clock')}</option>
-            <option value="18">${t('theme_cyberpunk', '🌆 Cyberpunk Clock')}</option>
-            <option value="22">${t('theme_pong', '🏓 Pong Clock')}</option>
-            <option value="25">${t('theme_binary', '🔢 Binary Clock')}</option>
-            <option value="28">${t('theme_slot_machine', '🎰 Slot Machine Clock')}</option>
+            <option value="23" selected>🎮 Tetris Clock</option>
+            <option value="21">💻 Matrix Rain Clock</option>
+            <option value="27">🥊 Capcom / Versus Clock</option>
+            <option value="26">🟡 Pac-Man Clock</option>
+            <option value="19">⏱️ Flip Clock</option>
+            <option value="24">🔤 Word Clock</option>
+            <option value="18">🌆 Cyberpunk Clock</option>
+            <option value="22">🏓 Pong Clock</option>
+            <option value="25">🔢 Binary Clock</option>
+            <option value="28">🎰 Slot Machine Clock</option>
           </select>
         </div>
       `;
@@ -378,14 +428,29 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_city_label">${t('modal_city_label', 'City / Location (e.g. Paris, FR or Tokyo, JP):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="Paris, FR" value="Paris, FR">
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            ${['Paris, FR', 'New York, US', 'Tokyo, JP', 'London, GB', 'Berlin, DE', 'Madrid, ES', 'Rome, IT', 'Los Angeles, US', 'Sydney, AU', 'Dubai, AE'].map(c => `
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c.split(',')[0]}</button>
+            `).join('')}
+          </div>
         </div>
       `;
-    } else if (engId === 'gifs') {
-      initialVariant = 'arcade';
+    } else if (engId === 'gifs' || engId === 'gif') {
+      initialVariant = 'all';
       variantHtml = `
         <div class="form-group" style="margin-top: 1rem;">
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_folder_label">${t('modal_gif_folder_label', 'GIF Playlist Folder:')}</label>
-          <input type="text" id="modal-field-variant" class="input" placeholder="all, /gifs/arcade, /gifs/nintendo" value="all">
+          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_orientation_label">${t('modal_gif_orientation_label', 'GIF Orientation Library:')}</label>
+          <div style="display: flex; gap: 0.5rem; margin-top: 0.25rem; margin-bottom: 0.5rem;">
+            <button type="button" class="btn btn-secondary btn-sm" id="gif-tab-yoko" style="flex:1; border: 1px solid var(--accent); font-weight: 700;">🖥️ ${t('tab_yoko', 'Horizontal (Landscape / YOKO)')}</button>
+            <button type="button" class="btn btn-secondary btn-sm" id="gif-tab-tate" style="flex:1; font-weight: 700; opacity: 0.7;">📱 ${t('tab_tate', 'Vertical (Portrait / TATE)')}</button>
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">💡 ${t('gif_modal_help', 'Selected folders or \'all\' will automatically switch according to the active rotation mode.')}</div>
+          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_folder_label">${t('modal_gif_folder_label', 'Dossier / Playlist de GIFs :')}</label>
+          <select id="modal-select-gif-folder" class="input" style="font-weight: 600; margin-bottom: 0.5rem;">
+            <option value="all" selected>🌟 ${t('all_folders_opt', 'All folders (Auto Horizontal / Vertical)')}</option>
+          </select>
+          <input type="text" id="modal-field-variant" class="input" placeholder="all, /gifs/arcade, /gifs_tate/shmup" value="all">
         </div>
       `;
     } else if (engId === 'crypto') {
@@ -394,6 +459,12 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_crypto_label">${t('modal_crypto_label', 'Crypto Symbols (comma-separated):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="BTC,ETH,SOL" value="BTC,ETH">
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            ${['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'BNB', 'ADA', 'AVAX'].map(c => `
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c}</button>
+            `).join('')}
+          </div>
         </div>
       `;
     } else if (engId === 'stock') {
@@ -402,20 +473,65 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_stock_label">${t('modal_stock_label', 'Stock Tickers (comma-separated):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="AAPL,TSLA,NVDA" value="AAPL,TSLA">
+          <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            ${['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'].map(s => `
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${s}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${s}</button>
+            `).join('')}
+          </div>
         </div>
       `;
-    } else if (engId === 'system_info' || engId === 'sysinfo') {
+    } else if (engId === 'dashboard') {
       initialVariant = '0';
       variantHtml = `
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
           <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="0" selected>${t('theme_hud_bars', '📊 HUD Bars & Gauges')}</option>
-            <option value="1">${t('theme_cyberpunk_neon', '🌆 Cyberpunk Neon')}</option>
-            <option value="2">${t('theme_compact_grid', '📱 Compact Grid (2x2)')}</option>
+            <option value="0" selected>🌆 Cyberpunk Neon</option>
+            <option value="1">📟 Amber HUD / Tactical</option>
+            <option value="2">❄️ Minimalist Luxury</option>
+            <option value="3">💻 Matrix Phosphor</option>
           </select>
         </div>
       `;
+    } else {
+      // Dynamic fallback for any schema
+      const primaryField = (fields && fields.length > 0) ? (
+        fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
+        fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
+        fields.find(f => isFileAssetField(f))
+      ) : null;
+
+      if (primaryField) {
+        const fLabel = primaryField.label || primaryField.id;
+        if (isFileAssetField(primaryField)) {
+          initialVariant = primaryField.default_value || '';
+          variantHtml = `
+            <div class="form-group" style="margin-top: 1rem;">
+              <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+              <div id="modal-file-asset-slot"></div>
+            </div>
+          `;
+        } else if (isOptionsField(primaryField) || (primaryField.options && primaryField.options.length > 0)) {
+          const opts = parseOptions(primaryField.options);
+          initialVariant = primaryField.default_value || (opts.length > 0 ? opts[0].value : '');
+          const optsHtml = opts.map(o => `<option value="${o.value}" ${String(o.value) === String(initialVariant) ? 'selected' : ''}>${formatOptLabel(primaryField.id, o.value, o.label)}</option>`).join('');
+          variantHtml = `
+            <div class="form-group" style="margin-top: 1rem;">
+              <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+              <select id="modal-field-variant" class="input" style="font-weight: 600;">${optsHtml}</select>
+            </div>
+          `;
+        } else {
+          initialVariant = primaryField.default_value || '';
+          variantHtml = `
+            <div class="form-group" style="margin-top: 1rem;">
+              <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
+              <input type="text" id="modal-field-variant" class="input" placeholder="${primaryField.description || primaryField.default_value || ''}" value="${initialVariant}">
+            </div>
+          `;
+        }
+      }
     }
 
     const defaultId = generateSuggestedId(engId, initialVariant);
@@ -434,10 +550,9 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             <label style="font-size: 0.85rem; font-weight: 600; color: var(--accent-primary);" data-i18n="choose_engine">${t('choose_engine', 'Choose Engine:')}</label>
             <select id="modal-select-engine" class="input" style="font-weight: 600; font-size: 1rem; border-color: var(--accent-primary);">
               ${descriptors.map(d => {
-                const dIcon = (d.metadata && d.metadata.icon) ? d.metadata.icon : '🧩';
-                const dName = (d.metadata && d.metadata.name) ? d.metadata.name : d.metadata.id;
+                const dMeta = getEngineMeta(d);
                 const isSel = d.metadata.id === currentEngineId ? 'selected' : '';
-                return `<option value="${d.metadata.id}" ${isSel}>${dIcon} ${dName}</option>`;
+                return `<option value="${d.metadata.id}" ${isSel}>${dMeta.icon} ${dMeta.name}</option>`;
               }).join('')}
             </select>
           </div>
@@ -461,14 +576,16 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             </label>
             <div id="modal-rotation-options" style="margin-top: 0.75rem; display: ${defaultAddToRotation ? 'flex' : 'none'}; gap: 1rem; align-items: center; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n="modal_duration_label">${t('modal_duration_label', 'Display Duration (seconds / GIFs):')}</span>
+                <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n="modal_duration_label">${t('modal_duration_label', 'Display Duration (seconds / count):')}</span>
                 <input type="number" id="modal-input-duration" class="input" style="width: 70px; padding: 0.35rem 0.5rem; text-align: center;" value="30" min="1">
-                <span style="font-size: 0.85rem; color: var(--text-muted);">${engId === 'gifs' ? 'GIFs' : 'sec'}</span>
+                <span style="font-size: 0.85rem; color: var(--text-muted);">${(engId === 'gifs' || engId === 'gif') ? 'GIFs' : 'sec'}</span>
               </div>
-              <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
-                <input type="checkbox" id="modal-check-fighter" ${engId === 'clock' ? 'checked' : ''}>
-                <span data-i18n="fighter_overlay_label">${t('fighter_overlay_label', '🥊 Street Fighter Overlay')}</span>
-              </label>
+              ${(currentDesc.capabilities && currentDesc.capabilities.allows_overlay !== false) ? `
+                <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
+                  <input type="checkbox" id="modal-check-fighter" ${engId === 'clock' ? 'checked' : ''}>
+                  <span data-i18n="fighter_overlay_label">${t('fighter_overlay_label', '🥊 Street Fighter Overlay')}</span>
+                </label>
+              ` : ''}
             </div>
           </div>
         </div>
@@ -482,7 +599,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       </div>
     `;
 
-    // Wire up events
+    // Wire events
     overlay.querySelector('#modal-btn-close').onclick = () => overlay.remove();
     overlay.querySelector('#modal-btn-cancel').onclick = () => overlay.remove();
 
@@ -492,24 +609,98 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       renderModalContent();
     };
 
+    const modalAssetSlot = overlay.querySelector('#modal-file-asset-slot');
+    if (modalAssetSlot && primaryField && isFileAssetField(primaryField)) {
+      const widget = buildFileAssetWidget(primaryField, 'modal', initialVariant);
+      modalAssetSlot.appendChild(widget);
+    }
+
     const variantEl = overlay.querySelector('#modal-field-variant');
     const idInput = overlay.querySelector('#modal-input-id');
     const titleInput = overlay.querySelector('#modal-input-title');
 
-    if (variantEl && idInput) {
-      variantEl.onchange = () => {
-        const val = variantEl.value;
-        idInput.value = generateSuggestedId(currentEngineId.toLowerCase(), val);
-        if (engId === 'clock') {
-          const optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
-          titleInput.value = `${t('clock_name', 'Horloge')} (${optText})`;
-        } else if (engId === 'weather') {
-          titleInput.value = `${t('weather_name', 'Météo')} (${val})`;
-        } else if (engId === 'system_info' || engId === 'sysinfo') {
-          const optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
-          titleInput.value = `${t('sysinfo_name', 'Infos Système')} (${optText})`;
+    // Wire modal quick-select chips
+    overlay.querySelectorAll('.modal-quick-chip').forEach(chip => {
+      chip.onclick = () => {
+        const val = chip.getAttribute('data-val');
+        if (variantEl) {
+          if (engId === 'crypto' || engId === 'stock') {
+            const currentTokens = variantEl.value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+            const idx = currentTokens.findIndex(t => t.toUpperCase() === val.toUpperCase());
+            if (idx >= 0) currentTokens.splice(idx, 1);
+            else currentTokens.push(val);
+            variantEl.value = currentTokens.join(',');
+          } else {
+            variantEl.value = val;
+          }
+          variantEl.dispatchEvent(new Event('change'));
         }
       };
+    });
+
+    if (variantEl && idInput) {
+      variantEl.oninput = variantEl.onchange = () => {
+        const val = variantEl.value;
+        idInput.value = generateSuggestedId(engId, val);
+        let optText = val;
+        if (variantEl.tagName === 'SELECT' && variantEl.selectedIndex >= 0) {
+          optText = variantEl.options[variantEl.selectedIndex].text.replace(/^[^\w\s]+/, '').trim();
+        }
+        titleInput.value = optText ? `${name} (${optText})` : name;
+      };
+    }
+
+    // Specialized GIF Playlist Loader and TATE / YOKO tab handling in Modal
+    const tabYoko = overlay.querySelector('#gif-tab-yoko');
+    const tabTate = overlay.querySelector('#gif-tab-tate');
+    const gifSelect = overlay.querySelector('#modal-select-gif-folder');
+    if (gifSelect && variantEl) {
+      let cachedPlaylists = [];
+      fetchCachedEndpoint('/api/playlists').then(data => {
+        cachedPlaylists = parseOptions(data);
+        populateGifSelect('yoko');
+      }).catch(() => {});
+
+      function populateGifSelect(orientation) {
+        gifSelect.innerHTML = `<option value="all" selected>🌟 ${t('all_folders_opt', 'All folders (Auto Horizontal / Vertical)')}</option>`;
+        const filtered = cachedPlaylists.filter(p => p.orientation === orientation || (orientation === 'yoko' ? !p.value.includes('tate') : p.value.includes('tate')));
+        filtered.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.value;
+          const cnt = (p.count !== undefined && p.count > 0) ? ` (${p.count})` : '';
+          opt.textContent = `${p.label}${cnt}`;
+          gifSelect.appendChild(opt);
+        });
+      }
+
+      gifSelect.onchange = () => {
+        variantEl.value = gifSelect.value;
+        if (idInput) idInput.value = generateSuggestedId('gifs', gifSelect.value);
+        if (titleInput) titleInput.value = `${name} (${gifSelect.options[gifSelect.selectedIndex].text.replace(/^[^\w\s]+/, '').trim()})`;
+      };
+
+      if (tabYoko && tabTate) {
+        tabYoko.onclick = () => {
+          tabYoko.style.border = '1px solid var(--accent)';
+          tabYoko.style.opacity = '1';
+          tabTate.style.border = 'none';
+          tabTate.style.opacity = '0.7';
+          populateGifSelect('yoko');
+          variantEl.value = 'all';
+          variantEl.placeholder = "all, /gifs/arcade, /gifs/nintendo";
+          if (idInput) idInput.value = generateSuggestedId('gifs', 'all');
+        };
+        tabTate.onclick = () => {
+          tabTate.style.border = '1px solid var(--accent)';
+          tabTate.style.opacity = '1';
+          tabYoko.style.border = 'none';
+          tabYoko.style.opacity = '0.7';
+          populateGifSelect('tate');
+          variantEl.value = 'all';
+          variantEl.placeholder = "all, /gifs_tate/arcade, /gifs_tate/shmup";
+          if (idInput) idInput.value = generateSuggestedId('gifs', 'all');
+        };
+      }
     }
 
     const rotCheck = overlay.querySelector('#modal-check-rotation');
@@ -520,25 +711,36 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
     const submitBtn = overlay.querySelector('#modal-btn-submit');
     submitBtn.onclick = async () => {
-      const instId = idInput.value.trim() || generateSuggestedId(currentEngineId.toLowerCase(), '');
+      const instId = idInput.value.trim() || generateSuggestedId(engId, '');
       const screenTitle = titleInput.value.trim();
       const initialConfig = {};
       if (screenTitle) initialConfig.screen_title = screenTitle;
 
-      let targetEngineId = currentEngineId;
-      if (targetEngineId === 'sysinfo') targetEngineId = 'system_info';
-      else if (targetEngineId === 'gif') targetEngineId = 'gifs';
-      else if (targetEngineId === 'cast') targetEngineId = 'google_cast';
+      // Populate default schema values
+      if (fields && fields.length > 0) {
+        fields.forEach(f => {
+          if (f.default_value !== undefined && f.default_value !== null) {
+            initialConfig[f.id] = f.default_value;
+          }
+        });
+      }
 
       if (variantEl) {
         if (engId === 'clock') {
-          initialConfig.clock_theme = String(variantEl.value);
-          initialConfig.theme = String(variantEl.value);
-        } else if (engId === 'weather') initialConfig.city = String(variantEl.value);
-        else if (engId === 'gifs') initialConfig.folder = String(variantEl.value);
-        else if (engId === 'crypto') initialConfig.coins = String(variantEl.value);
-        else if (engId === 'stock') initialConfig.symbols = String(variantEl.value);
-        else if (engId === 'system_info' || engId === 'sysinfo') initialConfig.theme = String(variantEl.value || '0');
+          initialConfig.theme = parseInt(variantEl.value) || 23;
+        } else if (engId === 'weather') {
+          initialConfig.city = variantEl.value || 'Paris, FR';
+        } else if (engId === 'gifs' || engId === 'gif') {
+          initialConfig.folder = variantEl.value || 'all';
+        } else if (engId === 'crypto') {
+          initialConfig.symbols = variantEl.value || 'BTC,ETH';
+        } else if (engId === 'stock') {
+          initialConfig.symbols = variantEl.value || 'AAPL,TSLA';
+        } else if (engId === 'dashboard') {
+          initialConfig.theme = parseInt(variantEl.value) || 0;
+        } else if (primaryField) {
+          initialConfig[primaryField.id] = variantEl.value;
+        }
       }
 
       submitBtn.disabled = true;
@@ -547,30 +749,31 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       try {
         await API.post('/api/instances', {
           instance_id: instId,
-          engine_id: targetEngineId,
+          engine_id: currentEngineId,
           config: initialConfig
         });
 
         if (rotCheck.checked) {
-          const currentRotation = await API.get('/api/rotation').catch(() => []);
-          const dur = parseInt(overlay.querySelector('#modal-input-duration').value) || 30;
-          const fighter = overlay.querySelector('#modal-check-fighter').checked;
-          const newEntries = Array.isArray(currentRotation) ? currentRotation.slice() : [];
-          newEntries.push({
+          const curRot = await API.get('/api/rotation').catch(() => []);
+          const newRot = Array.isArray(curRot) ? curRot.slice() : [];
+          const dur = parseInt(overlay.querySelector('#modal-input-duration')?.value) || 30;
+          const fighter = overlay.querySelector('#modal-check-fighter')?.checked ?? false;
+          
+          newRot.push({
             instance_id: instId,
             duration_sec: dur,
-            overlays: { fighter: fighter },
+            overlays: { fighter },
             fighter_overlay: fighter
           });
-          await API.post('/api/rotation', newEntries);
+          await API.post('/api/rotation', newRot);
         }
 
-        window.showToast(`Screen '${screenTitle || instId}' created successfully!`, 'success');
         overlay.remove();
+        window.showToast(t('preview_success', 'Screen created successfully!'), 'success');
         await renderDynamicDisplay(instId);
-      } catch (err) {
-        console.error('Failed to create instance:', err);
-        window.showToast(`Error: ${err.message || 'Creation failed'}`, 'error');
+      } catch (e) {
+        console.error('Failed to create screen:', e);
+        window.showToast('Failed to create screen: ' + (e.message || ''), 'error');
         submitBtn.disabled = false;
         submitBtn.innerText = t('modal_create_btn', '🚀 Create & Add Screen');
       }
@@ -595,7 +798,14 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
 
   const isCountBased = (instId) => {
     const inst = instancesList.find(i => i.instance_id === instId);
-    return inst && inst.engine_id === 'gifs';
+    const eng = inst ? enginesMap[inst.engine_id] : null;
+    return Boolean((eng && eng.capabilities && eng.capabilities.selfPaced) || (inst && inst.engine_id === 'gifs'));
+  };
+
+  const allowsOverlay = (instId) => {
+    const inst = instancesList.find(i => i.instance_id === instId);
+    const eng = inst ? enginesMap[inst.engine_id] : null;
+    return Boolean(!eng || !eng.capabilities || eng.capabilities.allows_overlay !== false);
   };
 
   const card = document.createElement('div');
@@ -792,12 +1002,12 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
     if (val.startsWith('inst:')) {
       const instId = val.replace('inst:', '');
       const inst = instancesList.find(i => i.instance_id === instId);
-      const isClock = inst && inst.engine_id === 'clock';
+      const allowOverlay = allowsOverlay(instId);
       entries.push({
         instance_id: instId,
         duration_sec: 30,
-        overlays: { fighter: isClock },
-        fighter_overlay: isClock
+        overlays: { fighter: allowOverlay },
+        fighter_overlay: allowOverlay
       });
       renderRows();
     } else if (val.startsWith('new:')) {
@@ -869,9 +1079,10 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
     const eng = desc.metadata || {};
     const req = desc.requirements || {};
     const cap = desc.capabilities || {};
-    const icon = eng.icon || '🧩';
-    const name = eng.name || eng.id;
-    const descText = eng.description || 'Display engine plugin for ArcadeMatrix.';
+    const meta = getEngineMeta(desc);
+    const icon = meta.icon;
+    const name = meta.name;
+    const descText = meta.desc;
 
     const card = document.createElement('div');
     card.className = 'engine-catalog-card';
@@ -901,8 +1112,7 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
         </div>
       </div>
       <div class="engine-card-actions">
-        <button class="btn btn-primary btn-add-loop" style="font-weight:600;">➕ ${t('add_to_rotation_btn', 'Add to Loop')}</button>
-        <button class="btn btn-config" style="background: rgba(255,255,255,0.08); color: #fff;">⚙️ ${t('configure_btn', 'Configure')}</button>
+        <button class="btn btn-primary btn-add-loop" style="font-weight:600; width: 100%;">➕ ${t('add_to_rotation_btn', 'Add to Loop')}</button>
       </div>
     `;
 
@@ -910,20 +1120,452 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
       showAddScreenModal(eng.id, descriptors, instancesList, true);
     };
 
-    card.querySelector('.btn-config').onclick = () => {
-      const existing = instancesList.find(i => i.engine_id === eng.id);
-      if (existing) {
-        window.switchToScreenTab(existing.instance_id);
-      } else {
-        showAddScreenModal(eng.id, descriptors, instancesList, false);
-      }
-    };
-
     grid.appendChild(card);
   });
 
   catalogWrapper.appendChild(grid);
   dashboardContainer.appendChild(catalogWrapper);
+}
+
+// Helper: Build Rich Multi-Select Group with YOKO / TATE Tabs for Folder / GIF fields
+function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
+  const container = document.createElement('div');
+  container.style = 'display: flex; flex-direction: column; gap: 0.5rem; width: 100%;';
+
+  const isFolderField = (targetFieldId === 'folder' || targetFieldId === 'playlists' || targetFieldId === 'gif_folder' || targetFieldId === 'folders' || opts.some(o => String(o.value).startsWith('/gifs')));
+  const initialTokens = String(initVal || 'all').split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+
+  const textInput = document.createElement('input');
+  textInput.type = 'text';
+  textInput.className = 'input';
+  textInput.id = `cfg-dyn-${instId}-${targetFieldId}`;
+  textInput.value = initVal || '';
+  textInput.placeholder = isFolderField ? 'all, /gifs/arcade, /gifs_tate/shmup...' : 'all, item1, item2...';
+
+  function syncTagsFromInput() {
+    const activeTokens = textInput.value.split(',').map(s => s.trim().toUpperCase()).filter(s => s.length > 0);
+    const isAll = activeTokens.includes('ALL');
+    const cbs = container.querySelectorAll(`input[type="checkbox"].multi-cb-${instId}-${targetFieldId}`);
+    cbs.forEach(cb => {
+      const cbVal = String(cb.value).trim().toUpperCase();
+      cb.checked = isAll || activeTokens.includes(cbVal) || activeTokens.some(t => cbVal.endsWith('/' + t) || t.endsWith('/' + cbVal));
+    });
+  }
+
+  function syncInputFromTags() {
+    const currentTokens = textInput.value.split(',').map(s => s.trim()).filter(s => s.length > 0 && s.toUpperCase() !== 'ALL');
+    const knownTagVals = opts.map(o => String(o.value).trim().toUpperCase());
+    const customTokens = currentTokens.filter(tok => !knownTagVals.includes(tok.toUpperCase()));
+    
+    const checkedTagVals = Array.from(container.querySelectorAll(`input[type="checkbox"].multi-cb-${instId}-${targetFieldId}:checked`)).map(cb => cb.value);
+    const allTokens = [...checkedTagVals, ...customTokens];
+    textInput.value = (allTokens.length === 0) ? 'all' : allTokens.join(',');
+    textInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  if (isFolderField) {
+    const yokoOpts = opts.filter(o => o.orientation === 'yoko' || (!o.orientation && !o.value.includes('tate') && !o.label.includes('tate')));
+    const tateOpts = opts.filter(o => o.orientation === 'tate' || o.value.includes('tate') || o.label.includes('tate'));
+
+    // Helper info card
+    const infoCard = document.createElement('div');
+    infoCard.style = 'background: rgba(0, 229, 255, 0.08); border-left: 3px solid var(--accent-primary, #00e5ff); padding: 0.6rem 0.8rem; border-radius: 4px; font-size: 0.82rem; line-height: 1.35; color: var(--text-secondary);';
+    infoCard.innerHTML = `<strong>💡 ${t('gif_auto_switch_title', 'Auto-Switching Detection :')}</strong> ${t('gif_auto_switch_desc', 'ArcadeMatrix automatically switches: in Horizontal (Landscape / YOKO) mode, only horizontal GIF folders are played. In Vertical (Portrait / TATE) mode, only vertical GIF folders are played.')}`;
+    container.appendChild(infoCard);
+
+    // Tab switcher for orientations
+    const tabNav = document.createElement('div');
+    tabNav.style = 'display: flex; gap: 0.5rem; margin-top: 0.25rem;';
+    tabNav.innerHTML = `
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-yoko-${instId}" style="flex:1; border: 1px solid var(--accent-primary, #00e5ff); font-weight: 700;">🖥️ ${t('tab_yoko', 'Horizontal (Landscape / YOKO)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${yokoOpts.length}</span></button>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-tate-${instId}" style="flex:1; font-weight: 700; opacity: 0.7;">📱 ${t('tab_tate', 'Vertical (Portrait / TATE)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${tateOpts.length}</span></button>
+    `;
+    container.appendChild(tabNav);
+
+    // Container for YOKO
+    const yokoContainer = document.createElement('div');
+    yokoContainer.id = `pane-yoko-${instId}`;
+    yokoContainer.style = 'display: flex; flex-direction: column; gap: 0.4rem;';
+
+    const yokoActions = document.createElement('div');
+    yokoActions.style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem;';
+    yokoActions.innerHTML = `
+      <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">🖥️ /gifs/ (${yokoOpts.length} ${t('folders_count', 'folders')})</span>
+      <div style="display: flex; gap: 0.35rem;">
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-yoko-${instId}">✅ ${t('select_all_btn', 'Select All')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-yoko-${instId}">✖️ ${t('clear_btn', 'Clear')}</button>
+      </div>
+    `;
+    yokoContainer.appendChild(yokoActions);
+
+    const yokoTagBox = document.createElement('div');
+    yokoTagBox.className = 'rotation-toggles';
+    yokoTagBox.style = 'display: flex; gap: 0.4rem; flex-wrap: wrap; max-height: 180px; overflow-y: auto; padding: 0.25rem; background: rgba(0,0,0,0.15); border-radius: var(--radius-sm); border: 1px solid var(--glass-border);';
+
+    if (yokoOpts.length === 0) {
+      yokoTagBox.innerHTML = `<span style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem;">${t('gif_no_yoko', 'No horizontal GIF folders found in /gifs')}</span>`;
+    } else {
+      yokoOpts.forEach(opt => {
+        const isChecked = initialTokens.includes('ALL') || initialTokens.includes(String(opt.value).trim().toUpperCase()) || initialTokens.includes(String(opt.label).trim().toUpperCase());
+        const lbl = document.createElement('label');
+        lbl.className = 'toggle-btn';
+        const countStr = (opt.count !== undefined && opt.count > 0) ? ` <span style="opacity:0.65; font-size:0.75rem;">(${opt.count})</span>` : '';
+        lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${opt.label}${countStr}</span>`;
+        lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
+        yokoTagBox.appendChild(lbl);
+      });
+    }
+    yokoContainer.appendChild(yokoTagBox);
+    container.appendChild(yokoContainer);
+
+    // Container for TATE
+    const tateContainer = document.createElement('div');
+    tateContainer.id = `pane-tate-${instId}`;
+    tateContainer.style = 'display: none; flex-direction: column; gap: 0.4rem;';
+
+    const tateActions = document.createElement('div');
+    tateActions.style = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.2rem;';
+    tateActions.innerHTML = `
+      <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">📱 /gifs_tate/ (${tateOpts.length} ${t('folders_count', 'folders')})</span>
+      <div style="display: flex; gap: 0.35rem;">
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-tate-${instId}">✅ ${t('select_all_btn', 'Select All')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-tate-${instId}">✖️ ${t('clear_btn', 'Clear')}</button>
+      </div>
+    `;
+    tateContainer.appendChild(tateActions);
+
+    const tateTagBox = document.createElement('div');
+    tateTagBox.className = 'rotation-toggles';
+    tateTagBox.style = 'display: flex; gap: 0.4rem; flex-wrap: wrap; max-height: 180px; overflow-y: auto; padding: 0.25rem; background: rgba(0,0,0,0.15); border-radius: var(--radius-sm); border: 1px solid var(--glass-border);';
+
+    if (tateOpts.length === 0) {
+      tateTagBox.innerHTML = `<span style="font-size: 0.8rem; color: var(--text-muted); padding: 0.5rem;">${t('gif_no_tate', 'No vertical GIF folders found in /gifs_tate')}</span>`;
+    } else {
+      tateOpts.forEach(opt => {
+        const isChecked = initialTokens.includes('ALL') || initialTokens.includes(String(opt.value).trim().toUpperCase()) || initialTokens.includes(String(opt.label).trim().toUpperCase());
+        const lbl = document.createElement('label');
+        lbl.className = 'toggle-btn';
+        const countStr = (opt.count !== undefined && opt.count > 0) ? ` <span style="opacity:0.65; font-size:0.75rem;">(${opt.count})</span>` : '';
+        lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${opt.label}${countStr}</span>`;
+        lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
+        tateTagBox.appendChild(lbl);
+      });
+    }
+    tateContainer.appendChild(tateTagBox);
+    container.appendChild(tateContainer);
+
+    // Tab switcher events
+    const btnTabYoko = tabNav.querySelector(`#btn-tab-yoko-${instId}`);
+    const btnTabTate = tabNav.querySelector(`#btn-tab-tate-${instId}`);
+    btnTabYoko.onclick = () => {
+      btnTabYoko.style.border = '1px solid var(--accent-primary, #00e5ff)';
+      btnTabYoko.style.opacity = '1';
+      btnTabTate.style.border = 'none';
+      btnTabTate.style.opacity = '0.7';
+      yokoContainer.style.display = 'flex';
+      tateContainer.style.display = 'none';
+    };
+    btnTabTate.onclick = () => {
+      btnTabTate.style.border = '1px solid var(--accent-primary, #00e5ff)';
+      btnTabTate.style.opacity = '1';
+      btnTabYoko.style.border = 'none';
+      btnTabYoko.style.opacity = '0.7';
+      tateContainer.style.display = 'flex';
+      yokoContainer.style.display = 'none';
+    };
+
+    // Actions
+    const btnSelYoko = yokoActions.querySelector(`#btn-sel-all-yoko-${instId}`);
+    const btnClrYoko = yokoActions.querySelector(`#btn-clr-yoko-${instId}`);
+    if (btnSelYoko) btnSelYoko.onclick = () => {
+      yokoTagBox.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = true);
+      syncInputFromTags();
+    };
+    if (btnClrYoko) btnClrYoko.onclick = () => {
+      yokoTagBox.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+      syncInputFromTags();
+    };
+
+    const btnSelTate = tateActions.querySelector(`#btn-sel-all-tate-${instId}`);
+    const btnClrTate = tateActions.querySelector(`#btn-clr-tate-${instId}`);
+    if (btnSelTate) btnSelTate.onclick = () => {
+      tateTagBox.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = true);
+      syncInputFromTags();
+    };
+    if (btnClrTate) btnClrTate.onclick = () => {
+      tateTagBox.querySelectorAll('input[type="checkbox"]').forEach(c => c.checked = false);
+      syncInputFromTags();
+    };
+  } else {
+    // Standard multi-select group
+    const tagContainer = document.createElement('div');
+    tagContainer.className = 'rotation-toggles';
+    tagContainer.style = 'display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.2rem;';
+
+    opts.forEach(opt => {
+      const isChecked = initialTokens.includes(String(opt.value).trim().toUpperCase());
+      const lbl = document.createElement('label');
+      lbl.className = 'toggle-btn';
+      lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${formatOptLabel(targetFieldId, opt.value, opt.label)}</span>`;
+      lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
+      tagContainer.appendChild(lbl);
+    });
+    container.appendChild(tagContainer);
+  }
+
+  textInput.addEventListener('input', syncTagsFromInput);
+  container.appendChild(textInput);
+  return container;
+}
+
+// Helper: Build Generic Asset Upload Widget for ConfigType::FILE_ASSET fields
+export function buildFileAssetWidget(field, instId, initVal) {
+  const container = document.createElement('div');
+  container.className = 'file-asset-widget';
+  container.style = 'margin-top: 0.25rem; width: 100%;';
+
+  const textInput = document.createElement('input');
+  textInput.type = 'hidden';
+  textInput.id = (instId === 'modal') ? 'modal-field-variant' : `cfg-dyn-${instId}-${field.id}`;
+  textInput.value = initVal || (field.default_value || '');
+  container.appendChild(textInput);
+
+  const dropZone = document.createElement('div');
+  dropZone.className = 'drop-zone file-asset-drop-zone';
+  dropZone.style = 'padding: 1rem; border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; text-align: center; cursor: pointer; transition: all 0.2s; background: rgba(0,0,0,0.2);';
+
+  const fileInput = document.createElement('input');
+  fileInput.type = 'file';
+  fileInput.style.display = 'none';
+
+  let acceptExts = 'image/png, image/jpeg, image/gif';
+  if (field.options) {
+    const parsed = parseOptions(field.options);
+    if (parsed.length > 0) {
+      acceptExts = parsed.map(o => o.value).join(',');
+    } else if (typeof field.options === 'string') {
+      acceptExts = field.options;
+    }
+  }
+  fileInput.accept = acceptExts;
+  container.appendChild(fileInput);
+
+  const iconDiv = document.createElement('div');
+  iconDiv.style = 'font-size: 1.6rem; margin-bottom: 0.25rem;';
+  iconDiv.innerHTML = '🖼️';
+
+  const titleDiv = document.createElement('div');
+  titleDiv.style = 'font-size: 0.85rem; font-weight: 600; color: var(--text-primary, #fff);';
+  titleDiv.innerText = t('file_drop_or_browse', 'Drop file here or click to browse');
+
+  const descDiv = document.createElement('div');
+  descDiv.style = 'font-size: 0.75rem; color: var(--text-muted, #94a3b8); margin-top: 0.2rem;';
+  descDiv.innerText = `${t('accepted_types', 'Accepted:')} ${acceptExts}`;
+
+  const badgeDiv = document.createElement('div');
+  badgeDiv.style = 'margin-top: 0.5rem; font-size: 0.75rem; font-family: monospace; background: rgba(255,255,255,0.08); padding: 0.25rem 0.5rem; border-radius: 4px; display: inline-block; word-break: break-all;';
+  badgeDiv.innerText = textInput.value ? `📄 ${textInput.value}` : t('no_file_uploaded', 'No file uploaded yet');
+
+  const previewWrap = document.createElement('div');
+  previewWrap.style = 'margin-top: 0.5rem;';
+  const previewImg = document.createElement('img');
+  previewImg.style = 'max-height: 56px; border-radius: 4px; border: 1px solid rgba(255,255,255,0.2); display: none;';
+  previewImg.onerror = () => { previewImg.style.display = 'none'; };
+  if (textInput.value && (textInput.value.endsWith('.gif') || textInput.value.endsWith('.png') || textInput.value.endsWith('.jpg') || textInput.value.endsWith('.jpeg'))) {
+    previewImg.src = textInput.value.startsWith('/') ? textInput.value : '/' + textInput.value;
+    previewImg.style.display = 'inline-block';
+  }
+  previewWrap.appendChild(previewImg);
+
+  const browseBtn = document.createElement('button');
+  browseBtn.type = 'button';
+  browseBtn.className = 'btn btn-secondary btn-sm';
+  browseBtn.style = 'margin-top: 0.5rem; font-size: 0.75rem; pointer-events: none;';
+  browseBtn.innerHTML = '📁 ' + t('browse_file_btn', 'Browse File');
+
+  dropZone.appendChild(iconDiv);
+  dropZone.appendChild(titleDiv);
+  dropZone.appendChild(descDiv);
+  dropZone.appendChild(badgeDiv);
+  dropZone.appendChild(previewWrap);
+  dropZone.appendChild(browseBtn);
+
+  dropZone.onclick = () => fileInput.click();
+  dropZone.ondragover = (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'var(--primary, #3b82f6)';
+    dropZone.style.background = 'rgba(59,130,246,0.1)';
+  };
+  dropZone.ondragleave = () => {
+    dropZone.style.borderColor = 'rgba(255,255,255,0.2)';
+    dropZone.style.background = 'rgba(0,0,0,0.2)';
+  };
+  dropZone.ondrop = (e) => {
+    e.preventDefault();
+    dropZone.style.borderColor = 'rgba(255,255,255,0.2)';
+    dropZone.style.background = 'rgba(0,0,0,0.2)';
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUpload(e.dataTransfer.files[0]);
+    }
+  };
+  fileInput.onchange = () => {
+    if (fileInput.files && fileInput.files.length > 0) {
+      handleUpload(fileInput.files[0]);
+    }
+  };
+
+  async function handleUpload(file) {
+    if (!file) return;
+    titleDiv.innerText = t('uploading_file', 'Uploading asset...');
+    if (file.type && file.type.startsWith('image/')) {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        previewImg.src = ev.target.result;
+        previewImg.style.display = 'inline-block';
+      };
+      reader.readAsDataURL(file);
+    let uploadFile = file;
+
+    // For static images, client-side pre-resize ensures optimal performance on ESP & RPi
+    if (file.type && file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.gif')) {
+      try {
+        const fitModeEl = document.getElementById(`cfg-dyn-${instId}-fit_mode`) || 
+                          document.querySelector(`[id$="-fit_mode"]`);
+        const fitMode = fitModeEl ? (fitModeEl.value || 'fit') : 'fit';
+        const panelW = (window.__sysConfig?.matrix?.width * (window.__sysConfig?.matrix?.chain_length || 1)) || 128;
+        const panelH = window.__sysConfig?.matrix?.height || 32;
+
+        const resizedBlob = await new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = panelW;
+            canvas.height = panelH;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(0, 0, panelW, panelH);
+
+            const sw = img.width;
+            const sh = img.height;
+            if (fitMode === 'stretch') {
+              ctx.drawImage(img, 0, 0, panelW, panelH);
+            } else if (fitMode === 'center') {
+              const dx = Math.round((panelW - sw) / 2);
+              const dy = Math.round((panelH - sh) / 2);
+              ctx.drawImage(img, dx, dy, sw, sh);
+            } else { // 'fit'
+              const ratio = Math.min(panelW / sw, panelH / sh);
+              const dw = Math.round(sw * ratio);
+              const dh = Math.round(sh * ratio);
+              const dx = Math.round((panelW - dw) / 2);
+              const dy = Math.round((panelH - dh) / 2);
+              ctx.drawImage(img, dx, dy, dw, dh);
+            }
+            canvas.toBlob((b) => {
+              if (b) resolve(b);
+              else reject(new Error('Canvas blob failed'));
+            }, 'image/png');
+          };
+          img.onerror = () => reject(new Error('Image decode failed'));
+          img.src = URL.createObjectURL(file);
+        });
+
+        if (resizedBlob) {
+          uploadFile = new File([resizedBlob], 'marquee.png', { type: 'image/png' });
+        }
+      } catch (err) {
+        console.warn('Client-side resize skipped:', err);
+      }
+    }
+
+    const uploadEndpoint = field.options_endpoint || '/api/upload';
+    const formData = new FormData();
+    formData.append('file', uploadFile);
+    formData.append('image', uploadFile);
+
+    try {
+      const res = await fetch(uploadEndpoint, {
+        method: 'POST',
+        headers: (typeof authHeaders === 'function') ? authHeaders() : {},
+        body: formData
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const savedPath = data.path || textInput.value;
+      textInput.value = savedPath;
+      badgeDiv.innerText = `📄 ${savedPath}`;
+      titleDiv.innerText = t('file_drop_or_browse', 'Drop file here or click to browse');
+      textInput.dispatchEvent(new Event('change', { bubbles: true }));
+      if (typeof window.showToast === 'function') {
+        window.showToast(t('asset_uploaded_success', 'Asset uploaded successfully!'), 'success');
+      }
+    } catch (err) {
+      titleDiv.innerText = t('upload_failed', 'Upload failed. Click to retry.');
+      if (typeof window.showToast === 'function') {
+        window.showToast(t('upload_error', 'Upload failed: ') + (err.message || err), 'error');
+      }
+    }
+  }
+
+  container.appendChild(dropZone);
+  return container;
+}
+
+// Helper: Attach Quick-Preset chips underneath text fields (cities, cryptos, stocks, world clocks)
+function attachQuickPresets(input, fieldId) {
+  let presets = [];
+  let isMulti = false;
+
+  if (fieldId === 'city' || fieldId === 'weather_city' || fieldId === 'location') {
+    presets = [
+      "Paris, FR", "New York, US", "Tokyo, JP", "London, GB",
+      "Berlin, DE", "Madrid, ES", "Rome, IT", "Los Angeles, US",
+      "Sydney, AU", "Dubai, AE", "Singapore, SG", "Toronto, CA"
+    ];
+  } else if (fieldId === 'tracked_markets' || fieldId === 'symbols' || fieldId === 'coins' || fieldId === 'cryptos') {
+    presets = ["BTC", "ETH", "SOL", "DOGE", "XRP", "BNB", "NVDA", "AAPL", "TSLA", "MSFT", "AMZN", "GOOGL"];
+    isMulti = true;
+  } else if (fieldId === 'world_clocks' || fieldId === 'clocks') {
+    presets = ["NYC", "TYO", "LON", "PAR", "BER", "DXB", "SYD", "SFO", "SIN", "HKG", "DEL", "MOW"];
+    isMulti = true;
+  }
+
+  if (presets.length === 0) return null;
+
+  const presetBox = document.createElement('div');
+  presetBox.style = 'display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;';
+  
+  const label = document.createElement('span');
+  label.style = 'font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;';
+  label.innerText = '⚡ ' + t('quick_presets_label', 'Suggestions :');
+  presetBox.appendChild(label);
+
+  presets.forEach(preset => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'btn btn-sm';
+    chip.style = 'font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;';
+    chip.innerText = preset.includes(',') ? preset.split(',')[0] : preset;
+    chip.onclick = () => {
+      if (isMulti) {
+        const currentTokens = input.value.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        const idx = currentTokens.findIndex(t => t.toUpperCase() === preset.toUpperCase());
+        if (idx >= 0) {
+          currentTokens.splice(idx, 1);
+        } else {
+          currentTokens.push(preset);
+        }
+        input.value = currentTokens.join(',');
+      } else {
+        input.value = preset;
+      }
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    presetBox.appendChild(chip);
+  });
+
+  return presetBox;
 }
 
 // 3. Main Dynamic Display Renderer
@@ -993,7 +1635,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
     wrapper.insertBefore(screensHeader, tabsAnchor);
 
     screensHeader.querySelector('#btn-header-add-screen').onclick = () => {
-      showAddScreenModal('clock', descriptors, instancesList, true);
+      showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
     };
 
     if (instancesList.length === 0) {
@@ -1007,7 +1649,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
         <button class="btn btn-primary" id="btn-empty-first-screen">➕ ${t('modal_add_title', 'Add First Screen')}</button>
       `;
       wrapper.appendChild(emptyCard);
-      emptyCard.querySelector('#btn-empty-first-screen').onclick = () => showAddScreenModal('clock', descriptors, instancesList, true);
+      emptyCard.querySelector('#btn-empty-first-screen').onclick = () => showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
       return;
     }
 
@@ -1099,12 +1741,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             newRot = newRot.filter(r => r.instance_id !== instance.instance_id);
             window.showToast(`Removed '${info.title}' from rotation`, 'info');
           } else {
-            const isClock = instance.engine_id === 'clock';
+            const allowOverlay = !engineDesc.capabilities || engineDesc.capabilities.allows_overlay !== false;
             newRot.push({
               instance_id: instance.instance_id,
               duration_sec: 30,
-              overlays: { fighter: isClock },
-              fighter_overlay: isClock
+              overlays: { fighter: allowOverlay },
+              fighter_overlay: allowOverlay
             });
             window.showToast(`Added '${info.title}' to rotation`, 'success');
           }
@@ -1189,9 +1831,13 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           formGroup.id = `fg-${cleanId}-${field.id}`;
           
           const label = document.createElement('label');
-          label.innerText = field.label || field.id;
+          const lang = localStorage.getItem('lang') || 'en';
+          const dict = (typeof translations !== 'undefined' && translations && translations[lang]) ? translations[lang] : ((typeof translations !== 'undefined' && translations) ? translations.en : {});
+          const fieldLabelKey = `field_${field.id}`;
+          const fieldDescKey = `field_desc_${field.id}`;
+          label.innerText = (dict && dict[fieldLabelKey]) ? dict[fieldLabelKey] : (field.label || field.id);
           if (field.description) {
-            label.title = field.description;
+            label.title = (dict && dict[fieldDescKey]) ? dict[fieldDescKey] : field.description;
             label.style.cursor = 'help';
             label.innerHTML += ' ℹ️';
           }
@@ -1202,8 +1848,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           let currentVal = configMap[field.id] !== undefined ? configMap[field.id] : field.default_value;
           if (currentVal === undefined || currentVal === null) currentVal = '';
 
+          // 0. Generic File Asset (Upload / Drag & Drop)
+          if (isFileAssetField(field)) {
+             input = buildFileAssetWidget(field, instance.instance_id, currentVal);
+          }
           // 1. Timezone or Options Endpoint (using cached requests)
-          if (field.id === 'timezone' || field.options_endpoint === '/api/timezones') {
+          else if (field.id === 'timezone' || field.options_endpoint === '/api/timezones') {
               input = document.createElement('select');
               input.className = 'input';
               input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
@@ -1217,20 +1867,8 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           } else if (field.options_endpoint) {
              const data = await fetchCachedEndpoint(field.options_endpoint);
              const normalizedOpts = parseOptions(data);
-             if (field.multiple) {
-                 input = document.createElement('div');
-                 input.className = 'rotation-toggles';
-                 input.style = 'display: flex; gap: 0.5rem; flex-wrap: wrap;';
-                 
-                 const selectedValues = currentVal ? String(currentVal).split(',') : [];
-                 
-                 normalizedOpts.forEach(opt => {
-                     const isChecked = selectedValues.includes(opt.value);
-                     const lbl = document.createElement('label');
-                     lbl.className = 'toggle-btn';
-                     lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instance.instance_id}-${field.id}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${formatOptLabel(field.id, opt.value, opt.label)}</span>`;
-                     input.appendChild(lbl);
-                 });
+             if (field.multiple || field.id === 'folder' || field.id === 'playlists' || field.id === 'gif_folder') {
+                 input = buildMultiSelectGroup(normalizedOpts, field.id, instance.instance_id, currentVal);
              } else {
                  input = document.createElement('select');
                  input.className = 'input';
@@ -1247,17 +1885,21 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           // 2. Options / Enum Field (from field.options)
           else if (isOptionsField(field) || (field.options && field.options.length > 0)) {
               const opts = parseOptions(field.options);
-              input = document.createElement('select');
-              input.className = 'input';
-              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
-              
-              opts.forEach(opt => {
-                const option = document.createElement('option');
-                option.value = opt.value;
-                option.innerText = formatOptLabel(field.id, opt.value, opt.label);
-                if (String(opt.value) === String(currentVal)) option.selected = true;
-                input.appendChild(option);
-              });
+              if (field.multiple) {
+                  input = buildMultiSelectGroup(opts, field.id, instance.instance_id, currentVal);
+              } else {
+                  input = document.createElement('select');
+                  input.className = 'input';
+                  input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
+                  
+                  opts.forEach(opt => {
+                    const option = document.createElement('option');
+                    option.value = opt.value;
+                    option.innerText = formatOptLabel(field.id, opt.value, opt.label);
+                    if (String(opt.value) === String(currentVal)) option.selected = true;
+                    input.appendChild(option);
+                  });
+              }
           } 
           // 3. Boolean
           else if (isBooleanField(field)) { 
@@ -1283,7 +1925,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              }
              input.value = col || '#ffffff';
           } 
-          // 5. Default Inputs (Text/Number)
+          // 5. Default Inputs (Text/Number with Quick-Presets)
           else { 
              input = document.createElement('input');
              input.type = isNumberField(field) ? 'number' : 'text';
@@ -1297,6 +1939,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
           
           if (input) {
              formGroup.appendChild(input);
+             if (!isBooleanField(field) && !isColorField(field) && !isNumberField(field) && !isFileAssetField(field) && !field.options_endpoint) {
+               const quickPresets = attachQuickPresets(input, field.id);
+               if (quickPresets) formGroup.appendChild(quickPresets);
+             }
           }
           
           formGrid.appendChild(formGroup);
@@ -1362,15 +2008,19 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
          
          if (fields && fields.length > 0) {
              fields.forEach(field => {
-                if (field.multiple && field.options_endpoint) {
+                const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
+                if (el && el.value !== undefined && el.value.trim().length > 0) {
+                    payload.config[field.id] = el.value.trim();
+                } else if (field.multiple || field.options_endpoint) {
                     const checkboxes = document.querySelectorAll(`.multi-cb-${instance.instance_id}-${field.id}:checked`);
-                    const vals = Array.from(checkboxes).map(cb => cb.value);
-                    payload.config[field.id] = vals.join(',');
-                } else {
-                    const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
-                    if (el) {
-                       payload.config[field.id] = el.value;
+                    if (checkboxes.length > 0) {
+                        const vals = Array.from(checkboxes).map(cb => cb.value);
+                        payload.config[field.id] = vals.join(',');
+                    } else {
+                        payload.config[field.id] = 'all';
                     }
+                } else if (el) {
+                    payload.config[field.id] = el.value;
                 }
              });
          }

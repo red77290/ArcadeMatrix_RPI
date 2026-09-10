@@ -6,6 +6,14 @@ pub struct CoinGeckoProvider;
 
 impl CryptoProvider for CoinGeckoProvider {
     fn fetch_quote(&self, symbol: &str) -> Option<(f64, f64, Option<String>)> {
+        self.fetch_quote_currency(symbol, "USD")
+    }
+
+    fn fetch_quote_currency(
+        &self,
+        symbol: &str,
+        currency: &str,
+    ) -> Option<(f64, f64, Option<String>)> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(3))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
@@ -13,11 +21,12 @@ impl CryptoProvider for CoinGeckoProvider {
             .ok()?;
 
         let lower_symbol = symbol.to_lowercase();
+        let vs_curr = currency.to_lowercase();
 
         // 1. Primary API
         let cg_url = format!(
-            "https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&symbols={}",
-            lower_symbol
+            "https://api.coingecko.com/api/v3/coins/markets?vs_currency={}&symbols={}",
+            vs_curr, lower_symbol
         );
 
         if let Ok(res) = client.get(&cg_url).send() {
@@ -26,8 +35,8 @@ impl CryptoProvider for CoinGeckoProvider {
                 if let Ok(json) = res.json::<serde_json::Value>() {
                     if let Some((price, change, img_url)) = Self::parse_primary(&json) {
                         info!(
-                            "[CoinGecko Primary] Quote for {}: ${:.4} ({:.2}%)",
-                            symbol, price, change
+                            "[CoinGecko Primary] Quote for {} ({}): {:.4} ({:.2}%)",
+                            symbol, currency, price, change
                         );
                         return Some((price, change, img_url));
                     }
@@ -53,8 +62,8 @@ impl CryptoProvider for CoinGeckoProvider {
             &lower_symbol
         };
         let cg_simple_url = format!(
-            "https://api.coingecko.com/api/v3/simple/price?ids={}&vs_currencies=usd&include_24hr_change=true",
-            coin_id
+            "https://api.coingecko.com/api/v3/simple/price?ids={}&vs_currencies={}&include_24hr_change=true",
+            coin_id, vs_curr
         );
 
         if let Ok(res) = client.get(&cg_simple_url).send() {
@@ -62,8 +71,8 @@ impl CryptoProvider for CoinGeckoProvider {
                 if let Ok(json) = res.json::<serde_json::Value>() {
                     if let Some((price, change)) = Self::parse_simple(&json, coin_id) {
                         info!(
-                            "[CoinGecko Simple] Quote for {}: ${:.4} ({:.2}%)",
-                            symbol, price, change
+                            "[CoinGecko Simple] Quote for {} ({}): {:.4} ({:.2}%)",
+                            symbol, currency, price, change
                         );
                         return Some((price, change, None));
                     }
@@ -75,6 +84,15 @@ impl CryptoProvider for CoinGeckoProvider {
     }
 
     fn fetch_history(&self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
+        self.fetch_history_currency(symbol, tf, "USD")
+    }
+
+    fn fetch_history_currency(
+        &self,
+        symbol: &str,
+        tf: Timeframe,
+        currency: &str,
+    ) -> Option<PriceHistory> {
         let client = reqwest::blocking::Client::builder()
             .timeout(Duration::from_secs(3))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
@@ -82,6 +100,7 @@ impl CryptoProvider for CoinGeckoProvider {
             .ok()?;
 
         let lower = symbol.to_lowercase();
+        let vs_curr = currency.to_lowercase();
         let coin_id = match lower.as_str() {
             "btc" => "bitcoin",
             "eth" => "ethereum",
@@ -104,8 +123,8 @@ impl CryptoProvider for CoinGeckoProvider {
         };
 
         let url = format!(
-            "https://api.coingecko.com/api/v3/coins/{}/market_chart?vs_currency=usd&days={}",
-            coin_id, days
+            "https://api.coingecko.com/api/v3/coins/{}/market_chart?vs_currency={}&days={}",
+            coin_id, vs_curr, days
         );
 
         if let Ok(res) = client.get(&url).send() {

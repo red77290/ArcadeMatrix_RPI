@@ -14,37 +14,30 @@ projet frère ESP32 - c'est le même outil, conservé identique dans les deux d�
 pas de mécanisme de package partagé entre ces deux bases de code indépendantes. Voir
 `mugen_extractor/README_FR.md` pour l'utilisation complète.
 
-## `recalbox_setup_mqtt.sh`
+## `rpi_emulationstation_base_os_setup.sh` (et `recalbox_setup_mqtt.sh`)
 
-Un script shell autonome que vous copiez sur votre Recalbox et exécutez **directement sur
+Un script shell autonome que vous copiez sur votre console de rétro-gaming (Recalbox, Batocera ou RetroPie) et exécutez **directement sur
 l'appareil via SSH** (pas depuis votre PC) pour installer le daemon MQTT "en cours de lecture" :
 
-1. `ssh root@<ip-recalbox>` (mot de passe : `recalboxroot`)
-2. Modifiez la variable `MQTT_BROKER` en haut de ce script avec l'IP de votre Raspberry Pi (celui
-   qui fait tourner ArcadeMatrix_RPi et la matrice LED).
-3. Copiez/collez le script sur la Recalbox (ex : `scp tools/recalbox_setup_mqtt.sh root@<ip-recalbox>:/tmp/` puis `ssh root@<ip-recalbox> "sh /tmp/recalbox_setup_mqtt.sh"`).
-4. Redémarrez la Recalbox quand demandé.
+1. `ssh <user>@<ip-console>` (ex : `root@<ip>` mot de passe `recalboxroot` pour Recalbox, `root`/`linux` pour Batocera, `pi`/`raspberry` pour RetroPie).
+2. Lancez le script :
+   ```bash
+   sh /tmp/rpi_emulationstation_base_os_setup.sh
+   ```
+3. Saisissez l'adresse IP de votre ArcadeMatrix (ESP32 ou Raspberry Pi) lorsque demandée.
+4. Sélectionnez votre système cible :
+   - `1: Détection automatique`
+   - `2: Recalbox`
+   - `3: Batocera`
+   - `4: RetroPie`
+5. Le script installe automatiquement le daemon, configure le démarrage du système et propose de redémarrer.
 
 Ce qu'il installe :
-- Un petit daemon Python (`/recalbox/share/arcadematrix_daemon.py`) qui interroge
-  `/tmp/es_state.inf` (le fichier d'état en direct d'EmulationStation) toutes les 100ms, filtre les
-  changements rapides de navigation (150ms), et publie `{"status": "playing"|"browsing", "game":
-  "<nom de base de la rom>", "system": "<SystemId>"}` via MQTT sur le topic
-  `recalbox/system/playing` via `mosquitto_pub` - c'est ce que consomment `_on_mqtt_message()` de
-  `main.py` et `core/dmd_cache.py` pour afficher un marquee en direct.
-- Un script de lancement (`/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh`)
-  qu'EmulationStation appelle au démarrage pour garder le daemon actif après chaque redémarrage.
+- Un petit daemon Python (`arcadematrix_daemon.py`) qui surveille les lancements/arrêts de jeux et publie `{"status": "playing"|"browsing"|"stopped", "game": "<nom de base de la rom>", "system": "<SystemId>"}` via MQTT sur `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera` ou `system/playing/retropie`) via `mosquitto_pub`.
+- L'intégration au démarrage assurant la persistance après chaque redémarrage.
 
-**Note pour les utilisateurs qui ont aussi un appareil ESP32 ArcadeMatrix** : ce même daemon/format
-de communication a été porté vers un installeur multiplateforme plus convivial (Windows/macOS/Linux)
-dans `ArcadeMatrix/tools/recalbox_daemon/` du projet ESP32 (`install.sh`/`install.ps1`, à lancer
-depuis votre PC au lieu de faire du SSH manuel). Les deux installeurs publient le même format MQTT,
-donc **une seule installation peut servir à la fois un appareil RPi et un appareil ESP32
-simultanément** si les deux sont abonnés au même broker. Si vous n'utilisez que ce projet RPi, ce
-script suffit ; l'installeur de l'autre dépôt n'est qu'une façon plus automatisée de déployer la
-même chose (ça vaut le coup de l'adopter même ici si vous préférez éviter le SSH manuel -
-`ArcadeMatrix/tools/recalbox_daemon/install.sh` fonctionne contre une Recalbox quel que soit le
-projet frontend avec lequel elle est associée).
+**Note pour les utilisateurs qui ont aussi un appareil ESP32 ArcadeMatrix** :
+Ce daemon et le format de topic standard (`system/playing/#`) sont 100% identiques et compatibles entre les versions ESP32 et Raspberry Pi. Une seule installation sur votre console sert les deux appareils simultanément. Vous pouvez également exécuter l'installeur automatisé côté PC (`tools/install.sh` / `tools/install.ps1`).
 
 **Normalement cela se fait automatiquement via la fonctionnalité d'installation SSH de l'interface
 web** (`core/ssh_installer.py`, déclenchée depuis la page Réglages) - ce script est le recours

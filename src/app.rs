@@ -10,6 +10,7 @@ use crate::core::rotation_manager::RotationManager;
 use crate::core::runtime::DisplayRuntime;
 use crate::core::types::{
     DisplayRequest, DisplaySourceId, EngineHandle, ProducerSyncState, RequestLifecycle,
+    TransitionMode,
 };
 
 use std::net::UdpSocket;
@@ -625,20 +626,26 @@ impl ArcadeMatrixApp {
             }
 
             // 2. Sync Rotation Producer
-            if !snapshot.rotation.is_empty() {
+            let rotation_entry_changed = if !snapshot.rotation.is_empty() {
                 let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
                 let rot_entry = &snapshot.rotation[curr_idx];
                 let rot_req = rotation_manager
                     .build_rotation_request_with_handle(rot_entry.handle, rot_entry.duration_sec);
 
-                if rotation_sync.has_changed(true, rot_req.request_id, rot_req.engine_handle) {
+                let changed =
+                    rotation_sync.has_changed(true, rot_req.request_id, rot_req.engine_handle);
+                if changed {
                     arbiter.submit_request(rot_req);
                     rotation_sync.update(true, rot_req.request_id, rot_req.engine_handle);
                 }
+                changed
             } else if rotation_sync.active {
                 arbiter.cancel_request(DisplaySourceId::Rotation, 0);
                 rotation_sync.update(false, 0, EngineHandle::NULL);
-            }
+                false
+            } else {
+                false
+            };
 
             // 3. Evaluate Arbiter (O(1), zero allocation)
             let decision = arbiter.evaluate(std::time::Instant::now());
@@ -650,7 +657,24 @@ impl ArcadeMatrixApp {
             let mut allows_overlay = false;
 
             {
-                runtime.transition_session(decision, &arbiter, &mut engine_runtime);
+                let transition_mode =
+                    runtime.transition_session(decision, &arbiter, &mut engine_runtime);
+
+                if runtime.active_session().source_id == DisplaySourceId::Rotation
+                    && !snapshot.rotation.is_empty()
+                    && (transition_mode != TransitionMode::None || rotation_entry_changed)
+                {
+                    let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
+                    let rot_entry = &snapshot.rotation[curr_idx];
+                    if let Some(engine) =
+                        engine_runtime.get_active_instance(runtime.active_session().engine_handle)
+                    {
+                        engine.set_rotation_budget(rot_entry.duration_sec);
+                        if rotation_entry_changed && transition_mode == TransitionMode::None {
+                            engine.activate();
+                        }
+                    }
+                }
 
                 let mut ctx = crate::core::engine_contract::EngineContext {
                     matrix: matrix.as_mut(),

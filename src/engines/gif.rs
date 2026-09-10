@@ -432,8 +432,10 @@ impl Engine for GifEngine {
         if self.loop_count >= 1 {
             self.loop_count = 0;
             self.gifs_played += 1;
-            self.play_random_playlist_gif(&self.playlists.clone());
-            self.last_update = Some(Instant::now());
+            if self.gifs_played < self.target_count {
+                self.play_random_playlist_gif(&self.playlists.clone());
+                self.last_update = Some(Instant::now());
+            }
         }
     }
 
@@ -466,6 +468,8 @@ impl Engine for GifEngine {
 
     fn set_rotation_budget(&mut self, budget: u32) {
         self.target_count = budget.max(1);
+        self.gifs_played = 0;
+        self.loop_count = 0;
     }
 
     fn self_paced(&self) -> bool {

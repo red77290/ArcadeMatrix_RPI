@@ -99,7 +99,10 @@ export const THEME_ID_MAP = {
 export function getEngineMeta(descOrMeta) {
   const meta = (descOrMeta && descOrMeta.metadata) ? descOrMeta.metadata : (descOrMeta || {});
   const id = String(meta.id || '').toLowerCase();
-  const name = meta.name || (id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'Display Engine');
+  const lang = localStorage.getItem('lang') || 'en';
+  const dict = (typeof translations !== 'undefined' && translations && translations[lang]) ? translations[lang] : ((typeof translations !== 'undefined' && translations) ? translations.en : {});
+  const rawName = meta.name || (id ? (id.charAt(0).toUpperCase() + id.slice(1)) : 'Display Engine');
+  const name = (dict && dict[`engine_${id}`]) ? dict[`engine_${id}`] : rawName;
   const cat = String(meta.category || '').toLowerCase();
   
   let icon = meta.icon || '';
@@ -121,7 +124,7 @@ export function getEngineMeta(descOrMeta) {
     else icon = '🧩';
   }
   
-  const desc = meta.description || `${name} display engine plugin for ArcadeMatrix.`;
+  const desc = (dict && dict[`engine_desc_${id}`]) ? dict[`engine_desc_${id}`] : (meta.description || `${name} display engine plugin for ArcadeMatrix.`);
   return { id, name, category: cat, icon, desc, version: meta.version || '1.0.0' };
 }
 
@@ -272,6 +275,11 @@ export function formatOptLabel(fieldId, val, raw) {
   const v = String(val).trim();
   const lower = v.toLowerCase();
 
+  // 0. Universal System / Default options
+  if (lower === 'system' || lower === 'default' || v.startsWith('system:')) {
+    return dict.opt_system_default || "System (General)";
+  }
+
   // 1. Direction labels
   if (fieldId === 'direction' || ['rtl', 'ltr', 'ttb', 'btt', 'static', 'left', 'right', 'up', 'down', 'none'].includes(lower)) {
     if (lower === 'rtl' || lower === 'left') return dict.dir_rtl || "Right to Left (RTL)";
@@ -281,45 +289,52 @@ export function formatOptLabel(fieldId, val, raw) {
     if (lower === 'static' || lower === 'none') return dict.dir_static || "Static (No Scroll)";
   }
   // 2. Units
-  if (fieldId === 'units' || fieldId === 'unit') {
-    if (lower === 'c' || lower === 'metric') return "Celsius (°C)";
-    if (lower === 'f' || lower === 'imperial') return "Fahrenheit (°F)";
+  if (fieldId === 'units' || fieldId === 'unit' || fieldId === 'temp_unit') {
+    if (lower === 'c' || lower === 'metric') return dict.opt_unit_c || "Celsius (°C)";
+    if (lower === 'f' || lower === 'imperial') return dict.opt_unit_f || "Fahrenheit (°F)";
   }
   // 3. Languages
   if (fieldId === 'lang') {
-    if (lower === 'fr') return "Français (French)";
-    if (lower === 'en') return "English";
-    if (lower === 'es') return "Español (Spanish)";
-    if (lower === 'de') return "Deutsch (German)";
-    if (lower === 'it') return "Italiano (Italian)";
+    if (lower === 'fr') return dict.opt_lang_fr || "Français (French)";
+    if (lower === 'en') return dict.opt_lang_en || "English";
+    if (lower === 'es') return dict.opt_lang_es || "Español (Spanish)";
+    if (lower === 'de') return dict.opt_lang_de || "Deutsch (German)";
+    if (lower === 'it') return dict.opt_lang_it || "Italiano (Italian)";
   }
-  // 4. Timeframes
+  // 4. Fit Modes
+  if (fieldId === 'fit_mode') {
+    if (lower === 'fit') return dict.fit_mode_fit || "Fit (Letterbox)";
+    if (lower === 'stretch') return dict.fit_mode_stretch || "Stretch to Panel";
+    if (lower === 'center') return dict.fit_mode_center || "1:1 Centered";
+  }
+  // 5. Timeframes
   if (fieldId === 'chart_timeframe') {
     if (lower === 'hourly') return "Hourly (1h)";
     if (lower === 'daily') return "Daily (24h)";
     if (lower === 'weekly') return "Weekly (7d)";
     if (lower === 'monthly') return "Monthly (30d)";
   }
-  // 5. Currencies
+  // 6. Currencies
   if (fieldId === 'currency') {
     if (lower === 'usd') return "US Dollar ($ USD)";
     if (lower === 'eur') return "Euro (€ EUR)";
     if (lower === 'gbp') return "British Pound (£ GBP)";
     if (lower === 'jpy') return "Japanese Yen (¥ JPY)";
   }
-  // 6. Visualizer styles
+  // 7. Visualizer styles
   if (fieldId === 'style') {
     if (lower === 'spectrum') return "Spectrum Bars";
     if (lower === 'waveform') return "Waveform Oscilloscope";
     if (lower === 'radial') return "Radial Circular";
     if (lower === 'neon_fire') return "Neon Fire";
   }
-  // 7. Date & Clock formats
+  // 8. Date & Clock formats
   if (fieldId === 'date_format') {
-    if (v === '%d/%m/%Y') return "DD/MM/YYYY (24/08/2026)";
-    if (v === '%Y-%m-%d') return "YYYY-MM-DD (2026-08-24)";
-    if (v === '%d %b %Y') return "DD Mon YYYY (24 Aug 2026)";
-    if (v === '%A %d %B') return "Weekday DD Month (Monday 24 August)";
+    if (v === '%d/%m/%Y') return dict.opt_date_dmy || "DD/MM/YYYY (Day/Month/Year)";
+    if (v === '%m/%d/%Y') return dict.opt_date_mdy || "MM/DD/YYYY (Month/Day/Year)";
+    if (v === '%Y-%m-%d') return dict.opt_date_ymd || "YYYY-MM-DD (ISO)";
+    if (v === '%a %d %b') return dict.opt_date_short_day || "Short with Day (e.g. Mon 24 Aug)";
+    if (v === '%A %d %B') return dict.opt_date_full || "Full Date (e.g. Monday 24 August)";
   }
   if (fieldId === 'clock_format' || fieldId === 'format') {
     if (v === '%H:%M:%S') return dict.opt_time_24s || "24h with Seconds (HH:MM:SS)";
@@ -329,18 +344,18 @@ export function formatOptLabel(fieldId, val, raw) {
     if (v === '%I:%M:%S') return dict.opt_time_12s || "12h with Seconds (HH:MM:SS)";
     if (v === '%I:%M') return dict.opt_time_12 || "12h (HH:MM)";
   }
-  // 8. Theme names
+  // 9. Theme names
   if (fieldId === 'clock_theme' || fieldId === 'theme') {
     const tName = THEME_ID_MAP[v] || raw || v;
     const themeKey = `theme_${tName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     return dict[themeKey] || tName;
   }
-  // 9. Categories (GNews and general topics)
+  // 10. Categories (GNews and general topics)
   if (fieldId === 'category' || fieldId === 'categories') {
     const catKey = `cat_${lower}`;
     if (dict[catKey]) return dict[catKey];
   }
-  // 10. Display modes
+  // 11. Display modes
   if (fieldId === 'display_mode') {
     const dmKey = `opt_display_mode_${lower}`;
     if (dict[dmKey]) return dict[dmKey];
@@ -851,6 +866,43 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
   document.body.appendChild(overlay);
 }
 
+// Helper to live-update rotation state on instance cards
+export function updateInstanceRotationState(instanceId, isInRotation, durationSec = 30) {
+  const cleanId = instanceId.replace(/[^a-zA-Z0-9]/g, '-');
+  const card = document.getElementById(`tab-dyn-${cleanId}`);
+  if (!card) return;
+  const header = card.querySelector('.card > div:first-child');
+  if (!header) return;
+  const lang = localStorage.getItem('lang') || 'en';
+  const dict = (typeof translations !== 'undefined' && translations && translations[lang]) ? translations[lang] : ((typeof translations !== 'undefined' && translations) ? translations.en : {});
+  
+  // Update badge
+  const badgeEl = header.querySelector('.badge');
+  if (badgeEl) {
+    if (isInRotation) {
+      badgeEl.style = "background: rgba(16,185,129,0.2); color:#34d399; font-weight:600; font-size:0.82rem;";
+      badgeEl.innerText = `🟢 ${(dict.in_rotation_badge || 'In Rotation')} (${durationSec}s)`;
+    } else {
+      badgeEl.style = "background: rgba(255,255,255,0.08); color:var(--text-muted); font-size:0.82rem;";
+      badgeEl.innerText = `⚪ ${(dict.not_in_rotation_badge || 'Off Loop (Standby)')}`;
+    }
+  }
+  
+  // Update toggle button
+  const toggleBtn = header.querySelector('.btn-rot-toggle');
+  if (toggleBtn) {
+    if (isInRotation) {
+      toggleBtn.className = 'btn btn-rot-toggle';
+      toggleBtn.style = "background: rgba(239,68,68,0.15); color:#f87171; border:1px solid rgba(239,68,68,0.3); font-size:0.82rem; padding:0.4rem 0.75rem;";
+      toggleBtn.innerText = dict.remove_from_rotation_btn || '➖ Remove from Loop';
+    } else {
+      toggleBtn.className = 'btn btn-rot-toggle btn-primary';
+      toggleBtn.style = "font-size:0.82rem; padding:0.4rem 0.75rem;";
+      toggleBtn.innerText = dict.add_to_rotation_btn || '➕ Add to Loop';
+    }
+  }
+}
+
 // 1. Render Rotation Playlist Panel
 export function renderRotationPanel(container, insertionPoint, rotationList, instancesList, enginesMap, descriptors) {
   let entries = Array.isArray(rotationList) ? rotationList.slice() : [];
@@ -1001,7 +1053,25 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       del.className = 'btn btn-icon btn-danger';
       del.title = t('remove_from_loop_title', 'Remove from rotation loop');
       del.innerText = '🗑️';
-      del.onclick = () => { entries.splice(idx, 1); renderRows(); };
+      del.onclick = async () => {
+        const removed = entries.splice(idx, 1)[0];
+        renderRows();
+        if (removed) {
+          updateInstanceRotationState(removed.instance_id, false);
+          const payload = entries.map(e => {
+            const active = (e.overlays && typeof e.overlays.fighter === 'boolean')
+              ? e.overlays.fighter
+              : (e.fighter_overlay === true);
+            return {
+              instance_id: e.instance_id,
+              duration_sec: parseInt(e.duration_sec) || 1,
+              overlays: { fighter: active },
+              fighter_overlay: active,
+            };
+          });
+          await API.post('/api/rotation', payload).catch(() => {});
+        }
+      };
       actions.appendChild(del);
 
       settingsBar.appendChild(actions);
@@ -1063,12 +1133,11 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
   addBtn.className = 'btn btn-primary';
   addBtn.style = "padding: 0.75rem 1.25rem; font-weight: 600; white-space: nowrap;";
   addBtn.innerText = `➕ ${t('add_to_rotation_btn', 'Add to Loop')}`;
-  addBtn.onclick = () => {
+  addBtn.onclick = async () => {
     const val = sel.value;
     if (!val) return;
     if (val.startsWith('inst:')) {
       const instId = val.replace('inst:', '');
-      const inst = instancesList.find(i => i.instance_id === instId);
       const allowOverlay = allowsOverlay(instId);
       entries.push({
         instance_id: instId,
@@ -1077,6 +1146,19 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
         fighter_overlay: allowOverlay
       });
       renderRows();
+      updateInstanceRotationState(instId, true, 30);
+      const payload = entries.map(e => {
+        const active = (e.overlays && typeof e.overlays.fighter === 'boolean')
+          ? e.overlays.fighter
+          : (e.fighter_overlay === true);
+        return {
+          instance_id: e.instance_id,
+          duration_sec: parseInt(e.duration_sec) || 1,
+          overlays: { fighter: active },
+          fighter_overlay: active,
+        };
+      });
+      await API.post('/api/rotation', payload).catch(() => {});
     } else if (val.startsWith('new:')) {
       const engId = val.replace('new:', '');
       showAddScreenModal(engId, descriptors, instancesList, true);
@@ -1950,7 +2032,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
               GLOBAL_TIMEZONES.forEach(opt => {
                   const option = document.createElement('option');
                   option.value = opt.value;
-                  option.innerText = opt.label;
+                  option.innerText = formatOptLabel('timezone', opt.value, opt.label);
                   if (String(opt.value) === String(currentVal)) option.selected = true;
                   input.appendChild(option);
               });
@@ -2000,8 +2082,8 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              input = document.createElement('select');
              input.className = 'input';
              input.id = `cfg-dyn-${instance.instance_id}-${field.id}`;
-             const o1 = document.createElement('option'); o1.value = 'true'; o1.innerText = 'Enabled';
-             const o2 = document.createElement('option'); o2.value = 'false'; o2.innerText = 'Disabled';
+             const o1 = document.createElement('option'); o1.value = 'true'; o1.innerText = (dict && dict.opt_enabled) ? dict.opt_enabled : 'Enabled';
+             const o2 = document.createElement('option'); o2.value = 'false'; o2.innerText = (dict && dict.opt_disabled) ? dict.opt_disabled : 'Disabled';
              if (String(currentVal).toLowerCase() === 'true' || String(currentVal) === '1') o1.selected = true; else o2.selected = true;
              input.appendChild(o1); input.appendChild(o2);
           } 
@@ -2142,6 +2224,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              const rotTitleEl = document.getElementById(`rot-title-${instance.instance_id}`);
              if (rotTitleEl) {
                rotTitleEl.innerText = updatedInfo.full;
+             }
+             const optEl = document.querySelector(`#rotation-playlist-card select option[value="inst:${instance.instance_id}"]`);
+             if (optEl) {
+               optEl.innerText = updatedInfo.full;
              }
              
              window.showToast(t('config_saved_live', 'Configuration saved & applied live!'), 'success');

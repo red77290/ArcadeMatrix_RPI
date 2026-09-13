@@ -289,54 +289,53 @@ impl Engine for MessageEngine {
             .unwrap_or(Duration::ZERO);
         self.last_update = Some(now);
 
-        let step_ms = self.speed.max(1) as f32;
-        self.move_accumulator += dt.as_secs_f32() * 1000.0;
-        let steps = (self.move_accumulator / step_ms) as i32;
-        if steps > 0 {
-            self.move_accumulator -= (steps as f32) * step_ms;
-            let move_px = steps as f32;
-            let mat_w = context.matrix.width() as f32;
-            let mat_h = context.matrix.height() as f32;
+        let dt_secs = dt.as_secs_f32();
+        let dt_ms = if dt_secs > 0.1 {
+            16.6
+        } else {
+            dt_secs * 1000.0
+        };
+        if dt_ms <= 0.0 {
+            return;
+        }
 
-            match self.direction {
-                ScrollDirection::Rtl => {
-                    self.offset_x -= move_px;
-                    self.offset_y =
-                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
-                    if self.offset_x < -(self.text_w as f32) {
-                        self.offset_x = mat_w;
-                    }
+        let step_ms = (self.speed.max(1) as f32).max(1.0);
+        let move_px = dt_ms / step_ms;
+        let mat_w = context.matrix.width() as f32;
+        let mat_h = context.matrix.height() as f32;
+
+        match self.direction {
+            ScrollDirection::Rtl => {
+                self.offset_x -= move_px;
+                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                if self.offset_x < -(self.text_w as f32) {
+                    self.offset_x = mat_w;
                 }
-                ScrollDirection::Ltr => {
-                    self.offset_x += move_px;
-                    self.offset_y =
-                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
-                    if self.offset_x > mat_w {
-                        self.offset_x = -(self.text_w as f32);
-                    }
+            }
+            ScrollDirection::Ltr => {
+                self.offset_x += move_px;
+                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                if self.offset_x > mat_w {
+                    self.offset_x = -(self.text_w as f32);
                 }
-                ScrollDirection::Ttb => {
-                    self.offset_y += move_px;
-                    self.offset_x =
-                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                    if self.offset_y > mat_h {
-                        self.offset_y = -(self.text_h as f32);
-                    }
+            }
+            ScrollDirection::Ttb => {
+                self.offset_y += move_px;
+                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                if self.offset_y > mat_h {
+                    self.offset_y = -(self.text_h as f32);
                 }
-                ScrollDirection::Btt => {
-                    self.offset_y -= move_px;
-                    self.offset_x =
-                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                    if self.offset_y < -(self.text_h as f32) {
-                        self.offset_y = mat_h;
-                    }
+            }
+            ScrollDirection::Btt => {
+                self.offset_y -= move_px;
+                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                if self.offset_y < -(self.text_h as f32) {
+                    self.offset_y = mat_h;
                 }
-                ScrollDirection::None => {
-                    self.offset_x =
-                        ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                    self.offset_y =
-                        ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
-                }
+            }
+            ScrollDirection::None => {
+                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
             }
         }
     }
@@ -345,8 +344,8 @@ impl Engine for MessageEngine {
         let matrix = &mut *context.matrix;
         let (r, g, b) = self.parsed_color;
 
-        let start_x = self.offset_x as i32;
-        let start_y = self.offset_y as i32;
+        let start_x = self.offset_x.round() as i32;
+        let start_y = self.offset_y.round() as i32;
 
         for char_pixels in &self.cached_pixels {
             for &(gx, gy) in char_pixels {
@@ -462,5 +461,92 @@ fn register_message_engine() -> EngineDescriptor {
         factory: || -> Box<dyn crate::core::engine_contract::Engine> {
             Box::new(MessageEngine::new())
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn test_direction_parsing() {
+        assert_eq!(ScrollDirection::parse("rtl"), ScrollDirection::Rtl);
+        assert_eq!(ScrollDirection::parse("left"), ScrollDirection::Rtl);
+        assert_eq!(ScrollDirection::parse("ltr"), ScrollDirection::Ltr);
+        assert_eq!(ScrollDirection::parse("right"), ScrollDirection::Ltr);
+        assert_eq!(ScrollDirection::parse("ttb"), ScrollDirection::Ttb);
+        assert_eq!(ScrollDirection::parse("down"), ScrollDirection::Ttb);
+        assert_eq!(ScrollDirection::parse("btt"), ScrollDirection::Btt);
+        assert_eq!(ScrollDirection::parse("up"), ScrollDirection::Btt);
+        assert_eq!(ScrollDirection::parse("static"), ScrollDirection::None);
+        assert_eq!(ScrollDirection::parse("none"), ScrollDirection::None);
+        assert_eq!(ScrollDirection::parse("invalid"), ScrollDirection::None);
+    }
+
+    #[test]
+    fn test_message_engine_subpixel_movement() {
+        let mut engine = MessageEngine::new();
+        engine.speed = 50; // 50 ms per pixel -> 0.02 px/ms
+        engine.direction = ScrollDirection::Rtl;
+        engine.offset_x = 128.0;
+
+        // Frame duration 16.6ms -> 16.6 / 50.0 = 0.332 px movement
+        let dt = Duration::from_micros(16600);
+        let dt_secs = dt.as_secs_f32();
+        let dt_ms = if dt_secs > 0.1 {
+            16.6
+        } else {
+            dt_secs * 1000.0
+        };
+        let step_ms = (engine.speed.max(1) as f32).max(1.0);
+        let move_px = dt_ms / step_ms;
+
+        assert!((move_px - 0.332).abs() < 0.01);
+        engine.offset_x -= move_px;
+        assert!((engine.offset_x - 127.668).abs() < 0.01);
+        // After 3 frames (~50ms), should move ~1px
+        assert_eq!(engine.offset_x.round() as i32, 128);
+    }
+
+    #[test]
+    fn test_message_engine_clamped_dt() {
+        // Large delta time (e.g. 5s stall or pause) must be clamped to 16.6ms to avoid teleporting
+        let dt = Duration::from_secs(5);
+        let dt_secs = dt.as_secs_f32();
+        let dt_ms = if dt_secs > 0.1 {
+            16.6
+        } else {
+            dt_secs * 1000.0
+        };
+        assert_eq!(dt_ms, 16.6);
+    }
+
+    #[test]
+    fn test_message_engine_wraparound_rtl() {
+        let mut engine = MessageEngine::new();
+        engine.direction = ScrollDirection::Rtl;
+        engine.text_w = 40;
+        let mat_w = 128.0f32;
+        engine.offset_x = -41.0; // Past left boundary (-text_w)
+
+        if engine.offset_x < -(engine.text_w as f32) {
+            engine.offset_x = mat_w;
+        }
+        assert_eq!(engine.offset_x, 128.0);
+    }
+
+    #[test]
+    fn test_message_engine_wraparound_ltr() {
+        let mut engine = MessageEngine::new();
+        engine.direction = ScrollDirection::Ltr;
+        engine.text_w = 40;
+        let mat_w = 128.0f32;
+        engine.offset_x = 129.0; // Past right boundary (mat_w)
+
+        if engine.offset_x > mat_w {
+            engine.offset_x = -(engine.text_w as f32);
+        }
+        assert_eq!(engine.offset_x, -40.0);
     }
 }

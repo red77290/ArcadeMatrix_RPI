@@ -930,8 +930,10 @@ export function setLanguage(lang) {
   const sysSel = document.getElementById('sys-lang');
   if (sysSel && sysSel.value !== lang) sysSel.value = lang;
 
-  // Live re-render of dynamic components (engine catalog, tabs, rotation playlist)
-  if (window.renderDynamicDisplay) {
+  // Live re-render of dynamic components only when language actually changes
+  const prevLang = window._currentActiveLang;
+  window._currentActiveLang = lang;
+  if (prevLang && prevLang !== lang && window.renderDynamicDisplay) {
     try {
       window.renderDynamicDisplay();
     } catch (_) {}

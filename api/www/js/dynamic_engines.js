@@ -1570,20 +1570,32 @@ function attachQuickPresets(input, fieldId) {
   return presetBox;
 }
 
+let isRenderingDynamicDisplay = false;
+let pendingRenderInstanceId = null;
+let hasPendingRender = false;
+
 // 3. Main Dynamic Display Renderer
 export async function renderDynamicDisplay(targetActiveInstanceId = null) {
-  const container = document.getElementById('page-display');
-  if (!container) return;
-
-  let wrapper = document.getElementById('dynamic-display-wrapper');
-  if (!wrapper) {
-    wrapper = document.createElement('div');
-    wrapper.id = 'dynamic-display-wrapper';
-    container.appendChild(wrapper);
+  if (isRenderingDynamicDisplay) {
+    hasPendingRender = true;
+    if (targetActiveInstanceId) {
+      pendingRenderInstanceId = targetActiveInstanceId;
+    }
+    return;
   }
-  wrapper.innerHTML = '';
+  isRenderingDynamicDisplay = true;
 
   try {
+    const container = document.getElementById('page-display');
+    if (!container) return;
+
+    let wrapper = document.getElementById('dynamic-display-wrapper');
+    if (!wrapper) {
+      wrapper = document.createElement('div');
+      wrapper.id = 'dynamic-display-wrapper';
+      container.appendChild(wrapper);
+    }
+
     // Parallel fetch of initial descriptors, instances, and rotation loop
     const [descriptors, instancesList, rotationList] = await Promise.all([
       fetchCachedEndpoint('/api/engines'),
@@ -1598,6 +1610,9 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
 
     // 1. Render Visual Engine Catalog directly onto the Dashboard (Home Hub)
     renderEngineCatalog(descriptors, instancesList, enginesMap);
+
+    // Build the Display page tree into a detached fragment to prevent DOM tearing and duplicate mounts
+    const fragment = document.createDocumentFragment();
 
     // 2. Onboarding Guide Banner on Display Page
     const guideCard = document.createElement('div');
@@ -1614,15 +1629,15 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
         </div>
       </div>
     `;
-    wrapper.appendChild(guideCard);
+    fragment.appendChild(guideCard);
 
     // Anchor point for tabs section
     const tabsAnchor = document.createElement('div');
     tabsAnchor.id = 'tabs-anchor-point';
-    wrapper.appendChild(tabsAnchor);
+    fragment.appendChild(tabsAnchor);
 
     // 3. Render Unified Rotation Loop Panel (Passing pre-fetched rotationList)
-    renderRotationPanel(wrapper, tabsAnchor, rotationList, instancesList, enginesMap, descriptors);
+    renderRotationPanel(fragment, tabsAnchor, rotationList, instancesList, enginesMap, descriptors);
 
     // 4. Section Header for Configured Screens Tabs
     const screensHeader = document.createElement('div');
@@ -1634,7 +1649,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       </div>
       <button id="btn-header-add-screen" class="btn btn-primary" style="padding: 0.5rem 1rem; font-weight: 600;">➕ ${t('modal_add_title', 'Add New Screen')}</button>
     `;
-    wrapper.insertBefore(screensHeader, tabsAnchor);
+    fragment.insertBefore(screensHeader, tabsAnchor);
 
     screensHeader.querySelector('#btn-header-add-screen').onclick = () => {
       showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
@@ -1650,15 +1665,21 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
         <p style="font-size: 0.9rem; margin-bottom: 1.25rem;" data-i18n="no_screens_desc">${t('no_screens_desc', 'Choose an engine plugin above and click Add to Loop to launch your first screen.')}</p>
         <button class="btn btn-primary" id="btn-empty-first-screen">➕ ${t('modal_add_title', 'Add First Screen')}</button>
       `;
-      wrapper.appendChild(emptyCard);
+      fragment.appendChild(emptyCard);
       emptyCard.querySelector('#btn-empty-first-screen').onclick = () => showAddScreenModal(descriptors[0]?.metadata?.id || 'clock', descriptors, instancesList, true);
+      if (typeof wrapper.replaceChildren === 'function') {
+        wrapper.replaceChildren(fragment);
+      } else {
+        wrapper.innerHTML = '';
+        wrapper.appendChild(fragment);
+      }
       return;
     }
 
     // 5. Tabs Container
     const tabsContainer = document.createElement('div');
     tabsContainer.className = 'tabs';
-    wrapper.insertBefore(tabsContainer, tabsAnchor);
+    fragment.insertBefore(tabsContainer, tabsAnchor);
 
     // Determine initially active tab
     let activeCleanId = '';
@@ -2068,11 +2089,26 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       card.appendChild(actionBar);
       
       tabPane.appendChild(card);
-      wrapper.appendChild(tabPane);
+      fragment.appendChild(tabPane);
     }
     
+    // Atomically replace existing content with the fully built fragment
+    if (typeof wrapper.replaceChildren === 'function') {
+      wrapper.replaceChildren(fragment);
+    } else {
+      wrapper.innerHTML = '';
+      wrapper.appendChild(fragment);
+    }
   } catch (e) {
     console.error('Failed to load dynamic engines:', e);
+  } finally {
+    isRenderingDynamicDisplay = false;
+    if (hasPendingRender) {
+      hasPendingRender = false;
+      const nextId = pendingRenderInstanceId;
+      pendingRenderInstanceId = null;
+      await renderDynamicDisplay(nextId);
+    }
   }
 }
 

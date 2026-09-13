@@ -729,10 +729,6 @@ async function initSettings() {
       });
     }
 
-    if (sys.lang) {
-      setLanguage(sys.lang);
-    }
-
     const sysLangEl = document.getElementById('sys-lang');
     if (sysLangEl && !sysLangEl._boundChange) {
       sysLangEl._boundChange = true;

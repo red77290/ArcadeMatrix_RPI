@@ -1,29 +1,29 @@
 #!/bin/bash
 # ==============================================================================
 # ArcadeMatrix - Gaming Console MQTT Setup Script
-# (A EXÉCUTER DIRECTEMENT SUR LA CONSOLE : Recalbox, Batocera ou RetroPie)
+# (RUN DIRECTLY ON THE CONSOLE: Recalbox, Batocera, or RetroPie)
 # ==============================================================================
 set -euo pipefail
 
 echo "=============================================================================="
-echo " ArcadeMatrix - Configuration MQTT pour Console de Jeu"
+echo " ArcadeMatrix - Gaming Console MQTT Setup Script"
 echo " (Recalbox / Batocera / RetroPie)"
 echo "=============================================================================="
 echo
 
-read -rp "Adresse IP de ton ArcadeMatrix (ESP32 ou Raspberry Pi) : " MQTT_BROKER
+read -rp "ArcadeMatrix IP address (ESP32 or Raspberry Pi): " MQTT_BROKER
 if [ -z "$MQTT_BROKER" ]; then
-    echo "Erreur : L'adresse IP du broker est obligatoire." >&2
+    echo "Error: Broker IP address is required." >&2
     exit 1
 fi
 
 echo
-echo "Choisis ton système de jeu :"
-echo "  1) Détection automatique"
+echo "Select your gaming operating system:"
+echo "  1) Auto-detect"
 echo "  2) Recalbox"
 echo "  3) Batocera"
 echo "  4) RetroPie"
-read -rp "Choix [1] : " OS_CHOICE
+read -rp "Choice [1]: " OS_CHOICE
 OS_CHOICE=${OS_CHOICE:-1}
 
 SYSTEM=""
@@ -41,15 +41,15 @@ else
     elif [ -d "/recalbox/share" ]; then
         SYSTEM="recalbox"
     else
-        echo "Impossible de détecter l'OS automatiquement. Choisis manuellement."
+        echo "Unable to auto-detect gaming OS. Please select manually."
         exit 1
     fi
 fi
 
-echo "Système sélectionné : $SYSTEM"
+echo "Selected system: $SYSTEM"
 TOPIC="system/playing/$SYSTEM"
 
-# Nettoyage des anciens démons
+# Cleanup legacy daemons
 pkill -f arcadematrix_daemon.py || true
 pkill -f arcadematrix_mqtt.sh || true
 
@@ -576,10 +576,10 @@ fi
 
 echo
 echo "=============================================================================="
-echo "SUCCÈS ! Le daemon ArcadeMatrix a été installé pour $SYSTEM sur le topic $TOPIC."
+echo "SUCCESS! ArcadeMatrix daemon installed for $SYSTEM on topic $TOPIC."
 if [ "$SYSTEM" != "retropie" ]; then
-    echo "Un redémarrage est nécessaire. Tape 'reboot' pour l'appliquer."
+    echo "A system reboot is required. Run 'reboot' to apply."
 else
-    echo "Le daemon tourne déjà en arrière-plan !"
+    echo "The daemon is now running in the background!"
 fi
 echo "=============================================================================="

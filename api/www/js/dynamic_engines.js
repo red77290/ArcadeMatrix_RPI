@@ -146,21 +146,87 @@ export function getSchemaFields(engineDesc) {
   return [];
 }
 
-// Robust helper to parse options from array of objects, array of strings, or comma-separated string
+function parseOptionItem(item) {
+  if (item === undefined || item === null) return null;
+  if (typeof item === 'object') {
+    const val = item.value !== undefined ? item.value : (item.id !== undefined ? item.id : (item.name || ''));
+    const lbl = item.label !== undefined ? item.label : (item.name !== undefined ? item.name : val);
+    const orientation = item.orientation || '';
+    const count = typeof item.count === 'number' ? item.count : undefined;
+    return { value: String(val), label: String(lbl), orientation, count };
+  }
+  const s = String(item).trim();
+  if (!s) return null;
+
+  // Handle known strftime formats with colons in the format string
+  if (s.startsWith('%H:%M:%S:')) {
+    return { value: '%H:%M:%S', label: s.substring(10).trim() };
+  }
+  if (s.startsWith('%H:%M:')) {
+    return { value: '%H:%M', label: s.substring(6).trim() };
+  }
+  if (s.startsWith('%I:%M:%S %p:')) {
+    return { value: '%I:%M:%S %p', label: s.substring(12).trim() };
+  }
+  if (s.startsWith('%I:%M %p:')) {
+    return { value: '%I:%M %p', label: s.substring(8).trim() };
+  }
+
+  // Standard 'value:label' parsing (e.g. "C:Celsius (°C)", "system:System (General)", "0:Digital Modern")
+  const colonIdx = s.indexOf(':');
+  if (colonIdx > 0) {
+    const val = s.substring(0, colonIdx).trim();
+    const lbl = s.substring(colonIdx + 1).trim();
+    return { value: val, label: lbl || val };
+  }
+
+  return { value: s, label: s };
+}
+
+// Robust helper to parse options from array of objects, array of strings, object dictionary, or comma-separated string
 export function parseOptions(rawOptions) {
   if (!rawOptions) return [];
   if (Array.isArray(rawOptions)) {
-    return rawOptions.map(opt => {
-      if (typeof opt === 'object' && opt !== null) {
-        const val = opt.value !== undefined ? opt.value : (opt.id !== undefined ? opt.id : (opt.name || ''));
-        const lbl = opt.label !== undefined ? opt.label : (opt.name !== undefined ? opt.name : val);
-        return { value: String(val), label: String(lbl) };
-      }
-      return { value: String(opt), label: String(opt) };
-    });
+    return rawOptions.map(opt => parseOptionItem(opt)).filter(Boolean);
   }
+  // Check if rawOptions is an Object Dictionary (e.g. ESP32 /api/playlists or general key-value maps)
+  if (typeof rawOptions === 'object' && rawOptions !== null) {
+    const results = [];
+    // 1. ESP32 /api/playlists grouped object: { yoko: {...}, tate: {...} }
+    if (rawOptions.yoko !== undefined || rawOptions.tate !== undefined) {
+      if (rawOptions.yoko && typeof rawOptions.yoko === 'object') {
+        for (const [name, info] of Object.entries(rawOptions.yoko)) {
+          const path = (info && typeof info === 'object' && info.path) ? info.path : (name.startsWith('/') ? name : `/gifs/${name}`);
+          const count = (info && typeof info === 'object' && typeof info.count === 'number') ? info.count : undefined;
+          results.push({ value: String(path), label: name, orientation: 'yoko', count });
+        }
+      }
+      if (rawOptions.tate && typeof rawOptions.tate === 'object') {
+        for (const [name, info] of Object.entries(rawOptions.tate)) {
+          const path = (info && typeof info === 'object' && info.path) ? info.path : (name.startsWith('/') ? name : `/gifs_tate/${name}`);
+          const count = (info && typeof info === 'object' && typeof info.count === 'number') ? info.count : undefined;
+          results.push({ value: String(path), label: name, orientation: 'tate', count });
+        }
+      }
+      return results;
+    }
+    // 2. Flat dictionary: { [name]: { path, count } } or { [key]: label }
+    for (const [key, val] of Object.entries(rawOptions)) {
+      if (val && typeof val === 'object') {
+        const p = val.path || val.value || key;
+        const l = val.label || val.name || key;
+        const o = val.orientation || (String(p).includes('tate') ? 'tate' : 'yoko');
+        const c = typeof val.count === 'number' ? val.count : undefined;
+        results.push({ value: String(p), label: String(l), orientation: o, count: c });
+      } else {
+        results.push({ value: key, label: String(val) });
+      }
+    }
+    return results;
+  }
+  // Comma-separated string parsing
   if (typeof rawOptions === 'string' && rawOptions.trim().length > 0) {
-    return rawOptions.split(',').map(s => s.trim()).filter(s => s.length > 0).map(val => ({ value: val, label: val }));
+    return rawOptions.split(',').map(s => s.trim()).filter(s => s.length > 0).map(s => parseOptionItem(s)).filter(Boolean);
   }
   return [];
 }
@@ -322,7 +388,7 @@ export function resolveScreenInfo(instance, engineDesc) {
       const rawVal = String(cfg[chosenField.id]).trim();
       if (chosenField.options) {
         const opts = parseOptions(chosenField.options);
-        const matchOpt = opts.find(o => String(o.value) === rawVal);
+        const matchOpt = opts.find(o => String(o.value) === rawVal || (typeof rawVal === 'string' && rawVal.startsWith(o.value + ':')));
         bestValueLabel = matchOpt ? matchOpt.label : formatOptLabel(chosenField.id, rawVal);
       } else {
         bestValueLabel = formatOptLabel(chosenField.id, rawVal);
@@ -402,6 +468,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
     let variantHtml = '';
     let initialVariant = '';
+    let primaryField = null;
 
     if (engId === 'clock') {
       initialVariant = 'tetris';
@@ -429,7 +496,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_city_label">${t('modal_city_label', 'City / Location (e.g. Paris, FR or Tokyo, JP):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="Paris, FR" value="Paris, FR">
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['Paris, FR', 'New York, US', 'Tokyo, JP', 'London, GB', 'Berlin, DE', 'Madrid, ES', 'Rome, IT', 'Los Angeles, US', 'Sydney, AU', 'Dubai, AE'].map(c => `
               <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c.split(',')[0]}</button>
             `).join('')}
@@ -446,7 +513,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             <button type="button" class="btn btn-secondary btn-sm" id="gif-tab-tate" style="flex:1; font-weight: 700; opacity: 0.7;">📱 ${t('tab_tate', 'Vertical (Portrait / TATE)')}</button>
           </div>
           <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.5rem;">💡 ${t('gif_modal_help', 'Selected folders or \'all\' will automatically switch according to the active rotation mode.')}</div>
-          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_folder_label">${t('modal_gif_folder_label', 'Dossier / Playlist de GIFs :')}</label>
+          <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_gif_folder_label">${t('modal_gif_folder_label', 'GIF Playlist Folder:')}</label>
           <select id="modal-select-gif-folder" class="input" style="font-weight: 600; margin-bottom: 0.5rem;">
             <option value="all" selected>🌟 ${t('all_folders_opt', 'All folders (Auto Horizontal / Vertical)')}</option>
           </select>
@@ -460,7 +527,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_crypto_label">${t('modal_crypto_label', 'Crypto Symbols (comma-separated):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="BTC,ETH,SOL" value="BTC,ETH">
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'BNB', 'ADA', 'AVAX'].map(c => `
               <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c}</button>
             `).join('')}
@@ -474,7 +541,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_stock_label">${t('modal_stock_label', 'Stock Tickers (comma-separated):')}</label>
           <input type="text" id="modal-field-variant" class="input" placeholder="AAPL,TSLA,NVDA" value="AAPL,TSLA">
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
-            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Suggestions :')}</span>
+            <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'].map(s => `
               <button type="button" class="btn btn-sm modal-quick-chip" data-val="${s}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${s}</button>
             `).join('')}
@@ -496,7 +563,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       `;
     } else {
       // Dynamic fallback for any schema
-      const primaryField = (fields && fields.length > 0) ? (
+      primaryField = (fields && fields.length > 0) ? (
         fields.find(f => (isOptionsField(f) || (f.options && f.options.length > 0) || f.options_endpoint) && !isFileAssetField(f)) ||
         fields.find(f => !isBooleanField(f) && !isNumberField(f) && !isColorField(f) && !isFileAssetField(f)) ||
         fields.find(f => isFileAssetField(f))
@@ -1900,7 +1967,9 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
                      const option = document.createElement('option');
                      option.value = opt.value;
                      option.innerText = formatOptLabel(field.id, opt.value, opt.label);
-                     if (String(opt.value) === String(currentVal)) option.selected = true;
+                     const isMatch = (String(opt.value) === String(currentVal)) ||
+                                     (typeof currentVal === 'string' && (currentVal.startsWith(opt.value + ':') || currentVal === `${opt.value}:${opt.label}`));
+                     if (isMatch) option.selected = true;
                      input.appendChild(option);
                  });
              }
@@ -1919,7 +1988,9 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
                     const option = document.createElement('option');
                     option.value = opt.value;
                     option.innerText = formatOptLabel(field.id, opt.value, opt.label);
-                    if (String(opt.value) === String(currentVal)) option.selected = true;
+                    const isMatch = (String(opt.value) === String(currentVal)) ||
+                                    (typeof currentVal === 'string' && (currentVal.startsWith(opt.value + ':') || currentVal === `${opt.value}:${opt.label}`));
+                    if (isMatch) option.selected = true;
                     input.appendChild(option);
                   });
               }
@@ -2033,7 +2104,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              fields.forEach(field => {
                 const el = document.getElementById(`cfg-dyn-${instance.instance_id}-${field.id}`);
                 if (el && el.value !== undefined && el.value.trim().length > 0) {
-                    payload.config[field.id] = el.value.trim();
+                    let cleanVal = el.value.trim();
+                    if (isOptionsField(field) && !cleanVal.startsWith('%')) {
+                      const colonIdx = cleanVal.indexOf(':');
+                      if (colonIdx > 0) cleanVal = cleanVal.substring(0, colonIdx).trim();
+                    }
+                    payload.config[field.id] = cleanVal;
                 } else if (field.multiple || field.options_endpoint) {
                     const checkboxes = document.querySelectorAll(`.multi-cb-${instance.instance_id}-${field.id}:checked`);
                     if (checkboxes.length > 0) {

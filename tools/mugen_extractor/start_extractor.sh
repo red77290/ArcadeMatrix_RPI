@@ -24,35 +24,35 @@ pip install -r requirements.txt -q
 echo ""
 # 1. Input Folder
 default_input="./chars"
-read -e -p "📁 Dossier Source MUGEN (contenant les personnages) [$default_input]: " input_folder
+read -e -p "📁 Source MUGEN Folder (containing character subfolders) [$default_input]: " input_folder
 input_folder="${input_folder:-$default_input}"
 
 # 2. Output Folder
-default_output="./fighters_64"
-read -e -p "📁 Dossier Destination (ex: ./fighters_64) [$default_output]: " output_folder
+default_output="./fighters_32"
+read -e -p "📁 Output Folder (e.g. ./fighters_32) [$default_output]: " output_folder
 output_folder="${output_folder:-$default_output}"
 
-# 3. Scaling / Échelle
+# 3. Scaling
 echo ""
 echo "-----------------------------------------------------"
-echo "📏 Choix du Facteur d'Échelle (Scaling Factor) :"
-echo "   • 1.0   : Recommandé Raspberry Pi / Matrice 64px+ (Taille 1:1 d'origine)"
-echo "   • 0.5   : Échelle 50% (pour matrices 32px de haut)"
-echo "   • auto  : Ajustement automatique proportionnel à la hauteur de l'écran"
-echo "   • Ou entrez une valeur personnalisée (ex: 0.4, 0.75, 1.25, 2.0)"
+echo "📏 Scaling Factor Selection:"
+echo "   • 0.5   : Recommended for ESP32 128x32 / 64x32 Matrix (~32px height)"
+echo "   • 1.0   : Original 1:1 scale (128x64, 256x64 Matrix, RPi, ESP32-S3 PSRAM)"
+echo "   • auto  : Automatic proportional scaling to matrix height"
+echo "   • Or enter a custom multiplier (e.g. 0.4, 0.6, 0.75, 1.25)"
 echo "-----------------------------------------------------"
-read -p "Échelle souhaitée [défaut: 1.0]: " scale_input
-scale_input="${scale_input:-1.0}"
+read -p "Desired scale [default: 0.5]: " scale_input
+scale_input="${scale_input:-0.5}"
 
 # 4. Compression
 echo ""
 echo "-----------------------------------------------------"
-echo "🗜️  Compression des fichiers (.fgt vs .fgt.gz) :"
-echo "   • y (Oui) : Recommandé pour Raspberry Pi (gain ~80% d'espace disque)"
-echo "   • n (Non) : Fichiers bruts non compressés"
+echo "🗜️  File Compression (.fgt vs .fgt.gz):"
+echo "   • n (No)  : Recommended for ESP32 / SD Card / LittleFS (fast decoding)"
+echo "   • y (Yes) : Recommended for Raspberry Pi / limited storage (-80% space)"
 echo "-----------------------------------------------------"
-read -p "Compresser en .fgt.gz ? (y/n) [défaut: y]: " compress_input
-compress_input="${compress_input:-y}"
+read -p "Compress to .fgt.gz? (y/n) [default: n]: " compress_input
+compress_input="${compress_input:-n}"
 
 # Build arguments
 EXTRA_ARGS=""
@@ -69,13 +69,13 @@ if [ "$compress_input" = "y" ] || [ "$compress_input" = "Y" ] || [ "$compress_in
 fi
 
 echo ""
-echo "🚀 Lancement de l'extraction :"
+echo "🚀 Starting extraction:"
 echo "   • Source      : $input_folder"
 echo "   • Destination : $output_folder"
-echo "   • Paramètres  : $EXTRA_ARGS"
+echo "   • Parameters  : $EXTRA_ARGS"
 echo ""
 
 python mugen_extractor.py -i "$input_folder" -o "$output_folder" $EXTRA_ARGS
 
 echo ""
-echo "✅ [TERMINÉ] Extraction terminée."
+echo "✅ [DONE] Extraction complete."

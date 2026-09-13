@@ -155,15 +155,29 @@ impl ConfigSanitizer {
                         if let Some(opts) = &field.options {
                             let allowed: std::collections::HashSet<&str> =
                                 opts.iter().map(|o| o.value).collect();
+
+                            // Auto-heal dirty "val:label" inputs
+                            let mut candidate = val_str.clone();
+                            if !candidate.starts_with('%') && candidate.contains(':') {
+                                if let Some((prefix, _)) = candidate.split_once(':') {
+                                    let trimmed = prefix.trim();
+                                    if !trimmed.is_empty() && allowed.contains(trimmed) {
+                                        candidate = trimmed.to_string();
+                                        inst.config.insert(key.clone(), candidate.clone());
+                                        result.modified = true;
+                                    }
+                                }
+                            }
+
                             let ok = if field.multiple {
                                 // Multi-select is stored as a comma-separated list.
-                                val_str
+                                candidate
                                     .split(',')
                                     .map(|s| s.trim())
                                     .filter(|s| !s.is_empty())
                                     .all(|s| allowed.contains(s))
                             } else {
-                                allowed.contains(val_str.as_str())
+                                allowed.contains(candidate.as_str())
                             };
                             if !ok {
                                 inst.config

@@ -259,8 +259,8 @@ impl GifEngine {
             }
         }
 
-        // Fallback: If no files found from specific playlists, scan all available roots for THIS orientation
-        if valid_files.is_empty() {
+        // Fallback: If no specific playlists were requested, scan all available roots for THIS orientation
+        if valid_files.is_empty() && selected_playlists.is_empty() {
             for root in &candidate_roots {
                 Self::scan_folder_recursive(root, &mut valid_files);
                 if !valid_files.is_empty() {

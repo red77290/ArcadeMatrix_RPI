@@ -49,6 +49,7 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 * **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
 * **Custom Smooth Gradients**: In addition to classic Publisher themes, choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
 * **Dynamic Image Playlists (GIF/PNG/JPG)**: Read actual `.gif` and `.png` files dynamically straight from the filesystem without SD card fragmentation issues.
+* 🗂️ **Network GIF Library & Web File Manager (`/api/gifs/*`)**: Complete network management of GIF playlists directly from the Web UI! Browse playlist folders, upload animated GIFs over Wi-Fi/Ethernet, create/delete folders, rename items, and trigger automatic background library re-indexing. Native dual-orientation support (`?orientation=yoko|tate`) for both Horizontal (Yoko) and Vertical (Tate) display layouts — implemented by [@TooncesToo](https://github.com/TooncesToo)!
 
 ---
 
@@ -255,6 +256,7 @@ A huge thanks to the open-source community and the creators of the incredible li
 - **[Actix-web](https://github.com/actix/actix-web)** for the blazing fast web API
 - **[image-rs](https://github.com/image-rs/image)** for image processing
 - **[rumqttc](https://github.com/bytebeamio/rumqtt)** for MQTT support
+- **[@TooncesToo](https://github.com/TooncesToo)** for implementing the network GIF library API, multi-file uploader, and Web UI file manager with dual-orientation support on both Raspberry Pi and ESP32.
 - And the entire Rust community for creating such an amazing ecosystem (Tokio, Serde, reqwest, tracing, etc.)!
 
 Special thanks to the **RPiTeam** for the awesome pack of 600 GIFs!

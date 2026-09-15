@@ -49,6 +49,7 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 * **Lluvia digital Matrix real (Katakana)** : un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
 * **Gradientes suaves personalizados** : además de los temas clásicos Publisher, elige un tema **Custom Color / Gradient** y selecciona dos colores para generar un gradiente dinámico.
 * **Playlists de imágenes dinámicas (GIF/PNG/JPG)** : lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.
+* 🗂️ **Biblioteca GIF de Red y Gestor de Archivos Web (`/api/gifs/*`)** : ¡gestión completa de playlists GIF directamente desde la Web UI! Explora carpetas de playlists, sube GIFs animados por Wi-Fi/Ethernet, crea/elimina carpetas, renombra y reindexa automáticamente en segundo plano. Soporte nativo de doble orientación (`?orientation=yoko|tate`) para visualizaciones horizontales (Yoko) y verticales (Tate) — realizado por [@TooncesToo](https://github.com/TooncesToo).
 
 ---
 
@@ -255,6 +256,7 @@ Un enorme agradecimiento a la comunidad de código abierto y a los creadores de 
 - **[Actix-web](https://github.com/actix/actix-web)** por la rapidísima API web
 - **[image-rs](https://github.com/image-rs/image)** por el procesamiento de imágenes
 - **[rumqttc](https://github.com/bytebeamio/rumqtt)** por el soporte MQTT
+- **[@TooncesToo](https://github.com/TooncesToo)** por desarrollar la API de biblioteca GIF de red, subida de archivos múltiples y gestor de archivos Web UI con soporte de doble orientación tanto en Raspberry Pi como en ESP32.
 - ¡Y a toda la comunidad de Rust por crear un ecosistema tan asombroso (Tokio, Serde, reqwest, tracing, etc.)!
 
 ¡Un agradecimiento especial al **RPiTeam** por el increíble pack de 600 GIFs!

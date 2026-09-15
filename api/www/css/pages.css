@@ -90,3 +90,48 @@
   font-size: 0.8rem;
   font-weight: 700;
 }
+
+/* ---------------------------------------------------------------------------
+   GIF Library file manager (folders left, files right).
+   The two panes collapse to a single column on narrow viewports; keeping the
+   grid in a class (rather than inline) is what lets the media query apply.
+   --------------------------------------------------------------------------- */
+.gif-fm {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.gif-fm-pane {
+  min-width: 0;
+}
+
+.gif-fm-folders {
+  max-height: 380px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* Orientation toggle: horizontal (/gifs) vs vertical (/gifs_tate) */
+.gif-fm-orientation {
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+}
+
+.gif-fm-orientation .tab-btn {
+  font-size: 0.9rem;
+  padding: 0.35rem 0.8rem;
+}
+
+@media (max-width: 640px) {
+  .gif-fm {
+    grid-template-columns: 1fr;
+  }
+
+  .gif-fm-folders {
+    max-height: 220px;
+  }
+}

@@ -138,6 +138,45 @@
             <h1 data-i18n="nav_media">Media Management</h1>
           </div>
         </header>
+        <div class="card glass shadow" id="gif-library-card">
+          <h3>🗂️ <span data-i18n="gifs_title">GIF Library</span></h3>
+          <p class="text-muted" data-i18n="gifs_desc">Manage the playlist folders on the card over the network. Pick a folder on the left to see its files; drop files onto the folder view to queue them for that folder, or drop whole folders to create playlists named after them. Supported: .gif, .png, .raw.</p>
+          <div class="tabs gif-fm-orientation" id="gif-fm-orientation" role="tablist">
+            <button type="button" class="tab-btn active" data-orientation="yoko" role="tab" aria-selected="true" data-i18n="gifs_orientation_yoko">Horizontal (/gifs)</button>
+            <button type="button" class="tab-btn" data-orientation="tate" role="tab" aria-selected="false" data-i18n="gifs_orientation_tate">Vertical (/gifs_tate)</button>
+          </div>
+          <div id="gif-fm" class="gif-fm">
+            <div class="gif-fm-pane">
+              <div class="text-muted" style="font-size: 0.8rem; margin-bottom: 0.3rem;" data-i18n="gifs_folders">Playlist folders</div>
+              <div id="gif-fm-folder-list" class="gif-fm-folders"></div>
+              <div style="display: flex; gap: 0.4rem; margin-top: 0.6rem;">
+                <input type="text" id="gif-fm-newfolder" class="input" placeholder="New folder name" data-i18n-placeholder="gifs_new_folder_ph" maxlength="64" style="flex: 1; min-width: 0;">
+                <button id="gif-fm-mkdir" class="btn" style="padding: 0.3rem 0.7rem;" data-i18n="gifs_create">Create</button>
+              </div>
+            </div>
+            <div class="gif-fm-pane">
+              <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
+                <div><strong id="gif-fm-title">Select a folder</strong> <span id="gif-fm-count" class="text-muted" style="font-size: 0.85rem;"></span></div>
+                <span id="gif-fm-folder-actions" style="display: none;">
+                  <button id="gif-fm-rename-folder" class="btn" style="padding: 0.2rem 0.6rem;" data-i18n="gifs_rename">Rename</button>
+                  <button id="gif-fm-delete-folder" class="btn btn-danger" style="padding: 0.2rem 0.6rem; margin-left: 0.3rem;" data-i18n="gifs_delete_folder">Delete folder</button>
+                </span>
+              </div>
+              <div id="gif-fm-drop" class="drop-zone" style="margin-top: 0.6rem; padding: 0.9rem; border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; text-align: center; cursor: pointer;">
+                <div class="drop-text" style="font-size: 0.9rem;"><span data-i18n="gifs_drop_text_pre">Drop files here for</span> <span id="gif-fm-drop-target">the selected folder</span><span data-i18n="gifs_drop_text_post">, or drop folders to create playlists</span></div>
+                <div class="text-muted" style="font-size: 0.8rem; margin-top: 0.25rem;"><span data-i18n="gifs_browse_files">click to browse files</span> · <a href="#" id="gif-fm-pick-dir" data-i18n="gifs_browse_folder">browse for a folder</a></div>
+                <input type="file" id="gif-fm-files-input" accept=".gif,.png,.raw,image/gif,image/png" multiple style="display: none;">
+                <input type="file" id="gif-fm-dir-input" webkitdirectory directory multiple style="display: none;">
+              </div>
+              <div id="gif-fm-list" style="margin-top: 0.6rem; max-height: 320px; overflow-y: auto; font-size: 0.88rem;"></div>
+              <div style="margin-top: 0.4rem;"><button id="gif-fm-rescan" class="btn" style="padding: 0.2rem 0.6rem; margin-right: 0.4rem;" data-i18n="gifs_rescan" title="Rebuild every folder's index from the card">🔄 Rescan library</button><button id="gif-fm-more" class="btn" style="display: none; padding: 0.2rem 0.6rem;" data-i18n="gifs_show_more">Show more</button></div>
+            </div>
+          </div>
+          <div id="gif-lib-progress" class="text-muted" style="font-size: 0.9rem; min-height: 1.2em; margin-top: 0.8rem;"></div>
+          <div style="margin-top: 1rem;">
+            <button id="gif-lib-upload-btn" class="btn btn-primary" disabled data-i18n="gifs_upload">Upload</button>
+          </div>
+        </div>
         <div class="card glass shadow">
           <h3>🥊 <span data-i18n="fighter_title">Fighter Overlay</span></h3>
           <p class="text-muted" data-i18n="fighter_desc">Animated fighter sprites composited on top of idle rotation screens. Enable it per screen from the Rotation panel.</p>

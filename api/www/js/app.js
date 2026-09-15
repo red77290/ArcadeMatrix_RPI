@@ -2,6 +2,7 @@ import { API } from './api.js';
 import { setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
 import './components/toast.js';
 import { initDynamicEngines, GLOBAL_TIMEZONES } from './dynamic_engines.js';
+import { initGifLibrary } from './gif_library.js';
 
 let selectedOtaFile = null;
 
@@ -46,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadVersion();
   initCustomMarquee();
   initFighterOverlay();
+  initGifLibrary();
   initNetworkSettings();
   initSettings();
   initDynamicEngines();

@@ -29,7 +29,7 @@ fn get_local_ip() -> String {
     "127.0.0.1".to_string()
 }
 
-fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
+pub(crate) fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
     let s = config.settings.read();
     if !s.api_auth_enabled {
         return Ok(());
@@ -784,7 +784,7 @@ async fn get_fonts(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     HttpResponse::Ok().json(fonts)
 }
 
-fn find_gif_candidate_roots(orientation: &str) -> Vec<std::path::PathBuf> {
+pub(crate) fn find_gif_candidate_roots(orientation: &str) -> Vec<std::path::PathBuf> {
     let mut roots = Vec::new();
     let home = std::env::var("HOME").unwrap_or_else(|_| "/home/pi".to_string());
 
@@ -1269,6 +1269,17 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(post_wifi)
             .service(post_marquee)
             .service(post_upload)
+            .service(crate::api::gifs::get_gifs_library)
+            .service(crate::api::gifs::post_gifs_upload)
+            .service(crate::api::gifs::post_gifs_reindex)
+            .service(crate::api::gifs::get_gifs_reindex_status)
+            .service(crate::api::gifs::delete_gifs_reindex)
+            .service(crate::api::gifs::delete_gifs_file)
+            .service(crate::api::gifs::get_gifs_files)
+            .service(crate::api::gifs::delete_gifs_folder)
+            .service(crate::api::gifs::post_gifs_mkdir)
+            .service(crate::api::gifs::post_gifs_rename)
+            .service(crate::api::gifs::get_gifs_file)
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
             .service(crate::api::ota::get_version)

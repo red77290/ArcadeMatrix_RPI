@@ -649,8 +649,26 @@ Tous les endpoints sont des handlers actix dans `src/api/server.rs` ; les assets
 | GET | `/api/action/reboot` · POST `/api/system/reboot` | Redémarrer le Pi |
 | POST | `/api/system/shutdown` | Éteindre le Pi |
 | POST | `/api/system/power` | Marche/arrêt live de la matrice |
+| GET | `/api/gifs/library` | Dossiers de playlists sous `gifs/` avec le nombre de fichiers (scan en direct) |
+| GET | `/api/gifs/files?folder=` | Fichiers (nom, octets) d'un dossier de playlist |
+| GET | `/api/gifs/file?folder=&name=` | Sert un fichier média (aperçu inline ; `download=1` pour un téléchargement) |
+| POST | `/api/gifs/upload?folder=` | Envoi multipart d'un ou plusieurs fichiers dans un dossier de playlist (créé si absent) |
+| POST | `/api/gifs/mkdir?folder=` | Crée un dossier de playlist |
+| POST | `/api/gifs/rename?folder=&to=[&name=]` | Renomme un dossier, ou un fichier si `name` est fourni |
+| POST | `/api/gifs/reindex` | Rescanne les **deux** bibliothèques (horizontale et verticale) ; le Pi scanne en direct, parité avec la reconstruction d'index ESP32 |
+| GET | `/api/gifs/reindex/status` | Progression du rescan (`running`, `files`, `elapsed_ms`, `last_result`) — même forme que l'ESP32 |
+| DELETE | `/api/gifs/reindex` | Annule un rescan en cours (le scan du Pi est synchrone : répond toujours `409`) |
+| DELETE | `/api/gifs/file?folder=&name=` | Supprime un fichier |
+| DELETE | `/api/gifs/folder?folder=` | Supprime récursivement un dossier de playlist |
 
 Chaque handler mutateur passe derrière `check_auth` quand `api_auth_enabled` est actif.
+
+Les endpoints de la bibliothèque GIF se trouvent dans `src/api/gifs.rs` et partagent `check_auth`.
+
+Chaque route `/api/gifs/*` accepte un paramètre optionnel `orientation=yoko|tate` qui sélectionne la
+bibliothèque horizontale (`/gifs`) ou verticale (`/gifs_tate`), résolue via `find_gif_candidate_roots()`
+comme le fait le moteur GIF. Sans ce paramètre, `yoko` est utilisé. `POST /api/gifs/reindex` l'ignore et
+scanne toujours les deux, en renvoyant les totaux combinés et le détail par orientation dans `orientations`.
 
 ---
 

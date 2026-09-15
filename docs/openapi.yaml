@@ -783,6 +783,371 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/gifs/library:
+    get:
+      tags: [Media]
+      summary: Playlist folders of one GIF library
+      description: >
+        Live scan of the selected orientation's root: `/gifs` (yoko) or `/gifs_tate` (tate).
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+      responses:
+        '200':
+          description: Folder map with per-folder file counts
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GifLibrary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/gifs/files:
+    get:
+      tags: [Media]
+      summary: List the media files of one playlist folder
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+      responses:
+        '200':
+          description: File list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  folder:
+                    type: string
+                  orientation:
+                    type: string
+                    enum: [yoko, tate]
+                  path:
+                    type: string
+                    example: "/gifs_tate/Arcade"
+                  count:
+                    type: integer
+                  files:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        bytes:
+                          type: integer
+        '400':
+          description: folder is required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Folder not found
+
+  /api/gifs/file:
+    get:
+      tags: [Media]
+      summary: Serve one media file
+      description: Inline by default; `download=1` sets a `Content-Disposition` attachment header.
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+        - $ref: '#/components/parameters/GifName'
+        - in: query
+          name: download
+          schema:
+            type: string
+            enum: ['1']
+          description: Send as an attachment instead of inline
+      responses:
+        '200':
+          description: The file bytes
+          content:
+            image/gif: {}
+            image/png: {}
+            application/octet-stream: {}
+        '400':
+          description: folder and name are required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: File not found
+    delete:
+      tags: [Media]
+      summary: Delete one media file
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+        - $ref: '#/components/parameters/GifName'
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  orientation:
+                    type: string
+                    enum: [yoko, tate]
+                  deleted:
+                    type: string
+                    example: "/gifs_tate/Arcade/logo.gif"
+        '400':
+          description: folder and name (.gif/.png/.raw) are required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: File not found
+
+  /api/gifs/folder:
+    delete:
+      tags: [Media]
+      summary: Delete a playlist folder and everything in it
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+      responses:
+        '200':
+          description: Deleted, with the number of files removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  orientation:
+                    type: string
+                    enum: [yoko, tate]
+                  deleted:
+                    type: string
+                  files:
+                    type: integer
+        '400':
+          description: folder is required
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Folder not found
+
+  /api/gifs/mkdir:
+    post:
+      tags: [Media]
+      summary: Create a playlist folder
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  folder:
+                    type: string
+                  orientation:
+                    type: string
+                    enum: [yoko, tate]
+                  path:
+                    type: string
+        '400':
+          description: folder must be a plain name
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Folder already exists
+
+  /api/gifs/rename:
+    post:
+      tags: [Media]
+      summary: Rename a playlist folder, or a file inside one
+      description: Renames the folder when `name` is omitted, otherwise the named file within it.
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+        - in: query
+          name: name
+          schema:
+            type: string
+          description: File to rename; omit to rename the folder itself
+        - in: query
+          name: to
+          required: true
+          schema:
+            type: string
+          description: New plain name (the original extension is kept if omitted)
+      responses:
+        '200':
+          description: Renamed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  orientation:
+                    type: string
+                    enum: [yoko, tate]
+                  renamed_to:
+                    type: string
+        '400':
+          description: folder and to are required (plain names)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Source not found
+        '409':
+          description: Target already exists
+
+  /api/gifs/upload:
+    post:
+      tags: [Media]
+      summary: Upload one or many media files into a playlist folder
+      description: >
+        Multipart upload. The folder is created when missing; an empty `folder` defaults to `Uploads`.
+        Files that are not `.gif`, `.png` or `.raw` are reported under `skipped`.
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+        - $ref: '#/components/parameters/GifFolder'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        '200':
+          description: At least one file was saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GifUploadResult'
+        '400':
+          description: Nothing was saved, or the folder name contains path separators
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GifUploadResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/gifs/reindex:
+    post:
+      tags: [Media]
+      summary: Rescan the GIF library
+      description: >
+        Scans **both** orientations and reports the combined totals plus a per-orientation breakdown.
+        The Pi scans live, so this returns when the scan is done; the panel shows an "Indexing GIF
+        library" notice for at least three seconds so the action is visible. Only one rescan runs at a
+        time — a concurrent request is rejected with `409`.
+      parameters:
+        - $ref: '#/components/parameters/Orientation'
+      responses:
+        '200':
+          description: Combined scan result
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/GifLibrary'
+                  - type: object
+                    properties:
+                      status:
+                        type: string
+                        example: ok
+                      files:
+                        type: integer
+                        description: Combined file count across both orientations
+                      folder_count:
+                        type: integer
+                        description: Combined folder count across both orientations
+                      last_result:
+                        type: string
+                        example: "ok: 12 folders, 480 files (yoko + tate)"
+                      orientations:
+                        type: object
+                        description: Per-orientation scan results
+                        properties:
+                          yoko:
+                            $ref: '#/components/schemas/GifLibrary'
+                          tate:
+                            $ref: '#/components/schemas/GifLibrary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A rescan is already running
+    delete:
+      tags: [Media]
+      summary: Cancel a running rescan
+      description: >
+        Mirrors the ESP32 cancel route. The Pi scan is synchronous, so there is never anything to
+        cancel and this always answers `409`.
+      responses:
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Nothing to cancel
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: idle
+
+  /api/gifs/reindex/status:
+    get:
+      tags: [Media]
+      summary: Rescan progress
+      description: Same response shape as the ESP32 firmware so one dashboard card can poll either.
+      responses:
+        '200':
+          description: Current rescan state
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  running:
+                    type: boolean
+                  total:
+                    type: integer
+                  done:
+                    type: integer
+                  files:
+                    type: integer
+                  expected:
+                    type: integer
+                  eta:
+                    type: string
+                  cancelling:
+                    type: boolean
+                  current:
+                    type: string
+                  last_result:
+                    type: string
+                  elapsed_ms:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     ApiToken:
@@ -792,6 +1157,33 @@ components:
       description: >
         Required only when `api_auth_enabled` is true. Send the configured
         `api_token`. When auth is disabled, the header is ignored.
+
+  parameters:
+    Orientation:
+      in: query
+      name: orientation
+      required: false
+      schema:
+        type: string
+        enum: [yoko, tate]
+        default: yoko
+      description: >
+        Which GIF library to act on: `yoko` is the horizontal root (`/gifs`), `tate` the vertical one
+        (`/gifs_tate`). Unrecognised values fall back to `yoko`.
+    GifFolder:
+      in: query
+      name: folder
+      required: true
+      schema:
+        type: string
+      description: Playlist folder name (a plain name; path separators are rejected)
+    GifName:
+      in: query
+      name: name
+      required: true
+      schema:
+        type: string
+      description: File name inside the playlist folder (`.gif`, `.png` or `.raw`)
 
   responses:
     StatusOk:
@@ -812,6 +1204,55 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
 
   schemas:
+    GifLibrary:
+      type: object
+      properties:
+        root:
+          type: string
+          enum: ['/gifs', '/gifs_tate']
+        orientation:
+          type: string
+          enum: [yoko, tate]
+        folders:
+          type: object
+          additionalProperties:
+            type: object
+            properties:
+              path:
+                type: string
+              count:
+                type: integer
+    GifUploadResult:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+        folder:
+          type: string
+        orientation:
+          type: string
+          enum: [yoko, tate]
+        count:
+          type: integer
+        saved:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              bytes:
+                type: integer
+        skipped:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              reason:
+                type: string
     ErrorResponse:
       type: object
       properties:

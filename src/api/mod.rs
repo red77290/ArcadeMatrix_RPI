@@ -2,6 +2,7 @@ pub mod binance;
 pub mod cast;
 pub mod coingecko;
 pub mod crypto_provider;
+pub mod gifs;
 pub mod gnews;
 pub mod history;
 pub mod openweathermap;

@@ -64,8 +64,9 @@ function Invoke-RemoteCommand {
 
 function Copy-ToRemote {
     param([string]$User, [string]$LocalPath, [string]$RemotePath)
-    & scp @SshOpts $LocalPath "${User}@${TargetIp}:${RemotePath}"
-    if ($LASTEXITCODE -ne 0) { throw "scp failed uploading $LocalPath" }
+    # Using SSH pipe instead of SCP avoids all OpenSSH SFTP legacy incompatibilities (e.g. on Batocera)
+    Get-Content $LocalPath -Raw | & ssh @SshOpts "${User}@${TargetIp}" "cat > '$RemotePath'"
+    if ($LASTEXITCODE -ne 0) { throw "upload failed for $LocalPath" }
 }
 
 $system = "unknown"

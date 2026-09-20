@@ -75,9 +75,9 @@ ssh_run() {
 scp_run() {
     local user="$1" password="$2" src="$3" dst="$4"
     if [ "$have_sshpass" = "1" ]; then
-        sshpass -p "$password" scp "${SSH_OPTS[@]}" "$src" "${user}@${TARGET_IP}:${dst}"
+        cat "$src" | sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
     else
-        scp "${SSH_OPTS[@]}" "$src" "${user}@${TARGET_IP}:${dst}"
+        cat "$src" | ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
     fi
 }
 

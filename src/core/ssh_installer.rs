@@ -278,13 +278,16 @@ pub fn install_sync_script(
             }
 
             {
+                use std::io::Write;
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "cat > {} << 'EOF'\n{}\nEOF\nchmod +x {}\n",
-                        daemon_path, daemon_code, daemon_path
-                    ))
-                    .ok();
+                channel.exec(&format!("cat > {}", daemon_path)).ok();
+                channel.write_all(daemon_code.as_bytes()).ok();
+                channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("chmod +x {}", daemon_path)).ok();
                 channel.wait_close().ok();
             }
 
@@ -382,7 +385,7 @@ EOF
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
                 channel
-                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh; rm -f /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected; rm -f /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected; if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
+                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh; rm -rf /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected; if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
                     .ok();
                 channel.wait_close().ok();
             }
@@ -555,8 +558,10 @@ case "$EVENT" in
             GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
             GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         elif [ -n "$TITLE" ]; then
+            GAME_BASENAME=""
             GAME_CLEAN=$(clean_name "$TITLE")
         else
+            GAME_BASENAME=""
             GAME_CLEAN=""
         fi
         SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
@@ -586,8 +591,10 @@ case "$EVENT" in
             GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
             GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         elif [ -n "$TITLE" ]; then
+            GAME_BASENAME=""
             GAME_CLEAN=$(clean_name "$TITLE")
         else
+            GAME_BASENAME=""
             GAME_CLEAN=""
         fi
         SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
@@ -626,14 +633,17 @@ esac
             );
 
             {
+                use std::io::Write;
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "cat > {path} << 'EOF'\n{code}\nEOF\nchmod 755 {path}\nfor evt in game-selected system-selected game-start game-end; do dir=\"/userdata/system/configs/emulationstation/scripts/$evt\"; mkdir -p \"$dir\"; printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh %s \"$@\"\\n' \"$evt\" > \"$dir/arcadematrix_mqtt.sh\"; chmod 755 \"$dir/arcadematrix_mqtt.sh\"; done\nchmod -R 755 /userdata/system/configs/emulationstation/scripts\n",
-                        path = hook_path,
-                        code = hook_code
-                    ))
-                    .ok();
+                channel.exec(&format!("cat > {}", hook_path)).ok();
+                channel.write_all(hook_code.as_bytes()).ok();
+                channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("chmod 755 {path}\nfor evt in game-selected system-selected game-start game-end; do dir=\"/userdata/system/configs/emulationstation/scripts/$evt\"; mkdir -p \"$dir\"; printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh %s \"$@\"\\n' \"$evt\" > \"$dir/arcadematrix_mqtt.sh\"; chmod 755 \"$dir/arcadematrix_mqtt.sh\"; done\nchmod -R 755 /userdata/system/configs/emulationstation/scripts\n", path = hook_path)).ok();
                 channel.wait_close().ok();
             }
         }
@@ -657,13 +667,11 @@ esac
 
             let daemon_path = "/recalbox/share/arcadematrix_daemon.py";
             {
+                use std::io::Write;
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "cat > {} << 'EOF'\n{}\nEOF\n",
-                        daemon_path, daemon_code
-                    ))
-                    .ok();
+                channel.exec(&format!("cat > {}", daemon_path)).ok();
+                channel.write_all(daemon_code.as_bytes()).ok();
+                channel.send_eof().ok();
                 channel.wait_close().ok();
             }
 
@@ -675,13 +683,16 @@ fi
 "#;
             let launcher_path = format!("{}/arcadematrix_launcher(permanent).sh", target_dir);
             {
+                use std::io::Write;
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "cat > '{}' << 'EOF'\n{}\nEOF\nchmod +x '{}'",
-                        launcher_path, launcher_code, launcher_path
-                    ))
-                    .ok();
+                channel.exec(&format!("cat > '{}'", launcher_path)).ok();
+                channel.write_all(launcher_code.as_bytes()).ok();
+                channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("chmod +x '{}'", launcher_path)).ok();
                 channel.wait_close().ok();
             }
 

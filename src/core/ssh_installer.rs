@@ -381,16 +381,71 @@ EOF
                 }
             }
 
-            // 1. Clean up legacy daemons, shims, and custom.sh lines
+            // 1. Clean up legacy daemons (separate commands to avoid Dropbear CMD_LEN issues)
             {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh; rm -rf /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected; if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
-                    .ok();
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (cleanup kill): {}", e))?;
+                channel.exec("pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true")
+                    .map_err(|e| format!("exec failed (cleanup kill): {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
                 channel.wait_close().ok();
+                tracing::info!("Batocera cleanup kill: done");
             }
 
-            // 2. Install one-shot shell hook publishing via mosquitto_pub or python3 raw socket
+            // 2. Remove legacy script files
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (cleanup rm): {}", e))?;
+                channel.exec("rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh")
+                    .map_err(|e| format!("exec failed (cleanup rm files): {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera cleanup rm files: done");
+            }
+
+            // 3. Remove legacy ES event directories
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (cleanup rm dirs): {}", e))?;
+                channel.exec("rm -rf /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected")
+                    .map_err(|e| format!("exec failed (cleanup rm script dirs): {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera cleanup rm script dirs: done");
+            }
+
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (cleanup rm ES dirs): {}", e))?;
+                channel.exec("rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected")
+                    .map_err(|e| format!("exec failed (cleanup rm ES dirs): {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera cleanup rm ES dirs: done");
+            }
+
+            // 4. Clean custom.sh and ensure scripts directory exists
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (cleanup custom.sh): {}", e))?;
+                channel.exec("if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
+                    .map_err(|e| format!("exec failed (cleanup custom.sh + mkdir): {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera cleanup custom.sh + mkdir: done");
+            }
+
+            // 5. Install one-shot shell hook publishing via mosquitto_pub or python3 raw socket
             let hook_code = format!(
                 r#"#!/bin/sh
 BROKER="{broker}"
@@ -632,19 +687,130 @@ esac
                 broker = matrix_ip
             );
 
+            let expected_size = hook_code.len();
+            tracing::info!("Batocera hook_code size: {} bytes", expected_size);
+
+            // 6. Write hook script via stdin pipe (bypasses Dropbear MAX_CMD_LEN)
             {
                 use std::io::Write;
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("cat > {}", hook_path)).ok();
-                channel.write_all(hook_code.as_bytes()).ok();
-                channel.send_eof().ok();
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (write hook): {}", e))?;
+                channel
+                    .exec(&format!("cat > {}", hook_path))
+                    .map_err(|e| format!("exec 'cat > {}' failed: {}", hook_path, e))?;
+                channel.write_all(hook_code.as_bytes()).map_err(|e| {
+                    format!(
+                        "write_all to {} failed ({} bytes): {}",
+                        hook_path, expected_size, e
+                    )
+                })?;
+                channel
+                    .send_eof()
+                    .map_err(|e| format!("send_eof failed after writing {}: {}", hook_path, e))?;
                 channel.wait_close().ok();
+                tracing::info!(
+                    "Batocera hook written: {} bytes to {}",
+                    expected_size,
+                    hook_path
+                );
             }
 
+            // 7. Verify the script was actually written
             {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("chmod 755 {path}\nfor evt in game-selected system-selected game-start game-end; do dir=\"/userdata/system/configs/emulationstation/scripts/$evt\"; mkdir -p \"$dir\"; printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh %s \"$@\"\\n' \"$evt\" > \"$dir/arcadematrix_mqtt.sh\"; chmod 755 \"$dir/arcadematrix_mqtt.sh\"; done\nchmod -R 755 /userdata/system/configs/emulationstation/scripts\n", path = hook_path)).ok();
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (verify): {}", e))?;
+                channel
+                    .exec(&format!(
+                        "test -f {} && wc -c < {} && head -1 {}",
+                        hook_path, hook_path, hook_path
+                    ))
+                    .map_err(|e| format!("exec verify failed: {}", e))?;
+                let mut verify_out = String::new();
+                let _ = channel.read_to_string(&mut verify_out);
                 channel.wait_close().ok();
+                let trimmed = verify_out.trim();
+                tracing::info!("Batocera verify hook: output={}", trimmed);
+                if trimmed.is_empty() {
+                    return Err(format!(
+                        "CRITICAL: Hook script {} was NOT written to the Batocera filesystem. \
+                         The file does not exist after write_all. This typically means Dropbear \
+                         did not pipe stdin to the 'cat' command. Batocera version or SSH server \
+                         may not support exec+stdin piping.",
+                        hook_path
+                    ));
+                }
+                // Check first line starts with shebang
+                if !trimmed.contains("#!/bin/sh") {
+                    tracing::warn!(
+                        "Batocera hook verify: file exists but may be empty or corrupt. Output: {}",
+                        trimmed
+                    );
+                }
+            }
+
+            // 8. chmod and create ES event directory wrappers (separate commands)
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (chmod): {}", e))?;
+                channel
+                    .exec(&format!("chmod 755 {}", hook_path))
+                    .map_err(|e| format!("chmod 755 {} failed: {}", hook_path, e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera chmod hook: done");
+            }
+
+            // 9. Create ES event wrapper scripts in separate channels
+            for evt in &["game-selected", "system-selected", "game-start", "game-end"] {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (ES dir {}): {}", evt, e))?;
+                let cmd = format!(
+                    "mkdir -p /userdata/system/configs/emulationstation/scripts/{evt} && \
+                     printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh {evt} \"$@\"\\n' \
+                     > /userdata/system/configs/emulationstation/scripts/{evt}/arcadematrix_mqtt.sh && \
+                     chmod 755 /userdata/system/configs/emulationstation/scripts/{evt}/arcadematrix_mqtt.sh",
+                    evt = evt
+                );
+                channel
+                    .exec(&cmd)
+                    .map_err(|e| format!("exec ES wrapper {} failed: {}", evt, e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera ES wrapper {}: done", evt);
+            }
+
+            // 10. Final chmod on ES scripts root
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (chmod ES): {}", e))?;
+                channel
+                    .exec("chmod -R 755 /userdata/system/configs/emulationstation/scripts")
+                    .map_err(|e| format!("chmod -R ES scripts failed: {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera chmod -R ES scripts: done");
+            }
+
+            // 11. Sync filesystem before reboot to flush all pending writes
+            {
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (sync): {}", e))?;
+                channel
+                    .exec("sync")
+                    .map_err(|e| format!("sync failed: {}", e))?;
+                let mut out = String::new();
+                let _ = channel.read_to_string(&mut out);
+                channel.wait_close().ok();
+                tracing::info!("Batocera sync: done");
             }
         }
         TargetOS::Recalbox => {

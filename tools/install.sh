@@ -192,65 +192,49 @@ if [ "$SYSTEM" = "recalbox" ]; then
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"
-    echo "Cleaning up any previous install..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true" || true
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "mkdir -p $TARGET_DIR /userdata/system/configs/emulationstation/scripts" || true
+    echo "Cleaning up legacy daemons..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" || true
+    echo "Removing legacy script files..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -f /userdata/system/arcadematrix_daemon.py $TARGET_DIR/arcadematrix_hook.sh $TARGET_DIR/arcadematrix_mqtt.sh" || true
+    echo "Removing legacy ES event directories..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -rf $TARGET_DIR/game-selected $TARGET_DIR/game-start $TARGET_DIR/game-end $TARGET_DIR/system-selected" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "mkdir -p $TARGET_DIR" || true
 
-    echo "Uploading daemon (topic: $TOPIC)..."
-    scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/userdata/system/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
+    echo "Preparing Batocera event hook..."
+    sed -e "s/{{BROKER}}/$BROKER_IP/g" "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" > "$TMP_DIR/arcadematrix_mqtt.sh"
 
-    echo "Installing Batocera event hooks..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "
-    cat > /userdata/system/scripts/arcadematrix_hook.sh << 'EOF'
-#!/bin/sh
-EVENT=\"\$1\"
-[ -z \"\$EVENT\" ] && EVENT=\"\$(basename \"\$0\")\"
-SYSTEM=\"\$2\"
-ROMPATH=\"\$3\"
+    echo "Uploading hook to $TARGET_DIR/arcadematrix_mqtt.sh..."
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_mqtt.sh" "$TARGET_DIR/arcadematrix_mqtt.sh" || { echo "Upload failed!"; exit 1; }
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod 755 $TARGET_DIR/arcadematrix_mqtt.sh" || true
 
-case \"\$(basename \"\$0\")\" in
-    game-start|game_start|gameStart) EVENT=\"game-start\"; SYSTEM=\"\$1\"; ROMPATH=\"\$2\" ;;
-    game-end|game_end|gameStop)     EVENT=\"game-end\"; SYSTEM=\"\$1\"; ROMPATH=\"\$2\" ;;
-    game-selected)                   EVENT=\"game-selected\"; SYSTEM=\"\$1\"; ROMPATH=\"\$2\" ;;
-    system-selected)                 EVENT=\"system-selected\"; SYSTEM=\"\$1\" ;;
-esac
-
-case \"\$EVENT\" in
-    game-selected) STATE=\"browsing\" ;;
-    game-start)    STATE=\"playing\" ;;
-    game-end)      STATE=\"stopped\" ;;
-    system-selected) STATE=\"browsing\"; ROMPATH=\"\" ;;
-    *)             STATE=\"browsing\" ;;
-esac
-
-cat > /tmp/es_state.inf << STATEEOF
-SystemId=\$SYSTEM
-GamePath=\$ROMPATH
-State=\$STATE
-STATEEOF
-EOF
-    chmod +x /userdata/system/scripts/arcadematrix_hook.sh
-    for evt in game-selected game-start game-end system-selected; do
-        ln -sf /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/\$evt
-        ln -sf /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/configs/emulationstation/scripts/\$evt
-    done
-    " || true
-
-    echo "Configuring custom.sh for startup..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "
-    if [ ! -f /userdata/system/custom.sh ]; then
-        echo '#!/bin/sh' > /userdata/system/custom.sh
-        echo '[ \"\$1\" = \"start\" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
-        chmod +x /userdata/system/custom.sh
-    else
-        if ! grep -q 'arcadematrix_daemon.py' /userdata/system/custom.sh; then
-            echo '[ \"\$1\" = \"start\" ] && python3 /userdata/system/arcadematrix_daemon.py > /userdata/system/scripts/daemon.log 2>&1 &' >> /userdata/system/custom.sh
-        fi
+    echo "Verifying hook deployment..."
+    VERIFY=$(ssh_run "$ACTIVE_USER" "$PASSWORD" "test -f $TARGET_DIR/arcadematrix_mqtt.sh && wc -c < $TARGET_DIR/arcadematrix_mqtt.sh && head -1 $TARGET_DIR/arcadematrix_mqtt.sh" 2>/dev/null || true)
+    if [ -z "$VERIFY" ]; then
+        echo "ERROR: Hook script was NOT written to the Batocera filesystem!" >&2
+        exit 1
     fi
-    " || true
+    echo "  Hook verified: $VERIFY"
+
+    echo "Configuring EmulationStation UI hooks (game-selected, system-selected)..."
+    for evt in game-selected system-selected game-start game-end; do
+        ssh_run "$ACTIVE_USER" "$PASSWORD" "
+            mkdir -p /userdata/system/configs/emulationstation/scripts/$evt && \
+            printf '#!/bin/sh\n/userdata/system/scripts/arcadematrix_mqtt.sh $evt \"\$@\"\n' \
+            > /userdata/system/configs/emulationstation/scripts/$evt/arcadematrix_mqtt.sh && \
+            chmod 755 /userdata/system/configs/emulationstation/scripts/$evt/arcadematrix_mqtt.sh
+        " || true
+    done
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod -R 755 /userdata/system/configs/emulationstation/scripts" || true
+
+    echo "Syncing filesystem..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "sync" || true
+
+    echo "Batocera one-shot event hooks successfully installed!"
 
     echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "sleep 1 && reboot" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "sync && sleep 1 && reboot" || true
 
 elif [ "$SYSTEM" = "retropie" ]; then
     echo "Installing for RetroPie..."

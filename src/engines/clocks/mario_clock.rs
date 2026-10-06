@@ -9,7 +9,8 @@
 
 use crate::core::matrix::MatrixBackend;
 use crate::engines::clocks::cwassets::mario::{
-    BLOCK, BUSH, CLOUD1, CLOUD2, GROUND, HILL, MARIO_IDLE, MARIO_JUMP, SKY_COLOR,
+    BLOCK, BUSH, CLOUD1, CLOUD2, GROUND, HILL, MARIO_JUMP, MARIO_RUN1, MARIO_RUN2, MARIO_RUN3,
+    MARIO_RUN_LEFT, MARIO_RUN_W, SKY_COLOR,
 };
 use crate::engines::clocks::cwscene;
 use crate::engines::renderers::base_renderer::ArcadeFont;
@@ -48,10 +49,19 @@ pub struct MarioClock {
     shown: [String; 2],
     last_minute: u32,
     last_frame: Instant,
+    /// `clock_speed` percentage (25-300): scales the run and the jump.
+    speed_pct: i32,
     /// Set when the face comes back on screen: the next frame shows the
     /// current time straight away instead of keeping the digits from the
     /// last time it was visible (same as the ESP32 `onActivated()`).
     snap: bool,
+}
+
+/// Walk-cycle frame for Mario at `runner_x`: one frame per 6 px travelled.
+/// The +1200 keeps the division positive while he enters from off screen
+/// (truncation toward zero, as the ESP32 `(int)` cast does).
+pub fn run_frame(runner_x: f32) -> usize {
+    ((((runner_x as i32) + 1200) / 6) % 3) as usize
 }
 
 impl MarioClock {
@@ -66,6 +76,7 @@ impl MarioClock {
             shown: [String::from("--"), String::from("--")],
             last_minute: 99,
             last_frame: Instant::now(),
+            speed_pct: 100,
             snap: false,
         }
     }
@@ -85,6 +96,11 @@ impl MarioClock {
     /// Whether Mario is on his way to (or back from) a block.
     pub fn is_running(&self) -> bool {
         self.phase != Phase::Waiting
+    }
+
+    /// Applies the instance's `clock_speed` (percent, clamped to 25-300).
+    pub fn configure(&mut self, speed_pct: i32) {
+        self.speed_pct = speed_pct.clamp(25, 300);
     }
 
     fn blit(
@@ -212,7 +228,10 @@ impl MarioClock {
             minute_x
         }) + BLOCK_W / 2
             - MARIO_W / 2;
-        let pace = 34.0;
+        // 100 % = Super Mario Bros walking pace (about 85 px/s; the NES screen
+        // is 256 px wide, like the 256x64 panel). Same as the ESP32 face.
+        let speed = self.speed_pct as f32 / 100.0;
+        let pace = 85.0 * speed;
         match self.phase {
             Phase::Waiting => {}
             Phase::RunIn => {
@@ -224,7 +243,7 @@ impl MarioClock {
                 }
             }
             Phase::Jump => {
-                self.jump_t += dt * 1.6;
+                self.jump_t += dt * 4.0 * speed; // jump timed to the walking pace
                 if self.jump_t >= 0.5 && self.pending_digits {
                     self.pending_digits = false;
                     self.block_bounce[self.jump_target] = 0.001;
@@ -296,12 +315,22 @@ impl MarioClock {
                     true,
                 );
             } else {
+                // Running in or out: the NES walk cycle, one frame per 6 px
+                // travelled so the legs keep pace with the speed. The run
+                // frames sit in a 16 px cell whose column 2 lines up with the
+                // idle sprite (same as the ESP32 face).
+                let f = run_frame(self.runner_x);
+                let frame: &[u16] = match f {
+                    0 => &MARIO_RUN1,
+                    1 => &MARIO_RUN2,
+                    _ => &MARIO_RUN3,
+                };
                 Self::blit(
                     matrix,
-                    &MARIO_IDLE,
-                    MARIO_W,
+                    frame,
+                    MARIO_RUN_W[f],
                     MARIO_H,
-                    self.runner_x as i32,
+                    self.runner_x as i32 - 2 + MARIO_RUN_LEFT[f],
                     y,
                     true,
                 );
@@ -320,7 +349,163 @@ impl Default for MarioClock {
 mod tests {
     use super::*;
     use crate::core::matrix::MockMatrix;
-    use crate::engines::renderers::BaseRenderer;
+    use crate::engines::clocks::cwassets::mario::{MARIO_IDLE, M_RED, M_SHIRT, M_SKIN};
+
+    #[test]
+    fn run_frame_follows_distance() {
+        // ((x + 1200) / 6) % 3, x truncated toward zero.
+        assert_eq!(run_frame(0.0), 2); // 1200 / 6 = 200
+        assert_eq!(run_frame(6.0), 0);
+        assert_eq!(run_frame(12.0), 1);
+        assert_eq!(run_frame(17.9), 1);
+        assert_eq!(run_frame(18.0), 2);
+        assert_eq!(run_frame(-17.5), 2); // -17 -> 1183 / 6 = 197
+    }
+
+    /// RGB565 to RGB888, as `cwscene::put` converts it.
+    fn rgb(c: u16) -> (u8, u8, u8) {
+        let (r, g, b) = ((c >> 11) & 0x1F, (c >> 5) & 0x3F, c & 0x1F);
+        (
+            ((r << 3) | (r >> 2)) as u8,
+            ((g << 2) | (g >> 4)) as u8,
+            ((b << 3) | (b >> 2)) as u8,
+        )
+    }
+
+    /// Bounding box (x0, y0, x1, y1) of Mario's body colours in rows y0..y1.
+    fn mario_box(m: &MockMatrix, y0: u32, y1: u32) -> Option<(u32, u32, u32, u32)> {
+        let want: Vec<(u8, u8, u8)> = [M_RED, M_SKIN, M_SHIRT].iter().map(|&c| rgb(c)).collect();
+        let mut b: Option<(u32, u32, u32, u32)> = None;
+        for y in y0..y1 {
+            for x in 0..80 {
+                let p = m.canvas.get_pixel(x, y);
+                if want.contains(&(p[0], p[1], p[2])) {
+                    b = Some(match b {
+                        None => (x, y, x, y),
+                        Some((a, bb, c, d)) => (a.min(x), bb.min(y), c.max(x), d.max(y)),
+                    });
+                }
+            }
+        }
+        b
+    }
+
+    #[test]
+    fn running_mario_draws_the_walk_cycle_frame() {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        // 256x64: ground top = 56, Mario rows 40..55. The 64 px scene starts at
+        // x = 96, so with Mario at x < 60 only his pixels are in columns 0..80.
+        for (x, frame) in [(18.0f32, 2usize), (24.0, 0), (30.0, 1), (36.0, 2)] {
+            assert_eq!(run_frame(x), frame);
+            for phase in [Phase::RunIn, Phase::RunOut] {
+                let mut mario = MarioClock::new();
+                let mut m = MockMatrix::new(256, 64);
+                mario.render(&mut m, 7, 46, &font, 1); // settle on 7:46
+                mario.phase = phase;
+                mario.runner_x = x;
+                mario.jump_target = 1;
+                mario.last_frame = Instant::now();
+                mario.render(&mut m, 7, 46, &font, 1);
+                let x_now = mario.runner_x; // moved by at most a few px*dt
+                assert_eq!(run_frame(x_now), frame, "moved across a frame boundary");
+                // Expected: that frame alone at x - 2 + left, rows 40..55.
+                let data: &[u16] = match frame {
+                    0 => &MARIO_RUN1,
+                    1 => &MARIO_RUN2,
+                    _ => &MARIO_RUN3,
+                };
+                let mut solo = MockMatrix::new(256, 64);
+                let left = x_now as i32 - 2 + MARIO_RUN_LEFT[frame];
+                MarioClock::blit(&mut solo, data, MARIO_RUN_W[frame], MARIO_H, left, 40, true);
+                let want = mario_box(&solo, 40, 56).unwrap();
+                assert_eq!(mario_box(&m, 40, 56), Some(want), "x={} frame={}", x, frame);
+                // ... which is not the idle pose he used to glide in.
+                let mut idle = MockMatrix::new(256, 64);
+                MarioClock::blit(
+                    &mut idle,
+                    &MARIO_IDLE,
+                    MARIO_W,
+                    MARIO_H,
+                    x_now as i32,
+                    40,
+                    true,
+                );
+                assert_ne!(mario_box(&idle, 40, 56), Some(want));
+            }
+        }
+    }
+
+    /// How far Mario runs in one 100 ms frame at `speed_pct`.
+    fn run_distance(speed_pct: i32) -> f32 {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        let mut m = MockMatrix::new(256, 64);
+        let mut mario = MarioClock::new();
+        mario.configure(speed_pct);
+        mario.render(&mut m, 7, 46, &font, 1);
+        mario.phase = Phase::RunIn;
+        mario.runner_x = 0.0;
+        mario.jump_target = 1;
+        mario.last_frame = Instant::now() - std::time::Duration::from_millis(100);
+        mario.render(&mut m, 7, 46, &font, 1);
+        mario.runner_x
+    }
+
+    #[test]
+    fn pace_is_smb_walking_speed_scaled_by_clock_speed() {
+        // 100 % = 85 px/s (the old face ran 34 px/s, Erik's 250 %).
+        let d100 = run_distance(100);
+        assert!((d100 - 8.5).abs() < 0.3, "100 %: {} px in 100 ms", d100);
+        let d50 = run_distance(50);
+        assert!((d50 - 4.25).abs() < 0.2, "50 %: {}", d50);
+        let d300 = run_distance(300);
+        assert!((d300 - 25.5).abs() < 0.8, "300 %: {}", d300);
+        // Out-of-range settings are clamped like the other faces (25-300).
+        assert!((run_distance(1000) - d300).abs() < 0.8);
+        assert!((run_distance(1) - run_distance(25)).abs() < 0.2);
+    }
+
+    #[test]
+    fn jump_rate_follows_clock_speed() {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        for (pct, want) in [(100, 0.4f32), (200, 0.8)] {
+            let mut m = MockMatrix::new(256, 64);
+            let mut mario = MarioClock::new();
+            mario.configure(pct);
+            mario.render(&mut m, 7, 46, &font, 1);
+            mario.phase = Phase::Jump;
+            mario.jump_t = 0.0;
+            mario.pending_digits = false;
+            mario.last_frame = Instant::now() - std::time::Duration::from_millis(100);
+            mario.render(&mut m, 7, 46, &font, 1);
+            assert!(
+                (mario.jump_t - want).abs() < 0.03,
+                "{} %: {}",
+                pct,
+                mario.jump_t
+            );
+        }
+    }
+
+    #[test]
+    fn jump_keeps_the_jump_sprite() {
+        let base = BaseRenderer::new();
+        let font = base.font();
+        let mut mario = MarioClock::new();
+        let mut m = MockMatrix::new(256, 64);
+        mario.render(&mut m, 7, 46, &font, 1);
+        mario.phase = Phase::Jump;
+        mario.runner_x = 30.0;
+        mario.jump_t = 0.0;
+        mario.last_frame = Instant::now();
+        mario.render(&mut m, 7, 46, &font, 1);
+        let mut solo = MockMatrix::new(256, 64);
+        let y = 56 - MARIO_H; // jump_t ~ 0: lift ~ 0
+        MarioClock::blit(&mut solo, &MARIO_JUMP, MARIO_JUMP_W, MARIO_H, 30, y, true);
+        assert_eq!(mario_box(&m, 0, 56), mario_box(&solo, 0, 56));
+    }
 
     #[test]
     fn returning_face_shows_current_time_without_run_in() {

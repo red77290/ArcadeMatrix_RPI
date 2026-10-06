@@ -303,6 +303,7 @@ impl ClockEngine {
         );
         self.tetris.configure(speed_pct);
         self.tetris_gb.configure(speed_pct);
+        self.mario.configure(speed_pct);
     }
 }
 
@@ -689,7 +690,7 @@ fn register_clock_engine() -> EngineDescriptor {
                     field_type: crate::core::engine_contract::ConfigType::Integer,
                     label: "Animation Speed",
                     description:
-                        "Animation speed in percent (Tetris block fall, Pac-Man sweep); lower is slower",
+                        "Animation speed in percent (Tetris block fall, Pac-Man sweep, Mario run); lower is slower",
                     default_value: "100",
                     min_val: Some("25"),
                     max_val: Some("300"),

@@ -1,5 +1,5 @@
 use crate::core::config::{OverlayConfig, SystemConfig};
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::types::FighterOverride;
 use crate::engines::fighter::FighterEngine;
 
@@ -60,9 +60,9 @@ impl OverlayManager {
     }
 
     /// Composite active overlays additively onto the base matrix framebuffer.
-    pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
+    pub fn composite(&mut self, surface: &mut dyn IDrawingSurface) {
         if self.fighter_active {
-            self.fighter.composite(matrix);
+            self.fighter.composite(surface);
         }
     }
 

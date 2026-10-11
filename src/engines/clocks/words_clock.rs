@@ -4,7 +4,7 @@
 //! order come from the localisation layer, so the face follows the language the sign is set to.
 //! Laid out for a wide panel; smaller ones get the notice. Matches the ESP32 face.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 use chrono::{Datelike, Local};
@@ -20,7 +20,7 @@ impl WordsClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
@@ -67,7 +67,7 @@ impl WordsClock {
 }
 
 fn centre(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     font: &ArcadeFont<'_>,
     scale: f32,

@@ -1,5 +1,5 @@
 use crate::core::i18n::{self, Lang};
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 
@@ -12,7 +12,7 @@ impl WordClock {
 
     pub fn render(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
@@ -28,7 +28,7 @@ impl WordClock {
 
     fn draw_lines(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         raw_lines: &[String],
         font: &ArcadeFont<'_>,
         requested_scale: u32,
@@ -105,28 +105,12 @@ impl WordClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    struct MockMatrix {
-        w: u32,
-        h: u32,
-    }
-    impl MatrixBackend for MockMatrix {
-        fn width(&self) -> u32 {
-            self.w
-        }
-        fn height(&self) -> u32 {
-            self.h
-        }
-        fn set_pixel(&mut self, _x: i32, _y: i32, _red: u8, _green: u8, _blue: u8) {}
-        fn clear(&mut self) {}
-        fn update(&mut self) {}
-        fn set_brightness(&mut self, _brightness: u8) {}
-    }
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_word_clock_renders_without_crash() {
         let clock = WordClock::new();
-        let mut matrix = MockMatrix { w: 128, h: 32 };
+        let mut matrix = MockSurface::new(128, 32);
         let renderer = BaseRenderer::new();
         let font = renderer.font();
 

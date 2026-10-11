@@ -1,4 +1,4 @@
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
+use arcadematrix::core::matrix::{IDrawingSurface, MockSurface};
 use arcadematrix::core::types::{DisplayGeometry, LayoutClass};
 use arcadematrix::engines::clocks::{
     PacmanClock, PongClock, SlotMachineClock, TetrisClock, VersusClock,
@@ -13,7 +13,7 @@ fn test_base_renderer_render_tate_time_various_resolutions() {
     let resolutions = [(32, 64), (32, 128), (64, 128), (64, 256)];
 
     for (w, h) in resolutions {
-        let mut matrix = MockMatrix::new(w, h);
+        let mut matrix = MockSurface::new(w, h);
 
         // Test theme 0 (Nintendo), theme 6 (Cave/3D), theme 20 (Custom Gradient)
         for theme in [0, 6, 20] {
@@ -49,7 +49,7 @@ fn test_flip_renderer_tate_layout() {
     let font = renderer.font();
 
     for (w, h) in [(32, 64), (32, 128), (64, 128), (64, 256)] {
-        let mut matrix = MockMatrix::new(w, h);
+        let mut matrix = MockSurface::new(w, h);
         flip.render(&mut matrix, "12:34:56", &font, 1, 0, 0);
 
         let mut lit_pixels = 0;
@@ -79,7 +79,7 @@ fn test_subclocks_tate_responsiveness() {
     let resolutions = [(32, 64), (32, 128), (64, 128), (64, 256)];
 
     for (w, h) in resolutions {
-        let mut matrix = MockMatrix::new(w, h);
+        let mut matrix = MockSurface::new(w, h);
 
         // 1. TetrisClock (run several frames to let blocks fall into screen)
         let mut tetris = TetrisClock::new(false);
@@ -224,7 +224,7 @@ fn test_fighter_engine_tate_scaling_and_geometry() {
 #[test]
 fn test_clock_font_size_responsiveness_tate() {
     let renderer = BaseRenderer::new();
-    let mut matrix_64x128 = MockMatrix::new(64, 128);
+    let mut matrix_64x128 = MockSurface::new(64, 128);
 
     // Test that size 1, 2, 3, 4 produce progressively more lit pixels and fit without error
     let mut previous_lit = 0;
@@ -266,7 +266,7 @@ fn test_clock_font_size_responsiveness_tate() {
 #[test]
 fn test_clock_font_size_responsiveness_32x64() {
     let renderer = BaseRenderer::new();
-    let mut matrix_32x64 = MockMatrix::new(32, 64);
+    let mut matrix_32x64 = MockSurface::new(32, 64);
 
     // Size 1
     matrix_32x64.clear();
@@ -305,7 +305,7 @@ fn test_clock_font_size_responsiveness_32x64() {
 #[test]
 fn test_tate_seconds_same_size_as_hours_minutes() {
     let renderer = BaseRenderer::new();
-    let mut matrix = MockMatrix::new(64, 128);
+    let mut matrix = MockSurface::new(64, 128);
 
     // Render 11:11:11 so glyphs are identical ('1's)
     renderer.render_tate_time(&mut matrix, 11, 11, 11, 0, 2, 0, 0, None, None);
@@ -383,7 +383,7 @@ fn test_tate_seconds_same_size_as_hours_minutes() {
 fn test_minute_clocks_ignore_seconds_stability() {
     let base = BaseRenderer::new();
     let font = base.font();
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
 
     // 1. PacmanClock stability across seconds
     let mut pacman = PacmanClock::new();
@@ -468,7 +468,7 @@ fn test_pacman_progressive_eat_and_reveal() {
     let font = base.font();
 
     // 1. Landscape mode (64x32)
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
     let mut pacman = PacmanClock::new();
     pacman.render(&mut matrix, "12:34", 12, 34, &font, 1);
 
@@ -498,7 +498,7 @@ fn test_pacman_progressive_eat_and_reveal() {
     );
 
     // 2. Tate / Vertical mode (32x64)
-    let mut matrix_tate = MockMatrix::new(32, 64);
+    let mut matrix_tate = MockSurface::new(32, 64);
     let mut pacman_tate = PacmanClock::new();
     pacman_tate.render(&mut matrix_tate, "12:34", 12, 34, &font, 1);
     // Trigger transition

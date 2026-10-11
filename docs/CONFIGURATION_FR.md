@@ -46,6 +46,7 @@ Ce bloc configure les paramètres DMA de la bibliothèque hzeller `rpi-rgb-led-m
 | `row_address_mode` | `int` | Type d'adressage des lignes pour panneaux exotiques (`0` par défaut). |
 | `multiplexing` | `int` | Type de multiplexage du panneau (`0` par défaut). |
 | `panel_type` | `String` | Chaîne d'initialisation optionnelle du panneau (ex. `FM6126A`), généralement vide. |
+| `render_pipeline` | `String` | Pipeline de rendu matériel & stratégie de bufferisation : `auto` (sélection automatique par défaut), `canvas_single` (**Recommandé**, canvas unique hors-écran avec suivi des zones modifiées 'dirty bounds' protégeant le bus SDIO Wi-Fi contre la saturation), `canvas_double` (double buffer avec canvas), `direct_double` (double buffer direct zéro-copie via pilote C), `direct_single` (buffer direct simple). Par défaut `canvas_single`. |
 | `slot_transition` | `String` | Effet joué lorsque la rotation passe à l'écran suivant (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Par défaut `none`. |
 | `slot_transition_duration_ms` | `int` | Durée de la transition entre écrans, en millisecondes (`100`-`3000`, par défaut `500`). |
 
@@ -209,7 +210,7 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 ### Moteur : `clock`
 | Champ | Type | Défaut | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Index du thème d'horloge : `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
+| `theme` | `int` | `0` | Index du thème d'horloge : `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana), `30` = Mario (coup de carapace Koopa & ascension verticale Tate), `31` = Castlevania (Simon Belmont & coup de fouet), `32` = Pocket Index (Pokémon), `33` = World Clock, `34` = Ms. Pac-Man, `35` = Mega Man (tir plasma chargé & Metool), `37` = Words Clock, `39` = Sonic (Green Hill & Badnik Motobug), `41` = Metal Slug (Marco Rossi, char Di-Cokka & tirs d'obus). |
 | `format` | `String` | `%H:%M:%S` | Format d'heure strftime. |
 | `font` | `String` | `PressStart2P.ttf` | Fichier de police depuis `/fonts/`. |
 | `size` | `int` | `2` | Facteur de mise à l'échelle de la police. |

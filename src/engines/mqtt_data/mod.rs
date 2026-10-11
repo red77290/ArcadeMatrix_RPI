@@ -27,7 +27,7 @@ use crate::core::engine_contract::{
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
 use crate::core::i18n::{self, Lang};
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::{draw_text_scaled, measure_text};
 use crate::engines::renderers::weather_page::draw_weather_page;
 use arc_swap::ArcSwapOption;
@@ -284,7 +284,7 @@ pub fn notice_for(state: u8, connected_for: Option<Duration>) -> Notice {
 }
 
 /// Draws a notice centred in the 5x7 font.
-pub fn draw_notice(m: &mut dyn MatrixBackend, notice: Notice, lang: Lang) {
+pub fn draw_notice(m: &mut dyn IDrawingSurface, notice: Notice, lang: Lang) {
     let (text, color) = match notice {
         Notice::Connecting => (i18n::connecting_label(lang), NOTICE_COLOR),
         Notice::NoConnection => (i18n::no_connection_label(lang), NO_CONNECTION_COLOR),
@@ -517,7 +517,7 @@ impl Engine for MqttDataEngine {
                 let fresh = matches!(&s.weather_image,
                     Some((p, g, _)) if *p == page && *g == s.seen_generation);
                 if !fresh {
-                    let (w, h) = (ctx.matrix.width(), ctx.matrix.height());
+                    let (w, h) = (ctx.surface.width(), ctx.surface.height());
                     let mut img = image::RgbaImage::new(w, h);
                     draw_weather_page(&mut img, slide, 0, w, h, 0, 0);
                     let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
@@ -530,32 +530,35 @@ impl Engine for MqttDataEngine {
     fn render(&mut self, ctx: &mut EngineContext) {
         let lang = self.lang;
         let Some(s) = self.session.as_mut() else {
-            draw_notice(ctx.matrix, Notice::Connecting, lang);
+            draw_notice(ctx.surface, Notice::Connecting, lang);
             return;
         };
         let Some(page) = s.pages.get(s.current).copied() else {
-            draw_notice(ctx.matrix, Notice::NoConnection, lang);
+            draw_notice(ctx.surface, Notice::NoConnection, lang);
             return;
         };
         let data = s.shared.page(page.topic);
         match data.as_deref().map(|p| &p.data) {
             Some(PageData::Graph(g)) => graph::render_graph_with(
-                ctx.matrix,
+                ctx.surface,
                 Some(g),
                 g.show_header,
                 i18n::no_data_label(lang),
                 &mut s.axis_scratch,
             ),
-            Some(PageData::Table(t)) => {
-                table::render_table(ctx.matrix, Some(t), t.show_title, i18n::no_data_label(lang))
-            }
-            Some(PageData::Unsupported) => draw_notice(ctx.matrix, Notice::Unsupported, lang),
+            Some(PageData::Table(t)) => table::render_table(
+                ctx.surface,
+                Some(t),
+                t.show_title,
+                i18n::no_data_label(lang),
+            ),
+            Some(PageData::Unsupported) => draw_notice(ctx.surface, Notice::Unsupported, lang),
             Some(PageData::Weather(_)) => {
-                ctx.matrix.clear();
+                ctx.surface.clear();
                 if let Some((_, _, img)) = &s.weather_image {
-                    ctx.matrix.draw_image(img, 0, 0);
+                    ctx.surface.draw_image(img, 0, 0);
                 } else {
-                    draw_notice(ctx.matrix, Notice::NoData, lang);
+                    draw_notice(ctx.surface, Notice::NoData, lang);
                 }
             }
             None => {
@@ -566,7 +569,7 @@ impl Engine for MqttDataEngine {
                         .saturating_sub(Duration::from_millis(at))
                 });
                 draw_notice(
-                    ctx.matrix,
+                    ctx.surface,
                     notice_for(s.shared.state(), connected_for),
                     lang,
                 );

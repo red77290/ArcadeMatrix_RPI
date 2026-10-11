@@ -98,7 +98,7 @@ impl Engine for WeatherEngine {
     fn render(&mut self, context: &mut EngineContext) {
         if self.api_key.is_empty() || self.api_key == "API_KEY" {
             self.base_renderer.render_text(
-                context.matrix,
+                context.surface,
                 "No API key",
                 0,
                 1,
@@ -111,7 +111,7 @@ impl Engine for WeatherEngine {
         }
         if self.city.is_empty() {
             self.base_renderer.render_text(
-                context.matrix,
+                context.surface,
                 "No city",
                 0,
                 1,
@@ -176,7 +176,7 @@ impl Engine for WeatherEngine {
                 "--°C"
             };
             self.base_renderer.render_text(
-                context.matrix,
+                context.surface,
                 empty_text,
                 0,
                 2,
@@ -188,8 +188,8 @@ impl Engine for WeatherEngine {
             return;
         }
 
-        let mw = context.matrix.width();
-        let mh = context.matrix.height();
+        let mw = context.surface.width();
+        let mh = context.surface.height();
 
         // (Re)build panorama if needed
         if self.panorama.is_none() || self.panorama_mw != mw {
@@ -219,7 +219,7 @@ impl Engine for WeatherEngine {
             let view_x = x_scroll.min(pano.width().saturating_sub(mw));
             let view = imageops::crop_imm(pano, view_x, 0, mw, mh);
             let view_img = view.to_image();
-            context.matrix.draw_image(&view_img, 0, 0);
+            context.surface.draw_image(&view_img, 0, 0);
         }
 
         // Render dynamic scrolling condition in Tate / vertical layout when text overflows
@@ -264,7 +264,7 @@ impl Engine for WeatherEngine {
                         2 + self.offset_x - overflow
                     };
                     BaseRenderer::draw_text_clipped(
-                        context.matrix,
+                        context.surface,
                         &cur_slide.condition,
                         &font,
                         1.0,
@@ -288,7 +288,7 @@ impl Engine for WeatherEngine {
                     let overflow = cur_w - (mw as i32 - 4);
                     let end_x = 2 + self.offset_x - overflow;
                     BaseRenderer::draw_text_clipped(
-                        context.matrix,
+                        context.surface,
                         &cur_slide.condition,
                         &font,
                         1.0,
@@ -308,7 +308,7 @@ impl Engine for WeatherEngine {
                 if next_w > mw as i32 - 4 {
                     let in_x = (2 + self.offset_x) + (mw as i32 - ease_dx);
                     BaseRenderer::draw_text_clipped(
-                        context.matrix,
+                        context.surface,
                         &next_slide.condition,
                         &font,
                         1.0,

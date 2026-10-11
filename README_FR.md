@@ -53,6 +53,52 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ---
 
+## 🎨 Collection Signature d'Horloges Rétro Thématiques
+
+ArcadeMatrix RPi inclut une collection signature d'horloges rétro arcade et consoles fabriquées sur mesure, synchronisées avec le matériel et rendues avec 100 % de sprites originaux fidèles au pixel près à 60 FPS, avec prise en charge multi-résolution pour formats Paysage (64x64, 128x32, 256x64) et Portrait / Tate (32x64, 64x128, 64x256) :
+
+### 1. Metal Slug : Super Vehicle-001 (SNK Neo Geo) — Thème 41
+*Pixel art SNK Neo Geo authentique avec décor de souk du désert arabe, animations de combat de Marco Rossi, char Di-Cokka rebelle, hélicoptère de patrouille et tirs de mitrailleuse lourde.*
+![Horloge Metal Slug](docs/assets/clocks/poster_metal_slug.png)
+
+### 2. Castlevania (Konami NES) — Thème 31
+*Beffroi gothique avec Simon Belmont montant le grand escalier de pierre vers la chambre de Dracula, torche sur pied authentique, chauve-souris vampire battant des ailes devant la lune de sang et chiffres ivoire haute lisibilité.*
+![Horloge Castlevania](docs/assets/clocks/poster_castlevania.png)
+
+### 3. Super Mario Bros (NES) — Thème 30
+*Overworld du Royaume Champignon avec blocs de briques 100 % fidèles à la NES ; Mario court à travers l'écran et saute sous le bloc des chiffres pour déclencher un rebond élastique et la bascule de la minute (avec coup de carapace Koopa verte et pop de pièce d'or en mode 128x32 compact, et ascension sur 3 étages en mode portrait).*
+![Horloge Super Mario Bros](docs/assets/clocks/poster_super_mario.png)
+
+### 4. Mega Man (Capcom NES) — Thème 35
+*Forteresse du Dr. Wily Capcom avec plateformes techniques séparées, jauge de vie, Metool endormi et Mega Man tirant son Buster chargé sur le pod des minutes.*
+![Horloge Mega Man](docs/assets/clocks/poster_megaman.png)
+
+### 5. Sonic The Hedgehog (Sega Mega Drive / Genesis) — Thème 39
+*Plateformes à damier de Green Hill Zone, anneaux d'or tournoyants, ressort rouge, badnik Motobug et animations idle / saut en boule spin-dash de Sonic.*
+![Horloge Sonic The Hedgehog](docs/assets/clocks/poster_sonic.png)
+
+### 6. Pokédex Pokémon (Nintendo Game Boy) — Thème 32
+*Interface double écran Pokédex (Pocket Index) avec fenêtre d'inspection de créature, sprite Pikachu animé, horloge numérique en typographie PKMN, barre de télémétrie des secondes et voyant LED clignotant.*
+![Horloge Pokédex](docs/assets/clocks/poster_pokedex.png)
+
+### 7. Pac-Man Arcade (Namco 1980) — Thème 26
+*Labyrinthe d'arcade Namco original avec couloirs néon bleus, pac-gommes, super-gommes, Pac-Man animé et les 4 fantômes poursuivants (Blinky, Pinky, Inky, Clyde).*
+![Horloge Pac-Man](docs/assets/clocks/poster_pacman.png)
+
+### 8. Tetris Russe (Alexey Pajitnov / Game Boy) — Thème 23
+*Célèbre puzzle de briques tombantes avec tétraminos 3D biseautés (I, J, L, O, S, T, Z) s'assemblant en cascade pour former les heures et les minutes en temps réel.*
+![Horloge Tetris](docs/assets/clocks/poster_tetris.png)
+
+### 9. Horloge Mondiale & Terminateur Solaire — Thème 33
+*Carte mondiale continentale haute résolution avec terminateur solaire jour/nuit dynamique calculant la déclinaison solaire en temps réel, marqueur de méridien local et double affichage heure UTC / locale.*
+![Horloge Mondiale](docs/assets/clocks/poster_worldmap.png)
+
+### 10. Véritable Pluie Numérique Matrix (Les Wachowski 1999) — Thème 21
+*Pluie numérique emblématique avec cascades de glyphes vert phosphore, vitesses de chute aléatoires, têtes de ligne blanches incandescentes, traînées rémanentes et chiffres néon rayonnants.*
+![Horloge Matrix Rain](docs/assets/clocks/poster_matrix_rain.png)
+
+---
+
 ## 🚀 Prérequis matériels & Compatibilité
 
 Grâce à l'implémentation Rust natif ultra-léger (~5 Mo de binaire, ~10 Mo de RAM, 0% d'utilisation CPU au repos), **ArcadeMatrix prend désormais pleinement en charge les anciennes générations de Raspberry Pi sans aucun ralentissement ni baisse de framerate** :
@@ -109,10 +155,17 @@ Bien qu'un Wi-Fi instable puisse être tolérable si vous utilisez l'interface W
 * **Crypto & Bourse (Stocks)** : Les appels API vont subir des timeouts et échoueront.
 * **Météo (Weather)** : Les appels API échoueront.
 
-**Solutions pour les utilisateurs de matrice 256x64 :**
-1. **Utiliser un câble Ethernet (RJ45)** (Pi 3B/4) : Contourne complètement la puce Wi-Fi SDIO.
-2. **Utiliser un Dongle Wi-Fi USB** : Les contrôleurs USB utilisent un bus interne différent et sont immunisés contre la saturation DMA du PWM.
-3. **Mettre `disable_hardware_pulsing = true`** : Force la matrice à utiliser un rendu logiciel (CPU bit-banging) au lieu du DMA matériel. Votre Wi-Fi fonctionnera à la perfection, mais vous verrez un léger effet de "lignes VHS" (scintillement) sur la matrice.
+**Solutions & Sélection du Pipeline de Rendu :**
+
+ArcadeMatrix RPi intègre désormais l'abstraction canonique `IDrawingSurface` avec un sélecteur configurable de **Pipeline de Rendu** dans l'interface Web (`#sys-tab-hardware`) :
+
+1. **`canvas_single` (Recommandé / Par défaut en mode `auto`)** : Canevas hors-écran unique avec présentation par plages de lignes zéro-copie et détection des zones sales `DirtyBounds`. Sur les images fixes d'horloges et les animations calmes, `present()` détecte immédiatement l'état clean et ne sollicite jamais inutilement le bus mémoire Broadcom ni le moteur DMA. Cela **supprime totalement les déconnexions Wi-Fi SDIO et la famine de bus** sur Raspberry Pi !
+2. **`canvas_double`** : Double canevas hors-écran avec swap de buffers pour une fluidité sans déchirement maximale lorsque la contention Wi-Fi n'est pas un problème (ex. Ethernet / Wi-Fi USB).
+3. **`direct_double`** : Double-buffer matériel direct via le FFI C de `rpi-rgb-led-matrix`.
+4. **`direct_single`** : Framebuffer direct matériel unique.
+5. **Utiliser un câble Ethernet (RJ45)** (Pi 3B/4) : Contourne complètement la puce Wi-Fi SDIO.
+6. **Utiliser un Dongle Wi-Fi USB** : Les contrôleurs USB utilisent un bus interne différent et sont immunisés contre la saturation DMA du PWM.
+7. **Mettre `disable_hardware_pulsing = true`** : Force la matrice à utiliser un rendu logiciel (CPU bit-banging) au lieu du DMA matériel. Votre Wi-Fi fonctionnera à la perfection, mais vous verrez un léger effet de "lignes VHS" (scintillement) sur la matrice.
 
 *(Note : Les matrices **128x32** nécessitent 4 fois moins de bande passante DMA, elles fonctionnent donc généralement très bien avec le pulsing matériel activé et le Wi-Fi interne).*
 
@@ -120,13 +173,14 @@ Bien qu'un Wi-Fi instable puisse être tolérable si vous utilisez l'interface W
 
 ### Tableau de Compatibilité Raspberry Pi & Résolution
 
-| Résolution de la matrice | Configuration Réseau / Hardware Pulsing | Qualité d'Image | Wi-Fi / APIs / MQTT |
-|-------------|-----------------------------|----------------|-------------------|
-| **128x32**  | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
-| **256x64**  | **Câble Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
-| **256x64**  | **Dongle Wi-Fi USB** + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
-| **256x64**  | Wi-Fi Interne + `disable_hardware_pulsing = true` | ⚠️ Léger scintillement | ✅ Stable |
-| **256x64**  | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ❌ Crash Wi-Fi / Timeouts |
+| Résolution de la matrice | Pipeline de Rendu | Configuration Réseau / Hardware Pulsing | Qualité d'Image | Wi-Fi / APIs / MQTT |
+|-------------|-------------------|-----------------------------|----------------|-------------------|
+| **Toutes**  | **`canvas_single`** (Défaut) | Wi-Fi Interne + DMA Pulsing | ✅ Parfaite (0 scintillement) | ✅ **100% Stable (Zéro Déconnexion)** |
+| **128x32**  | Tout pipeline     | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ✅ Stable |
+| **256x64**  | `canvas_double` / `direct` | **Câble Ethernet (RJ45)** + DMA Pulsing | ✅ Parfaite | ✅ Stable |
+| **256x64**  | `canvas_double` / `direct` | **Dongle Wi-Fi USB** + DMA Pulsing | ✅ Parfaite | ✅ Stable |
+| **256x64**  | `direct_single`   | Wi-Fi Interne + `disable_hardware_pulsing = true` | ⚠️ Léger scintillement | ✅ Stable |
+| **256x64**  | `direct_double`   | Wi-Fi Interne + `disable_hardware_pulsing = false` | ✅ Parfaite | ❌ Crash Wi-Fi / Timeouts |
 
 ---
 

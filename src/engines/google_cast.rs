@@ -4,7 +4,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::registry::ENGINES;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
@@ -209,7 +209,7 @@ impl Engine for GoogleCastEngine {
         };
 
         if self.show_album_art {
-            let target_size = if ctx.matrix.height() >= 64 { 52 } else { 24 };
+            let target_size = if ctx.surface.height() >= 64 { 52 } else { 24 };
             self.fetch_cover_art_if_needed(&img_url, target_size);
         }
 
@@ -233,8 +233,8 @@ impl Engine for GoogleCastEngine {
             (CastMediaStatus::default(), false)
         };
 
-        let w = ctx.matrix.width() as i32;
-        let h = ctx.matrix.height() as i32;
+        let w = ctx.surface.width() as i32;
+        let h = ctx.surface.height() as i32;
 
         let font = self.base_renderer.font();
 
@@ -260,7 +260,7 @@ impl Engine for GoogleCastEngine {
             if title_w <= w - 4 {
                 let x_title = (w - title_w) / 2;
                 BaseRenderer::draw_text_clipped(
-                    ctx.matrix,
+                    ctx.surface,
                     title,
                     &font,
                     1.0,
@@ -277,7 +277,7 @@ impl Engine for GoogleCastEngine {
                 let dx = self.marquee_offset.rem_euclid(total_w);
                 let draw_x1 = 2 - dx;
                 BaseRenderer::draw_text_clipped(
-                    ctx.matrix,
+                    ctx.surface,
                     title,
                     &font,
                     1.0,
@@ -291,7 +291,7 @@ impl Engine for GoogleCastEngine {
                 let draw_x2 = draw_x1 + total_w;
                 if draw_x2 < w - 2 {
                     BaseRenderer::draw_text_clipped(
-                        ctx.matrix,
+                        ctx.surface,
                         title,
                         &font,
                         1.0,
@@ -314,7 +314,7 @@ impl Engine for GoogleCastEngine {
             if sub_w <= avail_w {
                 let sub_draw_x = (w - sub_w) / 2;
                 BaseRenderer::draw_text_clipped(
-                    ctx.matrix,
+                    ctx.surface,
                     &subtitle,
                     &font,
                     1.0,
@@ -332,7 +332,7 @@ impl Engine for GoogleCastEngine {
 
                 let draw_x1 = clip_min_x - dx;
                 BaseRenderer::draw_text_clipped(
-                    ctx.matrix,
+                    ctx.surface,
                     &subtitle,
                     &font,
                     1.0,
@@ -347,7 +347,7 @@ impl Engine for GoogleCastEngine {
                 let draw_x2 = draw_x1 + total_w;
                 if draw_x2 < clip_max_x {
                     BaseRenderer::draw_text_clipped(
-                        ctx.matrix,
+                        ctx.surface,
                         &subtitle,
                         &font,
                         1.0,
@@ -386,7 +386,7 @@ impl Engine for GoogleCastEngine {
                             let dy = img_y
                                 + ((py as f32 / cover.height() as f32) * art_size as f32) as i32;
                             if dx < w && dy < h {
-                                ctx.matrix.set_pixel(dx, dy, r, g, b);
+                                ctx.surface.set_pixel(dx, dy, r, g, b);
                             }
                         }
                     }
@@ -399,7 +399,7 @@ impl Engine for GoogleCastEngine {
             let clip_max_x = w - 2;
             let avail_w = (clip_max_x - clip_min_x).max(16);
 
-            let render_marquee = |matrix: &mut dyn MatrixBackend,
+            let render_marquee = |matrix: &mut dyn IDrawingSurface,
                                   text: &str,
                                   font: &ArcadeFont<'_>,
                                   y: i32,
@@ -455,7 +455,7 @@ impl Engine for GoogleCastEngine {
             };
 
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &status.title,
                 &font,
                 cur_y,
@@ -472,7 +472,7 @@ impl Engine for GoogleCastEngine {
                 "Google Nest".to_string()
             };
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &artist_display,
                 &font,
                 cur_y,
@@ -487,10 +487,10 @@ impl Engine for GoogleCastEngine {
                 let bar_w = ((w - 4) as f32 * progress) as i32;
                 let bar_y = h - 10;
                 for x in 2..w - 2 {
-                    ctx.matrix.set_pixel(x, bar_y, 30, 35, 45);
+                    ctx.surface.set_pixel(x, bar_y, 30, 35, 45);
                 }
                 for x in 2..2 + bar_w {
-                    ctx.matrix.set_pixel(x, bar_y, 66, 133, 244);
+                    ctx.surface.set_pixel(x, bar_y, 66, 133, 244);
                 }
             }
 
@@ -503,8 +503,8 @@ impl Engine for GoogleCastEngine {
                     for by in 0..bh {
                         let py = eq_base_y - by;
                         if py >= 0 {
-                            ctx.matrix.set_pixel(bx, py, 66, 180, 255);
-                            ctx.matrix.set_pixel(bx + 1, py, 66, 180, 255);
+                            ctx.surface.set_pixel(bx, py, 66, 180, 255);
+                            ctx.surface.set_pixel(bx + 1, py, 66, 180, 255);
                         }
                     }
                 }
@@ -524,13 +524,13 @@ impl Engine for GoogleCastEngine {
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
-                    ctx.matrix.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x - 1 + bx, img_y + img_h, 40, 40, 50);
                 }
                 for by in 0..img_h + 2 {
-                    ctx.matrix.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x + img_w, img_y - 1 + by, 40, 40, 50);
                 }
 
@@ -538,7 +538,7 @@ impl Engine for GoogleCastEngine {
                 for py in 0..cover.height() {
                     for px in 0..cover.width() {
                         let Rgb([r, g, b]) = *cover.get_pixel(px, py);
-                        ctx.matrix
+                        ctx.surface
                             .set_pixel(img_x + px as i32, img_y + py as i32, r, g, b);
                     }
                 }
@@ -568,7 +568,7 @@ impl Engine for GoogleCastEngine {
         let avail_w = (clip_max_x - clip_min_x).max(16);
 
         // 3. Continuous Circular (Seamless Looping) Marquee
-        let render_marquee = |matrix: &mut dyn MatrixBackend,
+        let render_marquee = |matrix: &mut dyn IDrawingSurface,
                               text: &str,
                               font: &ArcadeFont<'_>,
                               y: i32,
@@ -632,7 +632,7 @@ impl Engine for GoogleCastEngine {
 
         // Draw Title
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &status.title,
             &font,
             y_title,
@@ -650,7 +650,7 @@ impl Engine for GoogleCastEngine {
         };
 
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &artist_display,
             &font,
             y_artist,
@@ -683,7 +683,7 @@ impl Engine for GoogleCastEngine {
                             } else {
                                 (0, 255, 120)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -709,8 +709,8 @@ impl Engine for GoogleCastEngine {
                             } else {
                                 (0, 240, 110)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
-                            ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx + 1, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -720,7 +720,7 @@ impl Engine for GoogleCastEngine {
             let vol_str = format!("{}%", vol_pct);
             let v_x = w - (vol_str.len() as i32 * 6) - 1;
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 &vol_str,
                 &font,
                 1.0,
@@ -738,13 +738,13 @@ impl Engine for GoogleCastEngine {
 
             // Background line
             for x in 1..w - 1 {
-                ctx.matrix.set_pixel(x, h - 2, 35, 35, 40);
-                ctx.matrix.set_pixel(x, h - 1, 20, 20, 25);
+                ctx.surface.set_pixel(x, h - 2, 35, 35, 40);
+                ctx.surface.set_pixel(x, h - 1, 20, 20, 25);
             }
             // Active progress fill (Google Blue gradient)
             for x in 1..=bar_w {
-                ctx.matrix.set_pixel(x, h - 2, 66, 133, 244);
-                ctx.matrix.set_pixel(x, h - 1, 33, 90, 180);
+                ctx.surface.set_pixel(x, h - 2, 66, 133, 244);
+                ctx.surface.set_pixel(x, h - 1, 33, 90, 180);
             }
         }
     }

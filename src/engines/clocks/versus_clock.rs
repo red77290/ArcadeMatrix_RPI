@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 
@@ -13,7 +13,7 @@ impl VersusClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
@@ -123,7 +123,7 @@ impl VersusClock {
     }
 
     fn draw_health_bar(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         width: i32,
@@ -168,7 +168,7 @@ impl VersusClock {
         }
     }
 
-    fn draw_ko(&self, matrix: &mut dyn MatrixBackend, x: i32, y: i32) {
+    fn draw_ko(&self, matrix: &mut dyn IDrawingSurface, x: i32, y: i32) {
         // K (6×5)
         let k: [[u8; 6]; 5] = [
             [1, 0, 0, 0, 1, 0],

@@ -3,7 +3,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::{draw_text_clipped, draw_text_scaled};
 use crate::engines::renderers::{
     draw_fast_hline, draw_fast_vline, draw_round_rect, draw_scrolling_text, draw_sparkline,
@@ -272,7 +272,7 @@ impl StockEngine {
 
     fn render_quote(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -346,7 +346,7 @@ impl StockEngine {
 
     fn render_chart(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         history_opt: Option<&PriceHistory>,
@@ -432,7 +432,7 @@ impl StockEngine {
 
     fn render_unified_vertical(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -600,7 +600,7 @@ impl StockEngine {
 
     fn render_unified_wide(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -695,7 +695,7 @@ impl StockEngine {
 
     fn render_fullscreen_quote(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -870,7 +870,7 @@ impl StockEngine {
 } // End of impl StockEngine
 
 fn draw_stock_icon(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     symbol: &str,
     icon_x: i32,
     icon_y: i32,
@@ -904,7 +904,13 @@ fn draw_stock_icon(
 }
 
 #[inline]
-fn draw_glcd_text(matrix: &mut dyn MatrixBackend, text: &str, x: i32, y: i32, color: (u8, u8, u8)) {
+fn draw_glcd_text(
+    matrix: &mut dyn IDrawingSurface,
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8),
+) {
     let w = matrix.width() as i32;
     let h = matrix.height() as i32;
     draw_text_clipped(matrix, text, x, y, 0, w, 0, h, color);
@@ -912,7 +918,7 @@ fn draw_glcd_text(matrix: &mut dyn MatrixBackend, text: &str, x: i32, y: i32, co
 
 #[inline]
 fn draw_glcd_text_scaled(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     x: i32,
     y: i32,
@@ -951,7 +957,7 @@ impl Engine for StockEngine {
             return;
         }
 
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
         let width = matrix.width();
         let height = matrix.height();
 
@@ -1209,7 +1215,7 @@ fn register_stock_engine() -> EngineDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::matrix::MockMatrix;
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_stock_price_formatting() {
@@ -1236,9 +1242,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(64, 32);
+        let mut matrix = MockSurface::new(64, 32);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 
@@ -1268,9 +1274,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(32, 64);
+        let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 
@@ -1301,9 +1307,9 @@ mod tests {
         let config = crate::core::config::Config::new("config.json");
 
         // 64x64 Square
-        let mut matrix_square = MockMatrix::new(64, 64);
+        let mut matrix_square = MockSurface::new(64, 64);
         let mut ctx_square = EngineContext {
-            matrix: &mut matrix_square,
+            surface: &mut matrix_square,
             config: &config,
         };
         engine.show_chart = true;
@@ -1312,9 +1318,9 @@ mod tests {
         engine.render(&mut ctx_square);
 
         // 128x64 Wide
-        let mut matrix_wide = MockMatrix::new(128, 64);
+        let mut matrix_wide = MockSurface::new(128, 64);
         let mut ctx_wide = EngineContext {
-            matrix: &mut matrix_wide,
+            surface: &mut matrix_wide,
             config: &config,
         };
         engine.show_chart = true;
@@ -1339,9 +1345,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(32, 64);
+        let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 

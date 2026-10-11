@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use rand::Rng;
 
 struct Drop {
@@ -38,7 +38,7 @@ impl CyberpunkRenderer {
         }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend) {
+    pub fn render(&mut self, matrix: &mut dyn IDrawingSurface) {
         let current_w = matrix.width() as u32;
         let current_h = matrix.height() as u32;
         if current_w != self.width || current_h != self.height {

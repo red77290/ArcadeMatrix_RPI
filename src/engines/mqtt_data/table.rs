@@ -3,7 +3,7 @@
 //! (one tile). The sign never does math: publishers send display-ready strings.
 
 use super::payload::{TableData, ValueTile};
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::{draw_text_scaled, measure_text};
 use crate::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width, TINY_H};
 
@@ -38,7 +38,7 @@ impl SmallFont {
     #[allow(clippy::too_many_arguments)]
     fn draw(
         self,
-        m: &mut dyn MatrixBackend,
+        m: &mut dyn IDrawingSurface,
         text: &str,
         x: i32,
         y: i32,
@@ -154,7 +154,7 @@ fn prefix(s: &str, chars: usize) -> &str {
 }
 
 /// Draws value + unit with the line's top-left at (x, y) (y = value top).
-fn draw_value_line(m: &mut dyn MatrixBackend, t: &ValueTile, fit: &ValueFit, x: i32, y: i32) {
+fn draw_value_line(m: &mut dyn IDrawingSurface, t: &ValueTile, fit: &ValueFit, x: i32, y: i32) {
     let w = m.width() as i32;
     let h = m.height() as i32;
     let v = prefix(&t.value, fit.chars);
@@ -216,7 +216,7 @@ fn pick_label<'a>(t: &'a ValueTile, tall: bool, iw: i32) -> Option<LabelPick<'a>
 /// Draws one stacked tile (label on top, value + unit below), centred in the
 /// inner box `[ix, ix + iw)` x `[top, top + ch)`.
 fn draw_tile(
-    m: &mut dyn MatrixBackend,
+    m: &mut dyn IDrawingSurface,
     t: &ValueTile,
     chain: &[i32],
     tall: bool,
@@ -249,7 +249,7 @@ fn draw_tile(
 
 /// Draws the whole screen for `data` (or the "no data" notice).
 pub fn render_table(
-    m: &mut dyn MatrixBackend,
+    m: &mut dyn IDrawingSurface,
     data: Option<&TableData>,
     show_title: bool,
     no_data_label: &str,

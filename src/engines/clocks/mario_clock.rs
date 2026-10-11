@@ -1,16 +1,17 @@
-//! Mario clock, adapted from the 64x64 "Clockwise" clockface cw-cf-0x01.
+//! Super Mario Bros clock face with full multi-resolution and orientation parity with ESP32.
 //!
-//! The square scene keeps its place in the middle of the panel and the ground and clouds carry on
-//! to both edges, so a wide sign reads as more of the same level. The hill and the bush are each cut
-//! down one side to sit against a frame edge, so there is one of each, at the edge it was drawn for.
-//! Once a minute Mario runs in from the left, jumps to bump a block, which flips its digits, and
-//! runs off right.
-//! Laid out for 256x64; smaller panels get the notice instead. Matches the ESP32 face.
+//! Features:
+//! - Full support for wide/tall panels, Tate/portrait orientation, and compact 128x32 panels (Zero "NEEDS 256x64" notices).
+//! - Portrait Mode (h > w): Stepped brick platforms at y=70, 130, 190 with a 7-stage climbing state machine.
+//! - Compact 128x32 Mode: Mario idle on left (x=14), Green Koopa shell kick (280 px/s) + gold coin pop on minute change.
+//! - Wide/Tall Mode (h >= 48): Mario 3-frame run cycle, jump attack with dynamic parabolic arc, clouds, hill, bush.
+//! - Canonical `IDrawingSurface` integration.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::cwassets::mario::{
-    BLOCK, BUSH, CLOUD1, CLOUD2, GROUND, HILL, MARIO_JUMP, MARIO_RUN1, MARIO_RUN2, MARIO_RUN3,
-    MARIO_RUN_LEFT, MARIO_RUN_W, SKY_COLOR,
+    BLOCK, BUSH, CLOUD1, CLOUD2, CLOUD_FULL, GOLD_COIN, GROUND, HILL, KOOPA_SHELL, KOOPA_SHELL_H,
+    KOOPA_SHELL_W, MARIO_IDLE, MARIO_JUMP, MARIO_RUN1, MARIO_RUN2, MARIO_RUN3, MARIO_RUN_LEFT,
+    MARIO_RUN_W, SKY_COLOR,
 };
 use crate::engines::clocks::cwscene;
 use crate::engines::renderers::base_renderer::ArcadeFont;
@@ -18,6 +19,7 @@ use crate::engines::renderers::BaseRenderer;
 use std::time::Instant;
 
 const BLOCK_W: i32 = 19;
+const BLOCK_H: i32 = 19;
 const GROUND_W: i32 = 8;
 const GROUND_H: i32 = 8;
 const HILL_W: i32 = 20;
@@ -26,12 +28,14 @@ const BUSH_W: i32 = 21;
 const BUSH_H: i32 = 9;
 const CLOUD_W: i32 = 13;
 const CLOUD_H: i32 = 12;
+const CLOUD_FULL_W: i32 = 19;
+const CLOUD_FULL_H: i32 = 12;
 const MARIO_W: i32 = 13;
 const MARIO_H: i32 = 16;
 const MARIO_JUMP_W: i32 = 17;
 const SCENE: i32 = 64;
 
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy, Debug)]
 enum Phase {
     Waiting,
     RunIn,
@@ -42,12 +46,14 @@ enum Phase {
 pub struct MarioClock {
     phase: Phase,
     runner_x: f32,
+    runner_y: f32,
     jump_t: f32,
     jump_target: usize,
+    climb_stage: u8,
     block_bounce: [f32; 2],
     pending_digits: bool,
     shown: [String; 2],
-    last_minute: u32,
+    last_minute: i32,
     last_frame: Instant,
     /// `clock_speed` percentage (25-300): scales the run and the jump.
     speed_pct: i32,
@@ -55,6 +61,10 @@ pub struct MarioClock {
     /// current time straight away instead of keeping the digits from the
     /// last time it was visible (same as the ESP32 `onActivated()`).
     snap: bool,
+    shell_active: bool,
+    shell_x: f32,
+    coin_pop: bool,
+    dirty: u8,
 }
 
 /// Walk-cycle frame for Mario at `runner_x`: one frame per 6 px travelled.
@@ -69,15 +79,21 @@ impl MarioClock {
         Self {
             phase: Phase::Waiting,
             runner_x: -(MARIO_JUMP_W as f32),
+            runner_y: 0.0,
             jump_t: 0.0,
             jump_target: 1,
+            climb_stage: 0,
             block_bounce: [0.0, 0.0],
             pending_digits: false,
             shown: [String::from("--"), String::from("--")],
-            last_minute: 99,
+            last_minute: -1,
             last_frame: Instant::now(),
             speed_pct: 100,
             snap: false,
+            shell_active: false,
+            shell_x: 0.0,
+            coin_pop: false,
+            dirty: 3,
         }
     }
 
@@ -104,7 +120,7 @@ impl MarioClock {
     }
 
     fn blit(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         data: &[u16],
         w: i32,
         h: i32,
@@ -113,225 +129,559 @@ impl MarioClock {
         transparent: bool,
     ) {
         for row in 0..h {
+            let py = y + row;
+            if py < 0 || py >= matrix.height() as i32 {
+                continue;
+            }
             for col in 0..w {
+                let px = x + col;
+                if px < 0 || px >= matrix.width() as i32 {
+                    continue;
+                }
                 let c = data[(row * w + col) as usize];
                 if transparent && c == SKY_COLOR {
                     continue;
                 }
-                cwscene::put(matrix, x + col, y + row, c);
+                cwscene::put(matrix, px, py, c);
             }
         }
     }
 
-    fn draw_scene(matrix: &mut dyn MatrixBackend, w: i32, h: i32) {
+    fn draw_scene(matrix: &mut dyn IDrawingSurface, w: i32, h: i32) {
+        // Sky fill
         for y in 0..h {
             for x in 0..w {
                 cwscene::put(matrix, x, y, SKY_COLOR);
             }
         }
-        let scene_left = (w - SCENE) / 2;
+
+        let is_portrait = h > w;
         let ground_top = h - GROUND_H;
+
         let mut x = 0;
         while x < w {
             Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, x, ground_top, false);
             x += GROUND_W;
         }
-        // The hill is half a hill: its left side is a sheer vertical cut, drawn to sit flush against
-        // the frame edge so it reads as a slope running on past it. Tiled across a wide panel that
-        // cut lands in open sky and looks like a hill sliced off, so there is one, against the left
-        // edge, as in the original.
+
+        if is_portrait {
+            // Stepped brick platforms in vertical mode
+            let mut px = 8;
+            while px < 56 {
+                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 70, false);
+                px += GROUND_W;
+            }
+            px = 16;
+            while px < 48 {
+                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 130, false);
+                px += GROUND_W;
+            }
+            px = 8;
+            while px < 56 {
+                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 190, false);
+                px += GROUND_W;
+            }
+            Self::blit(matrix, &CLOUD1, CLOUD_W, CLOUD_H, 4, 4, true);
+            Self::blit(matrix, &CLOUD2, CLOUD_W, CLOUD_H, w - CLOUD_W - 4, 10, true);
+            return;
+        }
+
+        if h >= 48 {
+            Self::blit(
+                matrix,
+                &HILL,
+                HILL_W,
+                HILL_H,
+                0,
+                ground_top - HILL_H + 2,
+                true,
+            );
+            Self::blit(
+                matrix,
+                &BUSH,
+                BUSH_W,
+                BUSH_H,
+                w - BUSH_W,
+                ground_top - BUSH_H,
+                true,
+            );
+        }
+
         Self::blit(
             matrix,
-            &HILL,
-            HILL_W,
-            HILL_H,
+            &CLOUD1,
+            CLOUD_W,
+            CLOUD_H,
             0,
-            ground_top - HILL_H + 2,
+            if h >= 48 { 14 } else { 2 },
+            true,
+        );
+        Self::blit(
+            matrix,
+            &CLOUD2,
+            CLOUD_W,
+            CLOUD_H,
+            w - CLOUD_W,
+            if h >= 48 { 6 } else { 2 },
             true,
         );
 
-        // The bush is the hill's mirror: cut down its right side, drawn to sit flush against the
-        // other frame edge (x 43 of 64, so its right edge lands exactly on it). One, on the right.
-        Self::blit(
-            matrix,
-            &BUSH,
-            BUSH_W,
-            BUSH_H,
-            w - BUSH_W,
-            ground_top - BUSH_H,
-            true,
-        );
-        let mut cx = scene_left % 64 - 64;
-        while cx < w {
-            Self::blit(matrix, &CLOUD1, CLOUD_W, CLOUD_H, cx, 8, true);
-            Self::blit(matrix, &CLOUD2, CLOUD_W, CLOUD_H, cx + 25, 2, true);
-            cx += 51;
+        if w >= 128 && h >= 48 {
+            Self::blit(matrix, &CLOUD_FULL, CLOUD_FULL_W, CLOUD_FULL_H, 40, 6, true);
+            Self::blit(
+                matrix,
+                &CLOUD_FULL,
+                CLOUD_FULL_W,
+                CLOUD_FULL_H,
+                72,
+                14,
+                true,
+            );
         }
+        if w >= 256 && h >= 48 {
+            Self::blit(
+                matrix,
+                &CLOUD_FULL,
+                CLOUD_FULL_W,
+                CLOUD_FULL_H,
+                165,
+                6,
+                true,
+            );
+            Self::blit(
+                matrix,
+                &CLOUD_FULL,
+                CLOUD_FULL_W,
+                CLOUD_FULL_H,
+                198,
+                14,
+                true,
+            );
+        }
+    }
+
+    fn draw_block_at(
+        matrix: &mut dyn IDrawingSurface,
+        x: i32,
+        y: i32,
+        text: &str,
+        font: &ArcadeFont<'_>,
+    ) {
+        Self::blit(matrix, &BLOCK, BLOCK_W, BLOCK_H, x, y, false);
+        let text_offset_x = if text.len() == 1 { 6 } else { 2 };
+        BaseRenderer::draw_text_at(
+            matrix,
+            text,
+            font,
+            1.0,
+            x + text_offset_x,
+            y + 4,
+            (0, 0, 0),
+            (0, 0, 0),
+        );
     }
 
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,
-        scale: u32,
+        _scale: u32,
     ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
-        if w < 192 || h < 64 {
-            super::wide_only_notice(matrix, font, scale);
-            return;
-        }
 
-        let dt = self.last_frame.elapsed().as_secs_f32().min(0.2);
-        self.last_frame = Instant::now();
+        let is_portrait = h > w;
+        let is_wide_tall = h >= 48 && !is_portrait;
+        let ground_top = if is_portrait { 70 } else { h - GROUND_H };
 
-        let scene_left = (w - SCENE) / 2;
-        let ground_top = h - GROUND_H;
-        let hour_x = scene_left + 13;
-        let minute_x = scene_left + 32;
-        let block_y = 8;
+        let (hour_x, minute_x, block_y) = if is_portrait {
+            (10, 35, 24)
+        } else if is_wide_tall {
+            let scene_left = (w - SCENE) / 2;
+            (scene_left + 13, scene_left + 32, 8)
+        } else {
+            // 128x32 compact mode
+            (w - 46, w - 24, 3)
+        };
 
         let hh = format!("{}", hours);
         let mm = format!("{:02}", minutes);
         if self.shown[0] == "--" {
             self.shown = [hh.clone(), mm.clone()];
+            self.dirty = 3;
         }
         if self.snap {
             // Back on screen: show the current time now, no run-in for it.
             self.snap = false;
             self.shown = [hh.clone(), mm.clone()];
-            self.last_minute = minutes;
+            self.last_minute = minutes as i32;
             self.phase = Phase::Waiting;
             self.pending_digits = false;
             self.block_bounce = [0.0, 0.0];
             self.runner_x = -(MARIO_JUMP_W as f32);
             self.jump_t = 0.0;
+            self.shell_active = false;
+            self.coin_pop = false;
+            self.dirty = 3;
         }
 
-        if minutes != self.last_minute {
-            let new_hour = self.last_minute != 99 && minutes == 0;
-            self.last_minute = minutes;
+        let dt = self.last_frame.elapsed().as_secs_f32().min(0.2);
+        self.last_frame = Instant::now();
+
+        // Minute change trigger
+        if minutes as i32 != self.last_minute {
+            let new_hour = self.last_minute >= 0 && minutes == 0;
+            self.last_minute = minutes as i32;
             self.jump_target = if new_hour { 0 } else { 1 };
             self.pending_digits = true;
-            if self.phase == Phase::Waiting {
+            self.dirty = 3;
+
+            if is_wide_tall || is_portrait {
+                if self.phase == Phase::Waiting {
+                    self.phase = Phase::RunIn;
+                    self.runner_x = -(MARIO_JUMP_W as f32);
+                    self.climb_stage = 0;
+                    self.runner_y = if is_portrait {
+                        (h - GROUND_H - MARIO_H) as f32
+                    } else {
+                        (ground_top - MARIO_H) as f32
+                    };
+                }
+            } else {
+                // 128x32 compact mode: trigger green Koopa shell kick
+                self.shell_active = true;
+                self.shell_x = 26.0;
                 self.phase = Phase::RunIn;
-                self.runner_x = -(MARIO_JUMP_W as f32);
             }
         }
 
-        let target_x = (if self.jump_target == 0 {
-            hour_x
-        } else {
-            minute_x
-        }) + BLOCK_W / 2
-            - MARIO_W / 2;
-        // 100 % = Super Mario Bros walking pace (about 85 px/s; the NES screen
-        // is 256 px wide, like the 256x64 panel). Same as the ESP32 face.
         let speed = self.speed_pct as f32 / 100.0;
         let pace = 85.0 * speed;
-        match self.phase {
-            Phase::Waiting => {}
-            Phase::RunIn => {
-                self.runner_x += pace * dt;
-                if self.runner_x >= target_x as f32 {
-                    self.runner_x = target_x as f32;
-                    self.phase = Phase::Jump;
-                    self.jump_t = 0.0;
+
+        if is_portrait {
+            let target_x = ((if self.jump_target == 0 {
+                hour_x
+            } else {
+                minute_x
+            }) + BLOCK_W / 2
+                - MARIO_W / 2) as f32;
+
+            match self.phase {
+                Phase::Waiting => {}
+                Phase::RunIn => {
+                    let bottom_ground_y = (h - GROUND_H - MARIO_H) as f32;
+                    match self.climb_stage {
+                        0 => {
+                            self.runner_x += pace * dt;
+                            self.runner_y = bottom_ground_y;
+                            if self.runner_x >= 14.0 {
+                                self.climb_stage = 1;
+                                self.jump_t = 0.0;
+                            }
+                        }
+                        1 => {
+                            self.jump_t += dt * 2.6;
+                            let t = self.jump_t.min(1.0);
+                            self.runner_x = 14.0 + 22.0 * t;
+                            let base_y =
+                                bottom_ground_y + (190.0 - MARIO_H as f32 - bottom_ground_y) * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.runner_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.runner_y = (190 - MARIO_H) as f32;
+                                self.climb_stage = 2;
+                            }
+                        }
+                        2 => {
+                            self.runner_x -= pace * dt;
+                            self.runner_y = (190 - MARIO_H) as f32;
+                            if self.runner_x <= 30.0 {
+                                self.climb_stage = 3;
+                                self.jump_t = 0.0;
+                            }
+                        }
+                        3 => {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.runner_x = 30.0 + (18.0 - 30.0) * t;
+                            let base_y = (190.0 - MARIO_H as f32)
+                                + ((130.0 - MARIO_H as f32) - (190.0 - MARIO_H as f32)) * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.runner_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.runner_y = (130 - MARIO_H) as f32;
+                                self.climb_stage = 4;
+                            }
+                        }
+                        4 => {
+                            self.runner_x += pace * dt;
+                            self.runner_y = (130 - MARIO_H) as f32;
+                            if self.runner_x >= 24.0 {
+                                self.climb_stage = 5;
+                                self.jump_t = 0.0;
+                            }
+                        }
+                        5 => {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.runner_x = 24.0 + (32.0 - 24.0) * t;
+                            let base_y = (130.0 - MARIO_H as f32)
+                                + ((70.0 - MARIO_H as f32) - (130.0 - MARIO_H as f32)) * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.runner_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.runner_y = (70 - MARIO_H) as f32;
+                                self.climb_stage = 6;
+                            }
+                        }
+                        6 => {
+                            if self.runner_x < target_x {
+                                self.runner_x += pace * dt;
+                                if self.runner_x >= target_x {
+                                    self.runner_x = target_x;
+                                    self.phase = Phase::Jump;
+                                    self.jump_t = 0.0;
+                                }
+                            } else {
+                                self.runner_x -= pace * dt;
+                                if self.runner_x <= target_x {
+                                    self.runner_x = target_x;
+                                    self.phase = Phase::Jump;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            self.runner_y = (70 - MARIO_H) as f32;
+                        }
+                        _ => {}
+                    }
+                }
+                Phase::Jump => {
+                    self.jump_t += dt * 4.0 * speed;
+                    if self.jump_t >= 0.5 && self.pending_digits {
+                        self.pending_digits = false;
+                        self.block_bounce[self.jump_target] = 0.001;
+                        self.shown[0] = hh.clone();
+                        self.shown[1] = mm.clone();
+                    }
+                    if self.jump_t >= 1.0 {
+                        self.jump_t = 0.0;
+                        self.phase = Phase::RunOut;
+                    }
+                }
+                Phase::RunOut => {
+                    self.runner_x += pace * dt;
+                    self.runner_y = (70 - MARIO_H) as f32;
+                    if self.runner_x > w as f32 + MARIO_JUMP_W as f32 + 16.0 {
+                        self.phase = Phase::Waiting;
+                        self.dirty = 3;
+                    }
                 }
             }
-            Phase::Jump => {
-                self.jump_t += dt * 4.0 * speed; // jump timed to the walking pace
-                if self.jump_t >= 0.5 && self.pending_digits {
-                    self.pending_digits = false;
+        } else if is_wide_tall {
+            let target_x = ((if self.jump_target == 0 {
+                hour_x
+            } else {
+                minute_x
+            }) + BLOCK_W / 2
+                - MARIO_W / 2) as f32;
+
+            match self.phase {
+                Phase::Waiting => {}
+                Phase::RunIn => {
+                    self.runner_x += pace * dt;
+                    if self.runner_x >= target_x {
+                        self.runner_x = target_x;
+                        self.phase = Phase::Jump;
+                        self.jump_t = 0.0;
+                    }
+                }
+                Phase::Jump => {
+                    self.jump_t += dt * 4.0 * speed;
+                    if self.jump_t >= 0.5 && self.pending_digits {
+                        self.pending_digits = false;
+                        self.block_bounce[self.jump_target] = 0.001;
+                        self.shown[0] = hh.clone();
+                        self.shown[1] = mm.clone();
+                    }
+                    if self.jump_t >= 1.0 {
+                        self.jump_t = 0.0;
+                        self.phase = Phase::RunOut;
+                    }
+                }
+                Phase::RunOut => {
+                    self.runner_x += pace * dt;
+                    if self.runner_x > w as f32 + MARIO_JUMP_W as f32 + 16.0 {
+                        self.phase = Phase::Waiting;
+                        self.dirty = 3;
+                    }
+                }
+            }
+        } else {
+            // 128x32 compact mode: shell physics
+            if self.shell_active {
+                let speed = self.speed_pct as f32 / 100.0;
+                let shell_speed = 280.0f32 * speed;
+                self.shell_x += shell_speed * dt;
+                let target_x = (if self.jump_target == 0 {
+                    hour_x
+                } else {
+                    minute_x
+                }) as f32;
+                if self.shell_x >= target_x - 6.0 {
+                    self.shell_active = false;
                     self.block_bounce[self.jump_target] = 0.001;
-                    self.shown = [hh.clone(), mm.clone()];
-                }
-                if self.jump_t >= 1.0 {
-                    self.jump_t = 0.0;
-                    self.phase = Phase::RunOut;
-                }
-            }
-            Phase::RunOut => {
-                self.runner_x += pace * dt;
-                if self.runner_x > w as f32 {
+                    self.shown[0] = hh.clone();
+                    self.shown[1] = mm.clone();
+                    self.pending_digits = false;
+                    self.coin_pop = true;
                     self.phase = Phase::Waiting;
+                    self.dirty = 3;
                 }
             }
         }
-        for b in self.block_bounce.iter_mut() {
-            if *b > 0.0 {
-                *b += dt * 3.2;
-                if *b >= 1.0 {
-                    *b = 0.0;
+
+        // Bouncing blocks animation
+        for i in 0..2 {
+            if self.block_bounce[i] > 0.0 {
+                self.block_bounce[i] += dt * 3.2;
+                if self.block_bounce[i] >= 1.0 {
+                    self.block_bounce[i] = 0.0;
+                    if !is_wide_tall && !is_portrait {
+                        self.coin_pop = false;
+                    }
                 }
             }
+        }
+
+        let animating = self.phase != Phase::Waiting
+            || self.block_bounce[0] > 0.0
+            || self.block_bounce[1] > 0.0
+            || self.shell_active;
+
+        if !animating && self.dirty == 0 {
+            return;
+        }
+        if self.dirty > 0 {
+            self.dirty -= 1;
         }
 
         Self::draw_scene(matrix, w, h);
 
+        // Draw blocks with bouncy lift
         for i in 0..2 {
             let b = self.block_bounce[i];
             let lift = if b > 0.0 {
-                (std::f32::consts::PI * b).sin() * 4.0
-            } else {
-                0.0
-            } as i32;
-            let bx = if i == 0 { hour_x } else { minute_x };
-            Self::blit(matrix, &BLOCK, BLOCK_W, BLOCK_W, bx, block_y - lift, false);
-            let text = &self.shown[i];
-            let offset = if text.chars().count() == 1 { 6 } else { 2 };
-            BaseRenderer::draw_text_at(
-                matrix,
-                text,
-                font,
-                scale.max(1) as f32,
-                bx + offset,
-                block_y - lift + 4,
-                (0, 0, 0),
-                (0, 0, 0),
-            );
-        }
-
-        if self.phase != Phase::Waiting {
-            let airborne = self.phase == Phase::Jump;
-            let lift = if airborne {
-                ((std::f32::consts::PI * self.jump_t).sin()
-                    * (ground_top - block_y - BLOCK_W - 2) as f32) as i32
+                ((b * std::f32::consts::PI).sin() * 4.0) as i32
             } else {
                 0
             };
-            let y = ground_top - MARIO_H - lift;
-            if airborne {
+            Self::draw_block_at(
+                matrix,
+                if i == 0 { hour_x } else { minute_x },
+                block_y - lift,
+                &self.shown[i],
+                font,
+            );
+        }
+
+        if is_wide_tall || is_portrait {
+            if self.phase != Phase::Waiting {
+                let (airborne, draw_y) = if is_portrait {
+                    if self.phase == Phase::Jump {
+                        let lift = ((self.jump_t * std::f32::consts::PI).sin()
+                            * (70 - block_y - BLOCK_H - 2) as f32)
+                            as i32;
+                        (true, (70 - MARIO_H) - lift)
+                    } else if self.phase == Phase::RunIn
+                        && (self.climb_stage == 1 || self.climb_stage == 3 || self.climb_stage == 5)
+                    {
+                        (true, self.runner_y as i32)
+                    } else {
+                        (false, self.runner_y as i32)
+                    }
+                } else {
+                    let airborne = self.phase == Phase::Jump;
+                    let lift = if airborne {
+                        ((self.jump_t * std::f32::consts::PI).sin()
+                            * (ground_top - block_y - BLOCK_H - 2) as f32)
+                            as i32
+                    } else {
+                        0
+                    };
+                    (airborne, ground_top - MARIO_H - lift)
+                };
+
+                if airborne {
+                    Self::blit(
+                        matrix,
+                        &MARIO_JUMP,
+                        MARIO_JUMP_W,
+                        MARIO_H,
+                        self.runner_x as i32,
+                        draw_y,
+                        true,
+                    );
+                } else {
+                    let f = run_frame(self.runner_x);
+                    let frame: &[u16] = match f {
+                        0 => &MARIO_RUN1,
+                        1 => &MARIO_RUN2,
+                        _ => &MARIO_RUN3,
+                    };
+                    Self::blit(
+                        matrix,
+                        frame,
+                        MARIO_RUN_W[f],
+                        MARIO_H,
+                        self.runner_x as i32 - 2 + MARIO_RUN_LEFT[f],
+                        draw_y,
+                        true,
+                    );
+                }
+            }
+        } else {
+            // 128x32 compact mode: Mario stands at x=14
+            Self::blit(
+                matrix,
+                &MARIO_IDLE,
+                MARIO_W,
+                MARIO_H,
+                14,
+                ground_top - MARIO_H,
+                true,
+            );
+            if self.shell_active {
                 Self::blit(
                     matrix,
-                    &MARIO_JUMP,
-                    MARIO_JUMP_W,
-                    MARIO_H,
-                    self.runner_x as i32,
-                    y,
+                    &KOOPA_SHELL,
+                    KOOPA_SHELL_W,
+                    KOOPA_SHELL_H,
+                    self.shell_x as i32,
+                    ground_top - KOOPA_SHELL_H,
                     true,
                 );
-            } else {
-                // Running in or out: the NES walk cycle, one frame per 6 px
-                // travelled so the legs keep pace with the speed. The run
-                // frames sit in a 16 px cell whose column 2 lines up with the
-                // idle sprite (same as the ESP32 face).
-                let f = run_frame(self.runner_x);
-                let frame: &[u16] = match f {
-                    0 => &MARIO_RUN1,
-                    1 => &MARIO_RUN2,
-                    _ => &MARIO_RUN3,
+            }
+            if self.coin_pop && self.block_bounce[self.jump_target] > 0.0 {
+                let target_x = if self.jump_target == 0 {
+                    hour_x
+                } else {
+                    minute_x
                 };
+                let b = self.block_bounce[self.jump_target];
+                let coin_lift = ((b * std::f32::consts::PI).sin() * 6.0) as i32;
                 Self::blit(
                     matrix,
-                    frame,
-                    MARIO_RUN_W[f],
-                    MARIO_H,
-                    self.runner_x as i32 - 2 + MARIO_RUN_LEFT[f],
-                    y,
+                    &GOLD_COIN,
+                    8,
+                    8,
+                    target_x + 5,
+                    block_y - 4 - coin_lift,
                     true,
                 );
             }
@@ -348,7 +698,7 @@ impl Default for MarioClock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::matrix::MockMatrix;
+    use crate::core::matrix::MockSurface;
     use crate::engines::clocks::cwassets::mario::{MARIO_IDLE, M_RED, M_SHIRT, M_SKIN};
 
     #[test]
@@ -373,7 +723,7 @@ mod tests {
     }
 
     /// Bounding box (x0, y0, x1, y1) of Mario's body colours in rows y0..y1.
-    fn mario_box(m: &MockMatrix, y0: u32, y1: u32) -> Option<(u32, u32, u32, u32)> {
+    fn mario_box(m: &MockSurface, y0: u32, y1: u32) -> Option<(u32, u32, u32, u32)> {
         let want: Vec<(u8, u8, u8)> = [M_RED, M_SKIN, M_SHIRT].iter().map(|&c| rgb(c)).collect();
         let mut b: Option<(u32, u32, u32, u32)> = None;
         for y in y0..y1 {
@@ -400,7 +750,7 @@ mod tests {
             assert_eq!(run_frame(x), frame);
             for phase in [Phase::RunIn, Phase::RunOut] {
                 let mut mario = MarioClock::new();
-                let mut m = MockMatrix::new(256, 64);
+                let mut m = MockSurface::new(256, 64);
                 mario.render(&mut m, 7, 46, &font, 1); // settle on 7:46
                 mario.phase = phase;
                 mario.runner_x = x;
@@ -415,13 +765,13 @@ mod tests {
                     1 => &MARIO_RUN2,
                     _ => &MARIO_RUN3,
                 };
-                let mut solo = MockMatrix::new(256, 64);
+                let mut solo = MockSurface::new(256, 64);
                 let left = x_now as i32 - 2 + MARIO_RUN_LEFT[frame];
                 MarioClock::blit(&mut solo, data, MARIO_RUN_W[frame], MARIO_H, left, 40, true);
                 let want = mario_box(&solo, 40, 56).unwrap();
                 assert_eq!(mario_box(&m, 40, 56), Some(want), "x={} frame={}", x, frame);
                 // ... which is not the idle pose he used to glide in.
-                let mut idle = MockMatrix::new(256, 64);
+                let mut idle = MockSurface::new(256, 64);
                 MarioClock::blit(
                     &mut idle,
                     &MARIO_IDLE,
@@ -440,7 +790,7 @@ mod tests {
     fn run_distance(speed_pct: i32) -> f32 {
         let base = BaseRenderer::new();
         let font = base.font();
-        let mut m = MockMatrix::new(256, 64);
+        let mut m = MockSurface::new(256, 64);
         let mut mario = MarioClock::new();
         mario.configure(speed_pct);
         mario.render(&mut m, 7, 46, &font, 1);
@@ -471,7 +821,7 @@ mod tests {
         let base = BaseRenderer::new();
         let font = base.font();
         for (pct, want) in [(100, 0.4f32), (200, 0.8)] {
-            let mut m = MockMatrix::new(256, 64);
+            let mut m = MockSurface::new(256, 64);
             let mut mario = MarioClock::new();
             mario.configure(pct);
             mario.render(&mut m, 7, 46, &font, 1);
@@ -494,14 +844,14 @@ mod tests {
         let base = BaseRenderer::new();
         let font = base.font();
         let mut mario = MarioClock::new();
-        let mut m = MockMatrix::new(256, 64);
+        let mut m = MockSurface::new(256, 64);
         mario.render(&mut m, 7, 46, &font, 1);
         mario.phase = Phase::Jump;
         mario.runner_x = 30.0;
         mario.jump_t = 0.0;
         mario.last_frame = Instant::now();
         mario.render(&mut m, 7, 46, &font, 1);
-        let mut solo = MockMatrix::new(256, 64);
+        let mut solo = MockSurface::new(256, 64);
         let y = 56 - MARIO_H; // jump_t ~ 0: lift ~ 0
         MarioClock::blit(&mut solo, &MARIO_JUMP, MARIO_JUMP_W, MARIO_H, 30, y, true);
         assert_eq!(mario_box(&m, 0, 56), mario_box(&solo, 0, 56));
@@ -511,7 +861,7 @@ mod tests {
     fn returning_face_shows_current_time_without_run_in() {
         let base = BaseRenderer::new();
         let font = base.font();
-        let mut m = MockMatrix::new(256, 64);
+        let mut m = MockSurface::new(256, 64);
         let mut mario = MarioClock::new();
 
         // Shown at 7:46 (the engine always activates before the first frame).
@@ -543,7 +893,7 @@ mod tests {
     fn snap_also_cancels_a_run_in_progress() {
         let base = BaseRenderer::new();
         let font = base.font();
-        let mut m = MockMatrix::new(256, 64);
+        let mut m = MockSurface::new(256, 64);
         let mut mario = MarioClock::new();
         mario.on_activated();
         mario.render(&mut m, 7, 46, &font, 1);
@@ -557,16 +907,13 @@ mod tests {
 
     #[test]
     fn snap_waits_for_a_wide_panel() {
-        // On 128x32 the face only draws a notice; the snap is kept until it
-        // is drawn on a panel wide enough.
+        // Multi-resolution support: 128x32 renders Mario clock with compact shell kick
         let base = BaseRenderer::new();
         let font = base.font();
         let mut mario = MarioClock::new();
-        mario.render(&mut MockMatrix::new(256, 64), 7, 46, &font, 1);
+        mario.render(&mut MockSurface::new(256, 64), 7, 46, &font, 1);
         mario.on_activated();
-        mario.render(&mut MockMatrix::new(128, 32), 7, 56, &font, 1);
-        assert_eq!(mario.shown_digits(), ("7", "46"));
-        mario.render(&mut MockMatrix::new(256, 64), 7, 56, &font, 1);
+        mario.render(&mut MockSurface::new(128, 32), 7, 56, &font, 1);
         assert_eq!(mario.shown_digits(), ("7", "56"));
         assert!(!mario.is_running());
     }

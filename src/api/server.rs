@@ -204,6 +204,7 @@ async fn post_system(
             || p.pwm_lsb_nanoseconds != s.matrix.pwm_lsb_nanoseconds
             || p.limit_refresh_rate_hz != s.matrix.limit_refresh_rate_hz
             || p.disable_hardware_pulsing != s.matrix.disable_hardware_pulsing
+            || p.render_pipeline != s.matrix.render_pipeline
     } else {
         false
     };

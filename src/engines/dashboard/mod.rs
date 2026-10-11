@@ -274,7 +274,7 @@ impl Engine for DashboardEngine {
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        let matrix = &mut *ctx.matrix;
+        let matrix = &mut *ctx.surface;
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
         if w < 16 || h < 16 {

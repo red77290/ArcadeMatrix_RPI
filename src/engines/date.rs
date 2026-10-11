@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::{
     BaseRenderer, CyberpunkRenderer, FlipRenderer, TrueMatrixRenderer,
 };
@@ -118,7 +118,7 @@ impl DateEngine {
 
     fn render_tate_date(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         date_str: &str,
         theme_id: i32,
         effective_size: u32,
@@ -216,7 +216,7 @@ impl Engine for DateEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
         let tz_str = if !self.timezone.is_empty() && self.timezone != "system" {
             self.timezone.clone()
         } else {

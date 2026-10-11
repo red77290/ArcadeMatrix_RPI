@@ -2,7 +2,7 @@
 //! labels/units on small panels. The same bitmap ships in the ESP32 firmware,
 //! so both signs draw identical text. Lowercase is drawn as uppercase.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 /// Glyph width, height and advance in pixels.
 pub const TINY_W: i32 = 3;
@@ -76,7 +76,7 @@ pub fn tiny_text_width(text: &str) -> i32 {
 
 /// Draws `text` with its top-left at (x, y), clipped to columns `[min_x, max_x)`.
 pub fn draw_tiny_text(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     mut x: i32,
     y: i32,

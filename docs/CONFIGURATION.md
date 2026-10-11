@@ -46,6 +46,7 @@ This block configures the DMA parameters for the hzeller `rpi-rgb-led-matrix` li
 | `row_address_mode` | `int` | Row addressing type for exotic panels (`0` default). |
 | `multiplexing` | `int` | Panel multiplexing type (`0` default). |
 | `panel_type` | `String` | Optional panel init string (e.g. `FM6126A`), usually empty. |
+| `render_pipeline` | `String` | Hardware rendering pipeline & buffer strategy: `auto` (default auto-selection), `canvas_single` (**Recommended**, single off-screen canvas with dirty-bounds tracking protecting Wi-Fi SDIO bus from saturation), `canvas_double` (double-buffered canvas), `direct_double` (zero-copy double buffering via C driver), `direct_single` (direct single frame buffer). Default `canvas_single`. |
 | `slot_transition` | `String` | Effect played when the rotation moves to the next slot (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Default `none`. |
 | `slot_transition_duration_ms` | `int` | Slot transition duration in milliseconds (`100`-`3000`, default `500`). |
 
@@ -209,7 +210,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 ### Engine: `clock`
 | Field | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Animated clock theme index: `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
+| `theme` | `int` | `0` | Animated clock theme index: `0` = Digital Standard, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana), `30` = Mario (Koopa kick & Tate vertical climb), `31` = Castlevania (Simon Belmont & whip attack), `32` = Pocket Index (Pokémon), `33` = World Clock, `34` = Ms. Pac-Man, `35` = Mega Man (Buster charge & Metool), `37` = Words Clock, `39` = Sonic (Green Hill & Badnik Motobug), `41` = Metal Slug (Marco Rossi, Di-Cokka & grenade arcs). |
 | `format` | `String` | `%H:%M:%S` | strftime time format. |
 | `font` | `String` | `PressStart2P.ttf` | Font file from `/fonts/`. |
 | `size` | `int` | `2` | Font scaling factor. |

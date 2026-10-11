@@ -24,7 +24,7 @@ This is the **complete** guide to extending ArcadeMatrix on Raspberry Pi. It exp
 12. [Tutorial: Add a New Clock Face / Theme](#12-tutorial-add-a-new-clock-face--theme)
 13. [Internationalization & Centralized i18n (Front & Back)](#13-internationalization--centralized-i18n-front--back)
 14. [Reading Config in an Engine](#14-reading-config-in-an-engine)
-15. [Rendering into the Matrix](#15-rendering-into-the-matrix)
+15. [Rendering via IDrawingSurface](#15-rendering-via-idrawingsurface)
 16. [Testing & Local Run](#16-testing--local-run)
 17. [Checklist](#17-checklist)
 
@@ -63,6 +63,8 @@ pub trait Engine: Send + Sync {
     fn deactivate(&mut self);
 
     // --- Optional (have default impls) ---
+    fn wants_clear(&self) -> bool { true }
+    fn has_new_frame(&self) -> bool { true }
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
     fn is_finished(&self) -> bool { false }
     fn is_realtime(&self) -> bool { false }
@@ -74,6 +76,14 @@ pub trait Engine: Send + Sync {
     fn resume(&mut self) { self.activate(); }
     fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
+
+pub struct EngineContext<'a> {
+    pub surface: &'a mut dyn IDrawingSurface,
+    pub width: i32,
+    pub height: i32,
+    pub now: DateTime<Local>,
+    pub delta_ms: u64,
+}
 ```
 
 | Method | Default | When to override |
@@ -81,8 +91,10 @@ pub trait Engine: Send + Sync {
 | `initialize` | — | Always. Allocate buffers, load assets, read config once. |
 | `activate` | — | Always. Cheap reset of transient state. |
 | `update` | — | Always. Business logic each frame. |
-| `render` | — | Always. Draw into `ctx.matrix`. |
+| `render` | — | Always. Draw into `ctx.surface`. |
 | `deactivate` | — | Always. Stop timers/listeners. |
+| `wants_clear` | `true` | Override to `false` if engine paints full canvas or manages its own clear to avoid redundant clear pass. |
+| `has_new_frame` | `true` | Dirty checking: return `false` if nothing changed visually this tick to skip presentation and protect Wi-Fi bus. |
 | `on_config_changed` | no-op | If your engine has editable settings (almost always). Re-read them **in place**. |
 | `is_finished` | `false` | If the engine has an intrinsic end (e.g. finished a token list) and should advance the rotation early. |
 | `is_realtime` | `false` | If the engine animates only under some live state and needs ~25 FPS then. |
@@ -349,8 +361,8 @@ impl Engine for MyEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        ctx.matrix.clear();
-        // draw self.my_setting using existing buffers
+        ctx.surface.clear();
+        ctx.surface.set_pixel(10, 10, 255, 0, 0);
     }
 
     fn deactivate(&mut self) {}
@@ -485,14 +497,14 @@ impl SpaceInvadersClock {
 
     pub fn draw(
         &mut self,
-        matrix: &mut dyn crate::matrix::MatrixBackend,
+        surface: &mut dyn crate::core::matrix::IDrawingSurface,
         now: chrono::DateTime<chrono::Local>,
         font: &str,
         size: u32,
         color: (u8, u8, u8),
     ) {
         let time_str = now.format("%H:%M:%S").to_string();
-        self.base.draw_text_centered(matrix, &time_str, font, size, color);
+        self.base.draw_text_centered(surface, &time_str, font, size, color);
     }
 }
 ```
@@ -521,7 +533,7 @@ space_invaders: SpaceInvadersClock::new(),
 
 3. Route rendering in `render()`:
 ```rust
-25 => self.space_invaders.draw(ctx.matrix, now, &self.time_font, self.time_size, c1),
+25 => self.space_invaders.draw(ctx.surface, now, &self.time_font, self.time_size, c1),
 ```
 
 ### Step 4 — Declare option in `ClockEngine::descriptor()`
@@ -600,19 +612,35 @@ These map onto the instance's `HashMap<String,String>`. Keys correspond to your 
 
 ---
 
-## 15. Rendering into the Matrix
+## 15. Rendering via IDrawingSurface
 
-`ctx.matrix` is a `&mut dyn MatrixBackend`. Typical pattern:
+`ctx.surface` is a `&mut dyn IDrawingSurface` (`crate::core::matrix::IDrawingSurface`). It provides high-performance, canonical drawing primitives with automatic dirty tracking:
 
 ```rust
 fn render(&mut self, ctx: &mut EngineContext) {
-    ctx.matrix.clear();
-    // draw pixels / text / bitmaps into ctx.matrix
-    // do NOT call ctx.matrix.update() — the render loop flushes the frame
+    // 1. Primitive drawing
+    ctx.surface.set_pixel(x, y, 255, 200, 0);
+    ctx.surface.fill_rect(0, 0, 10, 10, 0, 0, 255);
+
+    // 2. High-speed RGB565 sprite blitting
+    ctx.surface.blit565(x, y, w, h, &sprite_raw_u16_slice);
+
+    // 3. Dynamic image drawing
+    ctx.surface.draw_image(&image_buffer, x, y);
+
+    // 4. Zero-copy canvas access via ScopedCanvasGuard
+    if let Some(mut canvas) = ctx.surface.acquire_canvas() {
+        let raw_pixels = canvas.as_mut_slice();
+        // direct manipulation of the 16-bit RGB565 / 32-bit RGBA pixel slice
+    }
 }
 ```
 
-The **render loop** owns `update()` (the flush to the panel) and, after your `render()` returns, may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §11](ARCHITECTURE.md#11-the-fighter-overlay-compositor)).
+### Golden Rules of Rendering
+1. **Never call `present()` inside `render()`**: Presentation to hardware HUB75 panels is exclusively owned by the main loop in `app.rs`.
+2. **Take advantage of dirty tracking**: With `RenderPipeline::CanvasSingle` (the default), `IDrawingSurface` tracks exact bounding boxes (`DirtyBounds`). If nothing changes (`has_new_frame() == false`), `present()` completes in $O(1)$ with **zero** memory bus traffic, guaranteeing protection for Broadcom SDIO Wi-Fi (`brcmfmac`).
+3. **Control full-screen clearing**: If your engine paints the entire display every tick (e.g. streaming GIF or video), override `wants_clear(&self) -> bool { false }` to avoid an unnecessary full-screen black clear before your `render()` call.
+4. **Overlay Pass**: After your `render()` returns, the render loop may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §11](ARCHITECTURE.md#11-the-fighter-overlay-compositor)). If your engine cannot support overlays, return `allows_overlay(&self) -> bool { false }`.
 
 ---
 

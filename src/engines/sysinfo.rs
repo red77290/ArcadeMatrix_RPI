@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use linkme::distributed_slice;
 use std::time::{Duration, Instant};
@@ -112,7 +112,7 @@ impl SysInfoEngine {
     }
 
     fn draw_gauge_bar(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         w: i32,
@@ -141,7 +141,7 @@ impl SysInfoEngine {
     }
 
     fn draw_bitmap_char(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         c: char,
         x: i32,
         y: i32,
@@ -209,7 +209,7 @@ impl SysInfoEngine {
     }
 
     fn draw_bitmap_string(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         mut x: i32,
         y: i32,
@@ -248,7 +248,7 @@ impl Engine for SysInfoEngine {
     fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {}
 
     fn render(&mut self, context: &mut EngineContext) {
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
         matrix.clear();
 
         let cpu = self.cached_cpu;

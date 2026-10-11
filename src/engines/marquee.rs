@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder, RgbImage};
 use linkme::distributed_slice;
@@ -104,7 +104,7 @@ impl MarqueeEngine {
         None
     }
 
-    pub fn render_image(&self, matrix: &mut dyn MatrixBackend, image: &RgbImage) {
+    pub fn render_image(&self, matrix: &mut dyn IDrawingSurface, image: &RgbImage) {
         let mw = matrix.width() as u32;
         let mh = matrix.height() as u32;
         let iw = image.width();
@@ -196,13 +196,13 @@ impl Engine for MarqueeEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        context.matrix.clear();
+        context.surface.clear();
         let lock = context.config.image_obj.lock();
         if let Some(img) = lock.as_ref() {
-            self.render_image(&mut *context.matrix, img);
+            self.render_image(&mut *context.surface, img);
         } else if !self.frames.is_empty() {
             let img = &self.frames[self.frame_index].0;
-            self.render_image(&mut *context.matrix, img);
+            self.render_image(&mut *context.surface, img);
         }
     }
 

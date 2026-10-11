@@ -171,10 +171,10 @@ impl<'a> EngineConfig for HashConfig<'a> {
     }
 }
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 pub struct EngineContext<'a> {
-    pub matrix: &'a mut dyn MatrixBackend,
+    pub surface: &'a mut dyn IDrawingSurface,
     pub config: &'a crate::core::config::Config,
 }
 
@@ -192,6 +192,18 @@ pub trait Engine: Send + Sync {
     fn update(&mut self, context: &mut EngineContext);
     fn render(&mut self, context: &mut EngineContext);
     fn deactivate(&mut self);
+
+    /// Declares whether the display surface should be cleared before render().
+    /// Full-screen scenes (Mario, CastleClock, Metal Slug, Cyberpunk) return false.
+    fn wants_clear(&self) -> bool {
+        true
+    }
+
+    /// Declares whether the engine has state changes requiring a re-render.
+    /// Returning false skips render() and surface presentation, preserving bus bandwidth.
+    fn has_new_frame(&self) -> bool {
+        true
+    }
 
     // Dynamic Configuration
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}

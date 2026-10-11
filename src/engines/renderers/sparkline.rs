@@ -1,8 +1,8 @@
 use crate::api::PriceHistory;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 pub fn draw_sparkline(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     history: &PriceHistory,
     x: i32,
     y: i32,
@@ -48,7 +48,7 @@ pub fn draw_sparkline(
 }
 
 fn draw_line(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     mut x0: i32,
     mut y0: i32,
     x1: i32,
@@ -81,11 +81,11 @@ fn draw_line(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::matrix::MockMatrix;
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_draw_sparkline() {
-        let mut matrix = MockMatrix::new(64, 32);
+        let mut matrix = MockSurface::new(64, 32);
         let raw = vec![100.0, 150.0, 120.0, 200.0];
         let history = PriceHistory::from_raw(&raw).unwrap();
 

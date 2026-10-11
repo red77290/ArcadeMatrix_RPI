@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use byteorder::{LittleEndian, ReadBytesExt};
 use image::{Rgb, RgbImage};
@@ -706,7 +706,7 @@ impl FighterEngine {
         });
     }
 
-    pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
+    pub fn composite(&mut self, matrix: &mut dyn IDrawingSurface) {
         let now = now_ms();
         let mat_w = matrix.width();
         let mat_h = matrix.height();
@@ -1108,7 +1108,7 @@ impl FighterEngine {
         }
     }
 
-    fn draw_player(matrix: &mut dyn MatrixBackend, p: &Player) {
+    fn draw_player(matrix: &mut dyn IDrawingSurface, p: &Player) {
         if let Some(sprite) = p.character.get_sprite(&p.state) {
             let frame = &sprite.frames[p.frame_idx.min(sprite.frames.len().saturating_sub(1))];
             let start_x = p.x as i32;

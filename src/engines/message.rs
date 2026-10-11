@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use linkme::distributed_slice;
 use serde::{Deserialize, Serialize};
@@ -158,7 +158,7 @@ impl MessageEngine {
 
     pub fn render_payload(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         payload: &MessagePayload,
     ) -> bool {
         let move_px = 33.0 / payload.speed.max(1) as f32; // Assuming ~33ms frame time
@@ -250,8 +250,8 @@ impl Engine for MessageEngine {
         self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
         self.speed = config.get_int("speed", 50) as u32;
         self.reset_state(
-            context.matrix.width() as f32,
-            context.matrix.height() as f32,
+            context.surface.width() as f32,
+            context.surface.height() as f32,
         );
         Ok(())
     }
@@ -276,8 +276,8 @@ impl Engine for MessageEngine {
                 self.direction = ScrollDirection::parse(&payload.direction);
                 self.speed = payload.speed;
                 self.reset_state(
-                    context.matrix.width() as f32,
-                    context.matrix.height() as f32,
+                    context.surface.width() as f32,
+                    context.surface.height() as f32,
                 );
             }
         }
@@ -301,47 +301,47 @@ impl Engine for MessageEngine {
 
         let step_ms = (self.speed.max(1) as f32).max(1.0);
         let move_px = dt_ms / step_ms;
-        let mat_w = context.matrix.width() as f32;
-        let mat_h = context.matrix.height() as f32;
+        let mat_w = context.surface.width() as f32;
+        let mat_h = context.surface.height() as f32;
 
         match self.direction {
             ScrollDirection::Rtl => {
                 self.offset_x -= move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
                 if self.offset_x < -(self.text_w as f32) {
                     self.offset_x = mat_w;
                 }
             }
             ScrollDirection::Ltr => {
                 self.offset_x += move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
                 if self.offset_x > mat_w {
                     self.offset_x = -(self.text_w as f32);
                 }
             }
             ScrollDirection::Ttb => {
                 self.offset_y += move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
                 if self.offset_y > mat_h {
                     self.offset_y = -(self.text_h as f32);
                 }
             }
             ScrollDirection::Btt => {
                 self.offset_y -= move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
                 if self.offset_y < -(self.text_h as f32) {
                     self.offset_y = mat_h;
                 }
             }
             ScrollDirection::None => {
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
             }
         }
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
         let (r, g, b) = self.parsed_color;
 
         let start_x = self.offset_x.round() as i32;

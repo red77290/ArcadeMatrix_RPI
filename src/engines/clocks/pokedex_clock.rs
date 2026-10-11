@@ -7,7 +7,7 @@
 //! Laid out for a wide panel; on a small one it says so rather than overlapping itself, which is
 //! what the ESP32 face does too.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::cwassets::pokedex::{
     POKEDEX_BG, POKEMON1, POKEMON2, POKEMON3, POKEMON4, POKEMON5, POKEMON6, POKEMON7,
 };
@@ -36,7 +36,7 @@ impl PokedexClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         seconds: u32,
@@ -140,7 +140,7 @@ impl PokedexClock {
     }
 }
 
-fn fill(matrix: &mut dyn MatrixBackend, x: i32, y: i32, w: i32, h: i32, c: u16) {
+fn fill(matrix: &mut dyn IDrawingSurface, x: i32, y: i32, w: i32, h: i32, c: u16) {
     for yy in y..(y + h) {
         for xx in x..(x + w) {
             cwscene::put(matrix, xx, yy, c);

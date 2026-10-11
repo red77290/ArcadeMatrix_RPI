@@ -26,6 +26,9 @@ pub struct ClockEngine {
     words: WordsClock,
     versus: VersusClock,
     slot_machine: SlotMachineClock,
+    megaman: MegamanClock,
+    sonic: SonicClock,
+    metal_slug: MetalSlugClock,
 
     // Config states
     time_format: String,
@@ -162,6 +165,9 @@ impl ClockEngine {
             words: WordsClock::new(),
             versus: VersusClock::new(),
             slot_machine: SlotMachineClock::new(),
+            megaman: MegamanClock::new(),
+            sonic: SonicClock::new(),
+            metal_slug: MetalSlugClock::new(),
 
             time_format: "%H:%M:%S".to_string(),
             time_font: "PressStart2P.ttf".to_string(),
@@ -337,7 +343,7 @@ impl Engine for ClockEngine {
     fn render(&mut self, context: &mut EngineContext) {
         // Faces draw through BaseRenderer, which reads this when it lays the outline down.
         BaseRenderer::set_glow(self.clock_glow.clamp(0, 2) as u8, self.clock_glow_rgb);
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
 
         let (sys_tz, sys_24h) = {
             let sys = context.config.settings.read();
@@ -545,6 +551,7 @@ impl Engine for ClockEngine {
             34 => self
                 .ms_pacman
                 .render(matrix, &time_str, hours, minutes, &font, effective_size),
+            35 => self.megaman.render(matrix, hours, minutes),
             37 => self.words.render(
                 matrix,
                 hours,
@@ -553,6 +560,8 @@ impl Engine for ClockEngine {
                 effective_size,
                 &context.config.settings.read().system.lang,
             ),
+            39 => self.sonic.render(matrix, hours, minutes),
+            41 => self.metal_slug.render(matrix, hours, minutes),
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, effective_size),
@@ -661,7 +670,7 @@ fn register_clock_engine() -> EngineDescriptor {
                     default_value: "PressStart2P.ttf",
                     validation_policy: crate::core::engine_contract::ValidationPolicy::Accept,
                     options_endpoint: Some("/api/fonts"),
-                    visible_when: Some("theme!=30,31,32,33,37"),
+                    visible_when: Some("theme!=30,31,32,33,35,37,39,41"),
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {
@@ -720,7 +729,7 @@ fn register_clock_engine() -> EngineDescriptor {
                     ]),
                     validation_policy:
                         crate::core::engine_contract::ValidationPolicy::FallbackDefault,
-                    visible_when: Some("theme!=30,31,32,33"),
+                    visible_when: Some("theme!=30,31,32,33,35,37,39,41"),
                     ..Default::default()
                 },
                 crate::core::engine_contract::ConfigField {

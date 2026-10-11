@@ -4,7 +4,7 @@
 //! longitude under it, and the night side dimmed from where the sun actually is. The original could
 //! only show 64 px of a 120 px map; on a wide panel it continues and wraps. Matches the ESP32 face.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::cwassets::worldmap::WORLD_MAP;
 use crate::engines::clocks::cwscene;
 use crate::engines::renderers::base_renderer::ArcadeFont;
@@ -33,7 +33,7 @@ impl WorldMapClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         font: &ArcadeFont<'_>,

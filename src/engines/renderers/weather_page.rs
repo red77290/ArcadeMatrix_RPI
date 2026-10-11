@@ -315,12 +315,22 @@ impl<'a> SlideCanvas<'a> {
     }
 }
 
-impl crate::core::matrix::MatrixBackend for SlideCanvas<'_> {
+impl crate::core::matrix::IDrawingSurface for SlideCanvas<'_> {
     fn width(&self) -> u32 {
         self.img.width()
     }
     fn height(&self) -> u32 {
         self.img.height()
+    }
+    fn physical_width(&self) -> u32 {
+        self.img.width()
+    }
+    fn physical_height(&self) -> u32 {
+        self.img.height()
+    }
+    fn set_rotation(&mut self, _rotation: u8) {}
+    fn rotation(&self) -> u8 {
+        0
     }
     fn set_pixel(&mut self, x: i32, y: i32, r: u8, g: u8, b: u8) {
         if x >= 0 && y >= 0 && (x as u32) < self.img.width() && (y as u32) < self.img.height() {
@@ -329,6 +339,10 @@ impl crate::core::matrix::MatrixBackend for SlideCanvas<'_> {
         }
     }
     fn clear(&mut self) {}
-    fn update(&mut self) {}
+    fn present(&mut self) {}
     fn set_brightness(&mut self, _brightness: u8) {}
+    fn mark_dirty(&mut self) {}
+    fn is_dirty(&self) -> bool {
+        true
+    }
 }

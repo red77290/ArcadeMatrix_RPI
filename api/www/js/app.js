@@ -780,6 +780,7 @@ async function initSettings() {
     setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds ?? 130);
     setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz ?? 0);
     setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing ?? false);
+    setVal('hw-render-pipeline', matrix.render_pipeline || 'canvas_single');
 
     // MQTT (nested mqtt.*)
     setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
@@ -896,6 +897,7 @@ async function initSettings() {
         pwm_lsb_nanoseconds: numOr('hw-pwm-lsb', 130),
         limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
         disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
+        render_pipeline: document.getElementById('hw-render-pipeline')?.value || 'canvas_single',
       };
 
       try {

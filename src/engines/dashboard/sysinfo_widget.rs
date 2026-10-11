@@ -1,6 +1,6 @@
 use super::font::draw_text_clipped;
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 #[inline]
 fn get_gauge_color(ratio: f32) -> (u8, u8, u8) {
@@ -18,7 +18,7 @@ fn get_gauge_color(ratio: f32) -> (u8, u8, u8) {
 }
 
 pub fn render_sysinfo_slot(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     cpu_usage: f32,
     ram_usage: f32,

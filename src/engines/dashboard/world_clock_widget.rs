@@ -1,11 +1,11 @@
 use super::data::WorldTimeQuote;
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use chrono::{DateTime, Duration, Timelike, Utc};
 
 pub fn render_world_clock_slot(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     world_times: &[WorldTimeQuote],
     seconds: u32,

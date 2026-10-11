@@ -1,9 +1,9 @@
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 pub fn draw_mini_weather_icon(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     x: i32,
     y: i32,
     min_x: i32,
@@ -79,7 +79,7 @@ pub fn draw_mini_weather_icon(
 }
 
 pub fn render_climate_slot(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     temp_c: f32,
     is_fahrenheit: bool,

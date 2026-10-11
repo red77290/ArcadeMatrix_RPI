@@ -24,7 +24,7 @@ Esta es la guía **completa** para extender ArcadeMatrix en Raspberry Pi. Detall
 12. [Tutorial: añadir un nuevo tema de reloj](#12-tutorial-añadir-un-nuevo-tema-de-reloj)
 13. [Internacionalización y Centralización i18n (Front y Back)](#13-internacionalización-y-centralización-i18n-front-y-back)
 14. [Leer la config en un motor](#14-leer-la-config-en-un-motor)
-15. [Dibujar en la matriz](#15-dibujar-en-la-matriz)
+15. [Renderizado vía IDrawingSurface](#15-renderizado-vía-idrawingsurface)
 16. [Pruebas y ejecución local](#16-pruebas-y-ejecución-local)
 17. [Checklist](#17-checklist)
 
@@ -63,6 +63,8 @@ pub trait Engine: Send + Sync {
     fn deactivate(&mut self);
 
     // --- Opcional (con implementaciones por defecto) ---
+    fn wants_clear(&self) -> bool { true }
+    fn has_new_frame(&self) -> bool { true }
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
     fn is_finished(&self) -> bool { false }
     fn is_realtime(&self) -> bool { false }
@@ -74,6 +76,14 @@ pub trait Engine: Send + Sync {
     fn resume(&mut self) { self.activate(); }
     fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
+
+pub struct EngineContext<'a> {
+    pub surface: &'a mut dyn IDrawingSurface,
+    pub width: i32,
+    pub height: i32,
+    pub now: DateTime<Local>,
+    pub delta_ms: u64,
+}
 ```
 
 | Método | Por defecto | Cuándo sobrescribir |
@@ -81,8 +91,10 @@ pub trait Engine: Send + Sync {
 | `initialize` | — | Siempre. Reservar búferes, cargar assets, leer config una vez. |
 | `activate` | — | Siempre. Reinicio barato del estado transitorio. |
 | `update` | — | Siempre. Lógica de negocio por frame. |
-| `render` | — | Siempre. Dibujar en `ctx.matrix`. |
+| `render` | — | Siempre. Dibujar en `ctx.surface`. |
 | `deactivate` | — | Siempre. Detener temporizadores/escuchas. |
+| `wants_clear` | `true` | Sobrescribir a `false` si el motor repinta todo el canvas para evitar un borrado en negro innecesario. |
+| `has_new_frame` | `true` | Comprobación dirty: devolver `false` si nada ha cambiado visualmente para omitir la presentación y proteger el bus Wi-Fi SDIO. |
 | `on_config_changed` | no-op | Si tu motor tiene ajustes editables (casi siempre). Releer **in situ**. |
 | `is_finished` | `false` | Si el motor tiene un fin intrínseco (p. ej. lista de tokens terminada) y debe avanzar la rotación antes. |
 | `is_realtime` | `false` | Si el motor anima solo en cierto estado en vivo y entonces necesita ~25 FPS. |
@@ -349,8 +361,8 @@ impl Engine for MyEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        ctx.matrix.clear();
-        // dibujar self.my_setting con los búferes existentes
+        ctx.surface.clear();
+        ctx.surface.set_pixel(10, 10, 255, 0, 0);
     }
 
     fn deactivate(&mut self) {}
@@ -483,14 +495,14 @@ impl SpaceInvadersClock {
 
     pub fn draw(
         &mut self,
-        matrix: &mut dyn crate::matrix::MatrixBackend,
+        surface: &mut dyn crate::core::matrix::IDrawingSurface,
         now: chrono::DateTime<chrono::Local>,
         font: &str,
         size: u32,
         color: (u8, u8, u8),
     ) {
         let time_str = now.format("%H:%M:%S").to_string();
-        self.base.draw_text_centered(matrix, &time_str, font, size, color);
+        self.base.draw_text_centered(surface, &time_str, font, size, color);
     }
 }
 ```
@@ -519,7 +531,7 @@ space_invaders: SpaceInvadersClock::new(),
 
 3. Enrutar el renderizado en `render()`:
 ```rust
-25 => self.space_invaders.draw(ctx.matrix, now, &self.time_font, self.time_size, c1),
+25 => self.space_invaders.draw(ctx.surface, now, &self.time_font, self.time_size, c1),
 ```
 
 ### Paso 4 — Declarar la opción en `ClockEngine::descriptor()`
@@ -592,19 +604,35 @@ Estos mapean sobre el `HashMap<String,String>` de la instancia. Las claves corre
 
 ---
 
-## 15. Dibujar en la matriz
+## 15. Renderizado vía IDrawingSurface
 
-`ctx.matrix` es un `&mut dyn MatrixBackend`. Patrón típico:
+`ctx.surface` es un `&mut dyn IDrawingSurface` (`crate::core::matrix::IDrawingSurface`). Proporciona primitivas de dibujo de alto rendimiento con seguimiento automático de regiones modificadas (dirty bounds):
 
 ```rust
 fn render(&mut self, ctx: &mut EngineContext) {
-    ctx.matrix.clear();
-    // dibujar píxeles / texto / bitmaps en ctx.matrix
-    // NO llames a ctx.matrix.update() — el bucle de render envía la frame
+    // 1. Dibujo de primitivas
+    ctx.surface.set_pixel(x, y, 255, 200, 0);
+    ctx.surface.fill_rect(0, 0, 10, 10, 0, 0, 255);
+
+    // 2. Blit rápido de sprites RGB565
+    ctx.surface.blit565(x, y, w, h, &sprite_raw_u16_slice);
+
+    // 3. Dibujo de imágenes dinámicas
+    ctx.surface.draw_image(&image_buffer, x, y);
+
+    // 4. Acceso directo al canvas vía ScopedCanvasGuard
+    if let Some(mut canvas) = ctx.surface.acquire_canvas() {
+        let raw_pixels = canvas.as_mut_slice();
+        // manipulación directa del slice de píxeles 16-bit RGB565 / 32-bit RGBA
+    }
 }
 ```
 
-El **bucle de render** posee `update()` (el envío al panel) y, tras el retorno de tu `render()`, puede ejecutar la pasada aditiva del **overlay Fighter** encima de tu frame (ver [ARCHITECTURE_ES.md §11](ARCHITECTURE_ES.md#11-el-compositor-de-overlay-fighter)).
+### Reglas de Oro del Renderizado
+1. **Nunca llames a `present()` en `render()`**: La presentación a los paneles HUB75 es propiedad exclusiva del bucle principal en `app.rs`.
+2. **Aprovecha el dirty tracking**: Con `RenderPipeline::CanvasSingle` (por defecto recomendado), `IDrawingSurface` rastrea las áreas modificadas (`DirtyBounds`). Si la frame es idéntica (`has_new_frame() == false`), `present()` termina en $O(1)$ con **cero tráfico en el bus de memoria**, garantizando la protección del Wi-Fi SDIO Broadcom (`brcmfmac`).
+3. **Controla el borrado de pantalla completa**: Si tu motor repinta toda la pantalla en cada tick (p. ej. streaming de GIF o vídeo), sobrescribe `wants_clear(&self) -> bool { false }` para evitar una pasada innecesaria de borrado en negro.
+4. **Pasada de Overlay**: Tras finalizar `render()`, el bucle puede aplicar la pasada aditiva del **overlay Fighter** (ver [ARCHITECTURE_ES.md §11](ARCHITECTURE_ES.md#11-el-compositor-de-overlay-fighter)). Si tu motor no admite overlays, devuelve `allows_overlay(&self) -> bool { false }`.
 
 ---
 

@@ -1,6 +1,6 @@
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClockMode {
@@ -10,7 +10,7 @@ pub enum ClockMode {
 }
 
 pub fn render_analog_watch_dial(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     hours: u32,
     minutes: u32,
@@ -284,7 +284,7 @@ pub fn render_analog_watch_dial(
 }
 
 pub fn render_digital_clock(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     hours: u32,
     minutes: u32,

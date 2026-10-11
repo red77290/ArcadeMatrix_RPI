@@ -43,7 +43,7 @@ pub fn get_stock_color(symbol: &str) -> (u8, u8, u8) {
 }
 
 pub fn draw_icon(
-    matrix: &mut dyn crate::core::matrix::MatrixBackend,
+    matrix: &mut dyn crate::core::matrix::IDrawingSurface,
     icon: &[&str; 8],
     x: i32,
     y: i32,

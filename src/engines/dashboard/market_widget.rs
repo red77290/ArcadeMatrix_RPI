@@ -1,7 +1,7 @@
 use super::data::{format_market_price, MarketQuote};
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
@@ -238,7 +238,7 @@ const ICON_MSFT: Icon8x8 = [
 ];
 
 pub fn draw_mini_market_icon(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     x: i32,
     y: i32,
     min_x: i32,
@@ -328,7 +328,7 @@ struct FormattedMarketItem<'a> {
 }
 
 pub fn render_market_ticker(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     markets: &[MarketQuote],
     now_millis: u128,

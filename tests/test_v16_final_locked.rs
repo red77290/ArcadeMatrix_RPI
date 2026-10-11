@@ -1,6 +1,6 @@
 use arcadematrix::core::arbiter::DisplayArbiter;
 use arcadematrix::core::engine_contract::EngineContext;
-use arcadematrix::core::matrix::MockMatrix;
+use arcadematrix::core::matrix::MockSurface;
 use arcadematrix::core::orientation::OrientationManager;
 use arcadematrix::core::registry::EngineRuntime;
 use arcadematrix::core::runtime::DisplayRuntime;
@@ -116,7 +116,7 @@ fn test_h_core_zero_allocation_mechanical_proof() {
     let mut arbiter = DisplayArbiter::new();
     let mut runtime = DisplayRuntime::new();
     let mut engine_runtime = EngineRuntime::new();
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
     let config = arcadematrix::core::config::Config::new("config.json");
 
     // Pre-publish a message payload via Control Plane
@@ -130,7 +130,7 @@ fn test_h_core_zero_allocation_mechanical_proof() {
     config.set_message_payload(Some(initial_payload));
 
     let mut ctx = EngineContext {
-        matrix: &mut matrix,
+        surface: &mut matrix,
         config: &config,
     };
     let empty_cfg = HashMap::new();
@@ -1014,54 +1014,26 @@ fn test_gnews_serpentine_mental_track_transitions() {
 
 #[test]
 fn test_gnews_serpentine_render_execution_no_panic() {
-    use arcadematrix::core::matrix::MatrixBackend;
+    use arcadematrix::core::matrix::{IDrawingSurface, MockSurface};
     use arcadematrix::engines::gnews::GNewsEngine;
-
-    struct MockMatrix {
-        width: u32,
-        height: u32,
-        pixels: Vec<(i32, i32, u8, u8, u8)>,
-    }
-    impl MockMatrix {
-        fn new(w: u32, h: u32) -> Self {
-            Self {
-                width: w,
-                height: h,
-                pixels: Vec::new(),
-            }
-        }
-    }
-    impl MatrixBackend for MockMatrix {
-        fn width(&self) -> u32 {
-            self.width
-        }
-        fn height(&self) -> u32 {
-            self.height
-        }
-        fn set_pixel(&mut self, x: i32, y: i32, r: u8, g: u8, b: u8) {
-            self.pixels.push((x, y, r, g, b));
-        }
-        fn clear(&mut self) {
-            self.pixels.clear();
-        }
-        fn update(&mut self) {}
-        fn set_brightness(&mut self, _brightness: u8) {}
-    }
 
     let title_chars: Vec<char> = "BREAKING NEWS: ArcadeMatrix Serpentine Flow Working!"
         .chars()
         .collect();
-    let mut matrix = MockMatrix::new(64, 64);
+    let mut matrix = MockSurface::new(64, 64);
 
     // Render at offset 0 (entry on line 1)
     GNewsEngine::render_serpentine_headline(&mut matrix, &title_chars, 0, 64, 24, 0, 64, 24, 64, 9);
     assert!(
-        !matrix.pixels.is_empty(),
+        matrix
+            .canvas
+            .pixels()
+            .any(|px| px[0] > 0 || px[1] > 0 || px[2] > 0),
         "Pixels should be drawn on serpentine track"
     );
 
     // Render mid-stream (long snake spanning multiple lines)
-    matrix.pixels.clear();
+    matrix.clear();
     GNewsEngine::render_serpentine_headline(
         &mut matrix,
         &title_chars,
@@ -1075,12 +1047,15 @@ fn test_gnews_serpentine_render_execution_no_panic() {
         9,
     );
     assert!(
-        !matrix.pixels.is_empty(),
+        matrix
+            .canvas
+            .pixels()
+            .any(|px| px[0] > 0 || px[1] > 0 || px[2] > 0),
         "Pixels should be drawn across S-curve tiers"
     );
 
     // Render on horizontal 256x64 display
-    let mut matrix_wide = MockMatrix::new(256, 64);
+    let mut matrix_wide = MockSurface::new(256, 64);
     GNewsEngine::render_serpentine_headline(
         &mut matrix_wide,
         &title_chars,
@@ -1094,7 +1069,10 @@ fn test_gnews_serpentine_render_execution_no_panic() {
         9,
     );
     assert!(
-        !matrix_wide.pixels.is_empty(),
+        matrix_wide
+            .canvas
+            .pixels()
+            .any(|px| px[0] > 0 || px[1] > 0 || px[2] > 0),
         "Widescreen 256x64 should render serpentine flow"
     );
 }

@@ -4,7 +4,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::registry::ENGINES;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
@@ -161,7 +161,7 @@ impl Engine for SpotifyEngine {
         };
 
         if self.show_album_art {
-            let target_size = if ctx.matrix.height() >= 64 { 52 } else { 24 };
+            let target_size = if ctx.surface.height() >= 64 { 52 } else { 24 };
             self.fetch_cover_art_if_needed(&img_url, target_size);
         }
 
@@ -185,14 +185,14 @@ impl Engine for SpotifyEngine {
             (SpotifyNowPlaying::default(), false)
         };
 
-        let w = ctx.matrix.width() as i32;
-        let h = ctx.matrix.height() as i32;
+        let w = ctx.surface.width() as i32;
+        let h = ctx.surface.height() as i32;
 
         let font = self.base_renderer.font();
 
         if !has_data {
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 "Spotify",
                 &font,
                 1.0,
@@ -202,7 +202,7 @@ impl Engine for SpotifyEngine {
                 (0, 0, 0),
             );
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 "No music playing",
                 &font,
                 1.0,
@@ -237,7 +237,7 @@ impl Engine for SpotifyEngine {
                             let dy = img_y
                                 + ((py as f32 / cover.height() as f32) * art_size as f32) as i32;
                             if dx < w && dy < h {
-                                ctx.matrix.set_pixel(dx, dy, r, g, b);
+                                ctx.surface.set_pixel(dx, dy, r, g, b);
                             }
                         }
                     }
@@ -250,7 +250,7 @@ impl Engine for SpotifyEngine {
             let clip_max_x = w - 2;
             let avail_w = (clip_max_x - clip_min_x).max(16);
 
-            let render_marquee = |matrix: &mut dyn MatrixBackend,
+            let render_marquee = |matrix: &mut dyn IDrawingSurface,
                                   text: &str,
                                   font: &ArcadeFont<'_>,
                                   y: i32,
@@ -306,7 +306,7 @@ impl Engine for SpotifyEngine {
             };
 
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &status.title,
                 &font,
                 cur_y,
@@ -323,7 +323,7 @@ impl Engine for SpotifyEngine {
                 "Spotify".to_string()
             };
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &artist_display,
                 &font,
                 cur_y,
@@ -338,10 +338,10 @@ impl Engine for SpotifyEngine {
                 let bar_w = ((w - 4) as f32 * progress) as i32;
                 let bar_y = h - 10;
                 for x in 2..w - 2 {
-                    ctx.matrix.set_pixel(x, bar_y, 30, 35, 30);
+                    ctx.surface.set_pixel(x, bar_y, 30, 35, 30);
                 }
                 for x in 2..2 + bar_w {
-                    ctx.matrix.set_pixel(x, bar_y, 30, 215, 96);
+                    ctx.surface.set_pixel(x, bar_y, 30, 215, 96);
                 }
             }
 
@@ -354,8 +354,8 @@ impl Engine for SpotifyEngine {
                     for by in 0..bh {
                         let py = eq_base_y - by;
                         if py >= 0 {
-                            ctx.matrix.set_pixel(bx, py, 30, 215, 96);
-                            ctx.matrix.set_pixel(bx + 1, py, 30, 215, 96);
+                            ctx.surface.set_pixel(bx, py, 30, 215, 96);
+                            ctx.surface.set_pixel(bx + 1, py, 30, 215, 96);
                         }
                     }
                 }
@@ -379,13 +379,13 @@ impl Engine for SpotifyEngine {
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
-                    ctx.matrix.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x - 1 + bx, img_y + img_h, 40, 40, 50);
                 }
                 for by in 0..img_h + 2 {
-                    ctx.matrix.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x + img_w, img_y - 1 + by, 40, 40, 50);
                 }
 
@@ -393,7 +393,7 @@ impl Engine for SpotifyEngine {
                 for py in 0..cover.height() {
                     for px in 0..cover.width() {
                         let Rgb([r, g, b]) = *cover.get_pixel(px, py);
-                        ctx.matrix
+                        ctx.surface
                             .set_pixel(img_x + px as i32, img_y + py as i32, r, g, b);
                     }
                 }
@@ -423,7 +423,7 @@ impl Engine for SpotifyEngine {
         let avail_w = (clip_max_x - clip_min_x).max(16);
 
         // 3. Continuous Circular (Seamless Looping) Marquee
-        let render_marquee = |matrix: &mut dyn MatrixBackend,
+        let render_marquee = |matrix: &mut dyn IDrawingSurface,
                               text: &str,
                               font: &ArcadeFont<'_>,
                               y: i32,
@@ -487,7 +487,7 @@ impl Engine for SpotifyEngine {
 
         // Draw Title
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &status.title,
             &font,
             y_title,
@@ -505,7 +505,7 @@ impl Engine for SpotifyEngine {
         };
 
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &artist_display,
             &font,
             y_artist,
@@ -538,7 +538,7 @@ impl Engine for SpotifyEngine {
                             } else {
                                 (30, 215, 96)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -564,8 +564,8 @@ impl Engine for SpotifyEngine {
                             } else {
                                 (30, 215, 96)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
-                            ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx + 1, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -575,7 +575,7 @@ impl Engine for SpotifyEngine {
             let vol_str = format!("{}%", status.volume_percent);
             let v_x = w - (vol_str.len() as i32 * 6) - 1;
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 &vol_str,
                 &font,
                 1.0,
@@ -593,13 +593,13 @@ impl Engine for SpotifyEngine {
 
             // Background line
             for x in 1..w - 1 {
-                ctx.matrix.set_pixel(x, h - 2, 30, 35, 30);
-                ctx.matrix.set_pixel(x, h - 1, 18, 22, 18);
+                ctx.surface.set_pixel(x, h - 2, 30, 35, 30);
+                ctx.surface.set_pixel(x, h - 1, 18, 22, 18);
             }
             // Active progress fill (Spotify Green)
             for x in 1..1 + bar_w {
-                ctx.matrix.set_pixel(x, h - 2, 30, 215, 96);
-                ctx.matrix.set_pixel(x, h - 1, 20, 160, 70);
+                ctx.surface.set_pixel(x, h - 2, 30, 215, 96);
+                ctx.surface.set_pixel(x, h - 1, 20, 160, 70);
             }
         }
     }

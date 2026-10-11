@@ -60,7 +60,7 @@ flowchart TD
         ROT --> RT["EngineRuntime (Lazy-Once cache)"]
         RT --> REG["EngineRegistry (auto-discovery)"]
         REG --> ENG["Box<dyn Engine>"]
-        ENG --> MX["MatrixBackend"]
+        ENG --> MX["IDrawingSurface"]
         RT --> OV["FighterEngine overlay pass"]
         OV --> MX
     end
@@ -153,7 +153,7 @@ classDiagram
     }
 
     class EngineContext {
-        +MatrixBackend matrix
+        +IDrawingSurface surface
         +Config config
     }
 
@@ -538,7 +538,7 @@ flowchart TD
     ERT -->|Instancia motor| ENG["Engine.update() / Engine.render()"]
     ENG --> FB["Framebuffer Base"]
     FB --> OM["OverlayManager (Fighter)"]
-    OM --> MX["MatrixBackend (hzeller)"]
+    OM --> MX["IDrawingSurface"]
 ```
 
 ### 11.1 DisplayArbiter (Evaluador de Prioridades Sin Estado)
@@ -555,7 +555,7 @@ flowchart TD
 
 ---
 
-## 11. La Arquitectura de Overlay Transversal y OverlayManager
+## 12. La Arquitectura de Overlay Transversal y OverlayManager
 
 El Fighter **no** es un `Engine` en el `EngineRegistry` y **no** es arbitrado como fuente de visualización principal. Es un *overlay transversal aditivo*: sprites decorativos de luchadores superpuestos **encima** del framebuffer de la pantalla activa.
 
@@ -568,7 +568,7 @@ sequenceDiagram
     participant RLoop as Bucle de render
     participant Eng as Motor activo
     participant OM as OverlayManager
-    participant MX as MatrixBackend
+    participant MX as IDrawingSurface
 
     RLoop->>Eng: update(ctx) + render(ctx)
     Note over RLoop: Comprueba eng.allows_overlay()
@@ -579,7 +579,7 @@ sequenceDiagram
     end
     RLoop->>OM: composite(matrix)
     OM-->>RLoop: is_active() -> mantiene cadencia alta
-    RLoop->>MX: update()
+    RLoop->>MX: present()
 ```
 
 ### Reglas Clave e Invariantes:
@@ -591,7 +591,55 @@ sequenceDiagram
 
 ---
 
-## 12. Aislamiento del runtime y modelo de hilos
+## 13. Pipeline de Renderizado por Hardware y Abstracción IDrawingSurface
+
+ArcadeMatrix RPi implementa un SPI de renderizado explícito e independiente del hardware (`IDrawingSurface`), garantizando una paridad estructural 1:1 con la arquitectura ESP32 y resolviendo los problemas de contención Wi-Fi Broadcom SDIO.
+
+### 13.1 El SPI IDrawingSurface
+
+```rust
+pub trait IDrawingSurface: Send + Sync {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn physical_width(&self) -> u32;
+    fn physical_height(&self) -> u32;
+    fn set_rotation(&mut self, rotation: u8);
+    fn rotation(&self) -> u8;
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn clear(&mut self);
+    fn present(&mut self);
+    fn set_brightness(&mut self, brightness: u8);
+    fn mark_dirty(&mut self);
+    fn is_dirty(&self) -> bool;
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
+    fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+}
+```
+
+### 13.2 Los Pipelines de Renderizado y Protección Wi-Fi
+
+La pestaña Hardware de la Web UI (`#sys-tab-hardware`) expone un selector directo para el pipeline de renderizado de la matriz (`render_pipeline`):
+
+| Opción de Pipeline | Implementación | Seguimiento Dirty | Caso de Uso Ideal |
+|---|---|---|---|
+| **`auto`** | Auto-selecciona `canvas_single` | Adaptativo | Recomendado para todos los modelos de Raspberry Pi |
+| **`canvas_single`** | `CanvasBufferedSurface` (1 canvas) | DirtyBounds por filas | **Previene caídas de Wi-Fi Broadcom SDIO**; elimina saturación del bus |
+| **`canvas_double`** | `CanvasBufferedSurface` (2 canvas) | Intercambio completo | Alta cadencia sin desgarro para juegos/vídeo en Ethernet o Wi-Fi USB |
+| **`direct_double`** | `DirectSurface` (Double-buffer) | Flip DMA incondicional | Doble búfer C FFI con latencia mínima |
+| **`direct_single`** | `DirectSurface` (Single-buffer) | Escritura inmediata de píxeles | Framebuffer de hardware directo |
+
+#### Protección Mecánica del Wi-Fi Broadcom
+Las placas Raspberry Pi comparten el bus de reloj DMA/PWM con el controlador Wi-Fi SDIO (`brcmfmac`). Las transferencias continuas de doble búfer por el bus de memoria a 60 FPS privan al chip Wi-Fi de ciclos de bus, provocando pérdida de paquetes, desconexiones SSH y fallos en MQTT.
+
+Bajo `canvas_single`, el rastreador `DirtyBounds` monitoriza qué líneas han sido modificadas mediante `set_pixel`, `blit565` o `clear()`. Cuando un reloj estático o un motor inactivo produce una frame idéntica a la anterior:
+1. `is_dirty()` devuelve `false`.
+2. `present()` se completa en $O(1)$ sin llamar a la FFI C ni escribir en la memoria física del panel LED.
+3. El bus de memoria Broadcom y la CPU quedan completamente libres para el tráfico Wi-Fi, MQTT y HTTP.
+
+---
+
+## 14. Aislamiento del runtime y modelo de hilos
 
 ```mermaid
 flowchart TD
@@ -612,7 +660,7 @@ flowchart TD
 
 ---
 
-## 13. Cadencia de renderizado
+## 15. Cadencia de renderizado
 
 La pausa por frame se deriva de la capacidad/estado, **nunca** de un nombre de motor codificado:
 
@@ -623,7 +671,7 @@ La pausa por frame se deriva de la capacidad/estado, **nunca** de un nombre de m
 
 ---
 
-## 14. Superficie de la API HTTP
+## 16. Superficie de la API HTTP
 
 Todos los endpoints son handlers actix en `src/api/server.rs`; los assets web estáticos se incrustan vía `rust-embed`. Referencia completa en [../openapi.yaml](../openapi.yaml).
 
@@ -672,6 +720,6 @@ devolviendo los totales combinados y el desglose por orientación en `orientatio
 
 ---
 
-## 15. Metadatos de compilación
+## 17. Metadatos de compilación
 
 `core/build_info.rs` centraliza los valores `env!` inyectados por `build.rs` (`VERSION`, `ARCH`, `BUILD_TIMESTAMP`, `GIT_COMMIT`). Se leen **una sola vez** aquí porque `env!` fija los valores en la compilación de cada sitio de llamada; leerlos en un módulo único mantiene coherentes `/api/version`, el banner de arranque y la validación OTA entre compilaciones incrementales.

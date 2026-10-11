@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 
 pub struct BinaryClock;
@@ -10,7 +10,7 @@ impl BinaryClock {
 
     pub fn render(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         seconds: u32,

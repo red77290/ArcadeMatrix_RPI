@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::theme::get_theme_info;
 use bdf_parser::BdfFont;
 use rusttype::{Font, Scale};
@@ -243,7 +243,7 @@ impl BaseRenderer {
 
     pub fn draw_themed_text_at(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         theme_id: i32,
         size: u32,
@@ -361,7 +361,7 @@ impl BaseRenderer {
 
     pub fn render_text(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         theme_id: i32,
         size: u32,
@@ -402,7 +402,7 @@ impl BaseRenderer {
 
     pub fn render_tate_time(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         hours: u32,
         minutes: u32,
         seconds: u32,
@@ -582,7 +582,7 @@ impl BaseRenderer {
     }
 
     pub fn draw_text_at(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         font: &ArcadeFont<'_>,
         size: f32,
@@ -620,7 +620,7 @@ impl BaseRenderer {
     }
 
     pub fn draw_text_clipped(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         font: &ArcadeFont<'_>,
         size: f32,

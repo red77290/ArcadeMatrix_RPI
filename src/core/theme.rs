@@ -236,21 +236,21 @@ pub static THEMES: &[ThemeInfo] = &[
     // their name, and show a notice rather than overlapping themselves on a small one.
     ThemeInfo {
         id: 30,
-        name: "Mario Clock (256x64)",
+        name: "Mario Clock",
         group: ThemeGroup::GameClock,
-        primary_color: (255, 255, 255),
-        secondary_color: (0, 0, 0),
+        primary_color: (255, 50, 50),
+        secondary_color: (255, 255, 255),
     },
     ThemeInfo {
         id: 31,
-        name: "Clock Tower",
+        name: "Castlevania Clock",
         group: ThemeGroup::GameClock,
         primary_color: (181, 140, 96),
-        secondary_color: (0, 0, 0),
+        secondary_color: (160, 20, 20),
     },
     ThemeInfo {
         id: 32,
-        name: "Pocket Index (256x64)",
+        name: "Pocket Index",
         group: ThemeGroup::GameClock,
         primary_color: (255, 255, 255),
         secondary_color: (0, 0, 0),
@@ -270,11 +270,32 @@ pub static THEMES: &[ThemeInfo] = &[
         secondary_color: (255, 60, 160),
     },
     ThemeInfo {
+        id: 35,
+        name: "Mega Man Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (0, 255, 255),
+        secondary_color: (0, 0, 255),
+    },
+    ThemeInfo {
         id: 37,
-        name: "Words Clock (256x64)",
+        name: "Words Clock",
         group: ThemeGroup::GameClock,
         primary_color: (255, 255, 255),
         secondary_color: (72, 176, 200),
+    },
+    ThemeInfo {
+        id: 39,
+        name: "Sonic Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (0, 85, 255),
+        secondary_color: (255, 224, 0),
+    },
+    ThemeInfo {
+        id: 41,
+        name: "Metal Slug Clock",
+        group: ThemeGroup::GameClock,
+        primary_color: (255, 140, 0),
+        secondary_color: (0, 100, 0),
     },
 ];
 
@@ -285,11 +306,9 @@ pub fn all_themes() -> &'static [ThemeInfo] {
 
 /// Whether a clock/date theme is animated and therefore needs a high frame rate
 /// (~25fps) instead of the 1fps static cadence. Kept next to the theme catalog
-/// so cadence stays in sync with the renderers. Covers the animated sprite
-/// themes (12-17), cyberpunk/flip (18-19), true-matrix (21), the game clocks
-/// (pong/tetris/pacman 22-24) and binary/versus/slot/tetris-gb (26-29).
+/// so cadence stays in sync with the renderers.
 pub fn is_realtime_theme(theme_id: i32) -> bool {
-    matches!(theme_id, 12..=19 | 21..=24 | 26..=34 | 37)
+    matches!(theme_id, 12..=19 | 21..=35 | 37 | 39 | 41)
 }
 
 pub fn get_theme_info(theme_id: i32) -> ThemeInfo {

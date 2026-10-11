@@ -2,9 +2,7 @@
 use crate::api::run_server;
 use crate::core::arbiter::DisplayArbiter;
 use crate::core::config::Config;
-#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-use crate::core::matrix::HardwareMatrix;
-use crate::core::matrix::{MatrixBackend, MockMatrix};
+use crate::core::matrix::{create_surface, IDrawingSurface, MockSurface};
 use crate::core::registry::EngineRuntime;
 use crate::core::rotation_manager::RotationManager;
 use crate::core::runtime::DisplayRuntime;
@@ -283,10 +281,10 @@ pub fn normalize_rotation(val: u32) -> u8 {
 fn build_runtime_snapshot(
     config: &Config,
     engine_runtime: &mut EngineRuntime,
-    matrix: &mut dyn MatrixBackend,
+    surface: &mut dyn IDrawingSurface,
 ) -> RuntimeSnapshot {
     let settings = config.settings.read();
-    let mut ctx = crate::core::engine_contract::EngineContext { matrix, config };
+    let mut ctx = crate::core::engine_contract::EngineContext { surface, config };
 
     for inst in &settings.instances {
         let handle = engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
@@ -338,110 +336,41 @@ impl ArcadeMatrixApp {
         local_ip: String,
         running: Arc<std::sync::atomic::AtomicBool>,
     ) {
-        // Initialize hardware matrix
-        let mut matrix: Box<dyn MatrixBackend> = {
-            #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-            {
-                // Snapshot the matrix config, then release the settings lock so we
-                // never hold it across the (potentially retried) hardware init.
-                let (
-                    rows,
-                    cols,
-                    chain,
-                    parallel,
-                    mapping,
-                    rgb_sequence,
-                    slowdown,
-                    pwm_bits,
-                    pwm_lsb,
-                    disable_pulsing,
-                    brightness,
-                    limit_refresh,
-                    driver_chip,
-                    multiplexing,
-                    row_addr_type,
-                ) = {
-                    let cfg = config.settings.read();
-                    (
-                        cfg.matrix.height,
-                        cfg.matrix.width,
-                        cfg.matrix.chain_length,
-                        1,
-                        cfg.matrix.mapping.clone(),
-                        cfg.matrix.rgb_sequence.clone(),
-                        cfg.matrix.slowdown,
-                        cfg.matrix.pwm_bits,
-                        cfg.matrix.pwm_lsb_nanoseconds,
-                        cfg.matrix.disable_hardware_pulsing,
-                        100 as u8,
-                        cfg.matrix.limit_refresh_rate_hz,
-                        cfg.matrix.driver_chip.clone(),
-                        cfg.matrix.multiplexing,
-                        cfg.matrix.row_address_mode,
-                    )
-                };
-
-                const MAX_INIT_ATTEMPTS: u32 = 30;
-                let mut attempt = 0u32;
-                loop {
-                    match HardwareMatrix::new(
-                        rows,
-                        cols,
-                        chain,
-                        parallel,
-                        multiplexing,
-                        row_addr_type,
-                        &mapping,
-                        &rgb_sequence,
-                        slowdown,
-                        pwm_bits,
-                        pwm_lsb,
-                        disable_pulsing,
-                        brightness,
-                        limit_refresh,
-                        &driver_chip,
-                    ) {
-                        Ok(hw) => break Box::new(hw) as Box<dyn MatrixBackend>,
-                        Err(e) => {
-                            attempt += 1;
-                            if attempt >= MAX_INIT_ATTEMPTS {
-                                tracing::error!(
-                                    "Failed to initialize hardware matrix after {} attempts: {} \u{2014} falling back to Mock (BLACK SCREEN)",
-                                    attempt,
-                                    e
-                                );
-                                break Box::new(MockMatrix::new(cols * chain, rows))
-                                    as Box<dyn MatrixBackend>;
-                            }
-                            tracing::warn!(
-                                "Hardware matrix init failed (attempt {}/{}): {} \u{2014} previous process may still hold the GPIO, retrying in 1s",
+        // Initialize hardware surface
+        let mut surface: Box<dyn IDrawingSurface> = {
+            const MAX_INIT_ATTEMPTS: u32 = 30;
+            let mut attempt = 0u32;
+            loop {
+                let matrix_cfg = config.settings.read().matrix.clone();
+                match create_surface(&matrix_cfg) {
+                    Ok(s) => break s,
+                    Err(e) => {
+                        attempt += 1;
+                        if attempt >= MAX_INIT_ATTEMPTS {
+                            tracing::error!(
+                                "Failed to initialize surface after {} attempts: {} — falling back to MockSurface",
                                 attempt,
-                                MAX_INIT_ATTEMPTS,
                                 e
                             );
-                            std::thread::sleep(std::time::Duration::from_secs(1));
+                            break Box::new(MockSurface::new(
+                                matrix_cfg.width * matrix_cfg.chain_length,
+                                matrix_cfg.height,
+                            ));
                         }
+                        tracing::warn!(
+                            "Surface init failed (attempt {}/{}): {} — previous process may still hold the GPIO, retrying in 1s",
+                            attempt,
+                            MAX_INIT_ATTEMPTS,
+                            e
+                        );
+                        std::thread::sleep(std::time::Duration::from_secs(1));
                     }
                 }
             }
-            #[cfg(not(all(
-                target_os = "linux",
-                any(target_arch = "arm", target_arch = "aarch64")
-            )))]
-            Box::new(MockMatrix::new(
-                {
-                    let cfg = config.settings.read();
-                    cfg.matrix.width * cfg.matrix.chain_length
-                },
-                {
-                    let cfg = config.settings.read();
-                    cfg.matrix.height
-                },
-            ))
         };
 
-        let width = matrix.width();
-        let height = matrix.height();
+        let width = surface.width();
+        let height = surface.height();
 
         let mut arbiter = DisplayArbiter::new();
         let mut runtime = DisplayRuntime::new();
@@ -451,8 +380,8 @@ impl ArcadeMatrixApp {
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
-        let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime, matrix.as_mut());
-        matrix.set_rotation(snapshot.display_rotation);
+        let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());
+        surface.set_rotation(snapshot.display_rotation);
         let mut orientation_manager = crate::core::orientation::OrientationManager::new(
             width,
             height,
@@ -471,7 +400,7 @@ impl ArcadeMatrixApp {
 
         // 1. Run interactive Startup Splash Screen
         let active_ip = crate::core::splash::SplashScreen::run(
-            matrix.as_mut(),
+            surface.as_mut(),
             &running,
             std::time::Duration::from_millis(5500),
             std::time::Duration::from_secs(12),
@@ -491,16 +420,14 @@ impl ArcadeMatrixApp {
         while running.load(Ordering::SeqCst)
             && start_time.elapsed() < std::time::Duration::from_secs(4)
         {
-            matrix.clear();
-            message_engine.render_payload(matrix.as_mut(), &startup_payload);
-            matrix.update();
+            surface.clear();
+            message_engine.render_payload(surface.as_mut(), &startup_payload);
+            surface.present();
             std::thread::sleep(std::time::Duration::from_millis(30));
         }
 
-        matrix.clear();
-        matrix.update();
-        matrix.clear();
-        matrix.update();
+        surface.clear();
+        surface.present();
 
         while running.load(Ordering::SeqCst) {
             // Auto-restart if configuration requires hardware reload
@@ -512,9 +439,9 @@ impl ArcadeMatrixApp {
             }
 
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
-                snapshot = build_runtime_snapshot(&config, &mut engine_runtime, matrix.as_mut());
+                snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());
                 rotation_manager.reset();
-                matrix.set_rotation(snapshot.display_rotation);
+                surface.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
                     runtime.on_display_geometry_changed(
                         orientation_manager.geometry(),
@@ -537,22 +464,22 @@ impl ArcadeMatrixApp {
 
             if is_night {
                 if snapshot.system.night_brightness == 0 {
-                    matrix.clear();
-                    matrix.update();
+                    surface.clear();
+                    surface.present();
                     std::thread::sleep(std::time::Duration::from_secs(1));
                     continue;
                 } else {
-                    matrix.set_brightness(snapshot.system.night_brightness as u8);
+                    surface.set_brightness(snapshot.system.night_brightness as u8);
                 }
             } else {
                 let bright = config.matrix_brightness.load(Ordering::Relaxed);
-                matrix.set_brightness(bright as u8);
+                surface.set_brightness(bright as u8);
             }
 
             // Power check
             if !config.matrix_power.load(Ordering::Relaxed) {
-                matrix.clear();
-                matrix.update();
+                surface.clear();
+                surface.present();
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 continue;
             }
@@ -682,12 +609,24 @@ impl ArcadeMatrixApp {
                 }
 
                 let mut ctx = crate::core::engine_contract::EngineContext {
-                    matrix: matrix.as_mut(),
+                    surface: surface.as_mut(),
                     config: &config,
                 };
-                ctx.matrix.clear();
-                runtime.update(&mut engine_runtime, &mut ctx);
-                runtime.render(&mut engine_runtime, &mut ctx);
+                let (wants_clear, has_frame) = if let Some(engine) =
+                    engine_runtime.get_active_instance(runtime.active_session().engine_handle)
+                {
+                    (engine.wants_clear(), engine.has_new_frame())
+                } else {
+                    (true, true)
+                };
+
+                if wants_clear && has_frame {
+                    ctx.surface.clear();
+                }
+                if has_frame {
+                    runtime.update(&mut engine_runtime, &mut ctx);
+                    runtime.render(&mut engine_runtime, &mut ctx);
+                }
 
                 if let Some(engine) =
                     engine_runtime.get_active_instance(runtime.active_session().engine_handle)
@@ -750,21 +689,21 @@ impl ArcadeMatrixApp {
             // The transition covers the gap while the next engine prepares its first frame: a GIF
             // spends it opening a file, which used to show as a blank panel.
             if slot_transition.is_running() {
-                slot_transition.render(matrix.as_mut());
+                slot_transition.render(surface.as_mut());
                 realtime_cadence = true;
             }
 
-            overlay_manager.composite(matrix.as_mut());
+            overlay_manager.composite(surface.as_mut());
             realtime_cadence = realtime_cadence || overlay_manager.is_active();
-            matrix.update();
+            surface.present();
 
             // Adaptive sleep: realtime engines run at ~50fps (20ms), static at 1000ms
             let sleep_ms = if realtime_cadence { 20 } else { 1000 };
             std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
         }
 
-        matrix.clear();
-        matrix.update();
+        surface.clear();
+        surface.present();
         tracing::info!("Render loop exited cleanly.");
     }
 }

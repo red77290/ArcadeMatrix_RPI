@@ -103,7 +103,7 @@ fn test_get_descriptor() {
 }
 
 use arcadematrix::core::config::Config;
-use arcadematrix::core::matrix::MockMatrix;
+use arcadematrix::core::matrix::MockSurface;
 use arcadematrix::core::registry::EngineRuntime;
 
 #[test]
@@ -113,10 +113,10 @@ fn test_engine_runtime_lifecycle() {
     MOCK_CONFIG_CHANGED_COUNT.store(0, Ordering::SeqCst);
 
     let mut runtime = EngineRuntime::new();
-    let mut matrix = MockMatrix::new(64, 64);
+    let mut matrix = MockSurface::new(64, 64);
     let config = Config::new("config.json");
     let mut context = EngineContext {
-        matrix: &mut matrix,
+        surface: &mut matrix,
         config: &config,
     };
 

@@ -53,6 +53,52 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 ---
 
+## 🎨 Signature Themed Clocks Collection
+
+ArcadeMatrix RPi includes a signature collection of handcrafted, hardware-synchronized retro arcade and console clocks rendered with 100% bit-perfect original sprites in full 60 FPS, with full multi-resolution support for Landscape (64x64, 128x32, 256x64) and Portrait / Tate modes (32x64, 64x128, 64x256):
+
+### 1. Metal Slug: Super Vehicle-001 (SNK Neo Geo) — Theme 41
+*Authentic SNK Neo Geo pixel art with Arabian desert bazaar backdrop, Marco Rossi combat animations, Rebel Di-Cokka tank, patrol helicopter, and heavy machine gun firefights.*
+![Metal Slug Clock](docs/assets/clocks/poster_metal_slug.png)
+
+### 2. Castlevania (Konami NES) — Theme 31
+*Gothic clock tower Belfry with Simon Belmont climbing the grand stone staircase toward Dracula's chamber, authentic pedestal torch, flapping vampire bat across the blood moon, and high-legibility ivory digits.*
+![Castlevania Clock](docs/assets/clocks/poster_castlevania.png)
+
+### 3. Super Mario Bros (NES) — Theme 30
+*Mushroom Kingdom Overworld with 100% authentic SMB1 brick blocks; Mario runs across the screen and jumps under the digit block to trigger an elastic bounce and digit flip (with green Koopa shell kick and gold coin pop in 128x32 compact mode, and vertical 3-tier climb in portrait mode).*
+![Super Mario Bros Clock](docs/assets/clocks/poster_super_mario.png)
+
+### 4. Mega Man (Capcom NES) — Theme 35
+*Capcom Wily Castle fortress with separated technical platforms, life gauge, sleeping Metool, and Mega Man firing his Buster shot at the minute pod.*
+![Mega Man Clock](docs/assets/clocks/poster_megaman.png)
+
+### 5. Sonic The Hedgehog (Sega Genesis) — Theme 39
+*Green Hill Zone checkered platforms, spinning gold rings, red spring, Motobug badnik, and Sonic idle/spin-dash jumping animations.*
+![Sonic The Hedgehog Clock](docs/assets/clocks/poster_sonic.png)
+
+### 6. Pokémon Pokédex (Nintendo Game Boy) — Theme 32
+*Authentic dual-screen Pokédex (Pocket Index) interface with creature inspection viewport, animated Pikachu sprite, PKMN font digital clock, live seconds telemetry bar, and blinking LED status sensor.*
+![Pokédex Clock](docs/assets/clocks/poster_pokedex.png)
+
+### 7. Pac-Man Arcade (Namco 1980) — Theme 26
+*Original Namco arcade maze with blue neon corridors, energizers, dots, animated Pac-Man, and 4 chasing ghosts (Blinky, Pinky, Inky, Clyde).*
+![Pac-Man Clock](docs/assets/clocks/poster_pacman.png)
+
+### 8. Russian Tetris (Alexey Pajitnov / Game Boy) — Theme 23
+*Legendary falling block puzzle with dynamic 3D-beveled mino bricks (I, J, L, O, S, T, Z) cascading down to assemble the hours and minutes in real-time.*
+![Tetris Clock](docs/assets/clocks/poster_tetris.png)
+
+### 9. World Clock & Solar Terminator — Theme 33
+*High-resolution continental world map with dynamic day/night solar terminator calculating real-time solar declination, local meridian marker, and dual UTC/local time.*
+![World Map Clock](docs/assets/clocks/poster_worldmap.png)
+
+### 10. True Matrix Rain (The Wachowskis 1999) — Theme 21
+*Iconic digital rain with phosphor green glyph cascades, randomized drop speeds, blazing white lead heads, fading persistence trails, and glowing neon clock digits.*
+![Matrix Rain Clock](docs/assets/clocks/poster_matrix_rain.png)
+
+---
+
 ## 🚀 Hardware Requirements & Compatibility
 
 Thanks to the ultra-lightweight native Rust implementation (~5 MB binary, ~10 MB RAM, 0% idle CPU overhead), **ArcadeMatrix now fully supports older legacy Raspberry Pi hardware without stutter or dropped frames**:
@@ -109,10 +155,17 @@ While an unstable Wi-Fi might be acceptable if you only use the Web UI occasiona
 * **Crypto & Stock Tickers**: API calls will timeout and fail.
 * **Weather**: API calls will timeout.
 
-**Solutions for 256x64 users:**
-1. **Use an Ethernet (RJ45) cable** (Pi 3B/4): Bypasses the SDIO Wi-Fi chip entirely.
-2. **Use a USB Wi-Fi Dongle**: USB controllers use a different internal bus and are immune to the PWM DMA starvation.
-3. **Set `disable_hardware_pulsing = true`**: Forces the matrix to use CPU bit-banging instead of hardware DMA. Your Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
+**Solutions & Render Pipeline Selection:**
+
+ArcadeMatrix RPi now features canonical `IDrawingSurface` abstraction with a configurable **Render Pipeline** selector in the Web UI (`#sys-tab-hardware`):
+
+1. **`canvas_single` (Recommended / Default in `auto`)**: Single off-screen canvas with zero-copy row span presentation and `DirtyBounds` dirty line tracking. On static clock frames and slow-moving animations, `present()` immediately detects clean state and never touches the Broadcom memory bus or DMA engine. This completely **prevents SDIO Wi-Fi drops and buffer starvation** on Raspberry Pi!
+2. **`canvas_double`**: Double-buffered off-screen canvas for maximum tear-free smoothness when Wi-Fi contention is not an issue (e.g. Ethernet / USB Wi-Fi).
+3. **`direct_double`**: Direct hardware double-buffering via `rpi-rgb-led-matrix` C FFI.
+4. **`direct_single`**: Direct hardware single frame-buffer.
+5. **Use an Ethernet (RJ45) cable** (Pi 3B/4): Bypasses the SDIO Wi-Fi chip entirely.
+6. **Use a USB Wi-Fi Dongle**: USB controllers use a different internal bus and are immune to the PWM DMA starvation.
+7. **Set `disable_hardware_pulsing = true`**: Forces the matrix to use CPU bit-banging instead of hardware DMA. Your Wi-Fi will work perfectly, but you will see a slight "VHS lines" flickering effect on the matrix.
 
 *(Note: **128x32** matrices require 4x less DMA bandwidth, so they usually run perfectly fine with hardware pulsing enabled and internal Wi-Fi active).*
 
@@ -120,13 +173,14 @@ While an unstable Wi-Fi might be acceptable if you only use the Web UI occasiona
 
 ### Raspberry Pi Matrix Compatibility Table
 
-| Matrix Size | Network / Pulse Configuration | Image Quality | Wi-Fi / API / MQTT |
-|-------------|-----------------------------|----------------|-------------------|
-| **128x32**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
-| **256x64**  | **Ethernet (RJ45)** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
-| **256x64**  | **USB Wi-Fi Dongle** + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
-| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = true` | ⚠️ Slight Flicker | ✅ Stable |
-| **256x64**  | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ❌ Broken / Timeouts |
+| Matrix Size | Render Pipeline | Network / Pulse Configuration | Image Quality | Wi-Fi / API / MQTT |
+|-------------|-----------------|-----------------------------|----------------|-------------------|
+| **Any**     | **`canvas_single`** (Default) | Internal Wi-Fi + DMA Pulsing | ✅ Perfect (No flicker) | ✅ **100% Stable (Zero Drops)** |
+| **128x32**  | Any Pipeline    | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ✅ Stable |
+| **256x64**  | `canvas_double` / `direct` | **Ethernet (RJ45)** + DMA Pulsing | ✅ Perfect | ✅ Stable |
+| **256x64**  | `canvas_double` / `direct` | **USB Wi-Fi Dongle** + DMA Pulsing | ✅ Perfect | ✅ Stable |
+| **256x64**  | `direct_single` | Internal Wi-Fi + `disable_hardware_pulsing = true` | ⚠️ Slight Flicker | ✅ Stable |
+| **256x64**  | `direct_double` | Internal Wi-Fi + `disable_hardware_pulsing = false` | ✅ Perfect | ❌ Broken / Timeouts |
 
 ---
 

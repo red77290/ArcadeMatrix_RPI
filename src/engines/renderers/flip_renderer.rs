@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use std::collections::HashMap;
 
@@ -64,7 +64,7 @@ impl FlipRenderer {
     }
 
     fn draw_flap(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         panel_w: i32,
@@ -124,7 +124,7 @@ impl FlipRenderer {
     }
 
     fn draw_single_card(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         panel_w: i32,
@@ -218,7 +218,7 @@ impl FlipRenderer {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         font: &ArcadeFont<'_>,
         scale: u32,

@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 // ============================================================================
 // Exact 5x7 Pixel Font (Adafruit GLCD 5x7 Standard Table - 100% ESP32 Parity)
@@ -132,7 +132,7 @@ pub fn normalize_char(c: char) -> char {
 }
 
 pub fn draw_char_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     c: char,
     x: i32,
     y: i32,
@@ -173,7 +173,7 @@ pub fn draw_char_clipped(
 }
 
 pub fn draw_text_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     mut x: i32,
     y: i32,
@@ -190,7 +190,7 @@ pub fn draw_text_clipped(
 }
 
 pub fn draw_char_scaled(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     c: char,
     x: i32,
     y: i32,
@@ -238,7 +238,7 @@ pub fn draw_char_scaled(
 }
 
 pub fn draw_text_scaled(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     mut x: i32,
     y: i32,

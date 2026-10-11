@@ -1,9 +1,9 @@
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
+use arcadematrix::core::matrix::{IDrawingSurface, MockSurface};
 use image::{Rgb, RgbImage};
 
 #[test]
 fn test_mock_matrix_dimensions_and_pixels() {
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
     assert_eq!(matrix.width(), 64);
     assert_eq!(matrix.height(), 32);
 
@@ -22,7 +22,7 @@ fn test_mock_matrix_dimensions_and_pixels() {
 
 #[test]
 fn test_mock_matrix_draw_image() {
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
     let mut img = RgbImage::new(10, 10);
     img.put_pixel(0, 0, Rgb([100, 200, 50]));
 
@@ -35,7 +35,7 @@ fn test_mock_matrix_draw_image() {
 
 #[test]
 fn test_mock_matrix_rotations() {
-    let mut matrix = MockMatrix::new(64, 32);
+    let mut matrix = MockSurface::new(64, 32);
 
     // Rotation 0 (0°)
     matrix.set_rotation(0);

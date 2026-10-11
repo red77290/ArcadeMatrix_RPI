@@ -78,6 +78,31 @@ impl RotationEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderPipeline {
+    /// Auto (Recommended): Automatically resolves to CanvasSingle for Wi-Fi safety
+    Auto,
+    /// Canvas Buffered + Single Buffer + Dirty Draw (Recommended):
+    /// Offscreen RgbImage canvas, dirty row tracking, no VSync swap churn, minimal memory bus contention.
+    CanvasSingle,
+    /// Canvas Buffered + Double Buffer:
+    /// Offscreen RgbImage canvas pushed to inactive LedCanvas with SwapOnVSync.
+    CanvasDouble,
+    /// Direct Double Buffer:
+    /// Direct rendering to inactive LedCanvas via C FFI + SwapOnVSync.
+    DirectDouble,
+    /// Direct Single Buffer:
+    /// Direct rendering to active scanning LedCanvas.
+    DirectSingle,
+}
+
+impl Default for RenderPipeline {
+    fn default() -> Self {
+        RenderPipeline::CanvasSingle
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MatrixConfig {
@@ -109,6 +134,8 @@ pub struct MatrixConfig {
     pub slot_transition: String,
     #[serde(default = "default_slot_transition_ms")]
     pub slot_transition_duration_ms: u32,
+    #[serde(default)]
+    pub render_pipeline: RenderPipeline,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -236,6 +263,7 @@ impl Default for MatrixConfig {
             transition_duration_ms: 400,
             slot_transition: default_slot_transition(),
             slot_transition_duration_ms: default_slot_transition_ms(),
+            render_pipeline: RenderPipeline::CanvasSingle,
         }
     }
 }

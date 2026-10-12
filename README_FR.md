@@ -3,6 +3,7 @@
 # ArcadeMatrix RPi 🍓👾
 
 [![Communauté Telegram](https://img.shields.io/badge/Telegram-Rejoindre%20la%20Communaut%C3%A9-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/+DrSdAO8UMUViNmE0)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Soutenir%20le%20Projet-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/red1l)
 
 💬 **Communauté Telegram :** [https://t.me/+DrSdAO8UMUViNmE0](https://t.me/+DrSdAO8UMUViNmE0)  
 📺 **Démo Vidéo / Présentation :** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs
@@ -317,6 +318,12 @@ Un immense merci à la communauté open source et aux créateurs des formidables
 - Et toute la communauté Rust pour avoir créé un écosystème aussi exceptionnel (Tokio, Serde, reqwest, tracing, etc.) !
 
 Un grand merci à la **RPiTeam** pour le super pack de 600 GIFs !
+
+## ☕ Soutenir le projet
+
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-M'offrir%20un%20caf%C3%A9-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/red1l)
+
+Si vous appréciez ce projet et souhaitez apporter votre soutien, vous pouvez [m'offrir un café sur Ko-fi](https://ko-fi.com/red1l). C'est entièrement volontaire, sans condition ni rien attendre en retour — simplement un geste sympa qui fait plaisir et aide aux tests sur du nouveau matériel !
 
 ## 📜 Licence
 Ce projet est publié sous la **[Licence MIT](LICENSE)**.

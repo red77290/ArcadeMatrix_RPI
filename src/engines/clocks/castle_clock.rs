@@ -190,8 +190,10 @@ impl CastleClock {
             // Blood Moon
             let moon_outer = rgb565(220, 40, 20);
             let moon_inner = rgb565(240, 80, 40);
-            Self::draw_circle_fill(matrix, 32, 14, 11, moon_outer);
-            Self::draw_circle_fill(matrix, 31, 13, 8, moon_inner);
+            let moon_x = w / 2;
+            let moon_r = if w >= 64 { 11 } else { 6 };
+            Self::draw_circle_fill(matrix, moon_x, 12, moon_r, moon_outer);
+            Self::draw_circle_fill(matrix, moon_x - 1, 11, (moon_r - 3).max(1), moon_inner);
 
             // Flying bat across blood moon
             let bat_pixels = if self.bat_frame % 2 == 0 {
@@ -234,26 +236,37 @@ impl CastleClock {
                 sx += 16;
             }
 
-            // Platforms at y=190, 130, 70
-            let platforms = [(16, 190, 40), (8, 130, 40), (8, 70, 48)];
-            for (px, py, pw) in platforms {
-                for x in px..px + pw {
-                    for dy in py..py + 5 {
+            if w >= 64 {
+                // Platforms at y=190, 130, 70
+                let platforms = [(16, 190, 40), (8, 130, 40), (8, 70, 48)];
+                for (px, py, pw) in platforms {
+                    for x in px..px + pw {
+                        for dy in py..py + 5 {
+                            cwscene::put(matrix, x, dy, stone_base);
+                        }
+                        cwscene::put(matrix, x, py, stone_light);
+                    }
+                }
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                for x in 0..w {
+                    for dy in 70..75 {
                         cwscene::put(matrix, x, dy, stone_base);
                     }
-                    cwscene::put(matrix, x, py, stone_light);
+                    cwscene::put(matrix, x, 70, stone_light);
                 }
             }
 
-            // Candle stand on Platform 1 (x=46, y=56..69)
+            // Candle stand on Platform 1
+            let torch_x = if w >= 64 { 46 } else { 25 };
             let torch_metal = rgb565(140, 100, 50);
             for y in 56..70 {
-                for x in 46..50 {
+                for x in torch_x..torch_x + 4 {
                     cwscene::put(matrix, x, y, torch_metal);
                 }
             }
             for y in 52..56 {
-                for x in 44..52 {
+                for x in torch_x - 2..torch_x + 6 {
                     cwscene::put(matrix, x, y, torch_metal);
                 }
             }
@@ -270,7 +283,14 @@ impl CastleClock {
                 _ => &FLAME_F2_PIXELS[..],
             };
             Self::blit_sprite(
-                matrix, flame_pal, flame_pix, FLAME_F0_W, FLAME_F0_H, 44, 42, false,
+                matrix,
+                flame_pal,
+                flame_pix,
+                FLAME_F0_W,
+                FLAME_F0_H,
+                torch_x - 2,
+                42,
+                false,
             );
         } else if h >= 48 {
             // Dracula's Castle Parapets (256x64)
@@ -373,6 +393,12 @@ impl CastleClock {
                     cwscene::put(matrix, x, y, 0x0000);
                 }
             }
+
+            // Blood Moon
+            let moon_outer = rgb565(220, 40, 20);
+            let moon_inner = rgb565(240, 80, 40);
+            Self::draw_circle_fill(matrix, 14, 10, 8, moon_outer);
+            Self::draw_circle_fill(matrix, 13, 9, 6, moon_inner);
             let brick_col = rgb565(116, 40, 12);
             let brick_mortar = rgb565(40, 16, 8);
             for y in 26..h {
@@ -466,7 +492,7 @@ impl CastleClock {
             self.phase_timer = 0.0;
             if is_portrait {
                 self.simon_x = -16.0;
-                self.simon_y = (h - 8 - 30) as f32;
+                self.simon_y = if w >= 64 { (h - 8 - 30) as f32 } else { 40.0 };
                 self.climb_stage = 0;
                 self.jump_t = 0.0;
             } else {
@@ -497,7 +523,11 @@ impl CastleClock {
 
         // Simon movement & attack state machine
         let target_x = if is_portrait {
-            14.0
+            if w >= 64 {
+                14.0
+            } else {
+                2.0
+            }
         } else if h >= 48 {
             (w - 70).max(30) as f32
         } else {
@@ -568,7 +598,34 @@ impl CastleClock {
         let gold_col = rgb565(255, 200, 40);
 
         if is_portrait {
-            Self::draw_gothic_time(matrix, 6, 28, &time_str, gold_col, 2);
+            if w >= 64 {
+                Self::draw_gothic_time(matrix, 6, 28, &time_str, gold_col, 2);
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let x_pos = 3;
+                let hh_bytes = self.shown_hh.as_bytes();
+                let mm_bytes = self.shown_mm.as_bytes();
+                if hh_bytes.len() >= 2 && mm_bytes.len() >= 2 {
+                    Self::draw_gothic_digit(matrix, x_pos, 18, hh_bytes[0] as char, gold_col, 2);
+                    Self::draw_gothic_digit(
+                        matrix,
+                        x_pos + 8,
+                        18,
+                        hh_bytes[1] as char,
+                        gold_col,
+                        2,
+                    );
+                    Self::draw_gothic_digit(matrix, x_pos, 36, mm_bytes[0] as char, gold_col, 2);
+                    Self::draw_gothic_digit(
+                        matrix,
+                        x_pos + 8,
+                        36,
+                        mm_bytes[1] as char,
+                        gold_col,
+                        2,
+                    );
+                }
+            }
         } else if h >= 48 {
             Self::draw_gothic_time(matrix, 20, 14, &time_str, gold_col, 2);
         } else {
@@ -577,7 +634,11 @@ impl CastleClock {
 
         // Simon Belmont rendering
         let simon_draw_y = if is_portrait {
-            (h - 8 - 30) as i32
+            if w >= 64 {
+                (h - 8 - 30) as i32
+            } else {
+                40
+            }
         } else if h >= 48 {
             (48 - 30) as i32
         } else {

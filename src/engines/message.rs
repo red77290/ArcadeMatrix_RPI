@@ -80,6 +80,7 @@ pub struct MessageEngine {
     cached_pixels: Vec<Vec<(i32, i32)>>,
     last_update: Option<Instant>,
     last_payload: Option<std::sync::Arc<MessagePayload>>,
+    has_drawn_static: bool,
 }
 
 impl MessageEngine {
@@ -100,10 +101,12 @@ impl MessageEngine {
             cached_pixels: Vec::new(),
             last_update: None,
             last_payload: None,
+            has_drawn_static: false,
         }
     }
 
     pub fn reset_state(&mut self, width: f32, height: f32) {
+        self.has_drawn_static = false;
         self.move_accumulator = 0.0;
         let font = self.base_renderer.font();
         let (pixels, _, _) = font.get_pixel_map(&self.text, self.size as f32);
@@ -351,6 +354,26 @@ impl Engine for MessageEngine {
             for &(gx, gy) in char_pixels {
                 matrix.set_pixel(start_x + gx, start_y + gy, r, g, b);
             }
+        }
+
+        if self.direction == ScrollDirection::None {
+            self.has_drawn_static = true;
+        }
+    }
+
+    fn wants_clear(&self) -> bool {
+        true
+    }
+
+    fn is_realtime(&self) -> bool {
+        self.direction != ScrollDirection::None
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.is_realtime() {
+            true
+        } else {
+            !self.has_drawn_static
         }
     }
 

@@ -754,7 +754,11 @@ impl Engine for GoogleCastEngine {
     }
 
     fn is_realtime(&self) -> bool {
-        true
+        if let Ok(status) = self.media_status.lock() {
+            status.is_playing
+        } else {
+            false
+        }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {

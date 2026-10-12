@@ -25,6 +25,7 @@ pub struct DateEngine {
     date_offset_y: i32,
 
     last_font: String,
+    last_rendered_date: String,
 }
 
 impl DateEngine {
@@ -46,6 +47,7 @@ impl DateEngine {
             date_offset_y: 0,
 
             last_font: String::new(),
+            last_rendered_date: String::new(),
         }
     }
 
@@ -203,9 +205,33 @@ impl Engine for DateEngine {
         Ok(())
     }
 
-    fn activate(&mut self) {}
+    fn activate(&mut self) {
+        self.last_rendered_date.clear();
+    }
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn wants_clear(&self) -> bool {
+        match self.date_theme {
+            18 | 21 => false,
+            _ => true,
+        }
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.is_realtime() {
+            true
+        } else {
+            let now = chrono::Local::now();
+            let mut format_str = self.date_format.clone();
+            format_str = format_str.replace("YYYY", "%Y");
+            format_str = format_str.replace("YY", "%y");
+            format_str = format_str.replace("MM", "%m");
+            format_str = format_str.replace("DD", "%d");
+            let cur = now.format(&format_str).to_string();
+            cur != self.last_rendered_date
+        }
+    }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.apply_config(config);
@@ -333,6 +359,7 @@ impl Engine for DateEngine {
                 );
             }
         }
+        self.last_rendered_date = date_str;
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {

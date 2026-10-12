@@ -324,6 +324,10 @@ impl Engine for WeatherEngine {
         }
     }
 
+    fn wants_clear(&self) -> bool {
+        false
+    }
+
     fn deactivate(&mut self) {
         // Cleanup if necessary
     }

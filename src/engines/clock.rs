@@ -48,6 +48,7 @@ pub struct ClockEngine {
     last_font: String,
     last_theme: i32,
     last_size: u32,
+    last_rendered_time: String,
 }
 
 pub fn parse_tz(tz_str: &str) -> Option<chrono_tz::Tz> {
@@ -185,6 +186,7 @@ impl ClockEngine {
             last_font: String::new(),
             last_theme: -1,
             last_size: 0,
+            last_rendered_time: String::new(),
         }
     }
 
@@ -328,9 +330,27 @@ impl Engine for ClockEngine {
         // both come through here: faces with their own state show the current
         // time at once instead of what they last showed.
         self.mario.on_activated();
+        self.last_rendered_time.clear();
     }
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn wants_clear(&self) -> bool {
+        match self.time_theme {
+            2 | 10 | 30 | 31 | 35 | 39 | 41 => false,
+            _ => true,
+        }
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.is_realtime() {
+            true
+        } else {
+            let now = chrono::Local::now();
+            let cur = now.format(&self.time_format).to_string();
+            cur != self.last_rendered_time
+        }
+    }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.apply_config(config);
@@ -600,6 +620,7 @@ impl Engine for ClockEngine {
                 }
             }
         }
+        self.last_rendered_time = time_str;
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {

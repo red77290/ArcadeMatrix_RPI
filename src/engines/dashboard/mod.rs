@@ -281,8 +281,6 @@ impl Engine for DashboardEngine {
             return;
         }
 
-        matrix.clear();
-
         let (sys_tz, sys_24h, sys_unit, sys_lang) = {
             let sys = ctx.config.settings.read();
             (

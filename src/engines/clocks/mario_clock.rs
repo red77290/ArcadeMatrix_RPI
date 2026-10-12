@@ -9,9 +9,9 @@
 
 use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::cwassets::mario::{
-    BLOCK, BUSH, CLOUD1, CLOUD2, CLOUD_FULL, GOLD_COIN, GROUND, HILL, KOOPA_SHELL, KOOPA_SHELL_H,
-    KOOPA_SHELL_W, MARIO_IDLE, MARIO_JUMP, MARIO_RUN1, MARIO_RUN2, MARIO_RUN3, MARIO_RUN_LEFT,
-    MARIO_RUN_W, SKY_COLOR,
+    BLOCK, BUSH, CLOUD1, CLOUD2, CLOUD_FULL, GOLD_COIN, GROUND, HILL, KOOPA_H, KOOPA_SHELL,
+    KOOPA_SHELL_H, KOOPA_SHELL_W, KOOPA_W, KOOPA_WALK1, KOOPA_WALK2, MARIO_IDLE, MARIO_JUMP,
+    MARIO_RUN1, MARIO_RUN2, MARIO_RUN3, MARIO_RUN_LEFT, MARIO_RUN_W, SKY_COLOR,
 };
 use crate::engines::clocks::cwscene;
 use crate::engines::renderers::base_renderer::ArcadeFont;
@@ -128,13 +128,26 @@ impl MarioClock {
         y: i32,
         transparent: bool,
     ) {
+        Self::blit_ex(matrix, data, w, h, x, y, transparent, false);
+    }
+
+    fn blit_ex(
+        matrix: &mut dyn IDrawingSurface,
+        data: &[u16],
+        w: i32,
+        h: i32,
+        x: i32,
+        y: i32,
+        transparent: bool,
+        flip_h: bool,
+    ) {
         for row in 0..h {
             let py = y + row;
             if py < 0 || py >= matrix.height() as i32 {
                 continue;
             }
             for col in 0..w {
-                let px = x + col;
+                let px = x + if flip_h { w - 1 - col } else { col };
                 if px < 0 || px >= matrix.width() as i32 {
                     continue;
                 }
@@ -665,6 +678,19 @@ impl MarioClock {
                     self.shell_x as i32,
                     ground_top - KOOPA_SHELL_H,
                     true,
+                );
+            } else {
+                let kf = (((self.shell_x as i32 + 500) / 4) % 2) as usize;
+                let walk_data = if kf == 0 { &KOOPA_WALK1 } else { &KOOPA_WALK2 };
+                Self::blit_ex(
+                    matrix,
+                    walk_data,
+                    KOOPA_W,
+                    KOOPA_H,
+                    self.shell_x as i32,
+                    ground_top - KOOPA_H,
+                    true,
+                    false,
                 );
             }
             if self.coin_pop && self.block_bounce[self.jump_target] > 0.0 {

@@ -2,6 +2,9 @@
 
 # ArcadeMatrix RPi 🍓👾
 
+[![Telegram Community](https://img.shields.io/badge/Telegram-Join%20Community-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/+DrSdAO8UMUViNmE0)
+
+💬 **Telegram Community:** [https://t.me/+DrSdAO8UMUViNmE0](https://t.me/+DrSdAO8UMUViNmE0)  
 📺 **Video Demo / Présentation :** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs
 
 The original **Rust** implementation of the **ArcadeMatrix** project, specifically designed to run on a **Raspberry Pi** connected to an RGB LED Matrix (HUB75) via the Adafruit HAT or Joy-IT hardware.
@@ -316,6 +319,6 @@ A huge thanks to the open-source community and the creators of the incredible li
 Special thanks to the **RPiTeam** for the awesome pack of 600 GIFs!
 
 ## 📜 License
-This project is licensed under the **[PolyForm Noncommercial License 1.0.0](LICENSE)**.
+This project is licensed under the **[MIT License](LICENSE)**.
 
-**In short:** you're free to use, modify, and share this project for any noncommercial purpose (personal use, hobby builds, research, education, non-profit/public institutions) - see the full [LICENSE](LICENSE) file for the exact terms. **Any commercial use (selling assembled units, kits, or derived products/services) requires a separate license - contact [Red1L](https://github.com/red77290) to discuss commercial terms.**
+**In short:** you are free to use, modify, distribute, and sublicense this software for any purpose, personal or commercial, provided that the original copyright notice and permission notice are preserved. See the full [LICENSE](LICENSE) file for details.

@@ -148,25 +148,28 @@ impl SonicClock {
         scale: i32,
     ) {
         let chars: Vec<char> = str_time.chars().collect();
-        if chars.len() < 5 {
-            return;
-        }
-
         let digit_w = 3 * scale;
         let digit_gap = 1 * scale;
         let s = 2 * scale;
 
-        let x_h1 = start_x;
-        let x_h2 = x_h1 + digit_w + digit_gap;
-        let x_colon = x_h2 + 2 * scale + s;
-        let x_m1 = x_colon + 2 * scale + s;
-        let x_m2 = x_m1 + digit_w + digit_gap;
+        if chars.len() >= 5 {
+            let x_h1 = start_x;
+            let x_h2 = x_h1 + digit_w + digit_gap;
+            let x_colon = x_h2 + 2 * scale + s;
+            let x_m1 = x_colon + 2 * scale + s;
+            let x_m2 = x_m1 + digit_w + digit_gap;
 
-        Self::draw_arcade_digit(matrix, x_h1, start_y, chars[0], color, scale);
-        Self::draw_arcade_digit(matrix, x_h2, start_y, chars[1], color, scale);
-        Self::draw_arcade_digit(matrix, x_colon, start_y, chars[2], color, scale);
-        Self::draw_arcade_digit(matrix, x_m1, start_y, chars[3], color, scale);
-        Self::draw_arcade_digit(matrix, x_m2, start_y, chars[4], color, scale);
+            Self::draw_arcade_digit(matrix, x_h1, start_y, chars[0], color, scale);
+            Self::draw_arcade_digit(matrix, x_h2, start_y, chars[1], color, scale);
+            Self::draw_arcade_digit(matrix, x_colon, start_y, chars[2], color, scale);
+            Self::draw_arcade_digit(matrix, x_m1, start_y, chars[3], color, scale);
+            Self::draw_arcade_digit(matrix, x_m2, start_y, chars[4], color, scale);
+        } else if chars.len() >= 2 {
+            let x1 = start_x;
+            let x2 = x1 + digit_w + digit_gap;
+            Self::draw_arcade_digit(matrix, x1, start_y, chars[0], color, scale);
+            Self::draw_arcade_digit(matrix, x2, start_y, chars[1], color, scale);
+        }
     }
 
     fn draw_green_hill_ground(matrix: &mut dyn IDrawingSurface, w: i32, h: i32, g_height: i32) {
@@ -293,9 +296,13 @@ impl SonicClock {
             Self::fill_triangle(matrix, 0, 48, 16, 28, 32, 48, mountain_col);
             Self::fill_triangle(matrix, 24, 48, 44, 24, 64, 48, mountain_col);
 
-            Self::draw_checkered_platform(matrix, 16, 190, 40, 6);
-            Self::draw_checkered_platform(matrix, 8, 130, 40, 6);
-            Self::draw_checkered_platform(matrix, 8, 70, 48, 6);
+            if w >= 64 {
+                Self::draw_checkered_platform(matrix, 16, 190, 40, 6);
+                Self::draw_checkered_platform(matrix, 8, 130, 40, 6);
+                Self::draw_checkered_platform(matrix, 8, 70, 48, 6);
+            } else {
+                Self::draw_checkered_platform(matrix, 0, 70, w, 6);
+            }
 
             Self::draw_green_hill_ground(matrix, w, h, 16);
         } else if h >= 48 {
@@ -412,79 +419,90 @@ impl SonicClock {
             Phase::HeroEnter => {
                 self.dirty = self.dirty.max(2);
                 if is_portrait {
-                    let ground_y = (h - 16 - 24) as f32;
-                    match self.climb_stage {
-                        0 => {
-                            self.sonic_x += 80.0 * dt;
-                            self.sonic_y = ground_y;
-                            if self.sonic_x >= 14.0 {
-                                self.climb_stage = 1;
-                                self.jump_t = 0.0;
+                    if w >= 64 {
+                        let ground_y = (h - 16 - 24) as f32;
+                        match self.climb_stage {
+                            0 => {
+                                self.sonic_x += 80.0 * dt;
+                                self.sonic_y = ground_y;
+                                if self.sonic_x >= 14.0 {
+                                    self.climb_stage = 1;
+                                    self.jump_t = 0.0;
+                                }
                             }
-                        }
-                        1 => {
-                            self.jump_t += dt * 2.8;
-                            let t = self.jump_t.min(1.0);
-                            self.sonic_x = 14.0 + (36.0 - 14.0) * t;
-                            let base_y = ground_y + (166.0 - ground_y) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.sonic_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
+                            1 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.sonic_x = 14.0 + (36.0 - 14.0) * t;
+                                let base_y = ground_y + (166.0 - ground_y) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.sonic_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.sonic_y = 166.0;
+                                    self.climb_stage = 2;
+                                }
+                            }
+                            2 => {
+                                self.sonic_x -= 65.0 * dt;
                                 self.sonic_y = 166.0;
-                                self.climb_stage = 2;
+                                if self.sonic_x <= 30.0 {
+                                    self.climb_stage = 3;
+                                    self.jump_t = 0.0;
+                                }
                             }
-                        }
-                        2 => {
-                            self.sonic_x -= 65.0 * dt;
-                            self.sonic_y = 166.0;
-                            if self.sonic_x <= 30.0 {
-                                self.climb_stage = 3;
-                                self.jump_t = 0.0;
+                            3 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.sonic_x = 30.0 + (16.0 - 30.0) * t;
+                                let base_y = 166.0 + (106.0 - 166.0) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.sonic_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.sonic_y = 106.0;
+                                    self.climb_stage = 4;
+                                }
                             }
-                        }
-                        3 => {
-                            self.jump_t += dt * 2.8;
-                            let t = self.jump_t.min(1.0);
-                            self.sonic_x = 30.0 + (16.0 - 30.0) * t;
-                            let base_y = 166.0 + (106.0 - 166.0) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.sonic_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
+                            4 => {
+                                self.sonic_x += 65.0 * dt;
                                 self.sonic_y = 106.0;
-                                self.climb_stage = 4;
+                                if self.sonic_x >= 24.0 {
+                                    self.climb_stage = 5;
+                                    self.jump_t = 0.0;
+                                }
                             }
-                        }
-                        4 => {
-                            self.sonic_x += 65.0 * dt;
-                            self.sonic_y = 106.0;
-                            if self.sonic_x >= 24.0 {
-                                self.climb_stage = 5;
-                                self.jump_t = 0.0;
+                            5 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.sonic_x = 24.0 + (28.0 - 24.0) * t;
+                                let base_y = 106.0 + (46.0 - 106.0) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.sonic_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.sonic_y = 46.0;
+                                    self.climb_stage = 6;
+                                }
                             }
-                        }
-                        5 => {
-                            self.jump_t += dt * 2.8;
-                            let t = self.jump_t.min(1.0);
-                            self.sonic_x = 24.0 + (28.0 - 24.0) * t;
-                            let base_y = 106.0 + (46.0 - 106.0) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.sonic_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
+                            _ => {
+                                self.sonic_x -= 65.0 * dt;
                                 self.sonic_y = 46.0;
-                                self.climb_stage = 6;
+                                if self.sonic_x <= 26.0 {
+                                    self.sonic_x = 26.0;
+                                    self.phase = Phase::JumpStrike;
+                                    self.phase_timer = 0.0;
+                                }
                             }
                         }
-                        _ => {
-                            self.sonic_x -= 65.0 * dt;
-                            self.sonic_y = 46.0;
-                            if self.sonic_x <= 26.0 {
-                                self.sonic_x = 26.0;
-                                self.phase = Phase::JumpStrike;
-                                self.phase_timer = 0.0;
-                            }
+                    } else {
+                        // 32-wide Tate (128x32 rotated: w=32, h=128)
+                        self.sonic_x += 80.0 * dt;
+                        self.sonic_y = (70 - 24) as f32;
+                        if self.sonic_x >= (w / 2 - 8) as f32 {
+                            self.sonic_x = (w / 2 - 8) as f32;
+                            self.phase = Phase::JumpStrike;
+                            self.phase_timer = 0.0;
                         }
                     }
                 } else {
@@ -547,37 +565,70 @@ impl SonicClock {
         let ring_pix = SONIC_RING_PIXELS[self.ring_frame % 4];
 
         if is_portrait {
-            // Symmetrically centered time at top (scale 2 = 44px wide, centered at 10)
-            Self::draw_arcade_time(matrix, 10, 16, &time_buf, yellow_time, 2);
+            if w >= 64 {
+                // Symmetrically centered time at top (scale 2 = 44px wide, centered at 10)
+                Self::draw_arcade_time(matrix, 10, 16, &time_buf, yellow_time, 2);
 
-            // Monitor box sitting on Platform 1 (y=70, monitor height 32 -> y=38)
-            Self::blit_sprite(
-                matrix,
-                &SONIC_ITEM_BOX_PAL,
-                &SONIC_ITEM_BOX_PIXELS,
-                SONIC_ITEM_BOX_W,
-                SONIC_ITEM_BOX_H,
-                16,
-                70 - 32,
-                false,
-            );
+                // Monitor box sitting on Platform 1 (y=70, monitor height 32 -> y=38)
+                Self::blit_sprite(
+                    matrix,
+                    &SONIC_ITEM_BOX_PAL,
+                    &SONIC_ITEM_BOX_PIXELS,
+                    SONIC_ITEM_BOX_W,
+                    SONIC_ITEM_BOX_H,
+                    16,
+                    70 - 32,
+                    false,
+                );
 
-            // Rotating golden rings floating above platforms
-            Self::blit_sprite(matrix, ring_pal, ring_pix, 16, 16, 20, 110, false);
-            Self::blit_sprite(matrix, ring_pal, ring_pix, 16, 16, 28, 170, false);
+                // Rotating golden rings floating above platforms
+                Self::blit_sprite(matrix, ring_pal, ring_pix, 16, 16, 20, 110, false);
+                Self::blit_sprite(matrix, ring_pal, ring_pix, 16, 16, 28, 170, false);
 
-            // Motobug patrol on bottom ground
-            let moto_x = 12 + moto_offset as i32;
-            Self::blit_sprite(
-                matrix,
-                &SONIC_MOTOBUG_PAL,
-                &SONIC_MOTOBUG_PIXELS,
-                SONIC_MOTOBUG_W,
-                SONIC_MOTOBUG_H,
-                moto_x,
-                h - 16 - 29,
-                moto_flip,
-            );
+                // Motobug patrol on bottom ground
+                let moto_x = 12 + moto_offset as i32;
+                Self::blit_sprite(
+                    matrix,
+                    &SONIC_MOTOBUG_PAL,
+                    &SONIC_MOTOBUG_PIXELS,
+                    SONIC_MOTOBUG_W,
+                    SONIC_MOTOBUG_H,
+                    moto_x,
+                    h - 16 - 29,
+                    moto_flip,
+                );
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let time_x = (w - 18) / 2;
+                Self::draw_arcade_time(matrix, time_x, 6, &self.shown_hh, yellow_time, 2);
+                Self::draw_arcade_time(matrix, time_x, 22, &self.shown_mm, yellow_time, 2);
+
+                let box_x = (w - SONIC_ITEM_BOX_W) / 2;
+                Self::blit_sprite(
+                    matrix,
+                    &SONIC_ITEM_BOX_PAL,
+                    &SONIC_ITEM_BOX_PIXELS,
+                    SONIC_ITEM_BOX_W,
+                    SONIC_ITEM_BOX_H,
+                    box_x,
+                    70 - 32,
+                    false,
+                );
+
+                Self::blit_sprite(matrix, ring_pal, ring_pix, 16, 16, (w - 16) / 2, 78, false);
+
+                let moto_x = (w - SONIC_MOTOBUG_W) / 2 + (moto_offset * 0.3) as i32;
+                Self::blit_sprite(
+                    matrix,
+                    &SONIC_MOTOBUG_PAL,
+                    &SONIC_MOTOBUG_PIXELS,
+                    SONIC_MOTOBUG_W,
+                    SONIC_MOTOBUG_H,
+                    moto_x,
+                    h - 16 - 29,
+                    moto_flip,
+                );
+            }
 
             // Sonic minute reward sequence
             if self.phase != Phase::Idle {

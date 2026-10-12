@@ -178,24 +178,42 @@ impl MarioClock {
         }
 
         if is_portrait {
-            // Stepped brick platforms in vertical mode
-            let mut px = 8;
-            while px < 56 {
-                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 70, false);
-                px += GROUND_W;
+            if w >= 64 {
+                // Stepped brick platforms in vertical mode (64x256 / 64x128)
+                let mut px = 8;
+                while px < 56 {
+                    Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 70, false);
+                    px += GROUND_W;
+                }
+                px = 16;
+                while px < 48 {
+                    Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 130, false);
+                    px += GROUND_W;
+                }
+                px = 8;
+                while px < 56 {
+                    Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 190, false);
+                    px += GROUND_W;
+                }
+                Self::blit(matrix, &CLOUD1, CLOUD_W, CLOUD_H, 4, 4, true);
+                Self::blit(matrix, &CLOUD2, CLOUD_W, CLOUD_H, w - CLOUD_W - 4, 10, true);
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let mut px = 0;
+                while px < w {
+                    Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 80, false);
+                    px += GROUND_W;
+                }
+                Self::blit(
+                    matrix,
+                    &CLOUD1,
+                    CLOUD_W,
+                    CLOUD_H,
+                    (w - CLOUD_W) / 2,
+                    2,
+                    true,
+                );
             }
-            px = 16;
-            while px < 48 {
-                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 130, false);
-                px += GROUND_W;
-            }
-            px = 8;
-            while px < 56 {
-                Self::blit(matrix, &GROUND, GROUND_W, GROUND_H, px, 190, false);
-                px += GROUND_W;
-            }
-            Self::blit(matrix, &CLOUD1, CLOUD_W, CLOUD_H, 4, 4, true);
-            Self::blit(matrix, &CLOUD2, CLOUD_W, CLOUD_H, w - CLOUD_W - 4, 10, true);
             return;
         }
 
@@ -311,7 +329,11 @@ impl MarioClock {
         let ground_top = if is_portrait { 70 } else { h - GROUND_H };
 
         let (hour_x, minute_x, block_y) = if is_portrait {
-            (10, 35, 24)
+            if w >= 64 {
+                (10, 35, 24)
+            } else {
+                ((w - BLOCK_W) / 2, (w - BLOCK_W) / 2, 16)
+            }
         } else if is_wide_tall {
             let scene_left = (w - SCENE) / 2;
             (scene_left + 13, scene_left + 32, 8)
@@ -375,124 +397,170 @@ impl MarioClock {
         let pace = 85.0 * speed;
 
         if is_portrait {
-            let target_x = ((if self.jump_target == 0 {
-                hour_x
-            } else {
-                minute_x
-            }) + BLOCK_W / 2
-                - MARIO_W / 2) as f32;
+            if w >= 64 {
+                let target_x = ((if self.jump_target == 0 {
+                    hour_x
+                } else {
+                    minute_x
+                }) + BLOCK_W / 2
+                    - MARIO_W / 2) as f32;
 
-            match self.phase {
-                Phase::Waiting => {}
-                Phase::RunIn => {
-                    let bottom_ground_y = (h - GROUND_H - MARIO_H) as f32;
-                    match self.climb_stage {
-                        0 => {
-                            self.runner_x += pace * dt;
-                            self.runner_y = bottom_ground_y;
-                            if self.runner_x >= 14.0 {
-                                self.climb_stage = 1;
-                                self.jump_t = 0.0;
-                            }
-                        }
-                        1 => {
-                            self.jump_t += dt * 2.6;
-                            let t = self.jump_t.min(1.0);
-                            self.runner_x = 14.0 + 22.0 * t;
-                            let base_y =
-                                bottom_ground_y + (190.0 - MARIO_H as f32 - bottom_ground_y) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.runner_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
-                                self.runner_y = (190 - MARIO_H) as f32;
-                                self.climb_stage = 2;
-                            }
-                        }
-                        2 => {
-                            self.runner_x -= pace * dt;
-                            self.runner_y = (190 - MARIO_H) as f32;
-                            if self.runner_x <= 30.0 {
-                                self.climb_stage = 3;
-                                self.jump_t = 0.0;
-                            }
-                        }
-                        3 => {
-                            self.jump_t += dt * 2.8;
-                            let t = self.jump_t.min(1.0);
-                            self.runner_x = 30.0 + (18.0 - 30.0) * t;
-                            let base_y = (190.0 - MARIO_H as f32)
-                                + ((130.0 - MARIO_H as f32) - (190.0 - MARIO_H as f32)) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.runner_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
-                                self.runner_y = (130 - MARIO_H) as f32;
-                                self.climb_stage = 4;
-                            }
-                        }
-                        4 => {
-                            self.runner_x += pace * dt;
-                            self.runner_y = (130 - MARIO_H) as f32;
-                            if self.runner_x >= 24.0 {
-                                self.climb_stage = 5;
-                                self.jump_t = 0.0;
-                            }
-                        }
-                        5 => {
-                            self.jump_t += dt * 2.8;
-                            let t = self.jump_t.min(1.0);
-                            self.runner_x = 24.0 + (32.0 - 24.0) * t;
-                            let base_y = (130.0 - MARIO_H as f32)
-                                + ((70.0 - MARIO_H as f32) - (130.0 - MARIO_H as f32)) * t;
-                            let arc = 4.0 * 14.0 * t * (1.0 - t);
-                            self.runner_y = base_y - arc;
-                            if self.jump_t >= 1.0 {
-                                self.jump_t = 0.0;
-                                self.runner_y = (70 - MARIO_H) as f32;
-                                self.climb_stage = 6;
-                            }
-                        }
-                        6 => {
-                            if self.runner_x < target_x {
+                match self.phase {
+                    Phase::Waiting => {}
+                    Phase::RunIn => {
+                        let bottom_ground_y = (h - GROUND_H - MARIO_H) as f32;
+                        match self.climb_stage {
+                            0 => {
                                 self.runner_x += pace * dt;
-                                if self.runner_x >= target_x {
-                                    self.runner_x = target_x;
-                                    self.phase = Phase::Jump;
-                                    self.jump_t = 0.0;
-                                }
-                            } else {
-                                self.runner_x -= pace * dt;
-                                if self.runner_x <= target_x {
-                                    self.runner_x = target_x;
-                                    self.phase = Phase::Jump;
+                                self.runner_y = bottom_ground_y;
+                                if self.runner_x >= 14.0 {
+                                    self.climb_stage = 1;
                                     self.jump_t = 0.0;
                                 }
                             }
-                            self.runner_y = (70 - MARIO_H) as f32;
+                            1 => {
+                                self.jump_t += dt * 2.6;
+                                let t = self.jump_t.min(1.0);
+                                self.runner_x = 14.0 + 22.0 * t;
+                                let base_y = bottom_ground_y
+                                    + (190.0 - MARIO_H as f32 - bottom_ground_y) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.runner_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.runner_y = (190 - MARIO_H) as f32;
+                                    self.climb_stage = 2;
+                                }
+                            }
+                            2 => {
+                                self.runner_x -= pace * dt;
+                                self.runner_y = (190 - MARIO_H) as f32;
+                                if self.runner_x <= 30.0 {
+                                    self.climb_stage = 3;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            3 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.runner_x = 30.0 + (18.0 - 30.0) * t;
+                                let base_y = (190.0 - MARIO_H as f32)
+                                    + ((130.0 - MARIO_H as f32) - (190.0 - MARIO_H as f32)) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.runner_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.runner_y = (130 - MARIO_H) as f32;
+                                    self.climb_stage = 4;
+                                }
+                            }
+                            4 => {
+                                self.runner_x += pace * dt;
+                                self.runner_y = (130 - MARIO_H) as f32;
+                                if self.runner_x >= 24.0 {
+                                    self.climb_stage = 5;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            5 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.runner_x = 24.0 + (32.0 - 24.0) * t;
+                                let base_y = (130.0 - MARIO_H as f32)
+                                    + ((70.0 - MARIO_H as f32) - (130.0 - MARIO_H as f32)) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.runner_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.runner_y = (70 - MARIO_H) as f32;
+                                    self.climb_stage = 6;
+                                }
+                            }
+                            6 => {
+                                if self.runner_x < target_x {
+                                    self.runner_x += pace * dt;
+                                    if self.runner_x >= target_x {
+                                        self.runner_x = target_x;
+                                        self.phase = Phase::Jump;
+                                        self.jump_t = 0.0;
+                                    }
+                                } else {
+                                    self.runner_x -= pace * dt;
+                                    if self.runner_x <= target_x {
+                                        self.runner_x = target_x;
+                                        self.phase = Phase::Jump;
+                                        self.jump_t = 0.0;
+                                    }
+                                }
+                                self.runner_y = (70 - MARIO_H) as f32;
+                            }
+                            _ => {}
                         }
-                        _ => {}
+                    }
+                    Phase::Jump => {
+                        self.jump_t += dt * 4.0 * speed;
+                        if self.jump_t >= 0.5 && self.pending_digits {
+                            self.pending_digits = false;
+                            self.block_bounce[self.jump_target] = 0.001;
+                            self.shown[0] = hh.clone();
+                            self.shown[1] = mm.clone();
+                        }
+                        if self.jump_t >= 1.0 {
+                            self.jump_t = 0.0;
+                            self.phase = Phase::RunOut;
+                        }
+                    }
+                    Phase::RunOut => {
+                        self.runner_x += pace * dt;
+                        self.runner_y = (70 - MARIO_H) as f32;
+                        if self.runner_x > w as f32 + MARIO_JUMP_W as f32 + 16.0 {
+                            self.phase = Phase::Waiting;
+                            self.dirty = 3;
+                        }
                     }
                 }
-                Phase::Jump => {
-                    self.jump_t += dt * 4.0 * speed;
-                    if self.jump_t >= 0.5 && self.pending_digits {
-                        self.pending_digits = false;
-                        self.block_bounce[self.jump_target] = 0.001;
-                        self.shown[0] = hh.clone();
-                        self.shown[1] = mm.clone();
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let target_x = ((w - MARIO_W) / 2) as f32;
+                let plat_ground_y = (80 - MARIO_H) as f32;
+
+                match self.phase {
+                    Phase::Waiting => {}
+                    Phase::RunIn => {
+                        self.runner_x += pace * dt;
+                        self.runner_y = plat_ground_y;
+                        if self.runner_x >= target_x {
+                            self.runner_x = target_x;
+                            self.phase = Phase::Jump;
+                            self.jump_t = 0.0;
+                        }
                     }
-                    if self.jump_t >= 1.0 {
-                        self.jump_t = 0.0;
-                        self.phase = Phase::RunOut;
+                    Phase::Jump => {
+                        self.jump_t += dt * 3.5 * speed;
+                        let t = self.jump_t.min(1.0);
+                        let arc_height = if self.jump_target == 0 { 26.0 } else { 10.0 };
+                        let arc = (t * std::f32::consts::PI).sin() * arc_height;
+                        self.runner_y = plat_ground_y - arc;
+                        if self.jump_t >= 0.5 && self.pending_digits {
+                            self.pending_digits = false;
+                            self.block_bounce[self.jump_target] = 0.001;
+                            self.shown[0] = hh.clone();
+                            self.shown[1] = mm.clone();
+                            self.coin_pop = true;
+                        }
+                        if self.jump_t >= 1.0 {
+                            self.jump_t = 0.0;
+                            self.runner_y = plat_ground_y;
+                            self.phase = Phase::RunOut;
+                        }
                     }
-                }
-                Phase::RunOut => {
-                    self.runner_x += pace * dt;
-                    self.runner_y = (70 - MARIO_H) as f32;
-                    if self.runner_x > w as f32 + MARIO_JUMP_W as f32 + 16.0 {
-                        self.phase = Phase::Waiting;
-                        self.dirty = 3;
+                    Phase::RunOut => {
+                        self.runner_x += pace * dt;
+                        self.runner_y = plat_ground_y;
+                        if self.runner_x > w as f32 + 16.0 {
+                            self.phase = Phase::Waiting;
+                            self.dirty = 3;
+                        }
                     }
                 }
             }
@@ -594,29 +662,59 @@ impl MarioClock {
             } else {
                 0
             };
+            let by = if is_portrait && w < 64 {
+                if i == 0 {
+                    16
+                } else {
+                    48
+                }
+            } else {
+                block_y
+            };
             Self::draw_block_at(
                 matrix,
                 if i == 0 { hour_x } else { minute_x },
-                block_y - lift,
+                by - lift,
                 &self.shown[i],
                 font,
+            );
+        }
+
+        if is_portrait && w < 64 && self.coin_pop && self.block_bounce[self.jump_target] > 0.0 {
+            let b = self.block_bounce[self.jump_target];
+            let coin_lift = ((b * std::f32::consts::PI).sin() * 6.0) as i32;
+            let target_by = if self.jump_target == 0 { 16 } else { 48 };
+            Self::blit(
+                matrix,
+                &GOLD_COIN,
+                8,
+                8,
+                (w - 8) / 2,
+                target_by - 5 - coin_lift,
+                true,
             );
         }
 
         if is_wide_tall || is_portrait {
             if self.phase != Phase::Waiting {
                 let (airborne, draw_y) = if is_portrait {
-                    if self.phase == Phase::Jump {
-                        let lift = ((self.jump_t * std::f32::consts::PI).sin()
-                            * (70 - block_y - BLOCK_H - 2) as f32)
-                            as i32;
-                        (true, (70 - MARIO_H) - lift)
-                    } else if self.phase == Phase::RunIn
-                        && (self.climb_stage == 1 || self.climb_stage == 3 || self.climb_stage == 5)
-                    {
-                        (true, self.runner_y as i32)
+                    if w >= 64 {
+                        if self.phase == Phase::Jump {
+                            let lift = ((self.jump_t * std::f32::consts::PI).sin()
+                                * (70 - block_y - BLOCK_H - 2) as f32)
+                                as i32;
+                            (true, (70 - MARIO_H) - lift)
+                        } else if self.phase == Phase::RunIn
+                            && (self.climb_stage == 1
+                                || self.climb_stage == 3
+                                || self.climb_stage == 5)
+                        {
+                            (true, self.runner_y as i32)
+                        } else {
+                            (false, self.runner_y as i32)
+                        }
                     } else {
-                        (false, self.runner_y as i32)
+                        (self.phase == Phase::Jump, self.runner_y as i32)
                     }
                 } else {
                     let airborne = self.phase == Phase::Jump;

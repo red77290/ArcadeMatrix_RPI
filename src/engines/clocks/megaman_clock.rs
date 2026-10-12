@@ -206,7 +206,11 @@ impl MegamanClock {
         }
 
         // Metool enemy
-        let metool_draw_x = (w - 30).max(30);
+        let metool_draw_x = if is_portrait && w < 64 {
+            w - METOOL_W
+        } else {
+            (w - 30).max(30)
+        };
         Self::blit_sprite(
             matrix,
             &METOOL_SLEEP,
@@ -303,7 +307,14 @@ impl MegamanClock {
         let time_str = format!("{}:{}", self.shown_hh, self.shown_mm);
         let time_col = rgb565(80, 220, 255);
         if is_portrait {
-            Self::draw_capcom_time(matrix, 12, 16, &time_str, time_col);
+            if w >= 64 {
+                Self::draw_capcom_time(matrix, 12, 16, &time_str, time_col);
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let time_x = (w - 20) / 2;
+                Self::draw_capcom_time(matrix, time_x, 10, &self.shown_hh, time_col);
+                Self::draw_capcom_time(matrix, time_x, 26, &self.shown_mm, time_col);
+            }
         } else if h >= 48 {
             Self::draw_capcom_time(matrix, 18, 12, &time_str, time_col);
         } else {
@@ -337,7 +348,15 @@ impl MegamanClock {
             self.dirty = 3;
         }
 
-        let target_shoot_x = if is_portrait { 6.0 } else { 18.0 };
+        let target_shoot_x = if is_portrait {
+            if w >= 64 {
+                6.0
+            } else {
+                2.0
+            }
+        } else {
+            18.0
+        };
 
         match self.phase {
             Phase::Idle => {

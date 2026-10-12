@@ -427,17 +427,24 @@ impl MetalSlugClock {
             for x in 0..w {
                 cwscene::put(matrix, x, 10, rgb565(40, 40, 70));
             }
-            Self::draw_arcade_digit(matrix, 4, 2, '1', hud_red, 1);
-            let score_str = format!("00{}{}", self.shown_hh, self.shown_mm);
-            let mut sx = 18;
-            for c in score_str.chars() {
-                if sx >= w - 4 {
-                    break;
+            if w >= 64 {
+                Self::draw_arcade_digit(matrix, 4, 2, '1', hud_red, 1);
+                let score_str = format!("00{}{}", self.shown_hh, self.shown_mm);
+                let mut sx = 18;
+                for c in score_str.chars() {
+                    if sx >= w - 4 {
+                        break;
+                    }
+                    Self::draw_arcade_digit(matrix, sx, 2, c, hud_white, 1);
+                    sx += 4;
                 }
-                Self::draw_arcade_digit(matrix, sx, 2, c, hud_white, 1);
-                sx += 4;
+                Self::draw_arcade_time(matrix, 10, 14, &time_str, hud_yellow, 2);
+            } else {
+                // 32-wide Tate (128x32 rotated: w=32, h=128)
+                let time_x = (w - 18) / 2;
+                Self::draw_arcade_time(matrix, time_x, 14, &self.shown_hh, hud_yellow, 2);
+                Self::draw_arcade_time(matrix, time_x, 30, &self.shown_mm, hud_yellow, 2);
             }
-            Self::draw_arcade_time(matrix, 10, 14, &time_str, hud_yellow, 2);
         } else if h >= 48 {
             for y in 0..12 {
                 for x in 0..w {

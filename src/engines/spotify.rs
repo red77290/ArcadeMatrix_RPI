@@ -609,7 +609,11 @@ impl Engine for SpotifyEngine {
     }
 
     fn is_realtime(&self) -> bool {
-        true
+        if let Ok(status) = self.now_playing.lock() {
+            status.is_playing
+        } else {
+            false
+        }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {

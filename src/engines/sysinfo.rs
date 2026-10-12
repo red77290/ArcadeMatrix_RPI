@@ -234,7 +234,7 @@ impl Engine for SysInfoEngine {
     fn activate(&mut self) {}
     fn deactivate(&mut self) {}
     fn is_realtime(&self) -> bool {
-        true
+        false
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {

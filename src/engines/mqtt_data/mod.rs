@@ -554,7 +554,6 @@ impl Engine for MqttDataEngine {
             ),
             Some(PageData::Unsupported) => draw_notice(ctx.surface, Notice::Unsupported, lang),
             Some(PageData::Weather(_)) => {
-                ctx.surface.clear();
                 if let Some((_, _, img)) = &s.weather_image {
                     ctx.surface.draw_image(img, 0, 0);
                 } else {

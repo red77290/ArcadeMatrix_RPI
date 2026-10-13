@@ -35,25 +35,41 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 ---
 
-## 🌟 Features (RPi Exclusives & ESP32 Alignment)
+## 🕹️ Built-in Engines & Hardware Simulations
+
+Every engine in ArcadeMatrix RPi is engineered in pure, multi-threaded Rust with **zero allocation on the display render cycle**, guaranteeing a rock-solid 60 FPS refresh rate. Below are hardware-accurate simulations of each engine running on physical HUB75 displays:
+
+| Engine / ID | Hardware Simulation | Description & Key Features |
+| :--- | :---: | :--- |
+| **Desk Master Dashboard**<br>`dashboard` | <img src="docs/assets/engines/engine_dashboard.png" width="240" alt="Dashboard Engine"> | Complete horizontal desk deck with handcrafted analog watch dial, smooth sweeping second hand, world clocks, live OpenWeatherMap weather, and live Binance cryptos & Yahoo Finance stocks ticker. |
+| **Retro Game Clock**<br>`clock` | <img src="docs/assets/engines/engine_clock.png" width="240" alt="Retro Clock"><br><br>[👉 **View 10+ Retro Clocks Showcase ➔**](#-signature-themed-clocks-collection) | Signature animated retro arcade and console clocks (Metal Slug, Castlevania, Mario, Mega Man, Sonic, Pokédex, Pac-Man, Tetris, World Clock, Matrix Rain...) with 100% bit-perfect sprites. |
+| **M.U.G.E.N Arcade Fighters**<br>`fighter` | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Fighter Engine"> | Authentic retro fighting game sprites (Street Fighter, King of Fighters, etc.) with real-time healthbars, custom stages, autonomous CPU battles, and transversal overlay over clocks and dates. |
+| **Spotify Now Playing**<br>`spotify` | <img src="docs/assets/engines/engine_spotify.png" width="240" alt="Spotify Engine"> | Real-time track display with full-color album artwork, scrolling artist/title, animated mini equalizer bars, and track progress. |
+| **Google Cast & Nest**<br>`googlecast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Google Cast Engine"> | Automatic mDNS discovery of Google Home / Nest Audio devices with live streaming media artwork, volume, and playback progress. |
+| **Crypto Ticker & Chart**<br>`crypto` | <img src="docs/assets/engines/engine_crypto.png" width="240" alt="Crypto Engine"> | Live Binance / CoinGecko prices, 24h change badge, and real-time historical sparkline charts with smart TTL caching. |
+| **Stock Market Ticker**<br>`stock` | <img src="docs/assets/engines/engine_stock.png" width="240" alt="Stock Engine"> | Real-time quotes from Yahoo Finance, 1D % badges, and intraday sparkline area charts for NASDAQ/S&P stocks and ETFs. |
+| **Weather Forecast**<br>`weather` | <img src="docs/assets/engines/engine_weather.png" width="240" alt="Weather Engine"> | Live outdoor conditions, high/low temperatures, humidity, wind, and animated retro icons via OpenWeatherMap & Open-Meteo. |
+| **System Telemetry HUD**<br>`sysinfo` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="SysInfo Engine"> | Real-time dual-column monitor of Raspberry Pi CPU usage (%), RAM (%), SoC hardware temperature (°C/°F), and system Uptime with vibrant gauge bars. |
+| **Live News Ticker**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="GNews Engine"> | Real-time breaking headlines with topic pills (`[TECH]`, `[WORLD]`, `[BIZ]`), live pulsing red beacon, and smooth sub-pixel scrolling ticker. |
+| **Home Assistant & MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="MQTT Data Engine"> | Stream Home Assistant dashboards, sensor values, 24h historical charts, and local weather via MQTT with ready-to-use blueprints. |
+| **Animated GIF Player**<br>`gif` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="GIF Engine"> | Smooth 60 FPS playback of retro animations, folders, and network playlists with zero-copy row span presentation. |
+| **Scrolling Text Banner**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Message Engine"> | Customizable dot-matrix marquee signs with glowing amber typography, multiple scroll directions, and REST API triggers. |
+| **Arcade Cabinet Marquee**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Marquee Engine"> | Displays official illuminated arcade marquees via Pixelcade integration for Batocera, Recalbox, and RetroPie gaming setups. |
+| **Calendar & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Date Engine"> | Large arcade-styled date with 3D Capcom/Nintendo drop shadows, multi-language support (EN, FR, ES), and NTP synchronization. |
+
+> [!NOTE]
+> **Hardware Rendering Notice:** The engine preview displays and clock showcase posters shown in this documentation are high-fidelity software simulations designed to illustrate visual layouts, animations, and telemetry widgets. Actual hardware rendering on a physical HUB75 LED matrix panel may differ depending on LED pitch, optical acrylic diffusion, viewing distance, and ambient brightness.
+
+### 🌟 Core Architecture Highlights (RPi Exclusives & ESP32 Alignment)
 
 * 🎯 **Canonical Display Arbiter & Preemption Engine**: Bounded $O(1)$ zero-allocation decision pipeline with multi-source priority arbitration (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, exact intent matching, and resilient orphan cleanup.
 * 🧭 **Dynamic Orientation & Tate Mode (`OrientationManager`)**: Multi-angle manual and responsive rotation (0°, 90°, 180°, 270°) with automatic layout classification (`LayoutClass`) and reactive versioning.
 * 🔄 **Over-The-Air (OTA) Firmware Update**: Update the single standalone Rust binary directly from the Web UI without re-flashing your SD Card image! *(Failsafe Recovery: If an OTA update ever breaks your system, plug your SD card into a PC and drop a valid firmware named `arcadematrix_recovery.bin` at the root of either the `bootfs` partition or the `DATA` partition. It will automatically install on the next boot!)*
-* 🚀 **Rust Native Performance**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
-* 🎵 **Spotify Live Now Playing (`spotify`)**: Real-time display of current Spotify playback with full-color album artwork, animated track/artist marquee, progress bar, and animated audio equalizer.
-* 📡 **Google Cast & Nest (`google_cast`)**: Automatic mDNS discovery of Google Home / Nest Audio speakers on your LAN with real-time media title, artist, album art, and volume metadata.
-* 🖥️ **System Monitor (`sysinfo`)**: Real-time monitoring of CPU usage (%), RAM (%), SoC temperature (°C/°F), and system Uptime with colored gauges and customizable visual themes.
-* 🥊 **M.U.G.E.N Fighter Engine (`fighter`)**: Authentic retro fighting game sprites decoded in RGB565 with zero stutter, playable standalone or as an overlay over your clocks, featuring live configurable animation speeds (25%–200%).
-* 📈 **Real-Time Crypto & Stock Tickers (`crypto`, `stock`)**: Live price quotes, 24h % badges, and historical sparkline charts from CoinGecko, Binance, and Yahoo Finance with smart caching.
-* 📰 **Live Breaking News & GNews Ticker (`gnews`)**: Real-time top headlines and breaking news with topic categories (Tech, World, Business, Science, Sports...), live pulsing broadcast beacon, customizable sub-pixel 60 FPS scrolling ticker, and multi-language/localization filtering!
-* 🌦️ **Dynamic Weather (`weather`)**: Live weather conditions, current temperature, multi-day forecasts, and animated retro icons powered by OpenWeatherMap.
-* ⏰ **Massive Animated Clock Selection (`clock`)**: Interactive clocks including Arcade, Binary, Cyberpunk, Flip, Word, as well as **Pac-Man**, **Tetris**, **SlotMachine**, **Pong**, and **Versus (Mugen)** clocks!
-* **Dynamically Loadable Fonts (`.ttf`)**: Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
-* **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
-* **Custom Smooth Gradients**: In addition to classic Publisher themes, choose a **Custom Color / Gradient** theme and pick two colors to generate a dynamic gradient.
-* **Dynamic Image Playlists (GIF/PNG/JPG)**: Read actual `.gif` and `.png` files dynamically straight from the filesystem without SD card fragmentation issues.
+* 🚀 **Rust Native Multi-Threaded Engine**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
+* ⚡ **Zero-Copy DirtyBounds Canvas Pipeline (`canvas_single`)**: Single off-screen canvas with zero-copy row span presentation and `DirtyBounds` dirty line tracking. On static clock frames and slow-moving animations, `present()` immediately detects clean state and never touches the Broadcom memory bus or DMA engine, completely eliminating SDIO Wi-Fi drops!
 * 🗂️ **Network GIF Library & Web File Manager (`/api/gifs/*`)**: Complete network management of GIF playlists directly from the Web UI! Browse playlist folders, upload animated GIFs over Wi-Fi/Ethernet, create/delete folders, rename items, and trigger automatic background library re-indexing. Native dual-orientation support (`?orientation=yoko|tate`) for both Horizontal (Yoko) and Vertical (Tate) display layouts — implemented by [@TooncesToo](https://github.com/TooncesToo)!
+* 🔤 **Dynamically Loadable Fonts (`.ttf`)**: Drop any `.ttf` or `.otf` font directly into the `fonts/` folder, and the Web UI will automatically list it for use on the Clock or Date.
+* 🌧️ **True Matrix Digital Rain (Katakana)**: A completely custom, buttery smooth, genuine Matrix digital rain effect (`DotGothic16`) with falling half-width Katakana and "unlit LED" negative space text punching through the rain.
 
 ---
 

@@ -35,25 +35,87 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 
 ---
 
-## 🌟 Funciones (Exclusivas de RPi y Alineación ESP32)
+## 🕹️ Motores Integrados y Simulaciones de Hardware
+
+Cada motor en ArcadeMatrix RPi está diseñado en Rust multiproceso con **cero asignaciones dinámicas en el ciclo de renderizado**, garantizando una frecuencia de refresco de 60 FPS. A continuación se muestran simulaciones precisas de cada motor ejecutándose en pantallas físicas HUB75:
+
+| Motor / ID | Simulación de Hardware | Descripción y Características Clave |
+| :--- | :---: | :--- |
+| **Desk Master Dashboard**<br>`dashboard` | <img src="docs/assets/engines/engine_dashboard.png" width="240" alt="Motor Dashboard"> | Reloj de escritorio horizontal completo con esfera analógica en pixel-art, segundero fluido, relojes mundiales, clima en vivo OpenWeatherMap y teletipo en directo de criptomonedas Binance y acciones Yahoo Finance. |
+| **Reloj Retro Gaming**<br>`clock` | <img src="docs/assets/engines/engine_clock.png" width="240" alt="Reloj Retro"><br><br>[👉 **Ver galería de 10+ relojes retro ➔**](#-colección-signature-de-relojes-retro-temáticos) | Colección exclusiva de relojes animados de arcade y consolas retro (Metal Slug, Castlevania, Mario, Mega Man, Sonic, Pokédex, Pac-Man, Tetris, Reloj Mundial, Lluvia Matrix...) con sprites 100 % fieles al píxel original. |
+| **Luchadores Arcade M.U.G.E.N**<br>`fighter` | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Motor Luchadores"> | Auténticos sprites de juegos de lucha retro (Street Fighter, King of Fighters, etc.) con barras de vida en tiempo real, escenarios personalizados, combates automáticos de CPU y superposición transversal sobre relojes y fecha. |
+| **Spotify Now Playing**<br>`spotify` | <img src="docs/assets/engines/engine_spotify.png" width="240" alt="Motor Spotify"> | Visualización en tiempo real de la pista en reproducción con carátula a todo color, desplazamiento artista/título, barras de ecualizador animadas y barra de progreso. |
+| **Google Cast & Nest**<br>`googlecast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Motor Google Cast"> | Descubrimiento automático mDNS de dispositivos Google Home / Nest Audio con carátulas de streaming, volumen y progreso de reproducción en vivo. |
+| **Ticker y Gráfico Cripto**<br>`crypto` | <img src="docs/assets/engines/engine_crypto.png" width="240" alt="Motor Cripto"> | Precios en vivo de Binance / CoinGecko, indicador de variación en 24h y gráficos sparkline históricos en tiempo real con caché TTL inteligente. |
+| **Ticker de Mercado de Valores**<br>`stock` | <img src="docs/assets/engines/engine_stock.png" width="240" alt="Motor Bolsa"> | Cotizaciones en tiempo real de Yahoo Finance, indicadores de 1D % y gráficos sparkline intradiarios para acciones y ETFs de NASDAQ/S&P. |
+| **Pronóstico del Clima**<br>`weather` | <img src="docs/assets/engines/engine_weather.png" width="240" alt="Motor Clima"> | Condiciones exteriores en vivo, temperaturas máximas/mínimas, humedad, viento e iconos retro animados mediante OpenWeatherMap y Open-Meteo. |
+| **HUD de Telemetría del Sistema**<br>`sysinfo` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="Motor SysInfo"> | Monitor de doble columna en tiempo real de uso de CPU (%), RAM (%), temperatura del hardware SoC Raspberry Pi (°C/°F) y tiempo de actividad con barras de colores. |
+| **Ticker de Noticias en Vivo**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="Motor GNews"> | Titulares de última hora en tiempo real con etiquetas temáticas (`[TECH]`, `[MUNDO]`, `[ECON]`), baliza luminosa parpadeante de emisión en directo y teletipo fluido a 60 FPS. |
+| **Home Assistant y MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="Motor MQTT Data"> | Paneles de Home Assistant, valores de sensores, gráficos históricos de 24h y pronósticos locales emitidos por MQTT con blueprints listos para usar. |
+| **Reproductor de GIFs Animados**<br>`gif` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="Motor GIF"> | Reproducción fluida a 60 FPS de animaciones retro y listas de reproducción con aceleración de presentación de líneas de copia cero. |
+| **Pancarta de Texto Desplazable**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Motor Mensaje"> | Letreros de matriz de puntos personalizables con tipografía ámbar brillante, múltiples direcciones de desplazamiento y activadores de API REST. |
+| **Marquesina de Recreativa Arcade**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Motor Marquesina"> | Muestra marquesinas oficiales de juegos arcade iluminadas mediante integración Pixelcade para sistemas Batocera, Recalbox y RetroPie. |
+| **Calendario y Fecha**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Motor Fecha"> | Fecha en tamaño grande con diseño arcade, sombras proyectadas 3D estilo Capcom/Nintendo, soporte multilingüe (ES, EN, FR) y sincronización NTP. |
+
+> [!NOTE]
+> **Aviso sobre el renderizado de hardware:** Las capturas de pantalla, vistas previas de motores y posters de relojes presentados en esta documentación son simulaciones de software de alta fidelidad diseñadas para ilustrar el diseño, las animaciones y la telemetría. El aspecto visual real en un panel físico de matriz LED HUB75 puede variar según el paso de píxel (pitch), el filtro difusor acrílico, el brillo de los LEDs y la iluminación ambiental.
+
+### 🌟 Puntos Clave de la Arquitectura (Exclusivas de RPi y Alineación ESP32)
 
 * 🎯 **Motor de Arbitraje y Preferencia Canónico (`DisplayArbiter`)** : pipeline de decisión acotado en $O(1)$ sin asignaciones con arbitraje de prioridades (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identidad de intención estricta y limpieza resiliente de sesiones huérfanas.
 * 🧭 **Orientación Dinámica y Modo Tate (`OrientationManager`)** : soporte multiángulo manual (0°, 90°, 180°, 270°) con clasificación geométrica automática (`LayoutClass`) y versionado reactivo (`DisplayGeometry`).
 * 🔄 **Actualización de Firmware OTA (Over-The-Air)** : ¡Actualiza el binario nativo de Rust directamente desde la interfaz web sin tener que volver a flashear la imagen de tu tarjeta SD! *(Recuperación Failsafe: Si una actualización OTA rompe tu sistema, conecta tu tarjeta SD a un PC y suelta un firmware válido llamado `arcadematrix_recovery.bin` en la raíz de la partición `bootfs` O en la partición `DATA`. ¡Se instalará automáticamente en el próximo arranque!)*
-* 🚀 **Rendimiento Nativo en Rust** : motor multiproceso de alto rendimiento basado en Actix-web y procesamiento gráfico en Rust puro con 0% de uso de CPU en reposo.
-* 🎵 **Spotify Now Playing (`spotify`)** : visualización en vivo de la reproducción actual con portada de álbum a todo color, marquesina animada de artista/canción, barra de progreso y ecualizador de audio animado.
-* 📡 **Google Cast & Nest (`google_cast`)** : descubrimiento mDNS automático de altavoces Google Home / Nest Audio en tu red local y visualización en tiempo real de medios y volumen.
-* 🖥️ **Monitor de Sistema (`sysinfo`)** : monitorización en tiempo real de CPU (%), RAM (%), temperatura SoC (°C/°F) y Uptime con indicadores gráficos y temas visuales configurables.
-* 🥊 **Motor de Combate M.U.G.E.N (`fighter`)** : auténticos combates de sprites retro extraídos en RGB565 sin lag, reproducibles en modo independiente o como overlay con ajuste de velocidad de animación en tiempo real (25% a 200%).
-* 📈 **Tickers y Gráficos de Criptomonedas / Bolsa (`crypto`, `stock`)** : cotizaciones en vivo, porcentajes 24h y gráficos sparkline históricos desde CoinGecko, Binance y Yahoo Finance con caché inteligente.
-* 📰 **Noticias y Ticker GNews en Vivo (`gnews`)** : titulares y noticias destacadas en tiempo real por temas (Tecnología, Mundo, Economía, Ciencia, Deportes...), baliza luminosa de directo, desplazamiento subpíxel fluido a 60 FPS y filtrado multiidioma/regional.
-* 🌦️ **Meteorología Dinámica (`weather`)** : previsión meteorológica en tiempo real, temperatura, pronósticos para los próximos días e iconos animados retro con OpenWeatherMap.
-* ⏰ **Selección Masiva de Relojes Animados (`clock`)** : relojes interactivos que incluyen Arcade, Binary, Cyberpunk, Flip, Word, así como los nuevos relojes **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** y **Versus (Mugen)**.
-* **Fuentes cargables dinámicamente (`.ttf`)** : deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
-* **Lluvia digital Matrix real (Katakana)** : un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
-* **Gradientes suaves personalizados** : además de los temas clásicos Publisher, elige un tema **Custom Color / Gradient** y selecciona dos colores para generar un gradiente dinámico.
-* **Playlists de imágenes dinámicas (GIF/PNG/JPG)** : lee archivos `.gif` y `.png` reales de forma dinámica directamente desde el sistema de archivos, sin problemas de fragmentación en la tarjeta SD.
+* 🚀 **Rendimiento Nativo en Rust Multiproceso** : motor multiproceso de alto rendimiento basado en Actix-web y procesamiento gráfico en Rust puro con 0% de uso de CPU en reposo.
+* ⚡ **Pipeline Canvas de Copia Cero DirtyBounds (`canvas_single`)** : lienzo único fuera de pantalla con presentación por tramos de filas sin copia y seguimiento de líneas modificadas `DirtyBounds`. ¡Elimina por completo las caídas e interferencias de Wi-Fi SDIO en chips Broadcom!
 * 🗂️ **Biblioteca GIF de Red y Gestor de Archivos Web (`/api/gifs/*`)** : ¡gestión completa de playlists GIF directamente desde la Web UI! Explora carpetas de playlists, sube GIFs animados por Wi-Fi/Ethernet, crea/elimina carpetas, renombra y reindexa automáticamente en segundo plano. Soporte nativo de doble orientación (`?orientation=yoko|tate`) para visualizaciones horizontales (Yoko) y verticales (Tate) — realizado por [@TooncesToo](https://github.com/TooncesToo).
+* 🔤 **Fuentes cargables dinámicamente (`.ttf`)** : deja cualquier fuente `.ttf` u `.otf` directamente en la carpeta `fonts/`, y la interfaz Web la listará automáticamente para usarla en el reloj o la fecha.
+* 🌧️ **Lluvia digital Matrix real (Katakana)** : un efecto Matrix totalmente personalizado, ultra fluido y auténtico (`DotGothic16`) con Katakana de media anchura cayendo y texto en espacio negativo de «LED apagados» atravesando la lluvia.
+
+---
+
+## 🎨 Colección Signature de Relojes Retro Temáticos
+
+ArcadeMatrix RPi incluye una colección exclusiva de relojes retro de recreativas y consolas, sincronizados con el hardware y renderizados con un 100 % de sprites originales fieles al píxel a 60 FPS constantes, con soporte multirresolución para modos Paisaje (64x64, 128x32, 256x64) y Vertical / Tate (32x64, 64x128, 64x256):
+
+### 1. Metal Slug: Super Vehicle-001 (SNK Neo Geo) — Tema 41
+*Pixel art auténtico de SNK Neo Geo con escenario del zoco del desierto árabe, animaciones de combate de Marco Rossi, tanque rebelde Di-Cokka, helicóptero de patrulla y tiroteos con ametralladora pesada.*
+![Reloj Metal Slug](docs/assets/clocks/poster_metal_slug.png)
+
+### 2. Castlevania (Konami NES) — Tema 31
+*Campanario gótico con Simon Belmont subiendo la gran escalera de piedra hacia la cámara de Drácula, antorcha clásica sobre pedestal, murciélago vampiro batiendo las alas frente a la luna de sangre y dígitos marfil de alta legibilidad.*
+![Reloj Castlevania](docs/assets/clocks/poster_castlevania.png)
+
+### 3. Super Mario Bros (NES) — Tema 30
+*Overworld del Reino Champiñón con bloques de ladrillo SMB1 100 % auténticos; Mario corre por la pantalla y salta bajo el bloque de dígitos provocando un rebote elástico y cambio de hora (con patada al caparazón verde de Koopa y moneda dorada en modo compacto 128x32, y escalada de 3 niveles en modo vertical).*
+![Reloj Super Mario Bros](docs/assets/clocks/poster_super_mario.png)
+
+### 4. Mega Man (Capcom NES) — Tema 35
+*Fortaleza Castillo de Wily de Capcom con plataformas técnicas separadas, barra de energía, Metool durmiendo y Mega Man disparando su Buster a la cápsula de los minutos.*
+![Reloj Mega Man](docs/assets/clocks/poster_megaman.png)
+
+### 5. Sonic The Hedgehog (Sega Genesis) — Tema 39
+*Plataformas ajedrezadas de Green Hill Zone, anillos dorados giratorios, resorte rojo, badnik Motobug y animaciones de Sonic quieto y en spin-dash saltando.*
+![Reloj Sonic The Hedgehog](docs/assets/clocks/poster_sonic.png)
+
+### 6. Pokémon Pokédex (Nintendo Game Boy) — Tema 32
+*Auténtica interfaz Pokédex de doble pantalla con visor de inspección de criaturas, sprite animado de Pikachu, reloj digital con tipografía PKMN, barra de telemetría de segundos y sensor LED parpadeante.*
+![Reloj Pokédex](docs/assets/clocks/poster_pokedex.png)
+
+### 7. Pac-Man Arcade (Namco 1980) — Tema 26
+*Laberinto arcade original de Namco con pasillos de neón azul, energizadores, puntos, Pac-Man animado y los 4 fantasmas persiguiéndolo (Blinky, Pinky, Inky, Clyde).*
+![Reloj Pac-Man](docs/assets/clocks/poster_pacman.png)
+
+### 8. Tetris Ruso (Alexey Pajitnov / Game Boy) — Tema 23
+*Legendario puzle de bloques que caen con tetrominós 3D biselados dinámicos (I, J, L, O, S, T, Z) cayendo en cascada para ensamblar las horas y minutos en tiempo real.*
+![Reloj Tetris](docs/assets/clocks/poster_tetris.png)
+
+### 9. Reloj Mundial y Terminador Solar — Tema 33
+*Mapa mundial continental de alta resolución con terminador solar día/noche dinámico que calcula la declinación solar en tiempo real, marcador de meridiano local y reloj dual UTC/local.*
+![Reloj Mundial](docs/assets/clocks/poster_worldmap.png)
+
+### 10. Lluvia Digital Matrix Real (Las Wachowski 1999) — Tema 21
+*Icónica lluvia digital con cascadas de glifos verde fósforo, velocidades de caída aleatorias, cabezas guía blancas brillantes, estelas de persistencia y dígitos de reloj de neón brillante.*
+![Reloj Matrix Rain](docs/assets/clocks/poster_matrix_rain.png)
 
 ---
 

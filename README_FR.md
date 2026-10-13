@@ -35,25 +35,41 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 
 ---
 
-## 🌟 Fonctionnalités (Exclusivités RPi & Alignement ESP32)
+## 🕹️ Moteurs Intégrés & Simulations Matérielles
+
+Chaque moteur d'ArcadeMatrix RPi est conçu en Rust multi-threadé avec **zéro allocation dynamique lors de la boucle de rendu**, garantissant une cadence d'affichage de 60 FPS. Voici les simulations fidèles de chaque moteur en fonctionnement sur dalles physiques HUB75 :
+
+| Moteur / ID | Simulation Matérielle | Description & Fonctionnalités Clés |
+| :--- | :---: | :--- |
+| **Desk Master Dashboard**<br>`dashboard` | <img src="docs/assets/engines/engine_dashboard.png" width="240" alt="Moteur Dashboard"> | Horloge de bureau complète avec cadran analogique pixel-art, balayage fluide de trotteuse, horloges mondiales, météo en direct OpenWeatherMap, et bandeau ticker live cryptos Binance & actions Yahoo Finance. |
+| **Horloge Rétro Gaming**<br>`clock` | <img src="docs/assets/engines/engine_clock.png" width="240" alt="Horloge Rétro"><br><br>[👉 **Voir la galerie des 10+ horloges rétro ➔**](#-collection-signature-dhorloges-rétro-thématiques) | Collection exclusive d'horloges animées d'arcade et de consoles rétro (Metal Slug, Castlevania, Mario, Mega Man, Sonic, Pokédex, Pac-Man, Tetris, Horloge Mondiale, Pluie Matrix...) avec sprites 100 % authentiques au pixel près. |
+| **Combattants Arcade M.U.G.E.N**<br>`fighter` | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Moteur Combattants"> | Véritables sprites de jeux de combat rétro (Street Fighter, King of Fighters, etc.) avec barres de vie en temps réel, arènes personnalisées, duels autonomes gérés par l'IA et overlay transverse au-dessus des horloges et de la date. |
+| **Spotify Now Playing**<br>`spotify` | <img src="docs/assets/engines/engine_spotify.png" width="240" alt="Moteur Spotify"> | Affichage en direct du morceau en cours avec pochette d'album en couleur, défilement artiste/titre, mini barres d'égaliseur animées et barre de progression. |
+| **Google Cast & Nest**<br>`googlecast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Moteur Google Cast"> | Découverte automatique mDNS des enceintes Google Home / Nest Audio avec affichage des pochettes, volume et progression de lecture en streaming. |
+| **Ticker & Graphique Crypto**<br>`crypto` | <img src="docs/assets/engines/engine_crypto.png" width="240" alt="Moteur Crypto"> | Cotations en direct Binance / CoinGecko, badge de variation sur 24h et courbes sparklines historiques en temps réel avec cache TTL intelligent. |
+| **Ticker Bourse & Actions**<br>`stock` | <img src="docs/assets/engines/engine_stock.png" width="240" alt="Moteur Bourse"> | Cotations en temps réel Yahoo Finance, badges de variation 1D % et graphiques d'aires sparkline intrajournaliers pour actions et ETF NASDAQ/S&P. |
+| **Météo Dynamique**<br>`weather` | <img src="docs/assets/engines/engine_weather.png" width="240" alt="Moteur Météo"> | Conditions extérieures en direct, températures max/min, humidité, vent et icônes rétro animées via OpenWeatherMap & Open-Meteo. |
+| **HUD Télémétrie Système**<br>`sysinfo` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="Moteur SysInfo"> | Moniteur double colonne en temps réel de l'utilisation CPU (%), RAM (%), température matérielle du SoC Raspberry Pi (°C/°F) et Uptime avec jauges colorées. |
+| **Ticker Actualités en Direct**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="Moteur GNews"> | Derniers grands titres en temps réel avec badges de catégories (`[TECH]`, `[MONDE]`, `[ÉCO]`), balise clignotante de direct et bandeau défilant fluide à 60 FPS. |
+| **Home Assistant & MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="Moteur MQTT Data"> | Tableaux de bord Home Assistant, valeurs de capteurs, graphiques historiques sur 24h et météo locale diffusés via MQTT avec blueprints prêts à l'emploi. |
+| **Lecteur GIF Animés**<br>`gif` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="Moteur GIF"> | Lecture fluide à 60 FPS d'animations rétro et de playlists locales ou réseau avec accélération de présentation par tranches de lignes zéro-copie. |
+| **Bandeau Défilant Marquee**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Moteur Message"> | Enseignes matricielles personnalisables avec typographie ambrée lumineuse, multiples directions de défilement et déclencheurs API REST. |
+| **Marquee Borne d'Arcade**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Moteur Marquee"> | Affichage des marquees de jeux d'arcade officiels via intégration Pixelcade pour configurations Batocera, Recalbox et RetroPie. |
+| **Calendrier & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Moteur Date"> | Grande date au style arcade avec ombres portées 3D Capcom/Nintendo, support multilingue (FR, EN, ES) et synchronisation NTP. |
+
+> [!NOTE]
+> **Avertissement sur le rendu matériel :** Les captures d'écran, visuels d'aperçu des moteurs et posters d'horloges présentés dans cette documentation sont des simulations logicielles haute fidélité destinées à illustrer la mise en page, les animations et la disposition des éléments. Le rendu visuel réel sur un panneau LED HUB75 physique peut légèrement différer selon le pas de masque (pitch), le filtre diffuseur acrylique, la luminosité des LEDs et l'éclairage ambiant.
+
+### 🌟 Points Forts de l'Architecture (Exclusivités RPi & Alignement ESP32)
 
 * 🎯 **Moteur d'Arbitrage et de Préemption Canonique (`DisplayArbiter`)** : pipeline de décision borné en $O(1)$ zéro-allocation avec arbitrage de priorité (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identité d'intention stricte et nettoyage résilient des sessions orphelines.
 * 🧭 **Orientation Réactive & Mode Tate (`OrientationManager`)** : gestion multi-angles manuelle (0°, 90°, 180°, 270°) avec classification automatique du gabarit (`LayoutClass`) et versioning réactif (`DisplayGeometry`).
 * 🔄 **Mises à jour Over-The-Air (OTA)** : mettez à jour le binaire Rust directement depuis l'interface Web sans re-flasher votre image de carte SD ! *(Secours / Failsafe : Si une mise à jour OTA casse votre système, branchez votre carte SD sur un PC et déposez un firmware valide nommé `arcadematrix_recovery.bin` à la racine de la partition `bootfs` OU de la partition `DATA`. Il s'installera automatiquement au prochain démarrage !)*
-* 🚀 **Performances Rust natives** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
-* 🎵 **Spotify Now Playing (`spotify`)** : affichage en direct du morceau en cours de lecture avec pochette d'album en couleur, défilement artiste/titre, barre de progression et égaliseur audio animé.
-* 📡 **Google Cast & Nest (`google_cast`)** : découverte automatique mDNS de vos enceintes Google Home / Nest Audio et affichage en direct des médias et flux audio diffusés.
-* 🖥️ **Moniteur Système (`sysinfo`)** : surveillance en direct de l'utilisation CPU (%), RAM (%), température SoC (°C/°F) et Uptime avec jauges colorées et thèmes visuels.
-* 🥊 **Moteur de combat M.U.G.E.N (`fighter`)** : combats de sprites rétro authentiques extraits directement en RGB565 sans saccade, jouables en mode autonome ou en overlay avec réglage de la vitesse d'animation en temps réel (25% à 200%).
-* 📈 **Tickers & Graphiques Crypto / Bourse (`crypto`, `stock`)** : cotations en direct, variations % sur 24h et courbes sparklines historiques depuis CoinGecko, Binance et Yahoo Finance avec cache intelligent.
-* 📰 **Actualités & Ticker GNews en Direct (`gnews`)** : flux de grands titres et dépêches d'actualités filtrés par catégories (Tech, Monde, Économie, Science, Sport...), témoin lumineux de direct clignotant, défilement sous-pixel fluide à 60 FPS et filtrage multi-langue/région !
-* 🌦️ **Météo dynamique (`weather`)** : météo en direct, température actuelle, prévisions multi-jours et icônes rétro animées via OpenWeatherMap.
-* ⏰ **Sélection massive d'horloges animées (`clock`)** : horloges interactives comprenant les classiques Arcade, Binary, Cyberpunk, Flip, Word, ainsi que les nouvelles horloges **Pac-Man**, **Tetris**, **SlotMachine**, **Pong** et **Versus (Mugen)** !
-* **Polices chargeables dynamiquement (`.ttf`)** : déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
-* **Véritable pluie numérique Matrix (Katakana)** : un effet Matrix entièrement personnalisé, ultra fluide et authentique (`DotGothic16`) avec des Katakana demi-largeur qui tombent et un texte en espace négatif d'« LED éteintes » qui perce la pluie.
-* **Dégradés fluides personnalisés** : thèmes dynamiques personnalisables avec dégradés bicolores en temps réel.
-* **Playlists d'images dynamiques (GIF/PNG/JPG)** : lecture fluide des fichiers `.gif` et `.png` dynamiquement depuis le système de fichiers.
+* 🚀 **Performances Rust natives multi-threadées** : moteur multi-threadé hautes performances utilisant Actix-web et le traitement d'images en Rust compilé pur avec 0% d'utilisation CPU au repos.
+* ⚡ **Pipeline Canvas Zéro-Copie DirtyBounds (`canvas_single`)** : canevas unique hors-écran avec présentation par tranches de lignes sans copie et suivi de lignes modifiées `DirtyBounds`. Élimine totalement les coupures et interférences Wi-Fi SDIO sur Broadcom !
 * 🗂️ **Bibliothèque GIF Réseau & Gestionnaire de Fichiers Web (`/api/gifs/*`)** : gestion complète des playlists GIF directement depuis la Web UI ! Parcourez les dossiers de playlists, téléversez des GIF animés par Wi-Fi/Ethernet, créez/supprimez des dossiers, renommez et réindexez automatiquement en arrière-plan. Support natif double orientation (`?orientation=yoko|tate`) pour affichages horizontaux (Yoko) et verticaux (Tate) — réalisé par [@TooncesToo](https://github.com/TooncesToo) !
+* 🔤 **Polices chargeables dynamiquement (`.ttf`)** : déposez n'importe quelle police `.ttf` ou `.otf` directement dans le dossier `fonts/`, et l'interface Web la listera automatiquement pour l'utiliser sur l'horloge ou la date.
+* 🌧️ **Véritable pluie numérique Matrix (Katakana)** : un effet Matrix entièrement personnalisé, ultra fluide et authentique (`DotGothic16`) avec des Katakana demi-largeur qui tombent et un texte en espace négatif d'« LED éteintes » qui perce la pluie.
 
 ---
 

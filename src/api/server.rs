@@ -29,9 +29,35 @@ fn get_local_ip() -> String {
     "127.0.0.1".to_string()
 }
 
+const REDACTED_SECRET: &str = "••••••••";
+const MAX_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
+const UPLOAD_EXT_ALLOWLIST: &[&str] = &[
+    "gif", "png", "jpg", "jpeg", "bmp", "webp", "raw", "ttf", "bdf", "fgt", "gz",
+];
+
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (&x, &y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+fn generate_fallback_api_token() -> String {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id() as u128;
+    format!("{:016x}{:016x}", nanos, pid ^ 0xa5a5_5a5a_f0f0_0f0f)
+}
+
 pub(crate) fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpResponse> {
     let s = config.settings.read();
-    if !s.api_auth_enabled {
+    if !s.api_auth_enabled || s.api_token.is_empty() {
         return Ok(());
     }
 
@@ -40,7 +66,7 @@ pub(crate) fn check_auth(req: &HttpRequest, config: &Config) -> Result<(), HttpR
         .get("X-API-Token")
         .and_then(|h| h.to_str().ok())
         .unwrap_or("");
-    if supplied.is_empty() || supplied != s.api_token {
+    if supplied.is_empty() || !constant_time_eq(supplied.as_bytes(), s.api_token.as_bytes()) {
         return Err(HttpResponse::Unauthorized().json(json!({
             "status": "error",
             "message": "Missing or invalid X-API-Token header"
@@ -55,14 +81,40 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
         return e;
     }
     let s = data.config.settings.read();
+    let mut mqtt = s.mqtt.clone();
+    if !mqtt.pass.is_empty() {
+        mqtt.pass = REDACTED_SECRET.to_string();
+    }
+    let mut data_mqtt = s.data_mqtt.clone();
+    if !data_mqtt.pass.is_empty() {
+        data_mqtt.pass = REDACTED_SECRET.to_string();
+    }
+    let mut wifi = s.wifi.clone();
+    if !wifi.password.is_empty() {
+        wifi.password = REDACTED_SECRET.to_string();
+    }
+    let supplied = req
+        .headers()
+        .get("X-API-Token")
+        .and_then(|h| h.to_str().ok())
+        .unwrap_or("");
+    let is_token_authenticated =
+        !s.api_token.is_empty() && constant_time_eq(supplied.as_bytes(), s.api_token.as_bytes());
+    let api_token_out = if s.api_auth_enabled && !is_token_authenticated && !s.api_token.is_empty()
+    {
+        REDACTED_SECRET.to_string()
+    } else {
+        s.api_token.clone()
+    };
+
     HttpResponse::Ok().json(json!({
         "system": s.system,
         "matrix": s.matrix,
-        "mqtt": s.mqtt,
-        "data_mqtt": s.data_mqtt,
-        "wifi": s.wifi,
+        "mqtt": mqtt,
+        "data_mqtt": data_mqtt,
+        "wifi": wifi,
         "api_auth_enabled": s.api_auth_enabled,
-        "api_token": s.api_token
+        "api_token": api_token_out
     }))
 }
 
@@ -76,10 +128,16 @@ async fn post_system(
         return e;
     }
     let mut s = data.config.settings.write();
-    // Snapshot the fields that require a hardware/service restart to take effect.
+    // Snapshot the fields that require a hardware/service restart to take effect,
+    // and preserve existing secrets when the UI submits masked placeholders.
     let prev_matrix = serde_json::to_value(&s.matrix).ok();
     let prev_mqtt = serde_json::to_value(&s.mqtt).ok();
     let prev_disable_wifi = s.wifi.disable_internal;
+    let prev_mqtt_pass = s.mqtt.pass.clone();
+    let prev_data_mqtt_pass = s.data_mqtt.pass.clone();
+    let prev_wifi_pass = s.wifi.password.clone();
+    let prev_api_token = s.api_token.clone();
+
     // Simplified update (normally you'd merge the fields)
     if let Some(sys) = body.get("system") {
         if let Ok(sys_val) = serde_json::from_value(sys.clone()) {
@@ -92,19 +150,34 @@ async fn post_system(
         }
     }
     if let Some(mq) = body.get("mqtt") {
-        if let Ok(mq_val) = serde_json::from_value(mq.clone()) {
+        if let Ok(mut mq_val) =
+            serde_json::from_value::<crate::core::config::MqttConfig>(mq.clone())
+        {
+            if mq_val.pass == REDACTED_SECRET {
+                mq_val.pass = prev_mqtt_pass;
+            }
             s.mqtt = mq_val;
         }
     }
     // Data MQTT credentials: read by the MQTT Data engine on its next
     // activation, so no restart is needed.
     if let Some(dm) = body.get("data_mqtt") {
-        if let Ok(dm_val) = serde_json::from_value(dm.clone()) {
+        if let Ok(mut dm_val) =
+            serde_json::from_value::<crate::core::config::DataMqttConfig>(dm.clone())
+        {
+            if dm_val.pass == REDACTED_SECRET {
+                dm_val.pass = prev_data_mqtt_pass;
+            }
             s.data_mqtt = dm_val;
         }
     }
     if let Some(wf) = body.get("wifi") {
-        if let Ok(wf_val) = serde_json::from_value(wf.clone()) {
+        if let Ok(mut wf_val) =
+            serde_json::from_value::<crate::core::config::WifiConfig>(wf.clone())
+        {
+            if wf_val.password == REDACTED_SECRET {
+                wf_val.password = prev_wifi_pass;
+            }
             s.wifi = wf_val;
         }
     }
@@ -113,7 +186,14 @@ async fn post_system(
         s.api_auth_enabled = v;
     }
     if let Some(v) = body.get("api_token").and_then(|v| v.as_str()) {
-        s.api_token = v.to_string();
+        if v != REDACTED_SECRET {
+            s.api_token = v.to_string();
+        } else {
+            s.api_token = prev_api_token;
+        }
+    }
+    if s.api_auth_enabled && s.api_token.trim().is_empty() {
+        s.api_token = generate_fallback_api_token();
     }
     if let Some(v) = body.get("lang").and_then(|v| v.as_str()) {
         s.system.lang = v.to_string();
@@ -230,7 +310,19 @@ async fn get_instances(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
         return e;
     }
     let s = data.config.settings.read();
-    HttpResponse::Ok().json(&s.instances)
+    let mut instances = s.instances.clone();
+    for inst in &mut instances {
+        for (k, v) in inst.config.iter_mut() {
+            if matches!(
+                k.as_str(),
+                "api_key" | "client_secret" | "refresh_token" | "password" | "pass" | "token"
+            ) && !v.is_empty()
+            {
+                *v = REDACTED_SECRET.to_string();
+            }
+        }
+    }
+    HttpResponse::Ok().json(instances)
 }
 
 #[post("/api/instances")]
@@ -264,6 +356,13 @@ async fn post_instances(
         .iter_mut()
         .find(|i| i.instance_id == new_inst.instance_id)
     {
+        for (k, v) in new_inst.config.iter_mut() {
+            if *v == REDACTED_SECRET {
+                if let Some(old_val) = existing.config.get(k) {
+                    *v = old_val.clone();
+                }
+            }
+        }
         *existing = new_inst;
     } else {
         s.instances.push(new_inst);
@@ -547,16 +646,88 @@ async fn post_wifi(
         return HttpResponse::BadRequest()
             .json(json!({"status": "error", "message": "SSID is required"}));
     }
+    if ssid.contains(['\r', '\n', '\0'])
+        || password.contains(['\r', '\n', '\0'])
+        || ssid.starts_with('-')
+        || password.starts_with('-')
+    {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Invalid characters in SSID or password"
+        }));
+    }
     {
         let mut s = data.config.settings.write();
         s.wifi.ssid = ssid.to_string();
-        s.wifi.password = password.to_string();
+        if password != REDACTED_SECRET {
+            s.wifi.password = password.to_string();
+        }
         // Force the startup routine to (re)apply the NetworkManager profile.
         s.wifi.configured = false;
     }
     data.config.save();
     // Restart so the boot Wi-Fi provisioning block re-runs with the new profile.
     data.config.reload_flag.store(true, Ordering::Relaxed);
+    HttpResponse::Ok().json(json!({"status": "ok"}))
+}
+
+#[post("/api/message")]
+async fn post_message(
+    req: HttpRequest,
+    body: web::Json<serde_json::Value>,
+    data: web::Data<AppState>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let text = body
+        .get("text")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if text.is_empty() {
+        data.config.set_message_payload(None);
+        return HttpResponse::Ok().json(json!({"status": "ok", "cleared": true}));
+    }
+    let color = body
+        .get("color")
+        .and_then(|v| v.as_str())
+        .unwrap_or("#ffffff")
+        .to_string();
+    let size = body
+        .get("size")
+        .or_else(|| body.get("font_size"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1)
+        .clamp(1, 5) as u32;
+    let direction = body
+        .get("direction")
+        .and_then(|v| v.as_str())
+        .unwrap_or("rtl")
+        .to_string();
+    let speed = body
+        .get("speed")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(40)
+        .clamp(1, 500) as u32;
+    let timeout_seconds = body
+        .get("timeout")
+        .or_else(|| body.get("timeout_seconds"))
+        .or_else(|| body.get("timeoutSeconds"))
+        .or_else(|| body.get("duration"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as u32;
+
+    let payload = crate::engines::message::MessagePayload {
+        text,
+        color,
+        size,
+        direction,
+        speed,
+        timeout_seconds,
+    };
+    data.config.set_message_payload(Some(payload));
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
@@ -585,7 +756,14 @@ async fn handle_file_upload(
                 if let Some(fname) = cd.get_filename() {
                     let p = std::path::Path::new(fname);
                     if let Some(ext) = p.extension().and_then(|s| s.to_str()) {
-                        file_ext = format!(".{}", ext.to_lowercase());
+                        let ext_lower = ext.to_lowercase();
+                        if !UPLOAD_EXT_ALLOWLIST.contains(&ext_lower.as_str()) {
+                            return HttpResponse::BadRequest().json(json!({
+                                "status": "error",
+                                "message": format!("Unsupported file extension '.{}'", ext_lower)
+                            }));
+                        }
+                        file_ext = format!(".{}", ext_lower);
                     }
                 }
             }
@@ -593,7 +771,15 @@ async fn handle_file_upload(
 
         while let Some(chunk) = field.next().await {
             match chunk {
-                Ok(d) => bytes.extend_from_slice(&d),
+                Ok(d) => {
+                    if bytes.len() + d.len() > MAX_UPLOAD_BYTES {
+                        return HttpResponse::PayloadTooLarge().json(json!({
+                            "status": "error",
+                            "message": "Uploaded file exceeds maximum allowed size (25 MB)"
+                        }));
+                    }
+                    bytes.extend_from_slice(&d);
+                }
                 Err(e) => {
                     return HttpResponse::BadRequest().json(
                         json!({"status": "error", "message": format!("Chunk error: {}", e)}),
@@ -615,8 +801,17 @@ async fn handle_file_upload(
             file_ext = ".png".to_string();
         } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
             file_ext = ".jpg".to_string();
+        } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+            file_ext = ".webp".to_string();
+        } else if bytes.starts_with(b"BM") {
+            file_ext = ".bmp".to_string();
+        } else if bytes.starts_with(&[0x1F, 0x8B]) {
+            file_ext = ".gz".to_string();
         } else {
-            file_ext = ".gif".to_string();
+            return HttpResponse::BadRequest().json(json!({
+                "status": "error",
+                "message": "Unrecognized or unsupported file format"
+            }));
         }
     }
 
@@ -648,7 +843,7 @@ async fn handle_file_upload(
         let ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
-            .as_secs();
+            .as_millis();
         target_dir.join(format!("asset_{}{}", ts, file_ext))
     };
 
@@ -851,6 +1046,9 @@ fn count_gifs_in_dir(path: &std::path::Path) -> usize {
     let mut count = 0;
     if let Ok(entries) = std::fs::read_dir(path) {
         for entry in entries.flatten() {
+            if entry.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
+                continue;
+            }
             if let Ok(ft) = entry.file_type() {
                 if ft.is_dir() {
                     count += count_gifs_in_dir(&entry.path());
@@ -1195,7 +1393,10 @@ async fn get_timezones() -> impl actix_web::Responder {
 }
 
 #[get("/api/hardware")]
-async fn get_hardware_compat(data: web::Data<AppState>) -> impl Responder {
+async fn get_hardware_compat(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
     let s = data.config.settings.read();
     HttpResponse::Ok().json(&s.matrix)
 }
@@ -1230,15 +1431,34 @@ async fn serve_static(req: actix_web::HttpRequest) -> impl actix_web::Responder 
         p = "index.html".to_string();
     }
 
-    // Check disk first for real-time web development updates
-    let disk_path = Path::new("api/www").join(&p);
-    if disk_path.exists() && disk_path.is_file() {
-        if let Ok(bytes) = std::fs::read(&disk_path) {
-            let mime = mime_guess::from_path(&disk_path).first_or_octet_stream();
-            return actix_web::HttpResponse::Ok()
-                .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
-                .content_type(mime.as_ref())
-                .body(bytes);
+    if p.contains('\\') || p.contains('\0') {
+        return actix_web::HttpResponse::BadRequest().body("400 Bad Request");
+    }
+
+    let rel_path = Path::new(&p);
+    for comp in rel_path.components() {
+        match comp {
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return actix_web::HttpResponse::BadRequest().body("400 Bad Request");
+            }
+            _ => {}
+        }
+    }
+
+    // Check disk first for real-time web development updates, verifying canonical path containment
+    let base_dir = Path::new("api/www");
+    let disk_path = base_dir.join(rel_path);
+    if let (Ok(canon_base), Ok(canon_file)) = (base_dir.canonicalize(), disk_path.canonicalize()) {
+        if canon_file.starts_with(&canon_base) && canon_file.is_file() {
+            if let Ok(bytes) = std::fs::read(&canon_file) {
+                let mime = mime_guess::from_path(&canon_file).first_or_octet_stream();
+                return actix_web::HttpResponse::Ok()
+                    .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
+                    .content_type(mime.as_ref())
+                    .body(bytes);
+            }
         }
     }
 
@@ -1285,6 +1505,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(get_themes)
             .service(get_timezones)
             .service(post_wifi)
+            .service(post_message)
             .service(post_marquee)
             .service(post_upload)
             .service(crate::api::gifs::get_gifs_library)

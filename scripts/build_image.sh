@@ -25,8 +25,8 @@ echo ""
 echo "⏳ This process will take about 5 minutes. Please wait..."
 echo "=========================================================="
 
-echo "🦀 Step 1: Cross-compiling Rust binary..."
-bash scripts/build.sh
+echo "🦀 Step 1: Cross-compiling Rust binary ($ARCH)..."
+bash scripts/build.sh "$ARCH"
 
 echo "📦 Step 2: Building Raspberry Pi OS Image ($ARCH)..."
 

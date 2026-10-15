@@ -20,12 +20,13 @@ This document is the **deep, exhaustive** reference for the ArcadeMatrix archite
 8. [Config Propagation & Hot Reload](#8-config-propagation--hot-reload)
 9. [Schema-Driven Dynamic UI & Custom Lists](#9-schema-driven-dynamic-ui--custom-lists)
 10. [Internationalization Architecture (i18n) & Single Source of Truth](#10-internationalization-architecture-i18n--single-source-of-truth)
-11. [The Display Arbiter: Multi-Source Priority Resolution](#11-the-display-arbiter-multi-source-priority-resolution)
-12. [The Fighter Overlay Compositor](#12-the-fighter-overlay-compositor)
-13. [Runtime Isolation & Threading Model](#13-runtime-isolation--threading-model)
-14. [Frame Pacing](#14-frame-pacing)
-15. [HTTP API Surface](#15-http-api-surface)
-16. [Build Metadata & Telemetry](#16-build-metadata--telemetry)
+11. [The Canonical Display Pipeline: Arbiter & DisplayRuntime](#11-the-canonical-display-pipeline-arbiter--displayruntime)
+12. [The Transverse Overlay Architecture & OverlayManager](#12-the-transverse-overlay-architecture--overlaymanager)
+13. [Hardware Render Pipeline & The IDrawingSurface Abstraction](#13-hardware-render-pipeline--the-idrawingsurface-abstraction)
+14. [Runtime Isolation & Threading Model](#14-runtime-isolation--threading-model)
+15. [Rendering Cadence](#15-rendering-cadence)
+16. [HTTP API Surface](#16-http-api-surface)
+17. [Build Metadata](#17-build-metadata)
 
 ---
 
@@ -52,7 +53,7 @@ flowchart TD
     end
 
     CFG --> REND["matrix-render thread (8MB stack)"]
-    CFG --> API["api-server thread (actix, port 80)"]
+    CFG --> API["api-server thread (actix, port 8080)"]
 
     subgraph RenderThread["matrix-render thread"]
         REND --> ARB["DisplayArbiter.evaluate()"]
@@ -123,6 +124,8 @@ classDiagram
         +bool supports_256x64
         +bool realtime
         +bool interruptible
+        +bool allows_overlay
+        +bool allow_rotation
     }
 
     class Requirements {
@@ -183,7 +186,7 @@ classDiagram
 | `initialize` | once, on first display | Heavy allocation: load bitmaps/fonts, reserve buffers. |
 | `activate` | each time it becomes visible | Cheap reset of transient state (no allocation). |
 | `update` | hot loop | Business logic. **No unnecessary allocation.** |
-| `render` | hot loop | Draw into `context.matrix`. **No unnecessary allocation.** |
+| `render` | hot loop | Draw into `context.surface`. **No unnecessary allocation.** |
 | `deactivate` | when leaving screen | Stop background work / listeners. |
 | `on_config_changed` | on live config edit | Re-read values **in place**, no recreation. |
 | `is_finished` | each frame | Signal the runtime to advance early (e.g. crypto finished its token list). |
@@ -234,12 +237,13 @@ flowchart LR
 
 ## 5. The "Lazy-Once" Lifecycle
 
-The `EngineRuntime` owns two maps: the cached live instances and a snapshot of the config each was last configured with.
+The `EngineRuntime` owns an indexed slot vector of registered instances (mapping compact 16-bit `instance_id` handles in $O(1)$) along with each instance's last applied configuration snapshot:
 
 ```rust
 pub struct EngineRuntime {
-    instances: HashMap<String, Box<dyn Engine>>,     // instance_id -> live engine
-    configs:   HashMap<String, HashMap<String,String>>, // instance_id -> last applied config
+    id_to_registered: Vec<Option<RegisteredInstance>>,
+    instance_to_id: HashMap<String, u16>,
+    next_instance_id: u16,
 }
 ```
 
@@ -311,7 +315,7 @@ classDiagram
     class RotationEntry {
         +str instance_id
         +u32 duration_sec
-        +bool fighter_overlay
+        +OverlayConfig overlays
     }
     class SystemConfig {
         +str timezone
@@ -352,7 +356,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,   // instance/rotation edit -> re-read next frame
     pub matrix_power: AtomicBool,     // live on/off
     pub matrix_brightness: AtomicU32, // live brightness (0..100)
-    pub message_payload: Mutex<Option<Value>>,
+    pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub settings: RwLock<ConfigSettings>,
 }
 ```
@@ -520,7 +524,7 @@ sequenceDiagram
 ```
 
 ### Architectural Highlights of Centralized i18n:
-1. **Zero Schema Redundancy:** Individual engine descriptors (`WeatherEngine`, `WordClock`, `DecibelEngine`, etc.) do not expose a redundant `lang` config field.
+1. **Zero Schema Redundancy:** Individual engine descriptors (`WeatherEngine`, `WordClock`, etc.) do not expose a redundant `lang` config field.
 2. **Universal Real-time Synchronization:** Changing the language in the WebUI header instantly updates the whole system (WebUI + Matrix rendering).
 3. **Effortless Extensibility:** Adding a new language (e.g. German `de`) requires only adding an entry in `SUPPORTED_LANGUAGES` (Front) and dictionary entries in the centralized `crate::core::i18n` module (Back-end Rust and C++).
 
@@ -655,7 +659,7 @@ flowchart TD
 ```
 
 1. **Dedicated rendering thread (`matrix-render`)** — 8 MB stack, exclusive matrix ownership. If it shared the thread with HTTP, every request would skip a frame (tearing).
-2. **Isolated Web API thread (`api-server`)** — a single-threaded Tokio runtime hosting actix on port 80. It touches the render thread only through atomics and short-lived `RwLock` reads.
+2. **Isolated Web API thread (`api-server`)** — a single-threaded Tokio runtime hosting actix on port 8080. It touches the render thread only through atomics and short-lived `RwLock` reads.
 3. **Background services** — MQTT listener and HTTP API pollers (crypto, weather, stock) run off the render path so a slow network call never stalls `update()`.
 
 ---
@@ -671,9 +675,9 @@ The per-frame sleep is derived from capability/state, **never** from a hardcoded
 
 ---
 
-## 14. HTTP API Surface
+## 16. HTTP API Surface
 
-All endpoints are actix handlers in `src/api/server.rs`; static web assets are embedded via `rust-embed`. Full reference in [../openapi.yaml](../openapi.yaml).
+All endpoints are actix handlers in `src/api/server.rs`; static web assets are embedded via `rust-embed`. Full reference in [openapi.yaml](openapi.yaml).
 
 | Method | Path | Purpose |
 | :-- | :-- | :-- |
@@ -720,6 +724,6 @@ returning the combined totals plus a per-orientation breakdown under `orientatio
 
 ---
 
-## 15. Build Metadata
+## 17. Build Metadata
 
 `core/build_info.rs` centralizes `env!` values injected by `build.rs` (`VERSION`, `ARCH`, `BUILD_TIMESTAMP`, `GIT_COMMIT`). They are read **once** here because `env!` bakes values at each call site's compile time; reading them in a single module keeps `/api/version`, the startup banner, and OTA validation consistent across incremental builds.

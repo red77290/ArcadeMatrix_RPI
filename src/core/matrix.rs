@@ -231,10 +231,10 @@ impl IDrawingSurface for MockSurface {
             && phys_y >= 0
             && phys_y < self.physical_height as i32
         {
-            let scale = self.brightness as f32 / 100.0;
-            let r = (red as f32 * scale) as u8;
-            let g = (green as f32 * scale) as u8;
-            let b = (blue as f32 * scale) as u8;
+            let b_scale = self.brightness as u16;
+            let r = ((red as u16 * b_scale) / 100) as u8;
+            let g = ((green as u16 * b_scale) / 100) as u8;
+            let b = ((blue as u16 * b_scale) / 100) as u8;
             self.canvas
                 .put_pixel(phys_x as u32, phys_y as u32, image::Rgb([r, g, b]));
             self.dirty_bounds.mark(phys_y as u32);
@@ -253,7 +253,11 @@ impl IDrawingSurface for MockSurface {
     }
 
     fn set_brightness(&mut self, brightness: u8) {
-        self.brightness = brightness.min(100);
+        let new_b = brightness.min(100);
+        if self.brightness != new_b {
+            self.brightness = new_b;
+            self.dirty_bounds.mark_all(self.physical_height);
+        }
     }
 
     fn mark_dirty(&mut self) {
@@ -289,8 +293,14 @@ impl IDrawingSurface for MockSurface {
 use rpi_led_matrix::{LedCanvas, LedMatrix, LedMatrixOptions, LedRuntimeOptions};
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
+const _: () = assert!(
+    std::mem::size_of::<LedCanvas>() == std::mem::size_of::<*mut std::ffi::c_void>()
+        && std::mem::align_of::<LedCanvas>() == std::mem::align_of::<*mut std::ffi::c_void>(),
+    "LedCanvas must be layout-identical to a single raw pointer"
+);
+
+#[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 extern "C" {
-    fn led_matrix_set_brightness(matrix: *mut std::ffi::c_void, brightness: u8);
     fn set_image(
         canvas: *mut std::ffi::c_void,
         canvas_offset_x: std::ffi::c_int,
@@ -315,6 +325,7 @@ pub struct CanvasBufferedSurface {
     physical_height: u32,
     rotation: u8,
     buffer: RgbImage,
+    scaled_buffer: Vec<u8>,
     dirty_bounds: DirtyBounds,
     pipeline: RenderPipeline,
 }
@@ -328,9 +339,11 @@ unsafe impl Sync for CanvasBufferedSurface {}
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl CanvasBufferedSurface {
     pub fn new(cfg: &MatrixConfig, pipeline: RenderPipeline) -> Result<Self, String> {
-        let (matrix, canvas, w, h) = init_led_matrix(cfg)?;
+        let double_buffered = pipeline == RenderPipeline::CanvasDouble;
+        let (matrix, canvas, w, h) = init_led_matrix(cfg, double_buffered)?;
         let physical_width = w as u32;
         let physical_height = h as u32;
+        let scaled_len = (physical_width * physical_height * 3) as usize;
 
         Ok(Self {
             matrix,
@@ -340,6 +353,7 @@ impl CanvasBufferedSurface {
             physical_height,
             rotation: (cfg.rotation % 4) as u8,
             buffer: RgbImage::new(physical_width, physical_height),
+            scaled_buffer: vec![0u8; scaled_len],
             dirty_bounds: DirtyBounds::new(physical_height),
             pipeline,
         })
@@ -425,6 +439,7 @@ impl IDrawingSurface for CanvasBufferedSurface {
                 *(canvas as *const rpi_led_matrix::LedCanvas as *const *mut std::ffi::c_void)
             };
             if !handle.is_null() {
+                let b_scale = self.brightness as u16;
                 match self.pipeline {
                     RenderPipeline::CanvasSingle | RenderPipeline::Auto => {
                         // Wi-Fi Protection Mode: push only the dirty row span to save bus bandwidth
@@ -437,13 +452,22 @@ impl IDrawingSurface for CanvasBufferedSurface {
 
                         let raw_slice =
                             &self.buffer.as_raw()[offset_bytes..offset_bytes + total_bytes];
+                        let src_ptr = if b_scale < 100 {
+                            let dst = &mut self.scaled_buffer[..total_bytes];
+                            for (d, &s) in dst.iter_mut().zip(raw_slice.iter()) {
+                                *d = ((s as u16 * b_scale) / 100) as u8;
+                            }
+                            dst.as_ptr()
+                        } else {
+                            raw_slice.as_ptr()
+                        };
 
                         unsafe {
                             set_image(
                                 handle,
                                 0,
                                 min_y as std::ffi::c_int,
-                                raw_slice.as_ptr(),
+                                src_ptr,
                                 total_bytes,
                                 self.physical_width as std::ffi::c_int,
                                 row_count as std::ffi::c_int,
@@ -453,13 +477,25 @@ impl IDrawingSurface for CanvasBufferedSurface {
                     }
                     _ => {
                         // Double-buffered canvas mode: full frame commit
+                        let raw_slice = self.buffer.as_raw();
+                        let total_bytes = raw_slice.len();
+                        let src_ptr = if b_scale < 100 {
+                            let dst = &mut self.scaled_buffer[..total_bytes];
+                            for (d, &s) in dst.iter_mut().zip(raw_slice.iter()) {
+                                *d = ((s as u16 * b_scale) / 100) as u8;
+                            }
+                            dst.as_ptr()
+                        } else {
+                            raw_slice.as_ptr()
+                        };
+
                         unsafe {
                             set_image(
                                 handle,
                                 0,
                                 0,
-                                self.buffer.as_raw().as_ptr(),
-                                self.buffer.len(),
+                                src_ptr,
+                                total_bytes,
                                 self.physical_width as std::ffi::c_int,
                                 self.physical_height as std::ffi::c_int,
                                 0,
@@ -484,14 +520,7 @@ impl IDrawingSurface for CanvasBufferedSurface {
             return;
         }
         self.brightness = new_b;
-
-        let matrix_ptr = &self.matrix as *const _ as *const *mut std::ffi::c_void;
-        unsafe {
-            let handle = *matrix_ptr;
-            if !handle.is_null() {
-                led_matrix_set_brightness(handle, self.brightness);
-            }
-        }
+        self.dirty_bounds.mark_all(self.physical_height);
     }
 
     fn mark_dirty(&mut self) {
@@ -545,7 +574,8 @@ unsafe impl Sync for DirectSurface {}
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 impl DirectSurface {
     pub fn new(cfg: &MatrixConfig, pipeline: RenderPipeline) -> Result<Self, String> {
-        let (matrix, canvas, w, h) = init_led_matrix(cfg)?;
+        let double_buffered = pipeline == RenderPipeline::DirectDouble;
+        let (matrix, canvas, w, h) = init_led_matrix(cfg, double_buffered)?;
         Ok(Self {
             matrix,
             canvas: Some(canvas),
@@ -617,7 +647,12 @@ impl IDrawingSurface for DirectSurface {
             && phys_y < self.physical_height as i32
         {
             if let Some(ref mut canvas) = self.canvas {
-                let color = rpi_led_matrix::LedColor { red, green, blue };
+                let b_scale = self.brightness as u16;
+                let color = rpi_led_matrix::LedColor {
+                    red: ((red as u16 * b_scale) / 100) as u8,
+                    green: ((green as u16 * b_scale) / 100) as u8,
+                    blue: ((blue as u16 * b_scale) / 100) as u8,
+                };
                 canvas.set(phys_x as usize, phys_y as usize, &color);
                 self.dirty = true;
             }
@@ -645,14 +680,7 @@ impl IDrawingSurface for DirectSurface {
             return;
         }
         self.brightness = new_b;
-
-        let matrix_ptr = &self.matrix as *const _ as *const *mut std::ffi::c_void;
-        unsafe {
-            let handle = *matrix_ptr;
-            if !handle.is_null() {
-                led_matrix_set_brightness(handle, self.brightness);
-            }
-        }
+        self.dirty = true;
     }
 
     fn mark_dirty(&mut self) {
@@ -665,14 +693,18 @@ impl IDrawingSurface for DirectSurface {
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-fn init_led_matrix(cfg: &MatrixConfig) -> Result<(LedMatrix, LedCanvas, usize, usize), String> {
+fn init_led_matrix(
+    cfg: &MatrixConfig,
+    double_buffered: bool,
+) -> Result<(LedMatrix, LedCanvas, usize, usize), String> {
     let mut options = LedMatrixOptions::new();
     options.set_rows(cfg.height);
     options.set_cols(cfg.width);
     options.set_chain_length(cfg.chain_length);
-    options.set_parallel(1);
+    options.set_parallel(cfg.parallel.clamp(1, 3));
     options.set_multiplexing(cfg.multiplexing);
     options.set_row_addr_type(cfg.row_address_mode);
+    options.set_scan_mode(cfg.scan_mode);
     options.set_brightness(100).unwrap_or(());
     if !cfg.mapping.is_empty() {
         options.set_hardware_mapping(&cfg.mapping);
@@ -683,10 +715,16 @@ fn init_led_matrix(cfg: &MatrixConfig) -> Result<(LedMatrix, LedCanvas, usize, u
     let _ = options.set_pwm_bits(cfg.pwm_bits as u8);
     options.set_pwm_lsb_nanoseconds(cfg.pwm_lsb_nanoseconds);
     options.set_hardware_pulsing(!cfg.disable_hardware_pulsing);
-    if !cfg.driver_chip.is_empty() {
-        let chip_lower = cfg.driver_chip.to_lowercase();
+
+    let chip_candidate = if !cfg.panel_type.is_empty() {
+        &cfg.panel_type
+    } else {
+        &cfg.driver_chip
+    };
+    if !chip_candidate.is_empty() {
+        let chip_lower = chip_candidate.to_lowercase();
         if chip_lower == "fm6126a" || chip_lower == "fm6127" {
-            options.set_panel_type(&cfg.driver_chip);
+            options.set_panel_type(chip_candidate);
         }
     }
 
@@ -702,7 +740,11 @@ fn init_led_matrix(cfg: &MatrixConfig) -> Result<(LedMatrix, LedCanvas, usize, u
 
     let matrix = LedMatrix::new(Some(options), Some(rt_options))
         .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;
-    let canvas = matrix.offscreen_canvas();
+    let canvas = if double_buffered {
+        matrix.offscreen_canvas()
+    } else {
+        matrix.canvas()
+    };
     let (w, h) = canvas.canvas_size();
 
     Ok((matrix, canvas, w, h))
@@ -712,9 +754,18 @@ fn init_led_matrix(cfg: &MatrixConfig) -> Result<(LedMatrix, LedCanvas, usize, u
 pub fn create_surface(cfg: &MatrixConfig) -> Result<Box<dyn IDrawingSurface>, String> {
     #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
     {
-        let pipeline = match cfg.render_pipeline {
-            RenderPipeline::Auto => RenderPipeline::CanvasSingle,
-            other => other,
+        let pipeline = if cfg.force_single_buffer {
+            match cfg.render_pipeline {
+                RenderPipeline::DirectSingle | RenderPipeline::DirectDouble => {
+                    RenderPipeline::DirectSingle
+                }
+                _ => RenderPipeline::CanvasSingle,
+            }
+        } else {
+            match cfg.render_pipeline {
+                RenderPipeline::Auto => RenderPipeline::CanvasSingle,
+                other => other,
+            }
         };
 
         match pipeline {
@@ -732,7 +783,7 @@ pub fn create_surface(cfg: &MatrixConfig) -> Result<Box<dyn IDrawingSurface>, St
     #[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
     {
         let w = cfg.width * cfg.chain_length;
-        let h = cfg.height;
+        let h = cfg.height * cfg.parallel.clamp(1, 3);
         let mut mock = MockSurface::new(w, h);
         mock.set_rotation((cfg.rotation % 4) as u8);
         Ok(Box::new(mock))

@@ -114,7 +114,10 @@ fn test_engine_runtime_lifecycle() {
 
     let mut runtime = EngineRuntime::new();
     let mut matrix = MockSurface::new(64, 64);
-    let config = Config::new("config.json");
+    let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let temp_cfg_path = temp_dir.path().join("config.json");
+    let _ = std::fs::copy("config.json", &temp_cfg_path);
+    let config = Config::new(&temp_cfg_path);
     let mut context = EngineContext {
         surface: &mut matrix,
         config: &config,

@@ -35,17 +35,28 @@ Este bloque configura los parámetros DMA para la biblioteca hzeller `rpi-rgb-le
 | `width` | `int` | Ancho de un solo panel (ej. `64`). |
 | `height` | `int` | Alto de un solo panel (ej. `32`). |
 | `chain_length` | `int` | Número de paneles encadenados horizontalmente. |
+| `parallel` | `int` | Número de cadenas de paneles en paralelo (`1`–`3`, por defecto `1`). |
+| `power_limit_percent` | `int` | Límite global de potencia / brillo de la matriz en porcentaje (`1`–`100`, por defecto `40`). |
+| `force_single_buffer` | `bool` | Fuerza el modo de buffer único cuando es `true` (por defecto `false`). |
+| `color_depth` | `int` | Profundidad de color lógica en bits (`24` por defecto). |
 | `mapping` | `String` | Cableado/mapeo GPIO (`regular`, `adafruit-hat`, `adafruit-hat-pwm`, ...). |
 | `driver_chip` | `String` | Chip controlador (`SHIFTREG`, `FM6126A`). |
 | `rgb_sequence` | `String` | Orden de colores (`RGB`, `RBG`, `BGR`, ...). Corrige aquí colores intercambiados. |
+| `clk_phase` | `bool` | Inversión de fase de reloj (`false` por defecto). |
+| `latch_blanking` | `int` | Ciclos de latch blanking (`0`–`8`, por defecto `1`). |
+| `matrix_power` | `bool` | Estado de encendido por software de la matriz LED (`true` por defecto). |
 | `slowdown` | `int` | Ralentización GPIO (`1`–`4`). Auméntala en Pi 3/4 si ves artefactos. |
 | `pwm_bits` | `int` | Profundidad de color. Valor por defecto `11`; bájalo a `8` para ahorrar CPU. |
-| `pwm_lsb_nanoseconds` | `int` | Ajuste del ancho de pulso LSB (avanzado). |
+| `pwm_lsb_nanoseconds` | `int` | Ajuste del ancho de pulso LSB (avanzado, por defecto `130`). |
 | `disable_hardware_pulsing` | `bool` | Ponlo en `true` para evitar que DMA asfixie el Wi-Fi interno (ligero parpadeo). |
 | `limit_refresh_rate_hz` | `int` | Limita la frecuencia de refresco (`0` = sin límite). |
 | `row_address_mode` | `int` | Tipo de direccionamiento de filas para paneles exóticos (`0` por defecto). |
 | `multiplexing` | `int` | Tipo de multiplexado del panel (`0` por defecto). |
 | `panel_type` | `String` | Cadena opcional de inicialización del panel (ej. `FM6126A`), normalmente vacía. |
+| `rotation` | `int` | Orientación física de la pantalla en grados (`0`, `90`, `180`, `270`, por defecto `0`). |
+| `transition_effect` | `String` | Efecto de transición visual aplicado al cambiar la orientación (`none`, `vortex`, `fade`, `slide`, ...). Por defecto `none`. |
+| `transition_duration_ms` | `int` | Duración de la transición de orientación en milisegundos (`100`–`3000`, por defecto `500`). |
+| `render_pipeline` | `String` | Pipeline de renderizado de hardware y estrategia de buffer: `auto` (selección automática por defecto), `canvas_single` (**Recomendado**, lienzo único fuera de pantalla con seguimiento de zonas modificadas 'dirty bounds' que protege el bus SDIO Wi-Fi de la saturación), `canvas_double` (doble buffer con lienzo), `direct_double` (doble buffer directo sin copia vía controlador C), `direct_single` (buffer directo simple). Por defecto `canvas_single`. |
 | `slot_transition` | `String` | Efecto reproducido cuando la rotación pasa a la siguiente pantalla (`wipe`, `curtain`, `shutter`, `dissolve`, `checker`, `matrix`, `slide`, `zoom`, `glitch`, `random`, `none`). Por defecto `none`. |
 | `slot_transition_duration_ms` | `int` | Duración de la transición entre pantallas, en milisegundos (`100`-`3000`, por defecto `500`). |
 
@@ -74,13 +85,15 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `timezone` | `String` | Cadena POSIX (ej. `CET-1CEST,M3.5.0,M10.5.0/3`). |
 | `format_24h` | `bool` | Formato de hora. `true` = 23:00, `false` = 11:00 PM. |
 | `lang` | `String` | Idioma del sistema (ej. `en`, `fr`, `es`). |
+| `temp_unit` | `String` | Unidad global de temperatura (`"C"` para Celsius o `"F"` para Fahrenheit, por defecto `"C"`). |
 | `night_mode_enabled` | `bool` | Activa el apagado automático / la reducción de brillo por la noche. |
 | `turn_off_at` | `String` | Hora de inicio de espera (ej. `"23:00"`). |
 | `wake_up_at` | `String` | Hora de despertar (ej. `"07:00"`). |
 | `night_brightness` | `int` | Brillo de espera (`0` = matriz completamente apagada). |
 | `day_brightness` | `int` | Brillo diurno en vivo (`0`–`100`). Se ajusta con el control del panel y se conserva tras un reinicio. |
 | `idle_fighter_enabled` | `bool` | Interruptor principal de la superposición decorativa de Luchador sobre las pantallas de rotación inactivas (activación por pantalla mediante cada entrada de rotación). |
-| `idle_fighter_interval` | `int` | Segundos entre dos animaciones de combate (mínimo `1`). |
+| `idle_fighter_interval` | `int` | Segundos entre dos animaciones de combate (mínimo `1`, por defecto `10`). |
+| `idle_fighter_speed` | `int` | Porcentaje de velocidad de animación para el overlay de Luchador (`25`–`200`, por defecto `100`). |
 
 ---
 
@@ -209,10 +222,14 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `clock`
 | Campo | Tipo | Por defecto | Descripción |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Índice del tema de reloj animado: `0` = Digital Estándar, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana). |
+| `theme` | `Options` | `0` | Índice del tema de reloj animado: `0` = Digital Estándar, `1` = Flip Clock, `2` = Cyberpunk, `3` = Word Clock, `4` = Binary Clock, `5` = Pac-Man, `6` = Tetris, `7` = Slot Machine, `8` = Versus (M.U.G.E.N), `9` = Pong, `10` = Matrix Rain (Katakana), `30` = Mario (patada al caparazón Koopa y escalada vertical Tate), `31` = Castlevania (Simon Belmont y latigazo), `32` = Pocket Index (Pokémon), `33` = World Clock, `34` = Ms. Pac-Man, `35` = Mega Man (disparo Buster cargado y Metool), `37` = Words Clock, `39` = Sonic (Green Hill y Badnik Motobug), `41` = Metal Slug (Marco Rossi, tanque Di-Cokka y granadas). |
 | `format` | `String` | `%H:%M:%S` | Formato de hora strftime. |
 | `font` | `String` | `PressStart2P.ttf` | Archivo de fuente de `/fonts/`. |
+| `timezone` | `Options` | `Europe/Paris` | Zona horaria o región. |
 | `size` | `int` | `2` | Factor de escalado de la fuente. |
+| `clock_speed` | `int` | `100` | Velocidad de animación en porcentaje (caída de Tetris, barrido de Pac-Man, carrera de Mario); menor es más lento. |
+| `clock_glow` | `Options` | `0` | Halo alrededor de los dígitos (`0` desactivado, `1` neón, `2` color de contorno propio). |
+| `clock_glow_color` | `String` | `#00FF41` | Color del contorno cuando `clock_glow` es `2`. |
 | `color_1` | `String` | `#FFFFFF` | Color hexadecimal primario (inicio de degradado en tema Custom). |
 | `color_2` | `String` | `#FFFFFF` | Color hexadecimal secundario (fin de degradado en tema Custom). |
 | `offset_x` | `int` | `0` | Desplazamiento horizontal en píxeles. |
@@ -221,33 +238,57 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 ### Motor: `date`
 | Campo | Tipo | Por defecto | Descripción |
 | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | Índice del tema de fecha. |
+| `theme` | `Options` | `0` | Índice del tema de fecha. |
 | `format` | `String` | `%d/%m` | Formato de fecha strftime. |
 | `font` | `String` | `PressStart2P.ttf` | Archivo de fuente de `/fonts/`. |
+| `timezone` | `Options` | `Europe/Paris` | Zona horaria o región. |
 | `size` | `int` | `2` | Factor de escalado de la fuente. |
 | `color_1` | `String` | `#FFFFFF` | Color hexadecimal primario. |
 | `color_2` | `String` | `#FFFFFF` | Color hexadecimal secundario. |
 | `offset_x` | `int` | `0` | Desplazamiento horizontal en píxeles. |
 | `offset_y` | `int` | `0` | Desplazamiento vertical en píxeles. |
 
+### Motor: `dashboard` (Smart Dashboard Hub)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `theme` | `Options` | `0` | `0` (Cyberpunk Neon), `1` (Amber HUD), `2` (Minimalist Luxury), `3` (Matrix Phosphor) | Paleta de colores para widgets y bordes del dashboard. |
+| `clock_mode` | `Options` | `1` | `0` (Digital), `1` (Esfera), `2` (Mínimo) | Estilo de visualización del reloj. |
+| `timezone` | `Options` | `system` | `system` o zona IANA | Zona horaria o ajuste del sistema del dispositivo. |
+| `format_24h` | `Options` | `system` | `system`, `true`, `false` | Formato de hora de 24h o 12h. |
+| `temp_unit` | `Options` | `system` | `system`, `C`, `F` | Celsius (°C) o Fahrenheit (°F). |
+| `lang` | `Options` | `system` | `system`, `en`, `fr`, `es` | Idioma para textos y fechas del dashboard. |
+| `show_clock` | `bool` | `true` | `true`, `false` | Muestra el reloj principal. |
+| `show_world_clock` | `bool` | `true` | `true`, `false` | Muestra zonas horarias mundiales secundarias (`NYC`, `TYO`, `LON`...). |
+| `world_clocks` | `String` | `NYC,TYO,LON` | Códigos de ciudad | Zonas horarias separadas por comas (ej. `NYC,TYO,LON,PAR`). |
+| `show_weather` | `bool` | `true` | `true`, `false` | Muestra el pronóstico del clima y temperatura exterior. |
+| `weather_city` | `String` | `Paris, FR` | Ciudad | Ciudad para el pronóstico meteorológico. |
+| `show_markets` | `bool` | `true` | `true`, `false` | Muestra el teletipo bursátil y cripto en tiempo real. |
+| `tracked_markets` | `String` | `BTC,ETH,SOL,NVDA` | Símbolos | Símbolos bursátiles y cripto separados por comas. |
+| `show_sysinfo` | `bool` | `true` | `true`, `false` | Muestra métricas de CPU, RAM y Wi-Fi. |
+| `show_date` | `bool` | `true` | `true`, `false` | Muestra la insignia de fecha. |
+| `show_seconds` | `bool` | `true` | `true`, `false` | Muestra los segundos del reloj. |
+| `smooth_seconds` | `bool` | `true` | `true`, `false` | Segundero de barrido continuo frente a salto por segundo. |
+| `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal en píxeles. |
+| `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical en píxeles. |
+
 ### Motor: `crypto`
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `BTC,ETH` | Separados por comas | Símbolos de criptomonedas a monitorear (CoinGecko / Binance). |
-| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
 
 ### Motor: `stock`
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Separados por comas | Tickers bursátiles a monitorear (Yahoo Finance). |
-| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
 | `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
+| `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
 
 ### Motor: `gnews` (Noticias en Vivo y Ticker GNews)
@@ -259,9 +300,11 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Idioma de las noticias (`auto` sincroniza con el sistema). |
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Edición regional por país. |
 | `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché por ciclo. |
+| `requests_per_day` | `int` | `10` | `1` a `100` | Total de solicitudes API por 24 horas (plan gratuito: máx. 100). |
+| `force_refresh` | `bool` | `false` | `true`, `false` | Purga la caché de noticias y consulta inmediatamente la API. |
 | `cache_ttl_min` | `int` | `30` | `5` a `120` | Intervalo de refresco de la caché en red (minutos). |
 | `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Modo de animación (desplazamiento continuo derecha a izquierda, flujo serpentina arcade, desplazamiento vertical o paginación fija). |
-| `scroll_speed` | `int` | `3` | `1` a `5` | Multiplicador de velocidad de desplazamiento (1: Lento ~18 px/s a 5: Turbo ~60 px/s). |
+| `scroll_speed` | `int` | `3` | `1` a `10` | Velocidad de desplazamiento del teletipo (1: Lento a 10: Rápido). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` a `4000` | Tiempo de pausa inicial (ms) antes de comenzar el desplazamiento. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` a `4000` | Tiempo de pausa final (ms) al final del titular antes de cambiar. |
 | `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización por artículo en segundos. |
@@ -278,11 +321,10 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `api_key` | `String` | `""` | Clave API gratuita | Clave API de OpenWeatherMap (gratis en [openweathermap.org](https://home.openweathermap.org/users/sign_up)). |
 | `city` | `String` | `""` | Texto | Ubicación de la ciudad para el pronóstico (ver guía abajo). |
 | `units` | `Options` | `metric` | `metric`, `imperial` | Unidad de temperatura: `metric` para Celsius (°C) o `imperial` para Fahrenheit (°F). |
-| `lang` | `Options` | `en` | `en`, `fr`, `es` | Idioma de las etiquetas de días (TODAY / AUJ. / HOY). |
 | `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal de píxeles. |
 | `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical de píxeles. |
 
-En paneles de 128x32 y 256x64 las páginas del tiempo usan el mismo diseño que el firmware ESP32: icono, luego día y condición (formas largas si caben) y luego temperaturas alineadas a la derecha. En °F la máxima se muestra encima de la mínima (convención estadounidense).
+En paneles de 128x32 y 256x64 las páginas del tiempo usan el mismo diseño que el firmware ESP32: icono, luego día y condición (formas largas si caben) y luego temperaturas alineadas a la derecha. En °F la máxima se muestra encima de la mínima (convención estadounidense). El idioma de los días sigue `system.lang` (`en`, `fr`, `es`).
 
 #### Cómo formatear el campo `city` en OpenWeatherMap
 OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2 letras para EE. UU.):
@@ -290,42 +332,20 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 * **Ubicaciones en Estados Unidos:** Use `Ciudad,CodigoEstado,CodigoPais` (ej. `Tucson,AZ,US`, `Miami,FL,US`, `Dallas,TX,US`).
 * **Dónde buscar el nombre exacto:** Vaya a [openweathermap.org](https://openweathermap.org) y busque su ciudad.
 
-### Motor: `sysinfo` (Monitor de Sistema)
+### Motor: `system_info` (Monitor de Sistema)
 | Campo | Tipo | Por defecto | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
-| `theme` | `int` | `0` | `0` a `2` | Tema visual: `0` = Barras de nivel de color, `1` = Cuadrícula compacta 4 bloques, `2` = Terminal Retro. |
-| `show_cpu` | `bool` | `true` | `true`, `false` | Muestra el porcentaje de uso de CPU en tiempo real (CPU %). |
-| `show_ram` | `bool` | `true` | `true`, `false` | Muestra el porcentaje de uso de memoria RAM (RAM %). |
+| `theme` | `Options` | `0` | `0` a `2` | Diseño visual: `0` = Barras y Medidores HUD, `1` = Cyberpunk Neon, `2` = Cuadrícula compacta (2x2). |
+| `show_cpu` | `bool` | `true` | `true`, `false` | Muestra el porcentaje y medidor de carga de CPU (CPU %). |
+| `show_ram` | `bool` | `true` | `true`, `false` | Muestra el porcentaje y medidor de memoria RAM (RAM %). |
 | `show_temp` | `bool` | `true` | `true`, `false` | Muestra la temperatura de hardware del SoC (escala dinámica verde/ámbar/rojo). |
-| `show_uptime` | `bool` | `true` | `true`, `false` | Muestra el tiempo de actividad del sistema (Uptime) en horas/días. |
+| `show_uptime` | `bool` | `true` | `true`, `false` | Muestra el contador de tiempo de actividad del sistema (Uptime). |
 | `temp_unit` | `Options` | `C` | `C`, `F` | Unidad de temperatura: Celsius (`C`) o Fahrenheit (`F`). |
 | `offset_x` | `int` | `0` | `-64` a `64` | Desplazamiento horizontal en píxeles. |
 | `offset_y` | `int` | `0` | `-32` a `32` | Desplazamiento vertical en píxeles. |
 
-### Motor: `fighter` (Combate M.U.G.E.N)
-| Campo | Tipo | Por defecto | Opciones | Descripción |
-| :--- | :--- | :--- | :--- | :--- |
-| `mode` | `Options` | `match` | `match`, `showcase` | Modo de combate: `match` (duelo con K.O. y victoria) o `showcase` (demostración continua). |
-| `fighter_1` | `String` | `""` | Nombre de carpeta | Luchador P1 (dejar vacío para selección aleatoria). |
-| `fighter_2` | `String` | `""` | Nombre de carpeta | Luchador P2 (dejar vacío para selección aleatoria). |
-| `show_hud` | `bool` | `true` | `true`, `false` | Muestra barras de vida retro (HP), medidores de Super y nombres de luchadores. |
-| `match_duration` | `int` | `30` | `10` a `120` | Duración máxima del asalto en segundos antes de agotar el tiempo. |
-
-### Motor: `dashboard` (Smart Dashboard Hub)
-| Campo | Tipo | Por defecto | Opciones | Descripción |
-| :--- | :--- | :--- | :--- | :--- |
-| `clock_mode` | `Options` | `0` | `0` (Digital), `1` (Esfera), `2` (Mínimo) | Estilo de visualización del reloj |
-| `theme` | `Options` | `0` | `0` (Cyberpunk), `1` (Amber HUD), `2` (Minimalist), `3` (Matrix) | Paleta de colores para los widgets |
-| `show_clock` | `bool` | `true` | `true`, `false` | Muestra el reloj principal |
-| `show_world_clock` | `bool` | `true` | `true`, `false` | Muestra zonas horarias mundiales secundarias |
-| `world_clocks` | `String` | `NYC,TYO,LON` | Códigos de aeropuerto | Zonas horarias separadas por comas (ej. `NYC,TYO,LON,PAR,SFO`) |
-| `show_weather` | `bool` | `true` | `true`, `false` | Muestra el widget meteorológico en vivo |
-| `weather_city` | `String` | `Paris,FR` | Ciudad | Consulta de ciudad para OpenWeatherMap |
-| `show_markets` | `bool` | `true` | `true`, `false` | Muestra el teletipo bursátil y cripto |
-| `tracked_markets` | `String` | `BTC,ETH,NVDA,AAPL` | Símbolos | Símbolos bursátiles separados por comas |
-| `show_sysinfo` | `bool` | `true` | `true`, `false` | Muestra el uso de CPU % y RAM % |
-| `show_date` | `bool` | `true` | `true`, `false` | Muestra la fecha actual |
-| `show_seconds` | `bool` | `true` | `true`, `false` | Muestra el contador de segundos |
+> [!NOTE]
+> **Overlay de Luchadores M.U.G.E.N (`fighter`):** A diferencia de los motores de rotación independientes, `fighter` es un renderizador de superposición transversal sobre pantallas inactivas compatibles (como `clock` y `date`). Se configura globalmente en el bloque `"system"` (`idle_fighter_enabled`, `idle_fighter_interval`, `idle_fighter_speed` — ver §4) y se activa por ranura de rotación mediante `rotation[].overlays.fighter` (ver §7).
 
 ### Motor: `google_cast` (Google Home / Nest Audio)
 | Campo | Tipo | Por defecto | Descripción |
@@ -335,7 +355,7 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 | `show_album_art` | `bool` | `true` | Descarga y muestra la carátula del álbum en el lado izquierdo de la matriz. |
 | `show_progress` | `bool` | `true` | Muestra la barra de progreso de reproducción en la parte inferior. |
 | `show_visualizer` | `bool` | `true` | Muestra un ecualizador de frecuencias de audio animado durante la reproducción. |
-| `show_volume` | `bool` | `true` | Muestra el nivel de volumen actual del altavoz Google Nest. |
+| `show_volume` | `bool` | `true` | Muestra el porcentaje de volumen actual del altavoz Google Nest. |
 
 ### Motor: `spotify` (Reproductor Oficial Spotify)
 | Campo | Tipo | Por defecto | Descripción |
@@ -356,17 +376,18 @@ OpenWeatherMap utiliza el código de país ISO 3166 (y el código de estado de 2
 ### Motor: `message`
 | Campo | Tipo | Predeterminado | Opciones | Descripción |
 | :--- | :--- | :--- | :--- | :--- |
-| `text` | `String` | `Hello` | Texto | Texto del mensaje o cartel a mostrar. |
+| `text` | `String` | `ArcadeMatrix` | Texto | Texto del mensaje o cartel a mostrar. |
 | `color` | `String` | `#ffffff` | Color Hex | Color del texto en formato `#RRGGBB`. |
 | `size` | `int` | `1` | `1` a `4` | Multiplicador de escala de la fuente. |
-| `direction` | `Options` | `left` | `left`, `none` | Dirección de desplazamiento (`left` para desplazamiento hacia la izquierda, `none` para texto estático centrado). |
-| `speed` | `int` | `50` | `10` a `200` | Milisegundos por píxel de desplazamiento (menor = más rápido; ignorado en estático). |
-| `font` | `String` | `Default` | Dinámico | Archivo de fuente desde `/fonts/`. |
+| `direction` | `Options` | `rtl` | `rtl`, `ltr`, `static` | Dirección de desplazamiento o visualización estática. |
+| `speed` | `int` | `50` | `10` a `200` | Milisegundos por actualización de píxel (menor = más rápido; ignorado en estático). |
 
 ### Motor: `marquee`
-| Campo | Tipo | Predeterminado | Descripción |
-| :--- | :--- | :--- | :--- |
-| *(auto)* | `None` | — | Motor interno de sincronización de marquesinas Pixelcade / Recalbox / Batocera recibidas mediante MQTT o Webhook. |
+| Campo | Tipo | Predeterminado | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `file_path` | `FileAsset` | `data/marquees/marquee.gif` | `.gif,.png,.jpg,.jpeg` | Ruta al archivo GIF o imagen de marquesina (también recibe marquesinas Pixelcade / Recalbox / Batocera en directo mediante MQTT o HTTP). |
+| `speed_multiplier` | `Float` | `1.0` | `0.25` a `3.0` | Factor de velocidad de reproducción de la animación. |
+| `fit_mode` | `Options` | `fit` | `fit`, `center`, `stretch` | Modo de ajuste de escala en pantalla. |
 
 ### Motor: `mqttdata` (MQTT Data)
 | Campo | Tipo | Por defecto | Descripción |

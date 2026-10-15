@@ -75,9 +75,9 @@ async fn main() -> std::io::Result<()> {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(&exe_path, std::fs::Permissions::from_mode(0o777));
+            let _ = std::fs::set_permissions(&exe_path, std::fs::Permissions::from_mode(0o755));
             if let Some(exe_dir) = exe_path.parent() {
-                let _ = std::fs::set_permissions(exe_dir, std::fs::Permissions::from_mode(0o777));
+                let _ = std::fs::set_permissions(exe_dir, std::fs::Permissions::from_mode(0o755));
             }
         }
     }

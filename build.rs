@@ -35,14 +35,14 @@ fn main() {
     }
 
     if version.is_none() {
-        version = Some(env!("CARGO_PKG_VERSION").to_string());
-    }
-
-    if version.is_none() {
         version = std::fs::read_to_string("VERSION")
             .ok()
             .map(|s| s.trim().trim_start_matches('v').to_string())
             .filter(|s| !s.is_empty());
+    }
+
+    if version.is_none() {
+        version = Some(env!("CARGO_PKG_VERSION").to_string());
     }
 
     let final_version = version.unwrap_or_else(|| "0.0.0".to_string());
@@ -60,6 +60,7 @@ fn main() {
         .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BUILD_GIT_COMMIT={git_commit}");
     println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=VERSION");
     // Rebuild the stamp whenever HEAD or tags move
     println!("cargo:rerun-if-changed=.git/HEAD");
     println!("cargo:rerun-if-changed=.git/refs/heads");

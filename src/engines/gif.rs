@@ -270,7 +270,7 @@ impl GifEngine {
         }
 
         // STRICT SEPARATION:
-        // "en vertical, s'il n'y a pas de gifs vertical tu ne joue rien, meme chose à l'horizontal"
+        // In vertical mode, if no vertical GIFs exist, play nothing; same rule applies to horizontal mode.
         // ZERO fallback to alternate orientation! If no files match the current orientation, return false and play nothing!
         if valid_files.is_empty() {
             self.frames.clear();

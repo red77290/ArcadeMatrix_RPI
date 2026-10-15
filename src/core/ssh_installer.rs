@@ -1,6 +1,6 @@
 use ssh2::Session;
 use std::io::Read;
-use std::net::TcpStream;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -193,11 +193,14 @@ pub fn install_sync_script(
     custom_pass: Option<String>,
     target_os: Option<String>,
 ) -> Result<String, String> {
-    let tcp = TcpStream::connect_timeout(
-        &format!("{}:22", target_ip).parse().unwrap(),
-        Duration::from_secs(5),
-    )
-    .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+    use std::net::ToSocketAddrs;
+    let addr = (target_ip.trim(), 22)
+        .to_socket_addrs()
+        .map_err(|e| format!("Invalid target IP or hostname '{}': {}", target_ip, e))?
+        .next()
+        .ok_or_else(|| format!("Could not resolve target host '{}'", target_ip))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
+        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
 
     let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
     sess.set_tcp_stream(tcp);
@@ -928,11 +931,13 @@ pub fn fetch_sync_logs(
     custom_pass: Option<String>,
     target_os: Option<String>,
 ) -> Result<String, String> {
-    let tcp = TcpStream::connect_timeout(
-        &format!("{}:22", target_ip).parse().unwrap(),
-        Duration::from_secs(5),
-    )
-    .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+    let addr = format!("{}:22", target_ip)
+        .to_socket_addrs()
+        .map_err(|e| format!("Invalid target address '{}': {}", target_ip, e))?
+        .next()
+        .ok_or_else(|| format!("Could not resolve target address '{}'", target_ip))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
+        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
 
     let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
     sess.set_tcp_stream(tcp);

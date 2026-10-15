@@ -56,7 +56,7 @@ impl ArcadeMatrixApp {
                 std::fs::write(sudoers_file, sudoers_content).ok();
                 std::process::Command::new("chmod")
                     .args(["0440", sudoers_file])
-                    .spawn()
+                    .status()
                     .ok();
             }
 
@@ -114,7 +114,33 @@ impl ArcadeMatrixApp {
                     .ok();
                 std::thread::sleep(std::time::Duration::from_secs(2));
 
-                let safe_ssid = s.wifi.ssid.replace(" ", "_").replace("/", "_");
+                let clean_ssid: String = s
+                    .wifi
+                    .ssid
+                    .chars()
+                    .filter(|&c| c != '\r' && c != '\n' && c != '\0')
+                    .collect();
+                let clean_pass: String = s
+                    .wifi
+                    .password
+                    .chars()
+                    .filter(|&c| c != '\r' && c != '\n' && c != '\0')
+                    .collect();
+                let mut safe_ssid: String = clean_ssid
+                    .chars()
+                    .map(|c| {
+                        if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                            c
+                        } else {
+                            '_'
+                        }
+                    })
+                    .collect();
+                safe_ssid = safe_ssid.trim_start_matches(['-', '.']).to_string();
+                if safe_ssid.is_empty() {
+                    safe_ssid = "wifi_default".to_string();
+                }
+
                 let nm_content = format!(
                     "[connection]\nid={safe_ssid}\ntype=wifi\nautoconnect=true\n\n\
                     [wifi]\nmode=infrastructure\nssid={ssid}\n\n\
@@ -122,8 +148,8 @@ impl ArcadeMatrixApp {
                     [ipv4]\nmethod=auto\n\n\
                     [ipv6]\naddr-gen-mode=default\nmethod=auto\n",
                     safe_ssid = safe_ssid,
-                    ssid = s.wifi.ssid,
-                    pass = s.wifi.password
+                    ssid = clean_ssid,
+                    pass = clean_pass
                 );
 
                 let profile_path = format!(
@@ -142,7 +168,7 @@ impl ArcadeMatrixApp {
                         .output()
                         .ok();
                     let output = std::process::Command::new("sudo")
-                        .args(["nmcli", "connection", "up", &safe_ssid])
+                        .args(["nmcli", "connection", "up", "--", &safe_ssid])
                         .output()
                         .ok();
 
@@ -354,7 +380,7 @@ impl ArcadeMatrixApp {
                             );
                             break Box::new(MockSurface::new(
                                 matrix_cfg.width * matrix_cfg.chain_length,
-                                matrix_cfg.height,
+                                matrix_cfg.height * matrix_cfg.parallel.clamp(1, 3),
                             ));
                         }
                         tracing::warn!(
@@ -429,6 +455,13 @@ impl ArcadeMatrixApp {
         surface.clear();
         surface.present();
 
+        let mut cached_is_night = crate::core::rotation::is_night_time(
+            snapshot.system.night_mode_enabled,
+            &snapshot.system.turn_off_at,
+            &snapshot.system.wake_up_at,
+        );
+        let mut last_night_check = std::time::Instant::now();
+
         while running.load(Ordering::SeqCst) {
             // Auto-restart if configuration requires hardware reload
             if config.reload_flag.swap(false, Ordering::Relaxed) {
@@ -440,6 +473,12 @@ impl ArcadeMatrixApp {
 
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
                 snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());
+                cached_is_night = crate::core::rotation::is_night_time(
+                    snapshot.system.night_mode_enabled,
+                    &snapshot.system.turn_off_at,
+                    &snapshot.system.wake_up_at,
+                );
+                last_night_check = std::time::Instant::now();
                 rotation_manager.reset();
                 surface.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
@@ -455,12 +494,16 @@ impl ArcadeMatrixApp {
                 );
             }
 
-            // Standby / Night mode check
-            let is_night = crate::core::rotation::is_night_time(
-                snapshot.system.night_mode_enabled,
-                &snapshot.system.turn_off_at,
-                &snapshot.system.wake_up_at,
-            );
+            // Standby / Night mode check (cached to avoid Local::now() & time parsing at 50 FPS)
+            if last_night_check.elapsed() >= std::time::Duration::from_secs(1) {
+                cached_is_night = crate::core::rotation::is_night_time(
+                    snapshot.system.night_mode_enabled,
+                    &snapshot.system.turn_off_at,
+                    &snapshot.system.wake_up_at,
+                );
+                last_night_check = std::time::Instant::now();
+            }
+            let is_night = cached_is_night;
 
             if is_night {
                 if snapshot.system.night_brightness == 0 {

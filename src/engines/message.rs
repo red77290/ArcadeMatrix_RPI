@@ -81,6 +81,8 @@ pub struct MessageEngine {
     last_update: Option<Instant>,
     last_payload: Option<std::sync::Arc<MessagePayload>>,
     has_drawn_static: bool,
+    last_width: f32,
+    last_height: f32,
 }
 
 impl MessageEngine {
@@ -102,10 +104,14 @@ impl MessageEngine {
             last_update: None,
             last_payload: None,
             has_drawn_static: false,
+            last_width: 128.0,
+            last_height: 64.0,
         }
     }
 
     pub fn reset_state(&mut self, width: f32, height: f32) {
+        self.last_width = width;
+        self.last_height = height;
         self.has_drawn_static = false;
         self.move_accumulator = 0.0;
         let font = self.base_renderer.font();
@@ -260,11 +266,13 @@ impl Engine for MessageEngine {
     }
 
     fn activate(&mut self) {
-        self.reset_state(128.0, 64.0);
+        self.reset_state(self.last_width, self.last_height);
         self.last_update = Some(Instant::now());
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        self.last_width = context.surface.width() as f32;
+        self.last_height = context.surface.height() as f32;
         let snap = context.config.producer_snapshot.load();
         if let Some(ref payload) = snap.message_payload {
             let is_changed = match &self.last_payload {
@@ -344,6 +352,8 @@ impl Engine for MessageEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
+        self.last_width = context.surface.width() as f32;
+        self.last_height = context.surface.height() as f32;
         let matrix = &mut *context.surface;
         let (r, g, b) = self.parsed_color;
 
@@ -385,7 +395,7 @@ impl Engine for MessageEngine {
         self.size = config.get_int("size", 1) as u32;
         self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
         self.speed = config.get_int("speed", 50) as u32;
-        self.reset_state(128.0, 64.0);
+        self.reset_state(self.last_width, self.last_height);
     }
 }
 

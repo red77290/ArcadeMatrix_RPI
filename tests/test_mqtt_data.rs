@@ -369,24 +369,38 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     shared.set_page(
         0,
         parse_page(
-            r##"{"type":"graph","seconds":3,"max":1,"series":[{"color":"#FF0000","data":[1]}]}"##,
-        ),
+            r##"{"type":"graph","seconds":1,"max":1,"series":[{"color":"#FF0000","data":[1]}]}"##,
+        )
+        .map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
     );
     shared.set_page(
         1,
         parse_page(
-            r##"{"type":"table","seconds":3,"tiles":[{"label":"A","value":"7","color":"#00FF00"}]}"##,
-        ),
+            r##"{"type":"table","seconds":1,"tiles":[{"label":"A","value":"7","color":"#00FF00"}]}"##,
+        )
+        .map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
     );
-    shared.set_page(2, parse_page(r#"{"type":"nope","seconds":3}"#));
+    shared.set_page(
+        2,
+        parse_page(r#"{"type":"nope","seconds":1}"#).map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
+    );
     engine.update(&mut ctx);
     assert_eq!(engine.current_page(), Some(PageRef { topic: 0, sub: 0 }));
     ctx.surface.clear();
     engine.render(&mut ctx);
     drop(ctx);
     assert_eq!(px(&m, 64, 31), (255, 0, 0), "graph page drawn");
-    assert!(!engine.is_finished(), "slot = 3 + 3 + 3 s");
-    std::thread::sleep(Duration::from_millis(3100));
+    assert!(!engine.is_finished(), "slot = 1 + 1 + 1 s");
+    std::thread::sleep(Duration::from_millis(1100));
     let mut ctx = EngineContext {
         surface: &mut m,
         config: &config,
@@ -397,7 +411,7 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     engine.render(&mut ctx);
     drop(ctx);
     assert!(bbox(&m, (0, 255, 0)).is_some(), "table page drawn");
-    std::thread::sleep(Duration::from_millis(3100));
+    std::thread::sleep(Duration::from_millis(1100));
     let mut ctx = EngineContext {
         surface: &mut m,
         config: &config,
@@ -407,7 +421,7 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     engine.render(&mut ctx);
     drop(ctx);
     assert!(bbox(&m, (0xC0, 0x80, 0x00)).is_some(), "UNSUPPORTED notice");
-    std::thread::sleep(Duration::from_millis(3100));
+    std::thread::sleep(Duration::from_millis(1100));
     assert!(engine.is_finished(), "one full cycle done");
     // The rotation re-activates the same slot (e.g. it is the only one): the
     // connection is kept and a new cycle starts at page 1.

@@ -1,16 +1,20 @@
 use crate::api::{DayForecast, WeatherProvider};
 use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
 use crate::engines::renderers::{weather_page, BaseRenderer};
-use image::{imageops, RgbImage};
+use image::RgbImage;
 use linkme::distributed_slice;
-
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 pub struct WeatherEngine {
     base_renderer: BaseRenderer,
-    providers: Vec<Box<dyn WeatherProvider>>,
+    providers: Arc<RwLock<Vec<Box<dyn WeatherProvider>>>>,
+    pending_forecasts: Arc<Mutex<Option<Vec<DayForecast>>>>,
+    is_fetching: Arc<AtomicBool>,
     forecasts: Vec<DayForecast>,
     last_fetch: Option<Instant>,
+    last_fetch_attempt: Option<Instant>,
     /// Pre-rendered panorama (3 × matrix_width) as RgbImage
     panorama: Option<RgbImage>,
     panorama_w: u32,
@@ -30,9 +34,12 @@ impl WeatherEngine {
     pub fn new() -> Self {
         Self {
             base_renderer: BaseRenderer::new(),
-            providers: Vec::new(),
+            providers: Arc::new(RwLock::new(Vec::new())),
+            pending_forecasts: Arc::new(Mutex::new(None)),
+            is_fetching: Arc::new(AtomicBool::new(false)),
             forecasts: Vec::new(),
             last_fetch: None,
+            last_fetch_attempt: None,
             panorama: None,
             panorama_w: 0,
             panorama_mw: 0,
@@ -49,7 +56,9 @@ impl WeatherEngine {
     }
 
     pub fn add_provider(&mut self, provider: Box<dyn WeatherProvider>) {
-        self.providers.push(provider);
+        if let Ok(mut list) = self.providers.write() {
+            list.push(provider);
+        }
     }
 
     /// Parse the instance config into engine state. Shared by `initialize()`
@@ -79,12 +88,17 @@ impl Engine for WeatherEngine {
         // City/lang/offset edits must take effect now: drop cached forecast and
         // pre-rendered panorama so the next render refetches and rebuilds.
         self.last_fetch = None;
+        self.last_fetch_attempt = None;
         self.forecasts.clear();
         self.panorama = None;
+        if let Ok(mut pending) = self.pending_forecasts.lock() {
+            *pending = None;
+        }
     }
 
     fn activate(&mut self) {
         self.last_fetch = None; // Force refresh on activation
+        self.last_fetch_attempt = None;
     }
 
     fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {
@@ -96,33 +110,6 @@ impl Engine for WeatherEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        if self.api_key.is_empty() || self.api_key == "API_KEY" {
-            self.base_renderer.render_text(
-                context.surface,
-                "No API key",
-                0,
-                1,
-                0,
-                0,
-                Some((180, 80, 80)),
-                None,
-            );
-            return;
-        }
-        if self.city.is_empty() {
-            self.base_renderer.render_text(
-                context.surface,
-                "No city",
-                0,
-                1,
-                0,
-                0,
-                Some((180, 80, 80)),
-                None,
-            );
-            return;
-        }
-
         let (sys_lang, sys_unit) = {
             let s = context.config.settings.read();
             (s.system.lang.clone(), s.system.temp_unit.clone())
@@ -136,6 +123,33 @@ impl Engine for WeatherEngine {
             "fr".to_string()
         };
 
+        if self.api_key.is_empty() || self.api_key == "API_KEY" {
+            self.base_renderer.render_text(
+                context.surface,
+                crate::core::i18n::t(&active_lang, "no_api_key"),
+                0,
+                1,
+                0,
+                0,
+                Some((180, 80, 80)),
+                None,
+            );
+            return;
+        }
+        if self.city.is_empty() {
+            self.base_renderer.render_text(
+                context.surface,
+                crate::core::i18n::t(&active_lang, "no_city"),
+                0,
+                1,
+                0,
+                0,
+                Some((180, 80, 80)),
+                None,
+            );
+            return;
+        }
+
         let active_units = if !self.units.is_empty() && self.units != "system" {
             self.units.clone()
         } else if sys_unit.eq_ignore_ascii_case("F") {
@@ -148,21 +162,34 @@ impl Engine for WeatherEngine {
             self.last_lang = active_lang.clone();
             self.last_units = active_units.clone();
             self.last_fetch = None;
+            self.last_fetch_attempt = None;
             self.forecasts.clear();
             self.panorama = None;
+        }
+
+        if let Ok(mut pending) = self.pending_forecasts.try_lock() {
+            if let Some(new_forecasts) = pending.take() {
+                self.forecasts = new_forecasts;
+                self.last_fetch = Some(Instant::now());
+                self.panorama = None;
+            }
         }
 
         let should_fetch = self
             .last_fetch
             .map(|t| t.elapsed() > Duration::from_secs(1800))
             .unwrap_or(true);
+        let cooldown_ok = self
+            .last_fetch_attempt
+            .map(|t| t.elapsed() >= Duration::from_secs(60))
+            .unwrap_or(true);
 
-        if should_fetch {
-            self.fetch_forecast(
-                &self.api_key.clone(),
-                &self.city.clone(),
-                &active_lang,
-                &active_units,
+        if should_fetch && cooldown_ok {
+            self.trigger_forecast_fetch(
+                self.api_key.clone(),
+                self.city.clone(),
+                active_lang,
+                active_units.clone(),
             );
         }
 
@@ -214,12 +241,19 @@ impl Engine for WeatherEngine {
             ((slide_idx as f32 + ease) * mw as f32) as u32
         };
 
-        // Crop view from panorama
+        // Blit view directly from panorama without allocating a cropped RgbImage per frame
         if let Some(ref pano) = self.panorama {
             let view_x = x_scroll.min(pano.width().saturating_sub(mw));
-            let view = imageops::crop_imm(pano, view_x, 0, mw, mh);
-            let view_img = view.to_image();
-            context.surface.draw_image(&view_img, 0, 0);
+            let draw_w = mw.min(pano.width().saturating_sub(view_x));
+            let draw_h = mh.min(pano.height());
+            for y in 0..draw_h {
+                for x in 0..draw_w {
+                    let px = pano.get_pixel(view_x + x, y);
+                    context
+                        .surface
+                        .set_pixel(x as i32, y as i32, px[0], px[1], px[2]);
+                }
+            }
         }
 
         // Render dynamic scrolling condition in Tate / vertical layout when text overflows
@@ -329,7 +363,7 @@ impl Engine for WeatherEngine {
     }
 
     fn deactivate(&mut self) {
-        // Cleanup if necessary
+        self.is_fetching.store(false, Ordering::SeqCst);
     }
 }
 
@@ -656,19 +690,43 @@ impl WeatherEngine {
         weather_page::draw_icon_scaled(img, icon, x, y, 1);
     }
 
-    fn fetch_forecast(&mut self, api_key: &str, city: &str, lang: &str, units: &str) {
-        self.last_fetch = Some(Instant::now());
-        self.panorama = None; // Invalidate panorama cache
-
-        for provider in &self.providers {
-            if let Some(forecasts) = provider.fetch_forecast(api_key, city, lang, units) {
-                self.forecasts = forecasts;
-                return;
-            }
+    fn trigger_forecast_fetch(
+        &mut self,
+        api_key: String,
+        city: String,
+        lang: String,
+        units: String,
+    ) {
+        let has_providers = self.providers.read().map_or(false, |p| !p.is_empty());
+        if !has_providers || self.is_fetching.swap(true, Ordering::SeqCst) {
+            return;
         }
+        self.last_fetch_attempt = Some(Instant::now());
 
-        tracing::warn!("Failed to fetch weather forecast from all providers");
-        self.forecasts.clear();
+        let providers = Arc::clone(&self.providers);
+        let pending = Arc::clone(&self.pending_forecasts);
+        let is_fetching = Arc::clone(&self.is_fetching);
+
+        std::thread::spawn(move || {
+            let mut fetched = None;
+            if let Ok(prov_list) = providers.read() {
+                for provider in prov_list.iter() {
+                    if let Some(forecasts) = provider.fetch_forecast(&api_key, &city, &lang, &units)
+                    {
+                        fetched = Some(forecasts);
+                        break;
+                    }
+                }
+            }
+            if let Some(forecasts) = fetched {
+                if let Ok(mut guard) = pending.lock() {
+                    *guard = Some(forecasts);
+                }
+            } else {
+                tracing::warn!("Failed to fetch weather forecast from all providers");
+            }
+            is_fetching.store(false, Ordering::SeqCst);
+        });
     }
 }
 

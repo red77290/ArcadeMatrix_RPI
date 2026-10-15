@@ -1,3 +1,5 @@
+🇬🇧 English | 🇫🇷 [Français](SCRIPTS_FR.md) | 🇪🇸 [Español](SCRIPTS_ES.md)
+
 # ArcadeMatrix Scripts Documentation
 
 This document explains the purpose, prerequisites and usage of every script in
@@ -60,7 +62,7 @@ Flags (all optional; defaults come from `defaults.sh`):
 
 ### `deploy.ps1` (Windows)
 PowerShell equivalent using native OpenSSH. Same behaviour.
-**Usage**: `./scripts/deploy.ps1 -PI_IP 192.168.1.149 -PI_USER pi [-SkipBuild] [-BinaryPath <path>]`
+**Usage**: `./scripts/deploy.ps1 -Ip 192.168.1.149 -User pi -Pass raspberry [-SkipBuild] [-BinaryPath <path>]`
 
 > 💡 For a running device you usually don't need to deploy at all — use the
 > **OTA firmware upload** in the Web UI (System tab), which validates and swaps

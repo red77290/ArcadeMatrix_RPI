@@ -61,3 +61,14 @@ conf.ini.backup
 # Node (doc tooling, not part of the project)
 node_modules/
 package-lock.json
+
+# Local binaries, backups, tarballs & local sys crate
+/arcadematrix
+/arcadematrix.old
+/arcadematrix.bak
+/rpi-led-matrix-sys/
+*.tar.gz
+*.bak
+*.old
+*.tmp
+

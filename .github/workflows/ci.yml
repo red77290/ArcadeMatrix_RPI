@@ -38,3 +38,8 @@ jobs:
 
       - name: Run Bash Integration Tests
         run: bash tests/test_install_scripts.sh
+
+      - name: Validate Documentation & Release Artifacts
+        run: |
+          python3 scripts/validate_docs.py
+          python3 scripts/validate_rpi_release.py

@@ -35,7 +35,7 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc cargo build 
 "
 fi
 
-if [[ "$TARGET_ARCH" == armv* ]] || [ "$TARGET_ARCH" = "all" ]; then
+if [[ "$TARGET_ARCH" == armv* ]] || [ "$TARGET_ARCH" = "armhf" ] || [ "$TARGET_ARCH" = "all" ]; then
     DOCKER_CMD+="
 echo '=> Adding Rust target for 32-bit (armv7)...'
 rustup target add armv7-unknown-linux-gnueabihf

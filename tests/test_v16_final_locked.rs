@@ -117,7 +117,10 @@ fn test_h_core_zero_allocation_mechanical_proof() {
     let mut runtime = DisplayRuntime::new();
     let mut engine_runtime = EngineRuntime::new();
     let mut matrix = MockSurface::new(64, 32);
-    let config = arcadematrix::core::config::Config::new("config.json");
+    let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let temp_cfg_path = temp_dir.path().join("config.json");
+    let _ = std::fs::copy("config.json", &temp_cfg_path);
+    let config = arcadematrix::core::config::Config::new(&temp_cfg_path);
 
     // Pre-publish a message payload via Control Plane
     let initial_payload = arcadematrix::engines::message::MessagePayload::new(
@@ -271,7 +274,10 @@ fn test_h_core_zero_allocation_mechanical_proof() {
 
 #[test]
 fn test_lock_free_producer_snapshot_boundary() {
-    let config = arcadematrix::core::config::Config::new("config.json");
+    let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let temp_cfg_path = temp_dir.path().join("config.json");
+    let _ = std::fs::copy("config.json", &temp_cfg_path);
+    let config = arcadematrix::core::config::Config::new(&temp_cfg_path);
 
     // Initially None
     let snap0 = config.producer_snapshot.load();

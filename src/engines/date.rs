@@ -46,7 +46,7 @@ impl DateEngine {
             date_offset_x: 0,
             date_offset_y: 0,
 
-            last_font: String::new(),
+            last_font: "PressStart2P.ttf".to_string(),
             last_rendered_date: String::new(),
         }
     }
@@ -67,6 +67,11 @@ impl DateEngine {
         } else {
             config.get_string("date_font", "PressStart2P.ttf")
         };
+        if self.date_font != self.last_font {
+            self.base_renderer = BaseRenderer::from_font_path(&self.date_font);
+            self.last_font = self.date_font.clone();
+            self.flip.reset();
+        }
 
         let size = config.get_int("size", 0);
         self.date_size = if size > 0 {
@@ -222,13 +227,17 @@ impl Engine for DateEngine {
         if self.is_realtime() {
             true
         } else {
-            let now = chrono::Local::now();
+            let now = if let Some(tz) = crate::engines::clock::parse_tz(&self.timezone) {
+                chrono::Utc::now().with_timezone(&tz).naive_local()
+            } else {
+                chrono::Local::now().naive_local()
+            };
             let mut format_str = self.date_format.clone();
             format_str = format_str.replace("YYYY", "%Y");
             format_str = format_str.replace("YY", "%y");
             format_str = format_str.replace("MM", "%m");
             format_str = format_str.replace("DD", "%d");
-            let cur = now.format(&format_str).to_string();
+            let cur = crate::engines::clock::safe_format_time(now.format(&format_str), "--/--");
             cur != self.last_rendered_date
         }
     }
@@ -260,7 +269,7 @@ impl Engine for DateEngine {
         format_str = format_str.replace("YY", "%y");
         format_str = format_str.replace("MM", "%m");
         format_str = format_str.replace("DD", "%d");
-        let date_str = now.format(&format_str).to_string();
+        let date_str = crate::engines::clock::safe_format_time(now.format(&format_str), "--/--");
 
         // Reload font if changed
         if self.date_font != self.last_font {

@@ -32,7 +32,7 @@ def main():
     if os.path.exists(autoinstall_path):
         with open(autoinstall_path, "r", encoding="utf-8") as f:
             content = f.read()
-            if "cargo build" not in content and "systemctl" not in content:
+            if "cargo build" not in content or "systemctl" not in content:
                 print("⚠️ Warning: autoInstall.sh might be missing expected build or service commands.")
 
     if all_ok:

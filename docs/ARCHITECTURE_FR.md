@@ -20,12 +20,13 @@ Ce document est la référence **approfondie et exhaustive** de l'architecture A
 8. [Propagation de config et hot reload](#8-propagation-de-config-et-hot-reload)
 9. [UI dynamique pilotée par schéma et listes personnalisées](#9-ui-dynamique-pilotée-par-schéma-et-listes-personnalisées)
 10. [Architecture d'Internationalisation (i18n) & Source de Vérité Unique](#10-architecture-dinternationalisation-i18n--source-de-vérité-unique)
-11. [Display Arbiter : gestion des priorités multi-sources](#11-display-arbiter--gestion-des-priorités-multi-sources)
-12. [Le compositeur d'overlay Fighter](#12-le-compositeur-doverlay-fighter)
-13. [Isolation runtime et modèle de threads](#13-isolation-runtime-et-modèle-de-threads)
-14. [Régulation de cadence (Frame pacing)](#14-régulation-de-cadence-frame-pacing)
-15. [Surface d'API HTTP](#15-surface-dapi-http)
-16. [Métadonnées de build et télémétrie](#16-métadonnées-de-build-et-télémétrie)
+11. [Pipeline d'Affichage Canonique : Arbiter & DisplayRuntime](#11-pipeline-daffichage-canonique--arbiter--displayruntime)
+12. [L'Architecture d'Overlay Transverse & OverlayManager](#12-larchitecture-doverlay-transverse--overlaymanager)
+13. [Pipeline de Rendu Matériel & Abstraction IDrawingSurface](#13-pipeline-de-rendu-matériel--abstraction-idrawingsurface)
+14. [Isolation runtime et modèle de threads](#14-isolation-runtime-et-modèle-de-threads)
+15. [Cadence de rendu](#15-cadence-de-rendu)
+16. [Surface de l'API HTTP](#16-surface-de-lapi-http)
+17. [Métadonnées de build](#17-métadonnées-de-build)
 
 ---
 
@@ -52,7 +53,7 @@ flowchart TD
     end
 
     CFG --> REND["matrix-render thread (8MB stack)"]
-    CFG --> API["api-server thread (actix, port 80)"]
+    CFG --> API["api-server thread (actix, port 8080)"]
 
     subgraph RenderThread["matrix-render thread"]
         REND --> ARB["DisplayArbiter.evaluate()"]
@@ -123,6 +124,8 @@ classDiagram
         +bool supports_256x64
         +bool realtime
         +bool interruptible
+        +bool allows_overlay
+        +bool allow_rotation
     }
 
     class Requirements {
@@ -183,7 +186,7 @@ classDiagram
 | `initialize` | une fois, au premier affichage | Allocation lourde : charger bitmaps/polices, réserver les buffers. |
 | `activate` | à chaque passage à l'écran | Réinitialisation légère de l'état transitoire (sans allocation). |
 | `update` | boucle chaude | Logique métier. **Aucune allocation inutile.** |
-| `render` | boucle chaude | Dessin dans `context.matrix`. **Aucune allocation inutile.** |
+| `render` | boucle chaude | Dessin dans `context.surface`. **Aucune allocation inutile.** |
 | `deactivate` | en quittant l'écran | Arrêter les tâches/écouteurs de fond. |
 | `on_config_changed` | à l'édition live | Relire les valeurs **sur place**, sans recréation. |
 | `is_finished` | chaque frame | Signaler au runtime d'avancer plus tôt (ex. le crypto a fini sa liste de jetons). |
@@ -234,12 +237,13 @@ flowchart LR
 
 ## 5. Le cycle de vie « Lazy-Once »
 
-L'`EngineRuntime` possède deux maps : les instances vivantes en cache et un snapshot de la config avec laquelle chacune a été configurée en dernier.
+L'`EngineRuntime` possède un vecteur indexé d'instances enregistrées (mappant des handles `instance_id` 16 bits compacts en $O(1)$) ainsi que le snapshot de la dernière configuration appliquée à chaque instance :
 
 ```rust
 pub struct EngineRuntime {
-    instances: HashMap<String, Box<dyn Engine>>,     // instance_id -> moteur vivant
-    configs:   HashMap<String, HashMap<String,String>>, // instance_id -> dernière config appliquée
+    id_to_registered: Vec<Option<RegisteredInstance>>,
+    instance_to_id: HashMap<String, u16>,
+    next_instance_id: u16,
 }
 ```
 
@@ -311,7 +315,7 @@ classDiagram
     class RotationEntry {
         +str instance_id
         +u32 duration_sec
-        +bool fighter_overlay
+        +OverlayConfig overlays
     }
     class SystemConfig {
         +str timezone
@@ -352,7 +356,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,   // édition instance/rotation -> relecture à la frame suivante
     pub matrix_power: AtomicBool,     // on/off live
     pub matrix_brightness: AtomicU32, // luminosité live (0..100)
-    pub message_payload: Mutex<Option<Value>>,
+    pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub settings: RwLock<ConfigSettings>,
 }
 ```
@@ -520,7 +524,7 @@ sequenceDiagram
 ```
 
 ### Avantages de l'Architecture i18n Centralisée :
-1. **Zéro Redondance de Schéma :** Aucun moteur individuel (`WeatherEngine`, `WordClock`, `DecibelEngine`, etc.) n'a de champ `lang` dans son schéma.
+1. **Zéro Redondance de Schéma :** Aucun moteur individuel (`WeatherEngine`, `WordClock`, etc.) n'a de champ `lang` dans son schéma.
 2. **Synchronisation Universelle :** Changer la langue dans l'en-tête de la WebUI reconfigure instantanément toute la machine (WebUI + Affichage Matrice).
 3. **Extensibilité Trivialement Simple :** Pour ajouter une langue (ex: Allemand `de`), il suffit d'ajouter une entrée dans `SUPPORTED_LANGUAGES` (Front) et les dictionnaires du module `crate::core::i18n` (Back-end Rust et C++).
 
@@ -655,7 +659,7 @@ flowchart TD
 ```
 
 1. **Thread de rendu dédié (`matrix-render`)** — pile de 8 Mo, propriété exclusive de la matrice. S'il partageait le thread avec HTTP, chaque requête sauterait une frame (déchirure).
-2. **Thread Web API isolé (`api-server`)** — un runtime Tokio mono-thread hébergeant actix sur le port 80. Il ne touche au thread de rendu que via des atomiques et de courtes lectures `RwLock`.
+2. **Thread Web API isolé (`api-server`)** — un runtime Tokio mono-thread hébergeant actix sur le port 8080. Il ne touche au thread de rendu que via des atomiques et de courtes lectures `RwLock`.
 3. **Services de fond** — écouteur MQTT et pollers HTTP (crypto, météo, bourse) tournent hors du chemin de rendu, pour qu'un appel réseau lent ne bloque jamais `update()`.
 
 ---
@@ -673,7 +677,7 @@ La pause par frame est dérivée de la capacité/état, **jamais** d'un nom de m
 
 ## 16. Surface de l'API HTTP
 
-Tous les endpoints sont des handlers actix dans `src/api/server.rs` ; les assets web statiques sont embarqués via `rust-embed`. Référence complète dans [../openapi.yaml](../openapi.yaml).
+Tous les endpoints sont des handlers actix dans `src/api/server.rs` ; les assets web statiques sont embarqués via `rust-embed`. Référence complète dans [openapi.yaml](openapi.yaml).
 
 | Méthode | Chemin | Rôle |
 | :-- | :-- | :-- |

@@ -106,7 +106,8 @@ body {
     transform: translateX(0);
   }
 
-  #mobile-menu-btn {
+  #mobile-menu-btn,
+  .mobile-menu-btn {
     display: block !important;
   }
 
@@ -127,7 +128,8 @@ body {
   }
 }
 
-#mobile-menu-btn {
+#mobile-menu-btn,
+.mobile-menu-btn {
   display: none;
   background: none;
   border: none;
@@ -240,43 +242,7 @@ body {
   background: rgba(255, 255, 255, 0.15);
 }
 
-/* Rotation Panel & Responsive Rows */
-.rotation-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  margin: 1rem 0;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.rotation-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  padding: 0.75rem 0.85rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: var(--radius-md);
-  transition: background var(--transition-fast), border-color var(--transition-fast);
-  width: 100%;
-  box-sizing: border-box;
-  max-width: 100%;
-}
-
-.rotation-row:hover {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.rotation-row-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  width: 100%;
-}
-
+/* Rotation Helpers & Add Controls */
 .rotation-title-group {
   display: flex;
   align-items: center;
@@ -285,69 +251,10 @@ body {
   min-width: 0;
 }
 
-.rotation-order-badge {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #fff;
-  background: var(--accent-primary);
-  box-shadow: 0 0 8px var(--accent-glow);
-  padding: 0.2rem 0.5rem;
-  border-radius: 12px;
-  flex-shrink: 0;
-  line-height: 1;
-}
-
-.rotation-title {
-  font-weight: 600;
-  color: #ffffff;
-  font-size: 0.95rem;
-  word-break: break-word;
-  line-height: 1.3;
-}
-
-.rotation-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  flex-shrink: 0;
-}
-
-.rotation-settings-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-  padding-top: 0.4rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
-  width: 100%;
-}
-
-.rotation-dur-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  background: rgba(0, 0, 0, 0.35);
-  padding: 0.2rem 0.5rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--glass-border);
-}
-
 .rotation-dur-label {
   font-size: 0.8rem;
   color: var(--text-muted);
   font-weight: 500;
-}
-
-.rotation-dur-input {
-  width: 3.5rem !important;
-  padding: 0.2rem 0.3rem !important;
-  text-align: center;
-  background: transparent !important;
-  border: none !important;
-  color: #fff !important;
-  font-weight: 700;
-  font-size: 0.9rem;
 }
 
 .rotation-unit {
@@ -355,22 +262,6 @@ body {
   font-size: 0.8rem;
   font-weight: 500;
   user-select: none;
-}
-
-.rotation-fighter-lbl {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  font-size: 0.85rem;
-  color: var(--text-secondary);
-  cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  background: rgba(255, 255, 255, 0.04);
-  border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  user-select: none;
-  flex-shrink: 0;
-  transition: background var(--transition-fast);
 }
 
 .rotation-fighter-lbl:hover {

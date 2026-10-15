@@ -10,7 +10,7 @@ use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, Rgb, RgbImage};
 use linkme::distributed_slice;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -26,8 +26,9 @@ pub struct GoogleCastEngine {
 
     // Live state shared with background poll thread
     media_status: Arc<Mutex<CastMediaStatus>>,
-    is_running: Arc<AtomicBool>,
-    last_image_url: String,
+    shared_cover: Arc<Mutex<Option<RgbImage>>>,
+    target_art_size: Arc<AtomicU32>,
+    worker_stop: Option<Arc<AtomicBool>>,
     cached_cover: Option<RgbImage>,
 
     // Animation & marquee timers
@@ -48,8 +49,9 @@ impl GoogleCastEngine {
             show_volume: true,
             show_visualizer: true,
             media_status: Arc::new(Mutex::new(CastMediaStatus::default())),
-            is_running: Arc::new(AtomicBool::new(false)),
-            last_image_url: String::new(),
+            shared_cover: Arc::new(Mutex::new(None)),
+            target_art_size: Arc::new(AtomicU32::new(52)),
+            worker_stop: None,
             cached_cover: None,
             anim_frame: 0,
             marquee_offset: 0,
@@ -73,14 +75,21 @@ impl GoogleCastEngine {
         self.show_visualizer = config.get_bool("show_visualizer", true);
     }
 
-    fn start_background_worker(&mut self) {
-        if self.is_running.load(Ordering::Relaxed) {
-            return;
+    fn stop_background_worker(&mut self) {
+        if let Some(stop_token) = self.worker_stop.take() {
+            stop_token.store(true, Ordering::SeqCst);
         }
+    }
 
-        self.is_running.store(true, Ordering::Relaxed);
+    fn start_background_worker(&mut self) {
+        self.stop_background_worker();
+
+        let stop_token = Arc::new(AtomicBool::new(false));
+        self.worker_stop = Some(Arc::clone(&stop_token));
+
         let status_arc = Arc::clone(&self.media_status);
-        let running_arc = Arc::clone(&self.is_running);
+        let cover_arc = Arc::clone(&self.shared_cover);
+        let target_size_arc = Arc::clone(&self.target_art_size);
         let ip_arc = Arc::clone(&self.config_ip);
         let name_arc = Arc::clone(&self.config_name);
 
@@ -89,8 +98,15 @@ impl GoogleCastEngine {
             let mut last_configured_ip = String::new();
             let mut last_configured_name = String::new();
             let mut client: Option<GoogleCastClient> = None;
+            let mut last_attempted_url = String::new();
+            let mut last_resized_dim = 0u32;
+            let mut raw_cover: Option<RgbImage> = None;
+            let http_client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(2000))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new());
 
-            while running_arc.load(Ordering::Relaxed) {
+            while !stop_token.load(Ordering::SeqCst) {
                 let (ip_configured, name_filter) = {
                     let ip = ip_arc.lock().map(|g| g.clone()).unwrap_or_default();
                     let name = name_arc.lock().map(|g| g.clone()).unwrap_or_default();
@@ -122,9 +138,15 @@ impl GoogleCastEngine {
                     client = Some(GoogleCastClient::new(&resolved_ip, 8009));
                 }
 
+                if stop_token.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let mut current_img_url = None;
                 if let Some(ref mut c) = client {
                     match c.poll_status() {
                         Ok(st) => {
+                            current_img_url = st.image_url.clone();
                             if let Ok(mut guard) = status_arc.lock() {
                                 *guard = st;
                             }
@@ -139,50 +161,69 @@ impl GoogleCastEngine {
                     }
                 }
 
-                thread::sleep(Duration::from_millis(1000));
-            }
-        });
-    }
+                let target_size = target_size_arc.load(Ordering::Relaxed).max(16);
+                match current_img_url {
+                    Some(ref u) if !u.is_empty() => {
+                        if *u != last_attempted_url {
+                            last_attempted_url = u.clone();
+                            raw_cover = None;
+                            if let Ok(resp) = http_client.get(u).send() {
+                                if resp.status().is_success() {
+                                    if let Ok(bytes) = resp.bytes() {
+                                        if let Ok(img) = image::load_from_memory(&bytes) {
+                                            raw_cover = Some(img.to_rgb8());
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(ref rgb) = raw_cover {
+                                let resized = imageops::resize(
+                                    rgb,
+                                    target_size,
+                                    target_size,
+                                    imageops::FilterType::Triangle,
+                                );
+                                last_resized_dim = target_size;
+                                if let Ok(mut guard) = cover_arc.lock() {
+                                    *guard = Some(resized);
+                                }
+                            } else if let Ok(mut guard) = cover_arc.lock() {
+                                *guard = None;
+                            }
+                        } else if target_size != last_resized_dim {
+                            if let Some(ref rgb) = raw_cover {
+                                let resized = imageops::resize(
+                                    rgb,
+                                    target_size,
+                                    target_size,
+                                    imageops::FilterType::Triangle,
+                                );
+                                last_resized_dim = target_size;
+                                if let Ok(mut guard) = cover_arc.lock() {
+                                    *guard = Some(resized);
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        if !last_attempted_url.is_empty() {
+                            last_attempted_url.clear();
+                            raw_cover = None;
+                            if let Ok(mut guard) = cover_arc.lock() {
+                                *guard = None;
+                            }
+                        }
+                    }
+                }
 
-    fn fetch_cover_art_if_needed(&mut self, url_opt: &Option<String>, target_size: u32) {
-        let url = match url_opt {
-            Some(u) if !u.is_empty() => u.clone(),
-            _ => {
-                self.last_image_url.clear();
-                self.cached_cover = None;
-                return;
-            }
-        };
-
-        if url == self.last_image_url && self.cached_cover.is_some() {
-            return;
-        }
-
-        self.last_image_url = url.clone();
-        // Fetch and decode image
-        if let Ok(resp) = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(2000))
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new())
-            .get(&url)
-            .send()
-        {
-            if let Ok(bytes) = resp.bytes() {
-                if let Ok(img) = image::load_from_memory(&bytes) {
-                    let rgb = img.to_rgb8();
-                    let resized = imageops::resize(
-                        &rgb,
-                        target_size,
-                        target_size,
-                        imageops::FilterType::Triangle,
-                    );
-                    self.cached_cover = Some(resized);
-                    return;
+                for _ in 0..10 {
+                    if stop_token.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
                 }
             }
-        }
-
-        self.cached_cover = None;
+        });
     }
 }
 
@@ -193,7 +234,6 @@ impl Engine for GoogleCastEngine {
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
         self.apply_config(config);
-        self.start_background_worker();
         Ok(())
     }
 
@@ -202,15 +242,20 @@ impl Engine for GoogleCastEngine {
     }
 
     fn update(&mut self, ctx: &mut EngineContext) {
-        let (img_url, is_playing) = if let Ok(guard) = self.media_status.lock() {
-            (guard.image_url.clone(), guard.is_playing)
+        let is_playing = if let Ok(guard) = self.media_status.lock() {
+            guard.is_playing
         } else {
-            (None, false)
+            false
         };
 
         if self.show_album_art {
             let target_size = if ctx.surface.height() >= 64 { 52 } else { 24 };
-            self.fetch_cover_art_if_needed(&img_url, target_size);
+            self.target_art_size.store(target_size, Ordering::Relaxed);
+            if let Ok(guard) = self.shared_cover.try_lock() {
+                self.cached_cover = guard.clone();
+            }
+        } else {
+            self.cached_cover = None;
         }
 
         // Marquee scrolling tick (~35ms per pixel)
@@ -233,6 +278,7 @@ impl Engine for GoogleCastEngine {
             (CastMediaStatus::default(), false)
         };
 
+        let sys_lang = ctx.config.get_sys_string("language", "en");
         let w = ctx.surface.width() as i32;
         let h = ctx.surface.height() as i32;
 
@@ -246,10 +292,11 @@ impl Engine for GoogleCastEngine {
                 .lock()
                 .map(|g| g.clone())
                 .unwrap_or_default();
+            let ready_label = crate::core::i18n::t(&sys_lang, "ready_to_stream");
             let subtitle = if !name_guard.is_empty() {
-                format!("Ready to stream • {}", name_guard)
+                format!("{} • {}", ready_label, name_guard)
             } else {
-                "Ready to stream".to_string()
+                ready_label.to_string()
             };
 
             let (_, title_w, _) = font.get_pixel_map(title, 1.0);
@@ -750,7 +797,7 @@ impl Engine for GoogleCastEngine {
     }
 
     fn deactivate(&mut self) {
-        self.is_running.store(false, Ordering::Relaxed);
+        self.stop_background_worker();
     }
 
     fn is_realtime(&self) -> bool {

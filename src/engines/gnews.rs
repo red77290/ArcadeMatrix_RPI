@@ -68,6 +68,7 @@ pub struct GNewsEngine {
     // Thread-safe Async Shared State
     shared_articles: Arc<Mutex<Vec<GNewsArticle>>>,
     shared_status: Arc<Mutex<GNewsStatus>>,
+    shared_quota: Arc<Mutex<(usize, Vec<u32>)>>,
     is_fetching: Arc<AtomicBool>,
 
     // Runtime state
@@ -171,6 +172,7 @@ impl GNewsEngine {
 
             shared_articles: Arc::new(Mutex::new(loaded_articles.clone())),
             shared_status: Arc::new(Mutex::new(loaded_status)),
+            shared_quota: Arc::new(Mutex::new((loaded_key_idx, loaded_usages.clone()))),
             is_fetching: Arc::new(AtomicBool::new(false)),
 
             articles: loaded_articles,
@@ -293,24 +295,7 @@ impl GNewsEngine {
     }
 
     pub fn get_category_short(category: &str) -> &'static str {
-        let cat = category.to_lowercase();
-        if cat.contains("tech") {
-            "TECH"
-        } else if cat.contains("sci") {
-            "SCI"
-        } else if cat.contains("sport") {
-            "SPORT"
-        } else if cat.contains("bus") || cat.contains("fin") || cat.contains("econ") {
-            "BIZ"
-        } else if cat.contains("world") || cat.contains("nation") {
-            "WORLD"
-        } else if cat.contains("ent") || cat.contains("art") {
-            "CULT"
-        } else if cat.contains("heal") {
-            "SANTE"
-        } else {
-            "NEWS"
-        }
+        i18n::gnews_category_short(Lang::En, category)
     }
 
     pub fn get_category_color(category: &str) -> (u8, u8, u8) {

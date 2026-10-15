@@ -81,12 +81,16 @@ if [ ! -L "config.json" ]; then
 fi
 
 if [ -z "$SKIP_BUILD" ]; then
-    # 4. Install Rust toolchain & Compile binary
+    # 4. Install Rust toolchain & Compile binary (scoped to ACTUAL_USER's home even under sudo)
+    export CARGO_HOME="$ACTUAL_HOME/.cargo"
+    export RUSTUP_HOME="$ACTUAL_HOME/.rustup"
+    export PATH="$CARGO_HOME/bin:$PATH"
     if ! command -v cargo &> /dev/null; then
-        echo "Installing Rust toolchain..."
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-        source "$HOME/.cargo/env" || true
-        export PATH="$HOME/.cargo/bin:$PATH"
+        echo "Installing Rust toolchain for $ACTUAL_USER in $CARGO_HOME..."
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+        source "$CARGO_HOME/env" || true
+        export PATH="$CARGO_HOME/bin:$PATH"
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" "$CARGO_HOME" "$RUSTUP_HOME" 2>/dev/null || true
     fi
 
     echo "Compiling ArcadeMatrix Rust binary (release mode)..."
@@ -95,6 +99,7 @@ if [ -z "$SKIP_BUILD" ]; then
     echo "Copying binary to project root..."
     cp target/release/arcadematrix ./arcadematrix
     chmod +x ./arcadematrix
+    chown -R "$ACTUAL_USER:$ACTUAL_USER" "$CURRENT_DIR/target" ./arcadematrix 2>/dev/null || true
 else
     echo "SKIP_BUILD is set, skipping Rust compilation..."
 fi
@@ -183,11 +188,17 @@ fi
 
 echo "Adding useful Bash aliases for $ACTUAL_USER..."
 BASH_ALIASES="$ACTUAL_HOME/.bash_aliases"
-sudo bash -c "echo \"alias am='sudo systemctl restart arcadematrix'\" >> $BASH_ALIASES"
-sudo bash -c "echo \"alias am-log='sudo journalctl -u arcadematrix -f'\" >> $BASH_ALIASES"
-sudo bash -c "echo \"alias am-stop='sudo systemctl stop arcadematrix'\" >> $BASH_ALIASES"
-sudo bash -c "echo \"alias am-start='sudo systemctl start arcadematrix'\" >> $BASH_ALIASES"
-sudo chown $ACTUAL_USER:$ACTUAL_USER $BASH_ALIASES
+sudo touch "$BASH_ALIASES"
+for alias_line in \
+    "alias am='sudo systemctl restart arcadematrix'" \
+    "alias am-log='sudo journalctl -u arcadematrix -f'" \
+    "alias am-stop='sudo systemctl stop arcadematrix'" \
+    "alias am-start='sudo systemctl start arcadematrix'"; do
+    if ! grep -qF "$alias_line" "$BASH_ALIASES" 2>/dev/null; then
+        sudo bash -c "echo \"$alias_line\" >> \"$BASH_ALIASES\""
+    fi
+done
+sudo chown "$ACTUAL_USER:$ACTUAL_USER" "$BASH_ALIASES"
 
 echo "Fixing traversal permissions on $ACTUAL_HOME for the 'daemon' user..."
 # The C++ RGB matrix library drops privileges to 'daemon', so 'daemon' must be

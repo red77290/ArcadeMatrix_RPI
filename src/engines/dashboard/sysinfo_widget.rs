@@ -5,15 +5,15 @@ use crate::core::matrix::IDrawingSurface;
 #[inline]
 fn get_gauge_color(ratio: f32) -> (u8, u8, u8) {
     if ratio < 0.20 {
-        (0, 180, 255) // Bleu (0-20%)
+        (0, 180, 255) // Blue (0-20%)
     } else if ratio < 0.40 {
-        (0, 230, 80) // Vert (20-40%)
+        (0, 230, 80) // Green (20-40%)
     } else if ratio < 0.60 {
-        (255, 215, 0) // Jaune (40-60%)
+        (255, 215, 0) // Yellow (40-60%)
     } else if ratio < 0.80 {
         (255, 130, 0) // Orange (60-80%)
     } else {
-        (255, 45, 45) // Rouge (80-100%)
+        (255, 45, 45) // Red (80-100%)
     }
 }
 

@@ -28,8 +28,8 @@ Nous fournissons des fichiers `.img` précompilés et entièrement automatisés,
 *(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la [liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
 
 1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
-2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de !
-3. Ouvrez le fichier `config.json` situé sur ce lecteur DATA pour configurer la taille de votre matrice et vos identifiants **Wi-Fi** (`SSID` et `PASS`).
+2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de 8 Go !
+3. Ouvrez le fichier `config.json` situé sur ce lecteur DATA pour configurer la taille de votre matrice et vos identifiants **Wi-Fi** (`"ssid"` et `"password"`).
 4. Insérez la carte SD dans votre Raspberry Pi et allumez-le.
 5. La matrice s'allumera immédiatement et **affichera l'adresse IP** pendant 5 secondes. Utilisez cette IP pour accéder à l'interface Web !
 
@@ -43,16 +43,16 @@ Chaque moteur d'ArcadeMatrix RPi est conçu en Rust multi-threadé avec **zéro 
 | :--- | :---: | :--- |
 | **Desk Master Dashboard**<br>`dashboard` | <img src="docs/assets/engines/engine_dashboard.png" width="240" alt="Moteur Dashboard"> | Horloge de bureau complète avec cadran analogique pixel-art, balayage fluide de trotteuse, horloges mondiales, météo en direct OpenWeatherMap, et bandeau ticker live cryptos Binance & actions Yahoo Finance. |
 | **Horloge Rétro Gaming**<br>`clock` | <img src="docs/assets/engines/engine_clock.png" width="240" alt="Horloge Rétro"><br><br>[👉 **Voir la galerie des 10+ horloges rétro ➔**](#-collection-signature-dhorloges-rétro-thématiques) | Collection exclusive d'horloges animées d'arcade et de consoles rétro (Metal Slug, Castlevania, Mario, Mega Man, Sonic, Pokédex, Pac-Man, Tetris, Horloge Mondiale, Pluie Matrix...) avec sprites 100 % authentiques au pixel près. |
-| **Combattants Arcade M.U.G.E.N**<br>`fighter` | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Moteur Combattants"> | Véritables sprites de jeux de combat rétro (Street Fighter, King of Fighters, etc.) avec barres de vie en temps réel, arènes personnalisées, duels autonomes gérés par l'IA et overlay transverse au-dessus des horloges et de la date. |
+| **Combattants Arcade M.U.G.E.N**<br>`fighter` *(Overlay Transverse)* | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Moteur Combattants"> | Rendu d'overlay transverse (`system.idle_fighter_enabled`, et non un moteur de rotation autonome) affichant de véritables sprites de jeux de combat rétro (Street Fighter, King of Fighters, etc.) avec barres de vie en temps réel, arènes personnalisées et duels IA au-dessus des horloges et de la date. |
 | **Spotify Now Playing**<br>`spotify` | <img src="docs/assets/engines/engine_spotify.png" width="240" alt="Moteur Spotify"> | Affichage en direct du morceau en cours avec pochette d'album en couleur, défilement artiste/titre, mini barres d'égaliseur animées et barre de progression. |
-| **Google Cast & Nest**<br>`googlecast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Moteur Google Cast"> | Découverte automatique mDNS des enceintes Google Home / Nest Audio avec affichage des pochettes, volume et progression de lecture en streaming. |
+| **Google Cast & Nest**<br>`google_cast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Moteur Google Cast"> | Découverte automatique mDNS des enceintes Google Home / Nest Audio avec affichage des pochettes, volume et progression de lecture en streaming. |
 | **Ticker & Graphique Crypto**<br>`crypto` | <img src="docs/assets/engines/engine_crypto.png" width="240" alt="Moteur Crypto"> | Cotations en direct Binance / CoinGecko, badge de variation sur 24h et courbes sparklines historiques en temps réel avec cache TTL intelligent. |
 | **Ticker Bourse & Actions**<br>`stock` | <img src="docs/assets/engines/engine_stock.png" width="240" alt="Moteur Bourse"> | Cotations en temps réel Yahoo Finance, badges de variation 1D % et graphiques d'aires sparkline intrajournaliers pour actions et ETF NASDAQ/S&P. |
 | **Météo Dynamique**<br>`weather` | <img src="docs/assets/engines/engine_weather.png" width="240" alt="Moteur Météo"> | Conditions extérieures en direct, températures max/min, humidité, vent et icônes rétro animées via OpenWeatherMap & Open-Meteo. |
-| **HUD Télémétrie Système**<br>`sysinfo` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="Moteur SysInfo"> | Moniteur double colonne en temps réel de l'utilisation CPU (%), RAM (%), température matérielle du SoC Raspberry Pi (°C/°F) et Uptime avec jauges colorées. |
+| **HUD Télémétrie Système**<br>`system_info` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="Moteur SysInfo"> | Moniteur double colonne en temps réel de l'utilisation CPU (%), RAM (%), température matérielle du SoC Raspberry Pi (°C/°F) et Uptime avec jauges colorées. |
 | **Ticker Actualités en Direct**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="Moteur GNews"> | Derniers grands titres en temps réel avec badges de catégories (`[TECH]`, `[MONDE]`, `[ÉCO]`), balise clignotante de direct et bandeau défilant fluide à 60 FPS. |
 | **Home Assistant & MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="Moteur MQTT Data"> | Tableaux de bord Home Assistant, valeurs de capteurs, graphiques historiques sur 24h et météo locale diffusés via MQTT avec blueprints prêts à l'emploi. |
-| **Lecteur GIF Animés**<br>`gif` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="Moteur GIF"> | Lecture fluide à 60 FPS d'animations rétro et de playlists locales ou réseau avec accélération de présentation par tranches de lignes zéro-copie. |
+| **Lecteur GIF Animés**<br>`gifs` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="Moteur GIF"> | Lecture fluide à 60 FPS d'animations rétro et de playlists locales ou réseau avec accélération de présentation par tranches de lignes zéro-copie. |
 | **Bandeau Défilant Marquee**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Moteur Message"> | Enseignes matricielles personnalisables avec typographie ambrée lumineuse, multiples directions de défilement et déclencheurs API REST. |
 | **Marquee Borne d'Arcade**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Moteur Marquee"> | Affichage des marquees de jeux d'arcade officiels via intégration Pixelcade pour configurations Batocera, Recalbox et RetroPie. |
 | **Calendrier & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Moteur Date"> | Grande date au style arcade avec ombres portées 3D Capcom/Nintendo, support multilingue (FR, EN, ES) et synchronisation NTP. |
@@ -133,14 +133,16 @@ Grâce à l'implémentation Rust natif ultra-léger (~5 Mo de binaire, ~10 Mo de
 
 ---
 
-## 🛠️ Installation Avancée\n\n### Option 2 : installation manuelle
+## 🛠️ Installation Avancée
+
+### Option 2 : installation manuelle
 Si vous préférez l'installer manuellement sur un **Raspberry Pi OS Lite (64-bit)** fraîchement installé :
 Une fois connecté à votre Raspberry Pi en SSH :
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh | bash
 ```
-*(Si le dépôt est privé, vous devrez d'abord faire le `git clone` manuellement puis exécuter `./install.sh` depuis le dossier.)*
+*(Si le dépôt est privé, vous devrez d'abord faire le `git clone` manuellement puis exécuter `./autoInstall.sh` depuis le dossier.)*
 
 Le script va automatiquement :
 1. Installer Rust, Actix-web, image-rs et `build-essential`.
@@ -158,7 +160,7 @@ bash scripts/deploy.sh --ip <PI_IP> --user <PI_USER> --pass <PI_PASS>
 
 **Sur Windows (PowerShell) :**
 ```powershell
-.\scripts\deploy.ps1 -PI_IP "192.168.1.177" -PI_USER "pi" -PI_PASS "raspberry"
+.\scripts\deploy.ps1 -Ip "192.168.1.177" -User "pi" -Pass "raspberry"
 ```
 *Le script détectera automatiquement l'architecture de votre Pi, compilera le binaire via Docker, arrêtera le service distant, enverra le fichier et relancera l'application.*
 
@@ -239,14 +241,14 @@ Quand vous parcourez vos listes de jeux, le Raspberry Pi télécharge les marque
 Allez dans l'onglet **MQTT** de l'interface Web ArcadeMatrix, choisissez l'OS de votre console (`Détection auto`, `Recalbox`, `Batocera` ou `RetroPie`), saisissez l'IP de la console ainsi que ses identifiants et cliquez sur **Install Sync Script**. Cela injectera automatiquement le daemon via SSH.
 
 ### Installation manuelle (Recalbox / Batocera / RetroPie)
-Si vous préférez l'installation manuelle, ou si l'installation réseau échoue :
+Si vous préférez l'installation manuelle, ou si l'installation réseau échoue (voir [tools/README_FR.md](tools/README_FR.md)) :
 1. Ouvrez ou copiez `tools/rpi_emulationstation_base_os_setup.sh` (ou `tools/recalbox_setup_mqtt.sh`).
 2. Copiez le fichier sur votre console (ex : via `scp`).
 3. Connectez-vous en SSH à votre console et exécutez : `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
 4. Saisissez l'IP de votre ArcadeMatrix et choisissez votre système cible dans le menu interactif.
 
 ### Comment fonctionne l'architecture du daemon ?
-Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Rust ultra-léger en arrière-plan**.
+Contrairement aux scripts natifs Recalbox qui s'exécutent (et figent le système) à chaque mouvement de joystick, ArcadeMatrix installe **un daemon Python/Shell ultra-léger (`arcadematrix_daemon.py`) en arrière-plan**.
 * **Zéro lag :** consomme 0 % de CPU. EmulationStation ne subit aucun stutter ni lag, même en défilant à vitesse maximale.
 * **Anti-spam (debounce) :** si vous parcourez rapidement 50 jeux, le daemon n'inondera pas le réseau. Il n'envoie le message à la matrice que si vous restez sur un jeu plus de 150 millisecondes.
 * **Thread safety :** côté matrice LED, les téléchargements et le moteur de dessin sont séparés par des threads avec des verrous robustes, empêchant les gels et la corruption du cache d'images.
@@ -318,7 +320,7 @@ Points clés :
 * **`instances` / `rotation`** — chaque moteur est une *instance* autonome ; `rotation` décide l'ordre d'affichage et le `duration_sec` de chaque créneau. Modifier une instance depuis la Web UI s'applique **à chaud, sans redémarrage**.
 * **`api_auth_enabled` / `api_token`** — lorsqu'ils sont activés, les endpoints sensibles exigent l'en-tête `X-API-Token` (voir la note API ci-dessous).
 
-👉 **Référence complète champ par champ :** [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+👉 **Référence complète champ par champ :** [docs/CONFIGURATION_FR.md](docs/CONFIGURATION_FR.md).
 
 ### 🔒 Authentification API
 `api_auth_enabled` vaut `false` par défaut afin que la Web UI intégrée fonctionne immédiatement. Passez-le à `true` (et copiez l'`api_token` généré automatiquement) pour exiger l'en-tête `X-API-Token` sur les endpoints sensibles comme `/api/wifi`, `/api/mqtt/install`, `/api/system/reboot` et `/api/system/shutdown`. Activez-le dès que l'appareil est accessible au-delà d'un LAN de confiance.

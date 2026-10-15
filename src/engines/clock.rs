@@ -44,11 +44,23 @@ pub struct ClockEngine {
     clock_glow_rgb: (u8, u8, u8),
     time_offset_x: i32,
     time_offset_y: i32,
+    clock_speed: i32,
+    color1_override: Option<(u8, u8, u8)>,
 
     last_font: String,
     last_theme: i32,
     last_size: u32,
     last_rendered_time: String,
+}
+
+pub fn safe_format_time<D: std::fmt::Display>(delayed: D, fallback: &str) -> String {
+    use std::fmt::Write;
+    let mut s = String::new();
+    if write!(&mut s, "{}", delayed).is_ok() {
+        s
+    } else {
+        fallback.to_string()
+    }
 }
 
 pub fn parse_tz(tz_str: &str) -> Option<chrono_tz::Tz> {
@@ -182,8 +194,10 @@ impl ClockEngine {
             clock_color_2: "#ffffff".to_string(),
             time_offset_x: 0,
             time_offset_y: 0,
+            clock_speed: 100,
+            color1_override: None,
 
-            last_font: String::new(),
+            last_font: "PressStart2P.ttf".to_string(),
             last_theme: -1,
             last_size: 0,
             last_rendered_time: String::new(),
@@ -232,6 +246,10 @@ impl ClockEngine {
         } else {
             config.get_string("font_path", "PressStart2P.ttf")
         };
+        if self.time_font != self.last_font {
+            self.base_renderer = BaseRenderer::from_font_path(&self.time_font);
+            self.last_font = self.time_font.clone();
+        }
 
         let size = config.get_int("size", 0);
         self.time_size = if size > 0 {
@@ -289,6 +307,7 @@ impl ClockEngine {
 
         // The parade honours clock_speed and the offsets, as it does on the ESP32.
         let speed_pct = config.get_int("clock_speed", 100) as i32;
+        self.clock_speed = speed_pct;
         // Only pass a colour the instance actually chose; unset lets the face use its own palette.
         let digit_color = if config.get_string("color_1", "").is_empty()
             && config.get_string("clock_color_1", "").is_empty()
@@ -297,6 +316,7 @@ impl ClockEngine {
         } else {
             parse_hex_color(&self.clock_color_1)
         };
+        self.color1_override = digit_color;
         self.pacman.configure(
             speed_pct,
             self.time_offset_x,
@@ -346,8 +366,12 @@ impl Engine for ClockEngine {
         if self.is_realtime() {
             true
         } else {
-            let now = chrono::Local::now();
-            let cur = now.format(&self.time_format).to_string();
+            let now = if let Some(tz) = parse_tz(&self.timezone) {
+                chrono::Utc::now().with_timezone(&tz).naive_local()
+            } else {
+                chrono::Local::now().naive_local()
+            };
+            let cur = safe_format_time(now.format(&self.time_format), "--:--");
             cur != self.last_rendered_time
         }
     }
@@ -389,14 +413,14 @@ impl Engine for ClockEngine {
         }
 
         // Full time string with seconds (for binary clock)
-        let time_str_full = now.format(&base_format).to_string();
+        let _time_str_full = safe_format_time(now.format(&base_format), "--:--");
 
         // Short time string for display clocks
         let mut format_str = base_format.clone();
         if self.time_theme == 19 && !format_str.contains("%S") {
             format_str.push_str(":%S");
         }
-        let time_str = now.format(&format_str).to_string();
+        let time_str = safe_format_time(now.format(&format_str), "--:--");
 
         let hours = now.hour();
         let minutes = now.minute();
@@ -434,9 +458,25 @@ impl Engine for ClockEngine {
             self.word = WordClock::new();
             self.binary = BinaryClock::new();
             self.pacman = PacmanClock::new();
+            self.ms_pacman = PacmanClock::new_ms();
             self.versus = VersusClock::new();
             self.slot_machine = SlotMachineClock::new();
             self.flip.reset();
+            self.mario.configure(self.clock_speed);
+            self.tetris.configure(self.clock_speed);
+            self.tetris_gb.configure(self.clock_speed);
+            self.pacman.configure(
+                self.clock_speed,
+                self.time_offset_x,
+                self.time_offset_y,
+                self.color1_override,
+            );
+            self.ms_pacman.configure(
+                self.clock_speed,
+                self.time_offset_x,
+                self.time_offset_y,
+                self.color1_override,
+            );
             matrix.clear(); // Clear artifact pixels from old layout
         }
 
@@ -631,6 +671,8 @@ impl Engine for ClockEngine {
         self.pong = PongClock::new(w, h);
         self.tetris = TetrisClock::new(false);
         self.tetris_gb = TetrisClock::new(true);
+        self.tetris.configure(self.clock_speed);
+        self.tetris_gb.configure(self.clock_speed);
         self.flip.reset();
     }
 }

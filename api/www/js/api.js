@@ -1,23 +1,45 @@
-function authHeaders(base = {}) {
+export function authHeaders(base = {}) {
   const headers = { ...base };
   const token = localStorage.getItem('api_token');
   if (token) headers['X-API-Token'] = token;
   return headers;
 }
 
+function promptForApiToken() {
+  if (typeof window === 'undefined' || typeof window.prompt !== 'function') return null;
+  const entered = window.prompt('API Authentication Required. Please enter your X-API-Token:');
+  if (entered && entered.trim()) {
+    const clean = entered.trim();
+    localStorage.setItem('api_token', clean);
+    return clean;
+  }
+  return null;
+}
+
 export const API = {
   async get(url) {
-    const res = await fetch(url, { headers: authHeaders() });
+    let res = await fetch(url, { headers: authHeaders() });
+    if (res.status === 401 && promptForApiToken()) {
+      res = await fetch(url, { headers: authHeaders() });
+    }
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
 
   async post(url, data) {
-    const res = await fetch(url, {
+    const body = data ? JSON.stringify(data) : undefined;
+    let res = await fetch(url, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: data ? JSON.stringify(data) : undefined,
+      body,
     });
+    if (res.status === 401 && promptForApiToken()) {
+      res = await fetch(url, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body,
+      });
+    }
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
@@ -27,19 +49,32 @@ export const API = {
   },
 
   async delete(url) {
-    const res = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+    let res = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+    if (res.status === 401 && promptForApiToken()) {
+      res = await fetch(url, { method: 'DELETE', headers: authHeaders() });
+    }
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },
 
   async uploadMarquee(file) {
-    const formData = new FormData();
-    formData.append('image', file);
-    const res = await fetch('/api/marquee', {
+    const buildForm = () => {
+      const formData = new FormData();
+      formData.append('image', file);
+      return formData;
+    };
+    let res = await fetch('/api/marquee', {
       method: 'POST',
       headers: authHeaders(),
-      body: formData
+      body: buildForm()
     });
+    if (res.status === 401 && promptForApiToken()) {
+      res = await fetch('/api/marquee', {
+        method: 'POST',
+        headers: authHeaders(),
+        body: buildForm()
+      });
+    }
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     return await res.json();
   },

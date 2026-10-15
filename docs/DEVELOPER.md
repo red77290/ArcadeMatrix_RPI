@@ -79,10 +79,7 @@ pub trait Engine: Send + Sync {
 
 pub struct EngineContext<'a> {
     pub surface: &'a mut dyn IDrawingSurface,
-    pub width: i32,
-    pub height: i32,
-    pub now: DateTime<Local>,
-    pub delta_ms: u64,
+    pub config: &'a crate::core::config::Config,
 }
 ```
 
@@ -140,6 +137,8 @@ Capabilities {
     supports_256x64: bool,
     realtime: bool,         // true -> polled at ~25 FPS; false -> 1 Hz
     interruptible: bool,    // may be pre-empted by a higher-priority source
+    allows_overlay: bool,   // permits transverse overlays (e.g. Fighter)
+    allow_rotation: bool,   // eligible for normal idle rotation loop
 }
 
 Requirements {
@@ -161,7 +160,7 @@ The schema is the **single source of truth** for the UI and the sanitizer. Every
 ```rust
 pub struct ConfigField {
     pub id: &'static str,                 // config key (stored in config.json)
-    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options
+    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options | FileAsset
     pub label: &'static str,              // UI label
     pub description: &'static str,        // UI tooltip
     pub default_value: &'static str,      // injected when missing (self-healing)
@@ -186,6 +185,7 @@ pub struct ConfigField {
 | `Float` | number input | parse + clamp/fallback to `min_val..max_val` |
 | `String` | text input | accepted as-is |
 | `Options` | dropdown (or checkbox grid if `multiple`) | value must be in `options` (unless dynamic) |
+| `FileAsset` | file/asset selector | accepted as-is (validated against asset directory) |
 
 > **Tip:** all values are stored as strings in `config.json`. Parse them with the `EngineConfig` helpers (`get_int`, `get_bool`, `get_string`).
 
@@ -404,6 +404,8 @@ fn register_my_engine() -> EngineDescriptor {
                 ..Default::default() // use struct-update syntax for the rest
             }],
         },
+        available: true,
+        unavailable_reason: None,
         factory: || Box::new(MyEngine::new()),
     }
 }
@@ -563,9 +565,9 @@ use crate::core::i18n::{self, Lang};
 
 // 1. Read system language from context
 let sys_lang = ctx.config.settings.read().system.lang.clone();
-let lang = Lang::from_str_code(&sys_lang);
+let lang = Lang::from_code(&sys_lang);
 
-// 2. Weather day names (e.g. "TODAY", "TMRW", "MON"..)
+// 2. Weather day names (e.g. "TODAY", "TOM.", "MON"..)
 let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
 
 // 3. Translated weather condition strings
@@ -573,9 +575,6 @@ let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
 
 // 4. WordClock full text lines
 let lines = i18n::word_clock_lines(lang, hours, minutes);
-
-// 5. Noise / Decibel level statuses
-let noise = i18n::noise_level(lang, level_index);
 ```
 
 ### B. Tutorial: Adding a New Language (e.g. German `de`) in 3 Steps
@@ -592,7 +591,7 @@ let noise = i18n::noise_level(lang, level_index);
    ```
 2. **Raspberry Pi Back-end (`src/core/i18n.rs`):**
    - Add variant `De` to enum `Lang`.
-   - Provide translation lookups for weather, word clock, and noise status.
+   - Provide translation lookups for weather and word clock strings.
 3. **ESP32 Back-end (`src/core/I18n.h` & `src/core/I18n.cpp`):**
    - Add `DE` to enum `Lang` and implement the static translation methods.
 
@@ -617,30 +616,60 @@ These map onto the instance's `HashMap<String,String>`. Keys correspond to your 
 `ctx.surface` is a `&mut dyn IDrawingSurface` (`crate::core::matrix::IDrawingSurface`). It provides high-performance, canonical drawing primitives with automatic dirty tracking:
 
 ```rust
+pub struct CanvasView<'a> {
+    pub data: &'a mut [u8],
+    pub width: u32,
+    pub height: u32,
+    pub stride_bytes: usize,
+}
+
+pub trait IDrawingSurface: Send + Sync {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn physical_width(&self) -> u32;
+    fn physical_height(&self) -> u32;
+    fn set_rotation(&mut self, rotation: u8);
+    fn rotation(&self) -> u8;
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn clear(&mut self);
+    fn present(&mut self);
+    fn set_brightness(&mut self, brightness: u8);
+    fn mark_dirty(&mut self);
+    fn is_dirty(&self) -> bool;
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
+    fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn release_canvas(&mut self);
+    fn has_canvas(&self) -> bool;
+}
+```
+
+Example usage inside an engine's `render()` method:
+
+```rust
 fn render(&mut self, ctx: &mut EngineContext) {
-    // 1. Primitive drawing
+    // 1. Primitive pixel drawing
     ctx.surface.set_pixel(x, y, 255, 200, 0);
-    ctx.surface.fill_rect(0, 0, 10, 10, 0, 0, 255);
 
     // 2. High-speed RGB565 sprite blitting
-    ctx.surface.blit565(x, y, w, h, &sprite_raw_u16_slice);
+    ctx.surface.blit565(&sprite_raw_u16_slice, x, y, w, h, None);
 
     // 3. Dynamic image drawing
     ctx.surface.draw_image(&image_buffer, x, y);
 
-    // 4. Zero-copy canvas access via ScopedCanvasGuard
-    if let Some(mut canvas) = ctx.surface.acquire_canvas() {
-        let raw_pixels = canvas.as_mut_slice();
-        // direct manipulation of the 16-bit RGB565 / 32-bit RGBA pixel slice
+    // 4. Direct linear RGB888 canvas access
+    if let Some(canvas) = ctx.surface.acquire_canvas() {
+        let raw_pixels: &mut [u8] = canvas.data;
+        // direct manipulation of the linear RGB888 pixel buffer
     }
 }
 ```
 
 ### Golden Rules of Rendering
 1. **Never call `present()` inside `render()`**: Presentation to hardware HUB75 panels is exclusively owned by the main loop in `app.rs`.
-2. **Take advantage of dirty tracking**: With `RenderPipeline::CanvasSingle` (the default), `IDrawingSurface` tracks exact bounding boxes (`DirtyBounds`). If nothing changes (`has_new_frame() == false`), `present()` completes in $O(1)$ with **zero** memory bus traffic, guaranteeing protection for Broadcom SDIO Wi-Fi (`brcmfmac`).
+2. **Take advantage of dirty tracking**: With `RenderPipeline::CanvasSingle` (the default, see [ARCHITECTURE.md §13](ARCHITECTURE.md#13-hardware-render-pipeline--the-idrawingsurface-abstraction)), `IDrawingSurface` tracks exact scanline bounds (`DirtyBounds`). If nothing changes (`has_new_frame() == false`), `present()` completes in $O(1)$ with **zero** memory bus traffic, guaranteeing protection for Broadcom SDIO Wi-Fi (`brcmfmac`).
 3. **Control full-screen clearing**: If your engine paints the entire display every tick (e.g. streaming GIF or video), override `wants_clear(&self) -> bool { false }` to avoid an unnecessary full-screen black clear before your `render()` call.
-4. **Overlay Pass**: After your `render()` returns, the render loop may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §11](ARCHITECTURE.md#11-the-fighter-overlay-compositor)). If your engine cannot support overlays, return `allows_overlay(&self) -> bool { false }`.
+4. **Overlay Pass**: After your `render()` returns, the render loop may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §12](ARCHITECTURE.md#12-the-transverse-overlay-architecture--overlaymanager)). If your engine cannot support overlays, return `allows_overlay(&self) -> bool { false }`.
 
 ---
 

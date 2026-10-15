@@ -409,9 +409,6 @@ impl MegamanClock {
             }
         }
 
-        if self.phase == Phase::Idle && self.dirty == 0 {
-            return;
-        }
         if self.dirty > 0 {
             self.dirty -= 1;
         }

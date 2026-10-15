@@ -69,7 +69,7 @@ impl CryptoProvider for CoinGeckoProvider {
         if let Ok(res) = client.get(&cg_simple_url).send() {
             if res.status().is_success() {
                 if let Ok(json) = res.json::<serde_json::Value>() {
-                    if let Some((price, change)) = Self::parse_simple(&json, coin_id) {
+                    if let Some((price, change)) = Self::parse_simple(&json, coin_id, &vs_curr) {
                         info!(
                             "[CoinGecko Simple] Quote for {} ({}): {:.4} ({:.2}%)",
                             symbol, currency, price, change
@@ -168,10 +168,24 @@ impl CoinGeckoProvider {
         None
     }
 
-    pub fn parse_simple(json: &serde_json::Value, coin_id: &str) -> Option<(f64, f64)> {
+    pub fn parse_simple(
+        json: &serde_json::Value,
+        coin_id: &str,
+        vs_curr: &str,
+    ) -> Option<(f64, f64)> {
         if let Some(coin) = json.get(coin_id) {
-            let price = coin["usd"].as_f64().unwrap_or(0.0);
-            let change = coin["usd_24h_change"].as_f64().unwrap_or(0.0);
+            let curr = vs_curr.to_lowercase();
+            let change_key = format!("{}_24h_change", curr);
+            let price = coin
+                .get(&curr)
+                .and_then(|v| v.as_f64())
+                .or_else(|| coin.get("usd").and_then(|v| v.as_f64()))
+                .unwrap_or(0.0);
+            let change = coin
+                .get(&change_key)
+                .and_then(|v| v.as_f64())
+                .or_else(|| coin.get("usd_24h_change").and_then(|v| v.as_f64()))
+                .unwrap_or(0.0);
             if price > 0.0 {
                 return Some((price, change));
             }
@@ -212,7 +226,7 @@ mod tests {
     #[test]
     fn test_parse_simple() {
         let payload = json!({"ergo": {"usd": 1.23, "usd_24h_change": -5.12}});
-        let (price, change) = CoinGeckoProvider::parse_simple(&payload, "ergo").unwrap();
+        let (price, change) = CoinGeckoProvider::parse_simple(&payload, "ergo", "usd").unwrap();
         assert_eq!(price, 1.23);
         assert_eq!(change, -5.12);
     }

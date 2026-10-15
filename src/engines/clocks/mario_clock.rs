@@ -640,14 +640,6 @@ impl MarioClock {
             }
         }
 
-        let animating = self.phase != Phase::Waiting
-            || self.block_bounce[0] > 0.0
-            || self.block_bounce[1] > 0.0
-            || self.shell_active;
-
-        if !animating && self.dirty == 0 {
-            return;
-        }
         if self.dirty > 0 {
             self.dirty -= 1;
         }

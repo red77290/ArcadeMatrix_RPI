@@ -4,19 +4,19 @@ set -e
 echo "🔍 Running ArcadeMatrix_RPi pre-commit validations..."
 
 echo "--------------------------------------------------"
-echo "1/3 Validating Release Artifacts & Scripts..."
+echo "[1/4] Validating Release Artifacts & Scripts..."
 python3 scripts/validate_rpi_release.py
 
 echo "--------------------------------------------------"
-echo "2/3 Validating Documentation Drift & Config Keys..."
+echo "[2/4] Validating Documentation Drift & Config Keys..."
 python3 scripts/validate_docs.py
 
 echo "--------------------------------------------------"
-echo "3/4 Checking Rust Code Formatting (cargo fmt)..."
+echo "[3/4] Checking Rust Code Formatting (cargo fmt)..."
 cargo fmt --check
 
 echo "--------------------------------------------------"
-echo "4/4 Running Cargo Unit Tests..."
+echo "[4/4] Running Cargo Unit Tests..."
 cargo test
 
 echo "--------------------------------------------------"

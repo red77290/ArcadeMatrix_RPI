@@ -142,7 +142,9 @@ impl DmdCache {
     }
 
     pub fn is_negative_cached(&self, system: &str, game: &str) -> bool {
-        let key = format!("{}/{}", system, game);
+        let safe_sys = sanitize_cache_component(system);
+        let safe_game = sanitize_cache_component(game);
+        let key = format!("{}/{}", safe_sys, safe_game);
         self.negative_cache.lock().contains(&key)
     }
 
@@ -161,12 +163,14 @@ impl DmdCache {
     }
 
     pub fn get_cached_path(&self, system: &str, game: &str) -> Option<PathBuf> {
-        let key = format!("{}/{}", system, game);
+        let safe_sys = sanitize_cache_component(system);
+        let safe_game = sanitize_cache_component(game);
+        let key = format!("{}/{}", safe_sys, safe_game);
         if self.negative_cache.lock().contains(&key) {
             return None;
         }
 
-        let local_filename = format!("{}_{}.png", system, game);
+        let local_filename = format!("{}_{}.png", safe_sys, safe_game);
         let local_path = self.cache_dir.join(&local_filename);
 
         if local_path.exists() {
@@ -176,12 +180,14 @@ impl DmdCache {
     }
 
     pub fn download_marquee(&self, system: &str, game: &str) -> Option<PathBuf> {
-        let key = format!("{}/{}", system, game);
+        let safe_sys = sanitize_cache_component(system);
+        let safe_game = sanitize_cache_component(game);
+        let key = format!("{}/{}", safe_sys, safe_game);
         if self.negative_cache.lock().contains(&key) {
             return None;
         }
 
-        let local_filename = format!("{}_{}.png", system, game);
+        let local_filename = format!("{}_{}.png", safe_sys, safe_game);
         let local_path = self.cache_dir.join(&local_filename);
 
         if local_path.exists() {
@@ -291,16 +297,17 @@ impl DmdCache {
     }
 
     pub fn get_cached_system_path(&self, system: &str) -> Option<PathBuf> {
-        let key = format!("system/{}", system);
+        let safe_sys = sanitize_cache_component(system);
+        let key = format!("system/{}", safe_sys);
         if self.negative_cache.lock().contains(&key) {
             return None;
         }
 
-        let local_png = self.cache_dir.join(format!("system_{}.png", system));
+        let local_png = self.cache_dir.join(format!("system_{}.png", safe_sys));
         if local_png.exists() {
             return Some(local_png);
         }
-        let local_gif = self.cache_dir.join(format!("system_{}.gif", system));
+        let local_gif = self.cache_dir.join(format!("system_{}.gif", safe_sys));
         if local_gif.exists() {
             return Some(local_gif);
         }
@@ -308,7 +315,8 @@ impl DmdCache {
     }
 
     pub fn download_system_marquee(&self, system: &str) -> Option<PathBuf> {
-        let key = format!("system/{}", system);
+        let safe_sys = sanitize_cache_component(system);
+        let key = format!("system/{}", safe_sys);
         if self.negative_cache.lock().contains(&key) {
             return None;
         }
@@ -344,7 +352,7 @@ impl DmdCache {
                 {
                     Ok(resp) if resp.status().is_success() => {
                         if let Ok(bytes) = resp.bytes() {
-                            let local_filename = format!("system_{}{}", system, ext);
+                            let local_filename = format!("system_{}{}", safe_sys, ext);
                             let local_path = self.cache_dir.join(&local_filename);
                             let tmp_path = self.cache_dir.join(format!("{}.tmp", local_filename));
                             if let Ok(mut file) = File::create(&tmp_path) {
@@ -377,6 +385,26 @@ impl DmdCache {
             self.insert_negative_cache(key);
         }
         None
+    }
+}
+
+pub fn sanitize_cache_component(s: &str) -> String {
+    let mut cleaned = s.replace("..", "_");
+    cleaned = cleaned
+        .chars()
+        .map(|c| {
+            if c == '/' || c == '\\' || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let trimmed = cleaned.trim().trim_start_matches('.');
+    if trimmed.is_empty() {
+        "_".to_string()
+    } else {
+        trimmed.to_string()
     }
 }
 
@@ -755,5 +783,16 @@ mod tests {
         let variants = get_system_name_variants_mapped(&custom_map, "my_custom_system");
         assert_eq!(variants[0], ("console", "custom_art_1".to_string()));
         assert_eq!(variants[1], ("console", "custom_art_2".to_string()));
+    }
+
+    #[test]
+    fn test_sanitize_cache_component() {
+        assert_eq!(
+            sanitize_cache_component("../../etc/passwd"),
+            "____etc_passwd"
+        );
+        assert_eq!(sanitize_cache_component("snes\ngame"), "snes_game");
+        assert_eq!(sanitize_cache_component(".."), "_");
+        assert_eq!(sanitize_cache_component("sf2"), "sf2");
     }
 }

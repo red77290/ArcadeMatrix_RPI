@@ -29,7 +29,7 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 
 1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
 2. Once flashed, insert the SD card into your PC/Mac. You will see a large **DATA** USB drive appear!
-3. Open the `config.json` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`SSID` and `PASS`).
+3. Open the `config.json` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`"ssid"` and `"password"`).
 4. Plug the SD card into your Raspberry Pi and power it on.
 5. The Matrix will immediately turn on and **display the IP address** for 5 seconds. Use this IP to access the Web UI!
 
@@ -43,16 +43,16 @@ Every engine in ArcadeMatrix RPi is engineered in pure, multi-threaded Rust with
 | :--- | :---: | :--- |
 | **Desk Master Dashboard**<br>`dashboard` | <img src="docs/assets/engines/engine_dashboard.png" width="240" alt="Dashboard Engine"> | Complete horizontal desk deck with handcrafted analog watch dial, smooth sweeping second hand, world clocks, live OpenWeatherMap weather, and live Binance cryptos & Yahoo Finance stocks ticker. |
 | **Retro Game Clock**<br>`clock` | <img src="docs/assets/engines/engine_clock.png" width="240" alt="Retro Clock"><br><br>[👉 **View 10+ Retro Clocks Showcase ➔**](#-signature-themed-clocks-collection) | Signature animated retro arcade and console clocks (Metal Slug, Castlevania, Mario, Mega Man, Sonic, Pokédex, Pac-Man, Tetris, World Clock, Matrix Rain...) with 100% bit-perfect sprites. |
-| **M.U.G.E.N Arcade Fighters**<br>`fighter` | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Fighter Engine"> | Authentic retro fighting game sprites (Street Fighter, King of Fighters, etc.) with real-time healthbars, custom stages, autonomous CPU battles, and transversal overlay over clocks and dates. |
+| **M.U.G.E.N Arcade Fighters**<br>`fighter` *(Transverse Overlay)* | <img src="docs/assets/engines/engine_fighter.png" width="240" alt="Fighter Engine"> | Transverse overlay renderer (`system.idle_fighter_enabled`, not a standalone rotation engine ID) bringing authentic retro fighting game sprites (Street Fighter, King of Fighters, etc.) with real-time healthbars, custom stages, and autonomous CPU battles over clocks and dates. |
 | **Spotify Now Playing**<br>`spotify` | <img src="docs/assets/engines/engine_spotify.png" width="240" alt="Spotify Engine"> | Real-time track display with full-color album artwork, scrolling artist/title, animated mini equalizer bars, and track progress. |
-| **Google Cast & Nest**<br>`googlecast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Google Cast Engine"> | Automatic mDNS discovery of Google Home / Nest Audio devices with live streaming media artwork, volume, and playback progress. |
+| **Google Cast & Nest**<br>`google_cast` | <img src="docs/assets/engines/engine_googlecast.png" width="240" alt="Google Cast Engine"> | Automatic mDNS discovery of Google Home / Nest Audio devices with live streaming media artwork, volume, and playback progress. |
 | **Crypto Ticker & Chart**<br>`crypto` | <img src="docs/assets/engines/engine_crypto.png" width="240" alt="Crypto Engine"> | Live Binance / CoinGecko prices, 24h change badge, and real-time historical sparkline charts with smart TTL caching. |
 | **Stock Market Ticker**<br>`stock` | <img src="docs/assets/engines/engine_stock.png" width="240" alt="Stock Engine"> | Real-time quotes from Yahoo Finance, 1D % badges, and intraday sparkline area charts for NASDAQ/S&P stocks and ETFs. |
 | **Weather Forecast**<br>`weather` | <img src="docs/assets/engines/engine_weather.png" width="240" alt="Weather Engine"> | Live outdoor conditions, high/low temperatures, humidity, wind, and animated retro icons via OpenWeatherMap & Open-Meteo. |
-| **System Telemetry HUD**<br>`sysinfo` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="SysInfo Engine"> | Real-time dual-column monitor of Raspberry Pi CPU usage (%), RAM (%), SoC hardware temperature (°C/°F), and system Uptime with vibrant gauge bars. |
+| **System Telemetry HUD**<br>`system_info` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="SysInfo Engine"> | Real-time dual-column monitor of Raspberry Pi CPU usage (%), RAM (%), SoC hardware temperature (°C/°F), and system Uptime with vibrant gauge bars. |
 | **Live News Ticker**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="GNews Engine"> | Real-time breaking headlines with topic pills (`[TECH]`, `[WORLD]`, `[BIZ]`), live pulsing red beacon, and smooth sub-pixel scrolling ticker. |
 | **Home Assistant & MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="MQTT Data Engine"> | Stream Home Assistant dashboards, sensor values, 24h historical charts, and local weather via MQTT with ready-to-use blueprints. |
-| **Animated GIF Player**<br>`gif` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="GIF Engine"> | Smooth 60 FPS playback of retro animations, folders, and network playlists with zero-copy row span presentation. |
+| **Animated GIF Player**<br>`gifs` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="GIF Engine"> | Smooth 60 FPS playback of retro animations, folders, and network playlists with zero-copy row span presentation. |
 | **Scrolling Text Banner**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Message Engine"> | Customizable dot-matrix marquee signs with glowing amber typography, multiple scroll directions, and REST API triggers. |
 | **Arcade Cabinet Marquee**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Marquee Engine"> | Displays official illuminated arcade marquees via Pixelcade integration for Batocera, Recalbox, and RetroPie gaming setups. |
 | **Calendar & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Date Engine"> | Large arcade-styled date with 3D Capcom/Nintendo drop shadows, multi-language support (EN, FR, ES), and NTP synchronization. |
@@ -133,14 +133,16 @@ Thanks to the ultra-lightweight native Rust implementation (~5 MB binary, ~10 MB
 
 ---
 
-## 🛠️ Advanced Installation\n\n### Option 2: Manual Installation
+## 🛠️ Advanced Installation
+
+### Option 2: Manual Installation
 If you prefer to install it manually on a fresh **Raspberry Pi OS Lite (64-bit)**:
 Once logged into your Raspberry Pi via SSH:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/install.sh | bash
+curl -sSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh | bash
 ```
-*(If the repository is private, you will need to `git clone` manually first and run `./install.sh` from inside the folder).*
+*(If the repository is private, you will need to `git clone` manually first and run `./autoInstall.sh` from inside the folder).*
 
 The script will automatically:
 1. Install Rust, Actix-web, image-rs, and `build-essential`.
@@ -158,7 +160,7 @@ bash scripts/deploy.sh --ip <PI_IP> --user <PI_USER> --pass <PI_PASS>
 
 **On Windows (PowerShell):**
 ```powershell
-.\scripts\deploy.ps1 -PI_IP "192.168.1.177" -PI_USER "pi" -PI_PASS "raspberry"
+.\scripts\deploy.ps1 -Ip "192.168.1.177" -User "pi" -Pass "raspberry"
 ```
 *The script will auto-detect your Pi's architecture, compile the binary via Docker, stop the remote service, upload the file, and restart the application.*
 
@@ -239,14 +241,14 @@ As you browse your game lists, the Raspberry Pi will download official Pixelcade
 Go to the **MQTT** tab in the ArcadeMatrix Web UI, select your console OS (`Auto-Detect`, `Recalbox`, `Batocera`, or `RetroPie`), enter the console's IP along with credentials, and click **Install Sync Script**. This will automatically inject the daemon via SSH.
 
 ### Manual Installation (Recalbox / Batocera / RetroPie)
-If you prefer manual installation, or if the network install fails:
+If you prefer manual installation, or if the network install fails (see [tools/README.md](tools/README.md)):
 1. Open or copy `tools/rpi_emulationstation_base_os_setup.sh` (or `tools/recalbox_setup_mqtt.sh`).
 2. Copy the script to your console (e.g., via `scp`).
 3. SSH into your console and run: `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
 4. Enter your ArcadeMatrix IP and select your target OS from the interactive menu.
 
 ### How does the Daemon architecture work?
-Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Rust Daemon in the background**.
+Unlike native Recalbox scripts that run (and freeze the system) on every joystick movement, ArcadeMatrix installs an **ultra-lightweight Python/Shell Daemon (`arcadematrix_daemon.py`) in the background**.
 * **Zero Lag:** Consumes 0% CPU. EmulationStation suffers no stutter or lag, even when scrolling at max speed.
 * **Anti-Spam (Debounce):** If you scroll quickly through 50 games, the daemon won't flood the network. It only sends the message to the matrix if you pause on a game for more than 150 milliseconds.
 * **Thread Safety:** On the LED Matrix side, downloads and the drawing engine are separated by threads with robust locks, preventing freezing and image cache corruption.
@@ -289,7 +291,7 @@ Please refer to `tools/mugen_extractor/README.md` for full instructions on how t
 
 If you prefer to edit settings manually instead of using the Web UI, you can directly edit the `config.json` file located on the **DATA** partition of your SD Card. This is especially useful for setting up Wi-Fi before the first boot.
 
-> ℹ️ ArcadeMatrix uses a single structured **`config.json`** (the old `conf.ini` format has been removed). The file is **self-healing**: any missing key is recreated with its default on boot, so a partial hand-edit is always safe.
+> ℹ️ ArcadeMatrix uses a single structured **`config.json`** (the legacy `conf.ini` format has been removed). The file is **self-healing**: any missing key is recreated with its default on boot, so a partial hand-edit is always safe.
 
 ```json
 {

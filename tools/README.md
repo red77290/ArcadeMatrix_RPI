@@ -2,13 +2,12 @@
 
 🇬🇧 English | 🇫🇷 [Français](README_FR.md) | 🇪🇸 [Español](README_ES.md)
 
-PC/manual-side utilities for ArcadeMatrix_RPi. These are not part of the Flask app/API - you run
-them yourself, separately, either on your own computer or by pasting them onto your Recalbox.
+PC/manual-side utilities for ArcadeMatrix_RPi. These are standalone companion tools (not compiled into the Rust daemon) that you run separately on your computer or on your retro console (Recalbox / Batocera / RetroPie).
 
 ## `mugen_extractor/`
 
 Converts MUGEN fighting-game character files (`.sff`/`.air`) into the `.fgt` binary sprite format
-used by both this project's `engines/fighter.py` **and** the ESP32 sibling project's
+used by both this project's `src/engines/fighter.rs` **and** the ESP32 sibling project's
 `FighterEngine` (C++) - it's the same tool, kept identical in both repos since there's no shared
 package mechanism between the two independent codebases. See `mugen_extractor/README.md` for full
 usage.
@@ -38,7 +37,7 @@ What it installs:
 **Note for users who also have an ESP32 ArcadeMatrix device**:
 This daemon and topic standard (`system/playing/#`) are 100% identical and compatible across both ESP32 and Raspberry Pi versions. A single installation on your console serves both devices simultaneously. You can also run the PC-side automated installer (`tools/install.sh` / `tools/install.ps1`).
 
-**Normally this happens automatically via the web UI's SSH install feature** (`core/ssh_installer.py`,
+**Normally this happens automatically via the web UI's SSH install feature** (`src/core/ssh_installer.rs`,
 triggered from the Settings page) - this script is the manual fallback for when you'd rather not
 give the app your Recalbox's SSH credentials, or need to inspect/customize exactly what gets
 installed before running it.

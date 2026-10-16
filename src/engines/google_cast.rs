@@ -813,6 +813,12 @@ impl Engine for GoogleCastEngine {
     }
 }
 
+impl Drop for GoogleCastEngine {
+    fn drop(&mut self) {
+        self.stop_background_worker();
+    }
+}
+
 #[distributed_slice(ENGINES)]
 fn register_google_cast_engine() -> EngineDescriptor {
     EngineDescriptor {

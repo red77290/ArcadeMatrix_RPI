@@ -403,16 +403,17 @@ impl ArcadeMatrixApp {
         let mut engine_runtime = EngineRuntime::new();
         let mut rotation_manager = RotationManager::new();
         let mut slot_transition = crate::core::slot_transition::SlotTransition::default();
-        let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(width, height);
+        let initial_rot = normalize_rotation(config.settings.read().matrix.rotation);
+        surface.set_rotation(initial_rot);
+        let mut orientation_manager =
+            crate::core::orientation::OrientationManager::new(width, height, initial_rot);
+        let mut overlay_manager =
+            crate::core::overlay_manager::OverlayManager::new(surface.width(), surface.height());
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
         let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());
-        surface.set_rotation(snapshot.display_rotation);
-        let mut orientation_manager = crate::core::orientation::OrientationManager::new(
-            width,
-            height,
-            snapshot.display_rotation,
-        );
+        runtime.on_display_geometry_changed(orientation_manager.geometry(), &mut engine_runtime);
+        overlay_manager.on_display_geometry_changed(orientation_manager.geometry());
 
         let mut mqtt_req_gen = crate::core::types::RequestIdGenerator::new(1001);
         let mut marquee_req_gen = crate::core::types::RequestIdGenerator::new(2001);

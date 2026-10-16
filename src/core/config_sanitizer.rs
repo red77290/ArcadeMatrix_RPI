@@ -30,7 +30,7 @@ impl ConfigSanitizer {
         }
 
         // Filter out instances that point to unknown engines (e.g. "fighter" or invalid IDs)
-        let before_inst_count = config.instances.len();
+        let _before_inst_count = config.instances.len();
         config.instances.retain(|inst| {
             let valid = crate::core::registry::EngineRegistry::get_descriptor(&inst.engine_id).is_some();
             if !valid {
@@ -43,6 +43,29 @@ impl ConfigSanitizer {
             }
             valid
         });
+
+        // Auto-recreate missing rotatable instances referenced by rotation entries so
+        // valid playlist entries are never lost if an instance definition is missing.
+        for rot in &config.rotation {
+            if !config
+                .instances
+                .iter()
+                .any(|i| i.instance_id == rot.instance_id)
+            {
+                if let Some(engine_id) = Self::infer_rotatable_engine_id(&rot.instance_id) {
+                    info!(
+                        "Sanitizer: Auto-creating missing instance '{}' for engine '{}'",
+                        rot.instance_id, engine_id
+                    );
+                    config.instances.push(crate::core::config::EngineInstance {
+                        instance_id: rot.instance_id.clone(),
+                        engine_id,
+                        config: std::collections::HashMap::new(),
+                    });
+                    result.modified = true;
+                }
+            }
+        }
 
         for inst in &mut config.instances {
             // Find engine schema
@@ -270,5 +293,35 @@ impl ConfigSanitizer {
             result.values_fallback += 1;
             result.modified = true;
         }
+    }
+
+    fn infer_rotatable_engine_id(instance_id: &str) -> Option<String> {
+        if let Some(desc) = crate::core::registry::EngineRegistry::get_descriptor(instance_id) {
+            if desc.capabilities.allow_rotation && desc.available {
+                return Some(desc.metadata.id.to_string());
+            }
+            return None;
+        }
+        if let Some(stripped) = instance_id.strip_prefix("default_") {
+            if let Some(desc) = crate::core::registry::EngineRegistry::get_descriptor(stripped) {
+                if desc.capabilities.allow_rotation && desc.available {
+                    return Some(desc.metadata.id.to_string());
+                }
+                return None;
+            }
+        }
+        for (idx, _) in instance_id.rmatch_indices('_') {
+            if idx > 0 {
+                let candidate = &instance_id[..idx];
+                if let Some(desc) = crate::core::registry::EngineRegistry::get_descriptor(candidate)
+                {
+                    if desc.capabilities.allow_rotation && desc.available {
+                        return Some(desc.metadata.id.to_string());
+                    }
+                    return None;
+                }
+            }
+        }
+        None
     }
 }

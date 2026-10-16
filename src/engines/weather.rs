@@ -47,9 +47,9 @@ impl WeatherEngine {
             api_key: "".to_string(),
             city: "".to_string(),
             lang: "en".to_string(),
-            last_lang: "en".to_string(),
+            last_lang: String::new(),
             units: "metric".to_string(),
-            last_units: "metric".to_string(),
+            last_units: String::new(),
             offset_x: 0,
             offset_y: 0,
         }
@@ -159,12 +159,15 @@ impl Engine for WeatherEngine {
         };
 
         if self.last_lang != active_lang || self.last_units != active_units {
+            let had_previous = !self.last_lang.is_empty();
             self.last_lang = active_lang.clone();
             self.last_units = active_units.clone();
-            self.last_fetch = None;
-            self.last_fetch_attempt = None;
-            self.forecasts.clear();
-            self.panorama = None;
+            if had_previous {
+                self.last_fetch = None;
+                self.last_fetch_attempt = None;
+                self.forecasts.clear();
+                self.panorama = None;
+            }
         }
 
         if let Ok(mut pending) = self.pending_forecasts.try_lock() {

@@ -686,6 +686,12 @@ impl Engine for SpotifyEngine {
     }
 }
 
+impl Drop for SpotifyEngine {
+    fn drop(&mut self) {
+        self.stop_background_worker();
+    }
+}
+
 #[distributed_slice(ENGINES)]
 fn register_spotify_engine() -> EngineDescriptor {
     EngineDescriptor {

@@ -81,40 +81,14 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
         return e;
     }
     let s = data.config.settings.read();
-    let mut mqtt = s.mqtt.clone();
-    if !mqtt.pass.is_empty() {
-        mqtt.pass = REDACTED_SECRET.to_string();
-    }
-    let mut data_mqtt = s.data_mqtt.clone();
-    if !data_mqtt.pass.is_empty() {
-        data_mqtt.pass = REDACTED_SECRET.to_string();
-    }
-    let mut wifi = s.wifi.clone();
-    if !wifi.password.is_empty() {
-        wifi.password = REDACTED_SECRET.to_string();
-    }
-    let supplied = req
-        .headers()
-        .get("X-API-Token")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("");
-    let is_token_authenticated =
-        !s.api_token.is_empty() && constant_time_eq(supplied.as_bytes(), s.api_token.as_bytes());
-    let api_token_out = if s.api_auth_enabled && !is_token_authenticated && !s.api_token.is_empty()
-    {
-        REDACTED_SECRET.to_string()
-    } else {
-        s.api_token.clone()
-    };
-
     HttpResponse::Ok().json(json!({
         "system": s.system,
         "matrix": s.matrix,
-        "mqtt": mqtt,
-        "data_mqtt": data_mqtt,
-        "wifi": wifi,
+        "mqtt": s.mqtt,
+        "data_mqtt": s.data_mqtt,
+        "wifi": s.wifi,
         "api_auth_enabled": s.api_auth_enabled,
-        "api_token": api_token_out
+        "api_token": s.api_token
     }))
 }
 
@@ -129,7 +103,7 @@ async fn post_system(
     }
     let mut s = data.config.settings.write();
     // Snapshot the fields that require a hardware/service restart to take effect,
-    // and preserve existing secrets when the UI submits masked placeholders.
+    // and preserve existing secrets when a client submits masked placeholders.
     let prev_matrix = serde_json::to_value(&s.matrix).ok();
     let prev_mqtt = serde_json::to_value(&s.mqtt).ok();
     let prev_disable_wifi = s.wifi.disable_internal;
@@ -248,7 +222,6 @@ async fn post_system(
     if let Some(v) = body.get("rotation").and_then(|v| v.as_u64()) {
         if s.matrix.rotation != v as u32 {
             s.matrix.rotation = v as u32;
-            data.config.reset_rotation.store(true, Ordering::Relaxed);
         }
     }
     if let Some(v) = body.get("transition_effect").and_then(|v| v.as_str()) {
@@ -288,16 +261,14 @@ async fn post_system(
     } else {
         false
     };
-    if let Some(ref p) = prev_matrix_cfg {
-        if p.rotation != s.matrix.rotation {
-            data.config.reset_rotation.store(true, Ordering::Relaxed);
-        }
-    }
     let new_mqtt = serde_json::to_value(&s.mqtt).ok();
     let needs_reload =
         hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     data.config.save();
+    // Always notify the render loop to refresh its runtime snapshot (night mode,
+    // language, units, fighter overlay, slot transition, display orientation).
+    data.config.reset_rotation.store(true, Ordering::Relaxed);
     if needs_reload {
         data.config.reload_flag.store(true, Ordering::Relaxed);
     }
@@ -310,19 +281,7 @@ async fn get_instances(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
         return e;
     }
     let s = data.config.settings.read();
-    let mut instances = s.instances.clone();
-    for inst in &mut instances {
-        for (k, v) in inst.config.iter_mut() {
-            if matches!(
-                k.as_str(),
-                "api_key" | "client_secret" | "refresh_token" | "password" | "pass" | "token"
-            ) && !v.is_empty()
-            {
-                *v = REDACTED_SECRET.to_string();
-            }
-        }
-    }
-    HttpResponse::Ok().json(instances)
+    HttpResponse::Ok().json(&s.instances)
 }
 
 #[post("/api/instances")]
@@ -365,6 +324,20 @@ async fn post_instances(
         }
         *existing = new_inst;
     } else {
+        let same_engine_cfg = s
+            .instances
+            .iter()
+            .find(|i| i.engine_id == new_inst.engine_id)
+            .map(|i| i.config.clone());
+        if let Some(fallback_cfg) = same_engine_cfg {
+            for (k, v) in new_inst.config.iter_mut() {
+                if *v == REDACTED_SECRET {
+                    if let Some(old_val) = fallback_cfg.get(k) {
+                        *v = old_val.clone();
+                    }
+                }
+            }
+        }
         s.instances.push(new_inst);
     }
     // Self-heal at write time: inject defaults, clamp/fallback out-of-range values.
@@ -420,6 +393,7 @@ async fn post_rotation(
     }
     let mut s = data.config.settings.write();
     s.rotation = rot;
+    ConfigSanitizer::sanitize_instances(&mut s);
     drop(s);
     data.config.save();
     data.config.reset_rotation.store(true, Ordering::Relaxed);

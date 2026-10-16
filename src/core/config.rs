@@ -461,11 +461,7 @@ impl Config {
             needs_save = true;
         }
 
-        let sanitize_res =
-            crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
-        if sanitize_res.modified {
-            needs_save = true;
-        }
+        let _ = crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
 
         // Seed the live daytime brightness from the persisted value so a user's
         // saved brightness survives restarts instead of resetting to full.

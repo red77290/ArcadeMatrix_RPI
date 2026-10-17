@@ -1,6 +1,6 @@
 //! MQTT Data engine: graph v2 features, table tiles, weather pages.
 
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
+use arcadematrix::core::matrix::{IDrawingSurface, MockSurface};
 use arcadematrix::engines::mqtt_data::graph::{render_graph, YScale};
 use arcadematrix::engines::mqtt_data::payload::{
     parse_graph_payload, parse_table_payload, parse_weather_payload, MAX_PAYLOAD_BYTES,
@@ -10,13 +10,13 @@ use arcadematrix::engines::mqtt_data::weather::weather_pages;
 use arcadematrix::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width};
 use arcadematrix::engines::renderers::weather_page::draw_weather_page;
 
-fn px(m: &MockMatrix, x: u32, y: u32) -> (u8, u8, u8) {
+fn px(m: &MockSurface, x: u32, y: u32) -> (u8, u8, u8) {
     let p = m.canvas.get_pixel(x, y);
     (p[0], p[1], p[2])
 }
 
 fn lit_in(
-    m: &MockMatrix,
+    m: &MockSurface,
     xs: std::ops::Range<u32>,
     ys: std::ops::Range<u32>,
     c: (u8, u8, u8),
@@ -86,7 +86,7 @@ fn ninety_six_bands_render_and_extra_bands_keep_newest() {
     let g = parse_graph_payload(&json).unwrap();
     assert_eq!(g.bands.len(), 96);
     for (w, h) in [(128u32, 32u32), (256, 64)] {
-        let mut m = MockMatrix::new(w, h);
+        let mut m = MockSurface::new(w, h);
         render_graph(&mut m, Some(&g), false, "");
         // Every column is covered by its own slot's band colour.
         for x in 0..w {
@@ -128,7 +128,7 @@ fn legend_row_and_summary_colour_on_tall_panels() {
     let g = parse_graph_payload(LEGEND_CASE).unwrap();
     assert_eq!(g.legend.len(), 3);
     assert_eq!(g.summary_color, Some((0x40, 0xA0, 0xFF)));
-    let mut m = MockMatrix::new(256, 64);
+    let mut m = MockSurface::new(256, 64);
     render_graph(&mut m, Some(&g), true, "");
     // Legend at the bottom: px0 = 8 (labels "90"/"68"),
     // INSIDE x 8..30, OUTSIDE 39..65, COOLING 74..100, rows 58..62; row 63 blank.
@@ -154,7 +154,7 @@ fn legend_ignored_on_32px_panels() {
     let with = parse_graph_payload(LEGEND_CASE).unwrap();
     let mut without = with.clone();
     without.legend.clear();
-    let (mut a, mut b) = (MockMatrix::new(128, 32), MockMatrix::new(128, 32));
+    let (mut a, mut b) = (MockSurface::new(128, 32), MockSurface::new(128, 32));
     render_graph(&mut a, Some(&with), true, "");
     render_graph(&mut b, Some(&without), true, "");
     assert_eq!(a.canvas, b.canvas);
@@ -172,7 +172,7 @@ fn too_wide_legend_drops_items_from_the_end() {
     )
     .unwrap();
     assert_eq!(g.legend.len(), 4); // 5th item not read
-    let mut m = MockMatrix::new(256, 64);
+    let mut m = MockSurface::new(256, 64);
     render_graph(&mut m, Some(&g), false, "");
     // 79 px each + 8 gap: A 0..78, B 87..165, C would end at 252 (fits), D at 261 (dropped).
     assert!(lit_in(&m, 0..79, 58..63, (255, 0, 0)));
@@ -215,7 +215,7 @@ fn line_draws_steps_and_gaps() {
         r##"{"min":0,"max":31,"series":[{"style":"line","color":"#FF4020","data":[0,31,null,10]}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, Some(&g), false, "");
     assert_eq!(px(&m, 0, 31), RED); // slot 0 at value 0 -> bottom row
     assert_eq!(px(&m, 31, 31), RED);
@@ -236,7 +236,7 @@ fn negative_bars_hang_below_zero_line() {
     let g =
         parse_graph_payload(r##"{"min":-2,"max":2,"series":[{"color":"#2060FF","data":[2,-2]}]}"##)
             .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, Some(&g), false, "");
     // Zero line: row 31 - round(0.5*31) = 15 (16 -> rounds half away -> 15.5 -> 16? computed below).
     let zero = YScale {
@@ -260,7 +260,7 @@ fn negative_bars_hang_below_zero_line() {
 fn zero_line_only_with_bars_crossing_zero() {
     let lines =
         parse_graph_payload(r#"{"min":-5,"max":5,"series":[{"style":"line","data":[]}]}"#).unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, Some(&lines), false, "");
     assert!(m
         .canvas
@@ -285,14 +285,14 @@ fn yaxis_only_on_tall_panels() {
         r##"{"title":"T","min":68,"max":90,"yaxis":true,"series":[{"style":"line","color":"#FF4020","data":[90]}]}"##,
     )
     .unwrap();
-    let mut big = MockMatrix::new(256, 64);
+    let mut big = MockSurface::new(256, 64);
     render_graph(&mut big, Some(&g), true, "");
     // Labels "90"/"68": width 7 -> plot starts at x=8.
     assert!(lit_in(&big, 0..7, 15..20, (0x70, 0x70, 0x70)));
     assert!(lit_in(&big, 0..7, 59..64, (0x70, 0x70, 0x70)));
     assert_eq!(px(&big, 7, 15), (0, 0, 0)); // gap column
     assert_eq!(px(&big, 8, 15), RED); // first plot column, value = max -> top row
-    let mut small = MockMatrix::new(128, 32);
+    let mut small = MockSurface::new(128, 32);
     render_graph(&mut small, Some(&g), true, "");
     assert_eq!(px(&small, 0, 8), RED); // no axis on 32 px panels
 }
@@ -302,7 +302,7 @@ fn tiny_font_widths_and_pixels() {
     assert_eq!(tiny_text_width(""), 0);
     assert_eq!(tiny_text_width("90"), 7);
     assert_eq!(tiny_text_width("kWh"), 11);
-    let mut m = MockMatrix::new(16, 8);
+    let mut m = MockSurface::new(16, 8);
     draw_tiny_text(&mut m, "1", 0, 0, 0, 16, (255, 255, 255));
     // '1' = 010 110 010 010 111
     assert_eq!(px(&m, 1, 0), (255, 255, 255));
@@ -365,7 +365,7 @@ const HOME: &str = r##"{"v":1,"title":"HOME","tiles":[
 fn values_grid_is_stacked_on_128x32() {
     let d = parse_table_payload(HOME).unwrap();
     assert_eq!(d.tiles[0].label_short, "DOWN");
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_table(&mut m, Some(&d), true, "NO DATA");
     let grey = (0x80, 0x80, 0x80);
     // Block = 5 + 1 + 7 = 13 rows, top = cell_y + 1: labels on rows 1..5 / 17..21,
@@ -390,7 +390,7 @@ fn short_label_used_only_when_full_does_not_fit() {
     )
     .unwrap();
     // 3 columns on 128x32: inner width 40 >= 39 -> full label still fits.
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_table(&mut m, Some(&d), false, "");
     let grey = (0x80, 0x80, 0x80);
     let (lo, hi) = (0..40)
@@ -402,7 +402,7 @@ fn short_label_used_only_when_full_does_not_fit() {
         r#"{"tiles":[{"label":"DOWNSTAIRS","label_short":"DOWN","value":"1"},{"value":"2"},{"value":"3"},{"value":"4"}]}"#,
     )
     .unwrap();
-    let mut small = MockMatrix::new(64, 32); // 2x2 cells of 30 px
+    let mut small = MockSurface::new(64, 32); // 2x2 cells of 30 px
     render_table(&mut small, Some(&d4), false, "");
     let (lo, hi) = (0..30)
         .filter(|&x| (0..16).any(|y| px(&small, x, y) == grey))
@@ -424,7 +424,7 @@ fn values_single_tile_stacks_under_title() {
         r##"{"title":"POWER","tiles":[{"label":"HOUSE","value":"2.8","unit":"kW","color":"#FFB000"}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_table(&mut m, Some(&d), true, "NO DATA");
     assert!(lit_in(&m, 0..30, 0..7, (255, 255, 255))); // title
                                                        // ch = 24: G3 doesn't fit (27), G2 block = 5 + 1 + 14 = 20, top = 8 + 2 = 10.
@@ -435,11 +435,11 @@ fn values_single_tile_stacks_under_title() {
 
 #[test]
 fn values_no_data() {
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_table(&mut m, None, true, "NO DATA");
     assert!(m.canvas.pixels().any(|p| p[0] > 0));
     let empty = parse_table_payload(r#"{"tiles":[]}"#).unwrap();
-    let mut m2 = MockMatrix::new(128, 32);
+    let mut m2 = MockSurface::new(128, 32);
     render_table(&mut m2, Some(&empty), true, "NO DATA");
     assert_eq!(m.canvas, m2.canvas);
 }
@@ -568,18 +568,19 @@ fn now_page_second_line_falls_back() {
 
 /// First page of a weather payload (NOW when it has a live temperature),
 /// drawn with the shared weather page renderer.
-fn render_weather_day(payload: &str, w: u32, h: u32, _name: &str) -> MockMatrix {
+fn render_weather_day(payload: &str, w: u32, h: u32, _name: &str) -> MockSurface {
     let wx = parse_weather_payload(payload).expect("weather payload");
     let slides = weather_pages(&wx, "en", 0);
     let mut img = image::RgbaImage::new(w, h);
     draw_weather_page(&mut img, &slides[0], 0, w, h, 0, 0);
-    let mut m = MockMatrix::new(w, h);
+    let mut m = MockSurface::new(w, h);
     m.draw_image(&image::DynamicImage::ImageRgba8(img).to_rgb8(), 0, 0);
     m
 }
 
 /// Leftmost / rightmost columns and top / bottom rows painted in colour `c`.
-fn bbox(m: &MockMatrix, c: (u8, u8, u8)) -> Option<(u32, u32, u32, u32)> {
+#[allow(dead_code)]
+fn bbox(m: &MockSurface, c: (u8, u8, u8)) -> Option<(u32, u32, u32, u32)> {
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
     for y in 0..m.canvas.height() {
         for x in 0..m.canvas.width() {
@@ -610,7 +611,7 @@ fn day0_condition_falls_back_to_current() {
 // `MQTTDATA_PREVIEW_DIR=out cargo test --test test_ha_screens -- --ignored`
 // ---------------------------------------------------------------------------
 
-fn save(m: &MockMatrix, dir: &str, name: &str) {
+fn save(m: &MockSurface, dir: &str, name: &str) {
     let (w, h) = (m.canvas.width(), m.canvas.height());
     let big = image::imageops::resize(&m.canvas, w * 8, h * 8, image::imageops::Nearest);
     big.save(format!("{}/{}_{}x{}.png", dir, name, w, h))

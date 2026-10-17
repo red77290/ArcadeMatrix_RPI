@@ -9,7 +9,7 @@
 //! Mirrors the ESP32 firmware's `slot_transition` setting, including the effect names, so both
 //! signs can be configured the same way.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,7 +119,7 @@ impl SlotTransition {
 
     /// Paints the current frame of the effect over whatever the engine drew. Returns false when the
     /// transition has finished, so the caller can stop asking.
-    pub fn render(&mut self, matrix: &mut dyn MatrixBackend) -> bool {
+    pub fn render(&mut self, matrix: &mut dyn IDrawingSurface) -> bool {
         let started = match self.started {
             Some(t) => t,
             None => return false,
@@ -280,13 +280,13 @@ impl SlotTransition {
 
 // ---- small drawing helpers, all clipped ----
 
-fn px(matrix: &mut dyn MatrixBackend, x: i32, y: i32, c: (u8, u8, u8)) {
+fn px(matrix: &mut dyn IDrawingSurface, x: i32, y: i32, c: (u8, u8, u8)) {
     if x >= 0 && y >= 0 && x < matrix.width() as i32 && y < matrix.height() as i32 {
         matrix.set_pixel(x, y, c.0, c.1, c.2);
     }
 }
 
-fn fill(matrix: &mut dyn MatrixBackend, x: i32, y: i32, w: i32, h: i32, c: (u8, u8, u8)) {
+fn fill(matrix: &mut dyn IDrawingSurface, x: i32, y: i32, w: i32, h: i32, c: (u8, u8, u8)) {
     for yy in y..(y + h) {
         for xx in x..(x + w) {
             px(matrix, xx, yy, c);
@@ -294,19 +294,19 @@ fn fill(matrix: &mut dyn MatrixBackend, x: i32, y: i32, w: i32, h: i32, c: (u8, 
     }
 }
 
-fn vline(matrix: &mut dyn MatrixBackend, x: i32, h: i32, c: (u8, u8, u8)) {
+fn vline(matrix: &mut dyn IDrawingSurface, x: i32, h: i32, c: (u8, u8, u8)) {
     for y in 0..h {
         px(matrix, x, y, c);
     }
 }
 
-fn hline(matrix: &mut dyn MatrixBackend, y: i32, w: i32, c: (u8, u8, u8)) {
+fn hline(matrix: &mut dyn IDrawingSurface, y: i32, w: i32, c: (u8, u8, u8)) {
     for x in 0..w {
         px(matrix, x, y, c);
     }
 }
 
-fn hline_at(matrix: &mut dyn MatrixBackend, x: i32, y: i32, w: i32, c: (u8, u8, u8)) {
+fn hline_at(matrix: &mut dyn IDrawingSurface, x: i32, y: i32, w: i32, c: (u8, u8, u8)) {
     for xx in x..(x + w) {
         px(matrix, xx, y, c);
     }

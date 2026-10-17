@@ -4,14 +4,14 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::registry::ENGINES;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 use image::{imageops, Rgb, RgbImage};
 use linkme::distributed_slice;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -20,6 +20,7 @@ pub struct SpotifyEngine {
     client_id: String,
     client_secret: String,
     refresh_token: String,
+    credentials: Arc<RwLock<(String, String, String)>>,
     show_album_art: bool,
     show_progress: bool,
     show_volume: bool,
@@ -27,8 +28,9 @@ pub struct SpotifyEngine {
 
     // Live state shared with background poll thread
     now_playing: Arc<Mutex<SpotifyNowPlaying>>,
-    is_running: Arc<AtomicBool>,
-    last_image_url: String,
+    shared_cover: Arc<Mutex<Option<RgbImage>>>,
+    target_art_size: Arc<AtomicU32>,
+    worker_stop: Option<Arc<AtomicBool>>,
     cached_cover: Option<RgbImage>,
 
     // Animation & marquee timers
@@ -45,13 +47,15 @@ impl SpotifyEngine {
             client_id: String::new(),
             client_secret: String::new(),
             refresh_token: String::new(),
+            credentials: Arc::new(RwLock::new((String::new(), String::new(), String::new()))),
             show_album_art: true,
             show_progress: true,
             show_volume: true,
             show_visualizer: true,
             now_playing: Arc::new(Mutex::new(SpotifyNowPlaying::default())),
-            is_running: Arc::new(AtomicBool::new(false)),
-            last_image_url: String::new(),
+            shared_cover: Arc::new(Mutex::new(None)),
+            target_art_size: Arc::new(AtomicU32::new(52)),
+            worker_stop: None,
             cached_cover: None,
             anim_frame: 0,
             marquee_offset: 0,
@@ -64,77 +68,131 @@ impl SpotifyEngine {
         self.client_id = config.get_string("client_id", "");
         self.client_secret = config.get_string("client_secret", "");
         self.refresh_token = config.get_string("refresh_token", "");
+        if let Ok(mut creds) = self.credentials.write() {
+            *creds = (
+                self.client_id.clone(),
+                self.client_secret.clone(),
+                self.refresh_token.clone(),
+            );
+        }
         self.show_album_art = config.get_bool("show_album_art", true);
         self.show_progress = config.get_bool("show_progress", true);
         self.show_volume = config.get_bool("show_volume", true);
         self.show_visualizer = config.get_bool("show_visualizer", true);
     }
 
-    fn start_background_worker(&mut self) {
-        if self.is_running.load(Ordering::Relaxed) {
-            return;
+    fn stop_background_worker(&mut self) {
+        if let Some(stop_token) = self.worker_stop.take() {
+            stop_token.store(true, Ordering::SeqCst);
         }
+    }
 
-        self.is_running.store(true, Ordering::Relaxed);
+    fn start_background_worker(&mut self) {
+        self.stop_background_worker();
+
+        let stop_token = Arc::new(AtomicBool::new(false));
+        self.worker_stop = Some(Arc::clone(&stop_token));
+
         let status_arc = Arc::clone(&self.now_playing);
-        let running_arc = Arc::clone(&self.is_running);
+        let cover_arc = Arc::clone(&self.shared_cover);
+        let target_size_arc = Arc::clone(&self.target_art_size);
+        let creds_arc = Arc::clone(&self.credentials);
         let cid = self.client_id.clone();
         let sec = self.client_secret.clone();
         let ref_tok = self.refresh_token.clone();
 
         thread::spawn(move || {
             let mut client = SpotifyClient::new(&cid, &sec, &ref_tok);
+            let mut last_attempted_url = String::new();
+            let mut last_resized_dim = 0u32;
+            let mut raw_cover: Option<RgbImage> = None;
+            let http_client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_millis(2000))
+                .build()
+                .unwrap_or_else(|_| reqwest::blocking::Client::new());
 
-            while running_arc.load(Ordering::Relaxed) {
+            while !stop_token.load(Ordering::SeqCst) {
+                if let Ok(creds) = creds_arc.read() {
+                    client.update_credentials(&creds.0, &creds.1, &creds.2);
+                }
+
+                let mut current_img_url = None;
                 if let Ok(st) = client.get_currently_playing() {
+                    current_img_url = st.image_url.clone();
                     if let Ok(mut guard) = status_arc.lock() {
                         *guard = st;
                     }
+                } else if let Ok(guard) = status_arc.lock() {
+                    current_img_url = guard.image_url.clone();
                 }
 
-                thread::sleep(Duration::from_millis(1500));
+                if stop_token.load(Ordering::SeqCst) {
+                    break;
+                }
+
+                let target_size = target_size_arc.load(Ordering::Relaxed).max(16);
+                match current_img_url {
+                    Some(ref u) if !u.is_empty() => {
+                        if *u != last_attempted_url {
+                            last_attempted_url = u.clone();
+                            raw_cover = None;
+                            if let Ok(resp) = http_client.get(u).send() {
+                                if resp.status().is_success() {
+                                    if let Ok(bytes) = resp.bytes() {
+                                        if let Ok(img) = image::load_from_memory(&bytes) {
+                                            raw_cover = Some(img.to_rgb8());
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(ref rgb) = raw_cover {
+                                let resized = imageops::resize(
+                                    rgb,
+                                    target_size,
+                                    target_size,
+                                    imageops::FilterType::Triangle,
+                                );
+                                last_resized_dim = target_size;
+                                if let Ok(mut guard) = cover_arc.lock() {
+                                    *guard = Some(resized);
+                                }
+                            } else if let Ok(mut guard) = cover_arc.lock() {
+                                *guard = None;
+                            }
+                        } else if target_size != last_resized_dim {
+                            if let Some(ref rgb) = raw_cover {
+                                let resized = imageops::resize(
+                                    rgb,
+                                    target_size,
+                                    target_size,
+                                    imageops::FilterType::Triangle,
+                                );
+                                last_resized_dim = target_size;
+                                if let Ok(mut guard) = cover_arc.lock() {
+                                    *guard = Some(resized);
+                                }
+                            }
+                        }
+                    }
+                    _ => {
+                        if !last_attempted_url.is_empty() {
+                            last_attempted_url.clear();
+                            raw_cover = None;
+                            if let Ok(mut guard) = cover_arc.lock() {
+                                *guard = None;
+                            }
+                        }
+                    }
+                }
+
+                for _ in 0..15 {
+                    if stop_token.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
             }
         });
-    }
-
-    fn fetch_cover_art_if_needed(&mut self, url_opt: &Option<String>, target_size: u32) {
-        let url = match url_opt {
-            Some(u) if !u.is_empty() => u.clone(),
-            _ => {
-                self.last_image_url.clear();
-                self.cached_cover = None;
-                return;
-            }
-        };
-
-        if url == self.last_image_url && self.cached_cover.is_some() {
-            return;
-        }
-
-        self.last_image_url = url.clone();
-        if let Ok(resp) = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_millis(2000))
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new())
-            .get(&url)
-            .send()
-        {
-            if let Ok(bytes) = resp.bytes() {
-                if let Ok(img) = image::load_from_memory(&bytes) {
-                    let rgb = img.to_rgb8();
-                    let resized = imageops::resize(
-                        &rgb,
-                        target_size,
-                        target_size,
-                        imageops::FilterType::Triangle,
-                    );
-                    self.cached_cover = Some(resized);
-                    return;
-                }
-            }
-        }
-
-        self.cached_cover = None;
     }
 }
 
@@ -145,7 +203,6 @@ impl Engine for SpotifyEngine {
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
         self.apply_config(config);
-        self.start_background_worker();
         Ok(())
     }
 
@@ -154,15 +211,20 @@ impl Engine for SpotifyEngine {
     }
 
     fn update(&mut self, ctx: &mut EngineContext) {
-        let (img_url, is_playing) = if let Ok(guard) = self.now_playing.lock() {
-            (guard.image_url.clone(), guard.is_playing)
+        let is_playing = if let Ok(guard) = self.now_playing.lock() {
+            guard.is_playing
         } else {
-            (None, false)
+            false
         };
 
         if self.show_album_art {
-            let target_size = if ctx.matrix.height() >= 64 { 52 } else { 24 };
-            self.fetch_cover_art_if_needed(&img_url, target_size);
+            let target_size = if ctx.surface.height() >= 64 { 52 } else { 24 };
+            self.target_art_size.store(target_size, Ordering::Relaxed);
+            if let Ok(guard) = self.shared_cover.try_lock() {
+                self.cached_cover = guard.clone();
+            }
+        } else {
+            self.cached_cover = None;
         }
 
         // Marquee scrolling tick (~35ms per pixel)
@@ -185,14 +247,15 @@ impl Engine for SpotifyEngine {
             (SpotifyNowPlaying::default(), false)
         };
 
-        let w = ctx.matrix.width() as i32;
-        let h = ctx.matrix.height() as i32;
+        let sys_lang = ctx.config.get_sys_string("language", "en");
+        let w = ctx.surface.width() as i32;
+        let h = ctx.surface.height() as i32;
 
         let font = self.base_renderer.font();
 
         if !has_data {
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 "Spotify",
                 &font,
                 1.0,
@@ -201,12 +264,14 @@ impl Engine for SpotifyEngine {
                 (30, 215, 96),
                 (0, 0, 0),
             );
+            let no_music_label = crate::core::i18n::t(&sys_lang, "no_music_playing");
+            let (_, sub_w, _) = font.get_pixel_map(no_music_label, 1.0);
             BaseRenderer::draw_text_at(
-                ctx.matrix,
-                "No music playing",
+                ctx.surface,
+                no_music_label,
                 &font,
                 1.0,
-                (w / 2) - 34,
+                ((w - sub_w) / 2).max(1),
                 (h / 2) + 2,
                 (140, 140, 140),
                 (0, 0, 0),
@@ -237,7 +302,7 @@ impl Engine for SpotifyEngine {
                             let dy = img_y
                                 + ((py as f32 / cover.height() as f32) * art_size as f32) as i32;
                             if dx < w && dy < h {
-                                ctx.matrix.set_pixel(dx, dy, r, g, b);
+                                ctx.surface.set_pixel(dx, dy, r, g, b);
                             }
                         }
                     }
@@ -250,7 +315,7 @@ impl Engine for SpotifyEngine {
             let clip_max_x = w - 2;
             let avail_w = (clip_max_x - clip_min_x).max(16);
 
-            let render_marquee = |matrix: &mut dyn MatrixBackend,
+            let render_marquee = |matrix: &mut dyn IDrawingSurface,
                                   text: &str,
                                   font: &ArcadeFont<'_>,
                                   y: i32,
@@ -306,7 +371,7 @@ impl Engine for SpotifyEngine {
             };
 
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &status.title,
                 &font,
                 cur_y,
@@ -323,7 +388,7 @@ impl Engine for SpotifyEngine {
                 "Spotify".to_string()
             };
             render_marquee(
-                ctx.matrix,
+                ctx.surface,
                 &artist_display,
                 &font,
                 cur_y,
@@ -338,10 +403,10 @@ impl Engine for SpotifyEngine {
                 let bar_w = ((w - 4) as f32 * progress) as i32;
                 let bar_y = h - 10;
                 for x in 2..w - 2 {
-                    ctx.matrix.set_pixel(x, bar_y, 30, 35, 30);
+                    ctx.surface.set_pixel(x, bar_y, 30, 35, 30);
                 }
                 for x in 2..2 + bar_w {
-                    ctx.matrix.set_pixel(x, bar_y, 30, 215, 96);
+                    ctx.surface.set_pixel(x, bar_y, 30, 215, 96);
                 }
             }
 
@@ -354,8 +419,8 @@ impl Engine for SpotifyEngine {
                     for by in 0..bh {
                         let py = eq_base_y - by;
                         if py >= 0 {
-                            ctx.matrix.set_pixel(bx, py, 30, 215, 96);
-                            ctx.matrix.set_pixel(bx + 1, py, 30, 215, 96);
+                            ctx.surface.set_pixel(bx, py, 30, 215, 96);
+                            ctx.surface.set_pixel(bx + 1, py, 30, 215, 96);
                         }
                     }
                 }
@@ -379,13 +444,13 @@ impl Engine for SpotifyEngine {
 
                 // Outer subtle border
                 for bx in 0..img_w + 2 {
-                    ctx.matrix.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1 + bx, img_y - 1, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x - 1 + bx, img_y + img_h, 40, 40, 50);
                 }
                 for by in 0..img_h + 2 {
-                    ctx.matrix.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
-                    ctx.matrix
+                    ctx.surface.set_pixel(img_x - 1, img_y - 1 + by, 40, 40, 50);
+                    ctx.surface
                         .set_pixel(img_x + img_w, img_y - 1 + by, 40, 40, 50);
                 }
 
@@ -393,7 +458,7 @@ impl Engine for SpotifyEngine {
                 for py in 0..cover.height() {
                     for px in 0..cover.width() {
                         let Rgb([r, g, b]) = *cover.get_pixel(px, py);
-                        ctx.matrix
+                        ctx.surface
                             .set_pixel(img_x + px as i32, img_y + py as i32, r, g, b);
                     }
                 }
@@ -423,7 +488,7 @@ impl Engine for SpotifyEngine {
         let avail_w = (clip_max_x - clip_min_x).max(16);
 
         // 3. Continuous Circular (Seamless Looping) Marquee
-        let render_marquee = |matrix: &mut dyn MatrixBackend,
+        let render_marquee = |matrix: &mut dyn IDrawingSurface,
                               text: &str,
                               font: &ArcadeFont<'_>,
                               y: i32,
@@ -487,7 +552,7 @@ impl Engine for SpotifyEngine {
 
         // Draw Title
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &status.title,
             &font,
             y_title,
@@ -505,7 +570,7 @@ impl Engine for SpotifyEngine {
         };
 
         render_marquee(
-            ctx.matrix,
+            ctx.surface,
             &artist_display,
             &font,
             y_artist,
@@ -538,7 +603,7 @@ impl Engine for SpotifyEngine {
                             } else {
                                 (30, 215, 96)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -564,8 +629,8 @@ impl Engine for SpotifyEngine {
                             } else {
                                 (30, 215, 96)
                             };
-                            ctx.matrix.set_pixel(bx, py, color.0, color.1, color.2);
-                            ctx.matrix.set_pixel(bx + 1, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx, py, color.0, color.1, color.2);
+                            ctx.surface.set_pixel(bx + 1, py, color.0, color.1, color.2);
                         }
                     }
                 }
@@ -575,7 +640,7 @@ impl Engine for SpotifyEngine {
             let vol_str = format!("{}%", status.volume_percent);
             let v_x = w - (vol_str.len() as i32 * 6) - 1;
             BaseRenderer::draw_text_at(
-                ctx.matrix,
+                ctx.surface,
                 &vol_str,
                 &font,
                 1.0,
@@ -593,27 +658,37 @@ impl Engine for SpotifyEngine {
 
             // Background line
             for x in 1..w - 1 {
-                ctx.matrix.set_pixel(x, h - 2, 30, 35, 30);
-                ctx.matrix.set_pixel(x, h - 1, 18, 22, 18);
+                ctx.surface.set_pixel(x, h - 2, 30, 35, 30);
+                ctx.surface.set_pixel(x, h - 1, 18, 22, 18);
             }
             // Active progress fill (Spotify Green)
             for x in 1..1 + bar_w {
-                ctx.matrix.set_pixel(x, h - 2, 30, 215, 96);
-                ctx.matrix.set_pixel(x, h - 1, 20, 160, 70);
+                ctx.surface.set_pixel(x, h - 2, 30, 215, 96);
+                ctx.surface.set_pixel(x, h - 1, 20, 160, 70);
             }
         }
     }
 
     fn deactivate(&mut self) {
-        self.is_running.store(false, Ordering::Relaxed);
+        self.stop_background_worker();
     }
 
     fn is_realtime(&self) -> bool {
-        true
+        if let Ok(status) = self.now_playing.lock() {
+            status.is_playing
+        } else {
+            false
+        }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.apply_config(config);
+    }
+}
+
+impl Drop for SpotifyEngine {
+    fn drop(&mut self) {
+        self.stop_background_worker();
     }
 }
 

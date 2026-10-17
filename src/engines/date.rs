@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::{
     BaseRenderer, CyberpunkRenderer, FlipRenderer, TrueMatrixRenderer,
 };
@@ -25,6 +25,7 @@ pub struct DateEngine {
     date_offset_y: i32,
 
     last_font: String,
+    last_rendered_date: String,
 }
 
 impl DateEngine {
@@ -45,7 +46,8 @@ impl DateEngine {
             date_offset_x: 0,
             date_offset_y: 0,
 
-            last_font: String::new(),
+            last_font: "PressStart2P.ttf".to_string(),
+            last_rendered_date: String::new(),
         }
     }
 
@@ -65,6 +67,11 @@ impl DateEngine {
         } else {
             config.get_string("date_font", "PressStart2P.ttf")
         };
+        if self.date_font != self.last_font {
+            self.base_renderer = BaseRenderer::from_font_path(&self.date_font);
+            self.last_font = self.date_font.clone();
+            self.flip.reset();
+        }
 
         let size = config.get_int("size", 0);
         self.date_size = if size > 0 {
@@ -118,7 +125,7 @@ impl DateEngine {
 
     fn render_tate_date(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         date_str: &str,
         theme_id: i32,
         effective_size: u32,
@@ -203,9 +210,37 @@ impl Engine for DateEngine {
         Ok(())
     }
 
-    fn activate(&mut self) {}
+    fn activate(&mut self) {
+        self.last_rendered_date.clear();
+    }
     fn deactivate(&mut self) {}
     fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn wants_clear(&self) -> bool {
+        match self.date_theme {
+            18 | 21 => false,
+            _ => true,
+        }
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.is_realtime() {
+            true
+        } else {
+            let now = if let Some(tz) = crate::engines::clock::parse_tz(&self.timezone) {
+                chrono::Utc::now().with_timezone(&tz).naive_local()
+            } else {
+                chrono::Local::now().naive_local()
+            };
+            let mut format_str = self.date_format.clone();
+            format_str = format_str.replace("YYYY", "%Y");
+            format_str = format_str.replace("YY", "%y");
+            format_str = format_str.replace("MM", "%m");
+            format_str = format_str.replace("DD", "%d");
+            let cur = crate::engines::clock::safe_format_time(now.format(&format_str), "--/--");
+            cur != self.last_rendered_date
+        }
+    }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.apply_config(config);
@@ -216,7 +251,7 @@ impl Engine for DateEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        let matrix = &mut *context.matrix;
+        let matrix = &mut *context.surface;
         let tz_str = if !self.timezone.is_empty() && self.timezone != "system" {
             self.timezone.clone()
         } else {
@@ -234,7 +269,7 @@ impl Engine for DateEngine {
         format_str = format_str.replace("YY", "%y");
         format_str = format_str.replace("MM", "%m");
         format_str = format_str.replace("DD", "%d");
-        let date_str = now.format(&format_str).to_string();
+        let date_str = crate::engines::clock::safe_format_time(now.format(&format_str), "--/--");
 
         // Reload font if changed
         if self.date_font != self.last_font {
@@ -333,6 +368,7 @@ impl Engine for DateEngine {
                 );
             }
         }
+        self.last_rendered_date = date_str;
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {

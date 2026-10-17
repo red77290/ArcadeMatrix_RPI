@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::pacsprites::*;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
@@ -62,7 +62,7 @@ impl PacmanClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         time_str: &str,
         hours: u32,
         minutes: u32,
@@ -646,7 +646,7 @@ impl PacmanClock {
     }
 
     fn draw_clipped_text(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         text: &str,
         font: &ArcadeFont<'_>,
         size: f32,
@@ -780,7 +780,7 @@ impl PacmanClock {
     /// Blit one row-mask sprite. `mirror` flips it horizontally, which is how Pac-Man faces left.
     #[allow(clippy::too_many_arguments)]
     fn blit(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         rows: &[u16],
         n_cols: i32,
         left: i32,
@@ -809,7 +809,7 @@ impl PacmanClock {
     /// wedge cut out of it. `mouth_deg` is the caller's animation, mapped onto the three frames.
     fn draw_pacman(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         r: i32,
@@ -886,7 +886,7 @@ impl PacmanClock {
     #[allow(clippy::too_many_arguments)]
     fn draw_ghost(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         r: i32,

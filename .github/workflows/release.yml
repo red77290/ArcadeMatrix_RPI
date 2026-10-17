@@ -29,6 +29,10 @@ jobs:
           echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
       - name: Run Cargo Tests
         run: cargo test
+      - name: Validate Documentation & Release Artifacts
+        run: |
+          python3 scripts/validate_docs.py
+          python3 scripts/validate_rpi_release.py
 
   publish-ota-binaries:
     name: Build OTA Binary (${{ matrix.target }})
@@ -104,11 +108,12 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Update Cargo.toml version from tag
+      - name: Update Cargo.toml and VERSION from tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION=${GITHUB_REF_NAME#v}
           sed -i "s/^version = .*/version = \"$VERSION\"/" Cargo.toml
+          echo "$VERSION" > VERSION
 
       - name: Free Disk Space
         uses: jlumbroso/free-disk-space@main

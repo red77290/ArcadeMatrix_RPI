@@ -23,7 +23,7 @@ use crate::core::engine_contract::{
 use chrono::{Datelike, Local, Timelike, Utc};
 use linkme::distributed_slice;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -53,7 +53,8 @@ pub struct DashboardEngine {
     offset_y: i32,
 
     data: Arc<Mutex<DashboardData>>,
-    running: Arc<AtomicBool>,
+    shared_config: Arc<RwLock<(String, String)>>,
+    worker_stop: Option<Arc<AtomicBool>>,
 }
 
 impl Default for DashboardEngine {
@@ -64,6 +65,8 @@ impl Default for DashboardEngine {
 
 impl DashboardEngine {
     pub fn new() -> Self {
+        let weather_city = "Paris, FR".to_string();
+        let tracked_markets = "BTC,ETH,SOL,NVDA".to_string();
         Self {
             theme: 0,
             clock_mode: ClockMode::WatchDial, // Default Analog watch face matching ESP32
@@ -79,8 +82,9 @@ impl DashboardEngine {
             show_date: true,
             show_seconds: true,
             smooth_seconds: true,
-            weather_city: "Paris, FR".to_string(),
-            tracked_markets: "BTC,ETH,SOL,NVDA".to_string(),
+            shared_config: Arc::new(RwLock::new((tracked_markets.clone(), weather_city.clone()))),
+            weather_city,
+            tracked_markets,
             world_clocks_str: "NYC,TYO,LON".to_string(),
             offset_x: 0,
             offset_y: 0,
@@ -128,7 +132,7 @@ impl DashboardEngine {
                     },
                 ],
             })),
-            running: Arc::new(AtomicBool::new(false)),
+            worker_stop: None,
         }
     }
 
@@ -158,6 +162,10 @@ impl DashboardEngine {
         self.offset_x = config.get_int("offset_x", 0);
         self.offset_y = config.get_int("offset_y", 0);
 
+        if let Ok(mut cfg) = self.shared_config.write() {
+            *cfg = (self.tracked_markets.clone(), self.weather_city.clone());
+        }
+
         let parsed = parse_world_clocks(&self.world_clocks_str);
         if let Ok(mut lock) = self.data.lock() {
             if !parsed.is_empty() {
@@ -166,11 +174,20 @@ impl DashboardEngine {
         }
     }
 
-    fn spawn_background_fetcher(&self) {
-        let running = self.running.clone();
-        let data = self.data.clone();
-        let markets = self.tracked_markets.clone();
-        let city = self.weather_city.clone();
+    fn stop_background_fetcher(&mut self) {
+        if let Some(stop_token) = self.worker_stop.take() {
+            stop_token.store(true, Ordering::SeqCst);
+        }
+    }
+
+    fn spawn_background_fetcher(&mut self) {
+        self.stop_background_fetcher();
+
+        let stop_token = Arc::new(AtomicBool::new(false));
+        self.worker_stop = Some(Arc::clone(&stop_token));
+
+        let data = Arc::clone(&self.data);
+        let shared_config = Arc::clone(&self.shared_config);
 
         thread::spawn(move || {
             use crate::api::crypto_provider::CryptoProvider;
@@ -180,8 +197,10 @@ impl DashboardEngine {
             let yahoo = crate::api::yahoo_finance::YahooFinanceProvider;
             let mut last_fetch = Instant::now() - Duration::from_secs(3600);
             let mut last_sys_metrics = Instant::now() - Duration::from_secs(10);
+            let mut last_markets = String::new();
+            let mut last_city = String::new();
 
-            while running.load(Ordering::Relaxed) {
+            while !stop_token.load(Ordering::SeqCst) {
                 // Live system metrics (CPU load, RAM usage, WiFi signal) refreshed every 2 seconds
                 if last_sys_metrics.elapsed() >= Duration::from_secs(2) {
                     last_sys_metrics = Instant::now();
@@ -194,9 +213,17 @@ impl DashboardEngine {
                     }
                 }
 
-                // Web API market and weather quotes refreshed every 30 seconds
-                if last_fetch.elapsed() >= Duration::from_secs(30) {
+                let (markets, city) = shared_config
+                    .read()
+                    .map(|g| g.clone())
+                    .unwrap_or_else(|_| ("BTC,ETH,SOL,NVDA".to_string(), "Paris, FR".to_string()));
+                let config_changed = markets != last_markets || city != last_city;
+
+                // Web API market and weather quotes refreshed every 30 seconds or on config change
+                if config_changed || last_fetch.elapsed() >= Duration::from_secs(30) {
                     last_fetch = Instant::now();
+                    last_markets = markets.clone();
+                    last_city = city.clone();
 
                     let syms: Vec<String> = markets
                         .split(',')
@@ -206,9 +233,11 @@ impl DashboardEngine {
 
                     let mut updated_markets = Vec::new();
                     for sym in &syms {
-                        if !running.load(Ordering::Relaxed) {
+                        if stop_token.load(Ordering::SeqCst) {
                             break;
                         }
+                        market_widget::prefetch_market_icon_8x8(sym);
+
                         // 1. Try Binance (Cryptos)
                         let quote = binance
                             .fetch_quote(sym)
@@ -225,6 +254,9 @@ impl DashboardEngine {
                         }
                     }
 
+                    if stop_token.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let weather_info = fetch_live_weather(&city);
 
                     if let Ok(mut lock) = data.lock() {
@@ -259,12 +291,11 @@ impl Engine for DashboardEngine {
     }
 
     fn activate(&mut self) {
-        self.running.store(true, Ordering::Relaxed);
         self.spawn_background_fetcher();
     }
 
     fn deactivate(&mut self) {
-        self.running.store(false, Ordering::Relaxed);
+        self.stop_background_fetcher();
     }
 
     fn is_realtime(&self) -> bool {
@@ -274,14 +305,12 @@ impl Engine for DashboardEngine {
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        let matrix = &mut *ctx.matrix;
+        let matrix = &mut *ctx.surface;
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
         if w < 16 || h < 16 {
             return;
         }
-
-        matrix.clear();
 
         let (sys_tz, sys_24h, sys_unit, sys_lang) = {
             let sys = ctx.config.settings.read();

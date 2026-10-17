@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use byteorder::{LittleEndian, ReadBytesExt};
 use image::{Rgb, RgbImage};
@@ -65,11 +65,12 @@ impl FighterSprite {
         let _trans = reader.read_u16::<LittleEndian>().ok()?; // Transparent color (unused in this loop)
 
         // 1. Sanity check against corrupted file headers
-        if width == 0 || height == 0 || width > 1024 || height > 1024 {
+        if width == 0 || height == 0 || frame_count == 0 || width > 1024 || height > 1024 {
             tracing::warn!(
-                "FGT invalid frame dimensions: {}x{} in {}",
+                "FGT invalid frame dimensions: {}x{} (frames: {}) in {}",
                 width,
                 height,
+                frame_count,
                 path.as_ref().display()
             );
             return None;
@@ -137,6 +138,10 @@ impl FighterSprite {
                     skipped += r as u64;
                 }
             }
+        }
+
+        if frames.is_empty() || delays.is_empty() {
+            return None;
         }
 
         Some(Self {
@@ -706,7 +711,7 @@ impl FighterEngine {
         });
     }
 
-    pub fn composite(&mut self, matrix: &mut dyn MatrixBackend) {
+    pub fn composite(&mut self, matrix: &mut dyn IDrawingSurface) {
         let now = now_ms();
         let mat_w = matrix.width();
         let mat_h = matrix.height();
@@ -1108,7 +1113,7 @@ impl FighterEngine {
         }
     }
 
-    fn draw_player(matrix: &mut dyn MatrixBackend, p: &Player) {
+    fn draw_player(matrix: &mut dyn IDrawingSurface, p: &Player) {
         if let Some(sprite) = p.character.get_sprite(&p.state) {
             let frame = &sprite.frames[p.frame_idx.min(sprite.frames.len().saturating_sub(1))];
             let start_x = p.x as i32;

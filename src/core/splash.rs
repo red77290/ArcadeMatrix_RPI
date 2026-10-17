@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -533,18 +533,18 @@ impl SplashScreen {
 
     /// Renders the complete splash sequence until network is resolved or timeout reached
     pub fn run(
-        matrix: &mut dyn MatrixBackend,
+        surface: &mut dyn IDrawingSurface,
         running: &Arc<AtomicBool>,
         min_duration: Duration,
         max_timeout: Duration,
     ) -> String {
-        let mut splash = Self::new(matrix.width(), matrix.height());
+        let mut splash = Self::new(surface.width(), surface.height());
         let frame_duration = Duration::from_millis(25); // ~40 FPS arcade rendering
 
         tracing::info!(
             "Starting ArcadeMatrix Splash Screen (matrix {}x{}, vertical={})",
-            matrix.width(),
-            matrix.height(),
+            surface.width(),
+            surface.height(),
             splash.is_vertical
         );
 
@@ -552,8 +552,8 @@ impl SplashScreen {
             let frame_start = Instant::now();
 
             splash.update(0.025);
-            splash.render(matrix);
-            matrix.update();
+            splash.render(surface);
+            surface.present();
 
             let elapsed = splash.start_time.elapsed();
 
@@ -969,7 +969,7 @@ impl SplashScreen {
     }
 
     /// Draws the complete frame onto the matrix backend with rich visual effects
-    pub fn render(&self, matrix: &mut dyn MatrixBackend) {
+    pub fn render(&self, matrix: &mut dyn IDrawingSurface) {
         matrix.clear();
 
         let elapsed = self.start_time.elapsed().as_secs_f32();
@@ -1253,7 +1253,7 @@ impl SplashScreen {
     /// Draws a circle shockwave ring
     fn draw_circle(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        surface: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         r: i32,
@@ -1281,7 +1281,7 @@ impl SplashScreen {
             ];
             for &(px, py) in &pts {
                 if px >= 0 && px < self.width as i32 && py >= 0 && py < self.height as i32 {
-                    matrix.set_pixel(px, py, cr, cg, cb);
+                    surface.set_pixel(px, py, cr, cg, cb);
                 }
             }
             y += 1;
@@ -1297,7 +1297,7 @@ impl SplashScreen {
     #[inline(always)]
     fn draw_sprite(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        surface: &mut dyn IDrawingSurface,
         sprite: &[u32],
         w: u32,
         h: u32,
@@ -1326,7 +1326,7 @@ impl SplashScreen {
                     let r = ((color >> 16) & 0xFF) as u8;
                     let g = ((color >> 8) & 0xFF) as u8;
                     let b = (color & 0xFF) as u8;
-                    matrix.set_pixel(px, py, r, g, b);
+                    surface.set_pixel(px, py, r, g, b);
                 }
             }
         }
@@ -1335,7 +1335,7 @@ impl SplashScreen {
     /// Draws Pacman with directional mouth opening (0: Right, 1: Down, 2: Left, 3: Up)
     fn draw_pacman_directional(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        surface: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         r: i32,
@@ -1358,7 +1358,7 @@ impl SplashScreen {
                     _ => dx > 0 && dy.abs() * 45 < dx * mouth_deg,
                 };
                 if !in_mouth {
-                    matrix.set_pixel(cx + dx, cy + dy, 255, 255, 0);
+                    surface.set_pixel(cx + dx, cy + dy, 255, 255, 0);
                 }
             }
         }
@@ -1367,7 +1367,7 @@ impl SplashScreen {
     /// Draws Ghost with animated tentacles and eye tracking
     fn draw_ghost(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        surface: &mut dyn IDrawingSurface,
         cx: i32,
         cy: i32,
         r: i32,
@@ -1380,13 +1380,13 @@ impl SplashScreen {
         for dy in -r..=0i32 {
             for dx in -r..=r {
                 if dx * dx + dy * dy <= r * r {
-                    matrix.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
+                    surface.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
                 }
             }
         }
         for dy in 0..=r {
             for dx in -r..=r {
-                matrix.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
+                surface.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
             }
         }
         let wave = (tick / 3) % 2 == 0;
@@ -1394,20 +1394,20 @@ impl SplashScreen {
             let tx = cx - r + i * (r * 2 / 3) + r / 3;
             let bottom_y = cy + r;
             if (i % 2 == 0) == wave {
-                matrix.set_pixel(tx, bottom_y + 1, 0, 0, 0);
+                surface.set_pixel(tx, bottom_y + 1, 0, 0, 0);
             }
         }
-        matrix.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
-        matrix.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
-        matrix.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
-        matrix.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
+        surface.set_pixel(cx - r / 2, cy - 1, 255, 255, 255);
+        surface.set_pixel(cx + r / 2, cy - 1, 255, 255, 255);
+        surface.set_pixel(cx - r / 2 + 1, cy - 1, 0, 0, 200);
+        surface.set_pixel(cx + r / 2 + 1, cy - 1, 0, 0, 200);
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::matrix::MockMatrix;
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_splash_screen_initialization_64x64() {
@@ -1475,7 +1475,7 @@ mod tests {
     #[test]
     fn test_splash_screen_render() {
         let splash = SplashScreen::new(64, 64);
-        let mut mock = MockMatrix::new(64, 64);
+        let mut mock = MockSurface::new(64, 64);
         splash.render(&mut mock);
         let non_black = mock
             .canvas

@@ -18,14 +18,15 @@ Este documento es la referencia **profunda y exhaustiva** de la arquitectura Arc
 6. [Modelo de configuración: `config.json` → instancias](#6-modelo-de-configuración-configjson--instancias)
 7. [Auto-reparación: el ConfigSanitizer](#7-auto-reparación-el-configsanitizer)
 8. [Propagación de config y hot reload](#8-propagación-de-config-y-hot-reload)
-9. [UI dinámica guiada por esquemas y listas personalizadas](#9-ui-dinámica-guiada-por-esquemas-y-listas-personalizadas)
+9. [UI dinámica por esquema y listas personalizadas](#9-ui-dinámica-por-esquema-y-listas-personalizadas)
 10. [Arquitectura de Internacionalización (i18n) y Fuente Única de Verdad](#10-arquitectura-de-internacionalización-i18n-y-fuente-única-de-verdad)
-11. [Display Arbiter: resolución de prioridades multifuente](#11-display-arbiter-resolución-de-prioridades-multifuente)
-12. [El compositor de overlay Fighter](#12-el-compositor-de-overlay-fighter)
-13. [Aislamiento runtime y modelo de hilos](#13-aislamiento-runtime-y-modelo-de-hilos)
-14. [Regulación de cadencia (Frame pacing)](#14-regulación-de-cadencia-frame-pacing)
-15. [Superficie de API HTTP](#15-superficie-de-api-http)
-16. [Metadatos de build y telemetría](#16-metadatos-de-build-y-telemetría)
+11. [Pipeline Canónico de Pantalla: Arbiter y DisplayRuntime](#11-pipeline-canónico-de-pantalla-arbiter-y-displayruntime)
+12. [La Arquitectura de Overlay Transversal y OverlayManager](#12-la-arquitectura-de-overlay-transversal-y-overlaymanager)
+13. [Pipeline de Renderizado por Hardware y Abstracción IDrawingSurface](#13-pipeline-de-renderizado-por-hardware-y-abstracción-idrawingsurface)
+14. [Aislamiento del runtime y modelo de hilos](#14-aislamiento-del-runtime-y-modelo-de-hilos)
+15. [Cadencia de renderizado](#15-cadencia-de-renderizado)
+16. [Superficie de la API HTTP](#16-superficie-de-la-api-http)
+17. [Metadatos de compilación](#17-metadatos-de-compilación)
 
 ---
 
@@ -52,7 +53,7 @@ flowchart TD
     end
 
     CFG --> REND["matrix-render thread (8MB stack)"]
-    CFG --> API["api-server thread (actix, port 80)"]
+    CFG --> API["api-server thread (actix, port 8080)"]
 
     subgraph RenderThread["matrix-render thread"]
         REND --> ARB["DisplayArbiter.evaluate()"]
@@ -60,7 +61,7 @@ flowchart TD
         ROT --> RT["EngineRuntime (Lazy-Once cache)"]
         RT --> REG["EngineRegistry (auto-discovery)"]
         REG --> ENG["Box<dyn Engine>"]
-        ENG --> MX["MatrixBackend"]
+        ENG --> MX["IDrawingSurface"]
         RT --> OV["FighterEngine overlay pass"]
         OV --> MX
     end
@@ -123,6 +124,8 @@ classDiagram
         +bool supports_256x64
         +bool realtime
         +bool interruptible
+        +bool allows_overlay
+        +bool allow_rotation
     }
 
     class Requirements {
@@ -153,7 +156,7 @@ classDiagram
     }
 
     class EngineContext {
-        +MatrixBackend matrix
+        +IDrawingSurface surface
         +Config config
     }
 
@@ -183,7 +186,7 @@ classDiagram
 | `initialize` | una vez, al primer mostrado | Asignación pesada: cargar bitmaps/fuentes, reservar búferes. |
 | `activate` | cada vez que se vuelve visible | Reinicio barato del estado transitorio (sin asignación). |
 | `update` | bucle caliente | Lógica de negocio. **Sin asignación innecesaria.** |
-| `render` | bucle caliente | Dibujar en `context.matrix`. **Sin asignación innecesaria.** |
+| `render` | bucle caliente | Dibujar en `context.surface`. **Sin asignación innecesaria.** |
 | `deactivate` | al salir de pantalla | Detener tareas/escuchas de fondo. |
 | `on_config_changed` | en edición en vivo | Releer valores **in situ**, sin recreación. |
 | `is_finished` | cada frame | Señalar al runtime que avance antes (p. ej. cripto terminó su lista de tokens). |
@@ -234,12 +237,13 @@ flowchart LR
 
 ## 5. El ciclo de vida «Lazy-Once»
 
-El `EngineRuntime` posee dos mapas: las instancias vivas en caché y un snapshot de la config con la que cada una se configuró por última vez.
+El `EngineRuntime` posee un vector indexado de instancias registradas (mapeando handles `instance_id` de 16 bits compactos en $O(1)$) junto con el snapshot de la última configuración aplicada a cada instancia:
 
 ```rust
 pub struct EngineRuntime {
-    instances: HashMap<String, Box<dyn Engine>>,     // instance_id -> motor vivo
-    configs:   HashMap<String, HashMap<String,String>>, // instance_id -> última config aplicada
+    id_to_registered: Vec<Option<RegisteredInstance>>,
+    instance_to_id: HashMap<String, u16>,
+    next_instance_id: u16,
 }
 ```
 
@@ -311,7 +315,7 @@ classDiagram
     class RotationEntry {
         +str instance_id
         +u32 duration_sec
-        +bool fighter_overlay
+        +OverlayConfig overlays
     }
     class SystemConfig {
         +str timezone
@@ -352,7 +356,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,   // edición de instancia/rotación -> relectura en el siguiente frame
     pub matrix_power: AtomicBool,     // encendido/apagado en vivo
     pub matrix_brightness: AtomicU32, // brillo en vivo (0..100)
-    pub message_payload: Mutex<Option<Value>>,
+    pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub settings: RwLock<ConfigSettings>,
 }
 ```
@@ -520,7 +524,7 @@ sequenceDiagram
 ```
 
 ### Ventajas de la Arquitectura i18n Centralizada:
-1. **Cero Redundancia en Esquemas:** Ningún motor individual (`WeatherEngine`, `WordClock`, `DecibelEngine`, etc.) expone un campo `lang` en su esquema.
+1. **Cero Redundancia en Esquemas:** Ningún motor individual (`WeatherEngine`, `WordClock`, etc.) expone un campo `lang` en su esquema.
 2. **Sincronización Universal:** Cambiar el idioma en la cabecera de la WebUI reconfigura instantáneamente todo el sistema (WebUI + visualización en la matriz).
 3. **Extensibilidad Directa:** Añadir un nuevo idioma (ej: Alemán `de`) requiere únicamente una entrada en `SUPPORTED_LANGUAGES` (Front) y las tablas del módulo `crate::core::i18n` (Back-end Rust y C++).
 
@@ -538,7 +542,7 @@ flowchart TD
     ERT -->|Instancia motor| ENG["Engine.update() / Engine.render()"]
     ENG --> FB["Framebuffer Base"]
     FB --> OM["OverlayManager (Fighter)"]
-    OM --> MX["MatrixBackend (hzeller)"]
+    OM --> MX["IDrawingSurface"]
 ```
 
 ### 11.1 DisplayArbiter (Evaluador de Prioridades Sin Estado)
@@ -555,7 +559,7 @@ flowchart TD
 
 ---
 
-## 11. La Arquitectura de Overlay Transversal y OverlayManager
+## 12. La Arquitectura de Overlay Transversal y OverlayManager
 
 El Fighter **no** es un `Engine` en el `EngineRegistry` y **no** es arbitrado como fuente de visualización principal. Es un *overlay transversal aditivo*: sprites decorativos de luchadores superpuestos **encima** del framebuffer de la pantalla activa.
 
@@ -568,7 +572,7 @@ sequenceDiagram
     participant RLoop as Bucle de render
     participant Eng as Motor activo
     participant OM as OverlayManager
-    participant MX as MatrixBackend
+    participant MX as IDrawingSurface
 
     RLoop->>Eng: update(ctx) + render(ctx)
     Note over RLoop: Comprueba eng.allows_overlay()
@@ -579,7 +583,7 @@ sequenceDiagram
     end
     RLoop->>OM: composite(matrix)
     OM-->>RLoop: is_active() -> mantiene cadencia alta
-    RLoop->>MX: update()
+    RLoop->>MX: present()
 ```
 
 ### Reglas Clave e Invariantes:
@@ -591,7 +595,55 @@ sequenceDiagram
 
 ---
 
-## 12. Aislamiento del runtime y modelo de hilos
+## 13. Pipeline de Renderizado por Hardware y Abstracción IDrawingSurface
+
+ArcadeMatrix RPi implementa un SPI de renderizado explícito e independiente del hardware (`IDrawingSurface`), garantizando una paridad estructural 1:1 con la arquitectura ESP32 y resolviendo los problemas de contención Wi-Fi Broadcom SDIO.
+
+### 13.1 El SPI IDrawingSurface
+
+```rust
+pub trait IDrawingSurface: Send + Sync {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn physical_width(&self) -> u32;
+    fn physical_height(&self) -> u32;
+    fn set_rotation(&mut self, rotation: u8);
+    fn rotation(&self) -> u8;
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn clear(&mut self);
+    fn present(&mut self);
+    fn set_brightness(&mut self, brightness: u8);
+    fn mark_dirty(&mut self);
+    fn is_dirty(&self) -> bool;
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
+    fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+}
+```
+
+### 13.2 Los Pipelines de Renderizado y Protección Wi-Fi
+
+La pestaña Hardware de la Web UI (`#sys-tab-hardware`) expone un selector directo para el pipeline de renderizado de la matriz (`render_pipeline`):
+
+| Opción de Pipeline | Implementación | Seguimiento Dirty | Caso de Uso Ideal |
+|---|---|---|---|
+| **`auto`** | Auto-selecciona `canvas_single` | Adaptativo | Recomendado para todos los modelos de Raspberry Pi |
+| **`canvas_single`** | `CanvasBufferedSurface` (1 canvas) | DirtyBounds por filas | **Previene caídas de Wi-Fi Broadcom SDIO**; elimina saturación del bus |
+| **`canvas_double`** | `CanvasBufferedSurface` (2 canvas) | Intercambio completo | Alta cadencia sin desgarro para juegos/vídeo en Ethernet o Wi-Fi USB |
+| **`direct_double`** | `DirectSurface` (Double-buffer) | Flip DMA incondicional | Doble búfer C FFI con latencia mínima |
+| **`direct_single`** | `DirectSurface` (Single-buffer) | Escritura inmediata de píxeles | Framebuffer de hardware directo |
+
+#### Protección Mecánica del Wi-Fi Broadcom
+Las placas Raspberry Pi comparten el bus de reloj DMA/PWM con el controlador Wi-Fi SDIO (`brcmfmac`). Las transferencias continuas de doble búfer por el bus de memoria a 60 FPS privan al chip Wi-Fi de ciclos de bus, provocando pérdida de paquetes, desconexiones SSH y fallos en MQTT.
+
+Bajo `canvas_single`, el rastreador `DirtyBounds` monitoriza qué líneas han sido modificadas mediante `set_pixel`, `blit565` o `clear()`. Cuando un reloj estático o un motor inactivo produce una frame idéntica a la anterior:
+1. `is_dirty()` devuelve `false`.
+2. `present()` se completa en $O(1)$ sin llamar a la FFI C ni escribir en la memoria física del panel LED.
+3. El bus de memoria Broadcom y la CPU quedan completamente libres para el tráfico Wi-Fi, MQTT y HTTP.
+
+---
+
+## 14. Aislamiento del runtime y modelo de hilos
 
 ```mermaid
 flowchart TD
@@ -607,12 +659,12 @@ flowchart TD
 ```
 
 1. **Hilo de renderizado dedicado (`matrix-render`)** — pila de 8 MB, propiedad exclusiva de la matriz. Si compartiera el hilo con HTTP, cada solicitud saltaría un frame (desgarro).
-2. **Hilo Web API aislado (`api-server`)** — un runtime Tokio de un solo hilo que aloja actix en el puerto 80. Solo toca el hilo de render mediante atómicos y lecturas cortas de `RwLock`.
+2. **Hilo Web API aislado (`api-server`)** — un runtime Tokio de un solo hilo que aloja actix en el puerto 8080. Solo toca el hilo de render mediante atómicos y lecturas cortas de `RwLock`.
 3. **Servicios de fondo** — el escucha MQTT y los sondeadores HTTP (cripto, clima, bolsa) corren fuera de la vía de render, para que una llamada de red lenta nunca detenga `update()`.
 
 ---
 
-## 13. Cadencia de renderizado
+## 15. Cadencia de renderizado
 
 La pausa por frame se deriva de la capacidad/estado, **nunca** de un nombre de motor codificado:
 
@@ -623,9 +675,9 @@ La pausa por frame se deriva de la capacidad/estado, **nunca** de un nombre de m
 
 ---
 
-## 14. Superficie de la API HTTP
+## 16. Superficie de la API HTTP
 
-Todos los endpoints son handlers actix en `src/api/server.rs`; los assets web estáticos se incrustan vía `rust-embed`. Referencia completa en [../openapi.yaml](../openapi.yaml).
+Todos los endpoints son handlers actix en `src/api/server.rs`; los assets web estáticos se incrustan vía `rust-embed`. Referencia completa en [openapi.yaml](openapi.yaml).
 
 | Método | Ruta | Propósito |
 | :-- | :-- | :-- |
@@ -672,6 +724,6 @@ devolviendo los totales combinados y el desglose por orientación en `orientatio
 
 ---
 
-## 15. Metadatos de compilación
+## 17. Metadatos de compilación
 
 `core/build_info.rs` centraliza los valores `env!` inyectados por `build.rs` (`VERSION`, `ARCH`, `BUILD_TIMESTAMP`, `GIT_COMMIT`). Se leen **una sola vez** aquí porque `env!` fija los valores en la compilación de cada sitio de llamada; leerlos en un módulo único mantiene coherentes `/api/version`, el banner de arranque y la validación OTA entre compilaciones incrementales.

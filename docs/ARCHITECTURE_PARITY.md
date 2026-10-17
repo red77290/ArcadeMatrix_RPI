@@ -1,3 +1,5 @@
+🇬🇧 English | 🇫🇷 [Français](ARCHITECTURE_PARITY_FR.md) | 🇪🇸 [Español](ARCHITECTURE_PARITY_ES.md)
+
 # Architecture Parity: ESP32 Core 1 vs RPi H-Core
 
 This document formalizes the normative architectural parity and real-time guarantees shared between **ArcadeMatrix (ESP32 / C++)** and **ArcadeMatrix_RPi (Raspberry Pi / Rust)**.
@@ -8,9 +10,6 @@ This document formalizes the normative architectural parity and real-time guaran
 
 Both platforms adhere to the **V1.6-FinalLocked** execution model, enforcing strict separation between the **Control Plane (Core 0 / Async Tokio)** and the **Realtime Render Plane (Core 1 / H-Core Thread)**.
 
-| Architectural Invariant | ESP32 Implementation (C++) | RPi Implementation (Rust) |
-| :--- | :--- | :--- |
-| **Hot-Path Memory Allocation** | **Strictly Zero-Allocation** (`malloc`, `new`, `std::vector`, `String` prohibited) | **Strictly Zero-Allocation** (`Vec::push`, `String`, `format!`, `serde_json`, `HashMap` lookups prohibited) |
 | Architectural Invariant | ESP32 Implementation (C++) | RPi Implementation (Rust) |
 | :--- | :--- | :--- |
 | **Hot-Path Memory Allocation** | **Strictly Zero-Allocation** (`malloc`, `new`, `std::vector`, `String` prohibited) | **Strictly Zero-Allocation** (`Vec::push`, `String`, `format!`, `serde_json`, `HashMap` lookups prohibited) |

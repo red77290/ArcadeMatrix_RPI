@@ -24,7 +24,7 @@ Ceci est le guide **complet** pour étendre ArcadeMatrix sur Raspberry Pi. Il d�
 12. [Tutoriel : ajouter un nouveau thème d'horloge](#12-tutoriel--ajouter-un-nouveau-thème-dhorloge)
 13. [Internationalisation & Centralisation i18n (Front & Back)](#13-internationalisation--centralisation-i18n-front--back)
 14. [Lire la config dans un moteur](#14-lire-la-config-dans-un-moteur)
-15. [Dessiner dans la matrice](#15-dessiner-dans-la-matrice)
+15. [Rendu via IDrawingSurface](#15-rendu-via-idrawingsurface)
 16. [Tests et exécution locale](#16-tests-et-exécution-locale)
 17. [Checklist](#17-checklist)
 
@@ -63,6 +63,8 @@ pub trait Engine: Send + Sync {
     fn deactivate(&mut self);
 
     // --- Optionnel (implémentations par défaut) ---
+    fn wants_clear(&self) -> bool { true }
+    fn has_new_frame(&self) -> bool { true }
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
     fn is_finished(&self) -> bool { false }
     fn is_realtime(&self) -> bool { false }
@@ -74,6 +76,11 @@ pub trait Engine: Send + Sync {
     fn resume(&mut self) { self.activate(); }
     fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
+
+pub struct EngineContext<'a> {
+    pub surface: &'a mut dyn IDrawingSurface,
+    pub config: &'a crate::core::config::Config,
+}
 ```
 
 | Méthode | Défaut | Quand la surcharger |
@@ -81,8 +88,10 @@ pub trait Engine: Send + Sync {
 | `initialize` | — | Toujours. Allouer les buffers, charger les assets, lire la config une fois. |
 | `activate` | — | Toujours. Réinitialisation légère de l'état transitoire. |
 | `update` | — | Toujours. Logique métier à chaque frame. |
-| `render` | — | Toujours. Dessiner dans `ctx.matrix`. |
+| `render` | — | Toujours. Dessiner dans `ctx.surface`. |
 | `deactivate` | — | Toujours. Arrêter timers/écouteurs. |
+| `wants_clear` | `true` | Surcharger à `false` si le moteur repeint tout le canvas ou gère son propre fond pour éviter un effacement noir redondant. |
+| `has_new_frame` | `true` | Détection d'inactivité dirty : renvoyer `false` si l'affichage n'a pas changé pour sauter la présentation et protéger le bus Wi-Fi SDIO. |
 | `on_config_changed` | no-op | Si ton moteur a des réglages éditables (presque toujours). Relire **sur place**. |
 | `is_finished` | `false` | Si le moteur a une fin intrinsèque (ex. liste de tokens finie) et doit faire avancer la rotation plus tôt. |
 | `is_realtime` | `false` | Si le moteur anime seulement dans un certain état vivant et a alors besoin de ~25 FPS. |
@@ -128,6 +137,8 @@ Capabilities {
     supports_256x64: bool,
     realtime: bool,         // true -> sondé à ~25 FPS ; false -> 1 Hz
     interruptible: bool,    // peut être préempté par une source plus prioritaire
+    allows_overlay: bool,   // autorise les overlays transverses (ex. Fighter)
+    allow_rotation: bool,   // éligible pour la boucle de rotation normale
 }
 
 Requirements {
@@ -149,7 +160,7 @@ Le schéma est la **source unique de vérité** pour l'UI et le sanitizer. Chaqu
 ```rust
 pub struct ConfigField {
     pub id: &'static str,                 // clé de config (stockée dans config.json)
-    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options
+    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options | FileAsset
     pub label: &'static str,              // libellé UI
     pub description: &'static str,        // infobulle UI
     pub default_value: &'static str,      // injecté si absent (auto-réparation)
@@ -174,6 +185,7 @@ Variantes de `ConfigType` :
 | `Float` | champ numérique | parse + clamp/fallback dans `min_val..max_val` |
 | `String` | champ texte | accepté tel quel |
 | `Options` | liste déroulante (ou grille de cases si `multiple`) | la valeur doit être dans `options` (sauf dynamique) |
+| `FileAsset` | sélecteur de fichier/asset | accepté tel quel (validé dans le dossier d'assets) |
 
 > **Astuce :** toutes les valeurs sont stockées en chaînes dans `config.json`. Parse-les avec les helpers `EngineConfig` (`get_int`, `get_bool`, `get_string`).
 
@@ -349,8 +361,8 @@ impl Engine for MyEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        ctx.matrix.clear();
-        // dessiner self.my_setting avec les buffers existants
+        ctx.surface.clear();
+        ctx.surface.set_pixel(10, 10, 255, 0, 0);
     }
 
     fn deactivate(&mut self) {}
@@ -392,6 +404,8 @@ fn register_my_engine() -> EngineDescriptor {
                 ..Default::default() // syntaxe struct-update pour le reste
             }],
         },
+        available: true,
+        unavailable_reason: None,
         factory: || Box::new(MyEngine::new()),
     }
 }
@@ -485,14 +499,14 @@ impl SpaceInvadersClock {
 
     pub fn draw(
         &mut self,
-        matrix: &mut dyn crate::matrix::MatrixBackend,
+        surface: &mut dyn crate::core::matrix::IDrawingSurface,
         now: chrono::DateTime<chrono::Local>,
         font: &str,
         size: u32,
         color: (u8, u8, u8),
     ) {
         let time_str = now.format("%H:%M:%S").to_string();
-        self.base.draw_text_centered(matrix, &time_str, font, size, color);
+        self.base.draw_text_centered(surface, &time_str, font, size, color);
     }
 }
 ```
@@ -521,7 +535,7 @@ space_invaders: SpaceInvadersClock::new(),
 
 3. Router le rendu dans `render()` :
 ```rust
-25 => self.space_invaders.draw(ctx.matrix, now, &self.time_font, self.time_size, c1),
+25 => self.space_invaders.draw(ctx.surface, now, &self.time_font, self.time_size, c1),
 ```
 
 ### Étape 4 — Déclarer l'option dans `ClockEngine::descriptor()`
@@ -551,9 +565,9 @@ use crate::core::i18n::{self, Lang};
 
 // 1. Lire la langue système depuis le contexte
 let sys_lang = ctx.config.settings.read().system.lang.clone();
-let lang = Lang::from_str_code(&sys_lang);
+let lang = Lang::from_code(&sys_lang);
 
-// 2. Libellés des jours météo (ex: "AUJ.", "DEMN", "LUN"..)
+// 2. Libellés des jours météo (ex: "AUJ.", "DEM.", "LUN"..)
 let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
 
 // 3. Traduction des conditions météo
@@ -561,9 +575,6 @@ let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
 
 // 4. Lignes complètes de l'horloge en mots (WordClock)
 let lines = i18n::word_clock_lines(lang, hours, minutes);
-
-// 5. Niveaux sonores / décibels
-let noise = i18n::noise_level(lang, level_index);
 ```
 
 ### B. Tutoriel : Ajouter une nouvelle langue (ex : Allemand `de`) en 3 étapes
@@ -580,7 +591,7 @@ let noise = i18n::noise_level(lang, level_index);
    ```
 2. **Back-end Raspberry Pi (`src/core/i18n.rs`) :**
    - Ajoutez la variante `De` à l'enum `Lang`.
-   - Renseignez les dictionnaires et tables de correspondance dans `i18n.rs`.
+   - Renseignez les dictionnaires et tables de correspondance météo et horloge en mots dans `i18n.rs`.
 3. **Back-end ESP32 (`src/core/I18n.h` & `src/core/I18n.cpp`) :**
    - Ajoutez `DE` à l'enum `Lang` et implémentez les méthodes statiques dans `I18n.cpp`.
 
@@ -600,19 +611,65 @@ Ceux-ci mappent sur le `HashMap<String,String>` de l'instance. Les clés corresp
 
 ---
 
-## 15. Dessiner dans la matrice
+## 15. Rendu via IDrawingSurface
 
-`ctx.matrix` est un `&mut dyn MatrixBackend`. Motif typique :
+`ctx.surface` est un `&mut dyn IDrawingSurface` (`crate::core::matrix::IDrawingSurface`). Il fournit des primitives de dessin canoniques de haute performance avec suivi automatique des zones modifiées (dirty bounds) :
 
 ```rust
-fn render(&mut self, ctx: &mut EngineContext) {
-    ctx.matrix.clear();
-    // dessiner pixels / texte / bitmaps dans ctx.matrix
-    // NE PAS appeler ctx.matrix.update() — la boucle de rendu envoie la frame
+pub struct CanvasView<'a> {
+    pub data: &'a mut [u8],
+    pub width: u32,
+    pub height: u32,
+    pub stride_bytes: usize,
+}
+
+pub trait IDrawingSurface: Send + Sync {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn physical_width(&self) -> u32;
+    fn physical_height(&self) -> u32;
+    fn set_rotation(&mut self, rotation: u8);
+    fn rotation(&self) -> u8;
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn clear(&mut self);
+    fn present(&mut self);
+    fn set_brightness(&mut self, brightness: u8);
+    fn mark_dirty(&mut self);
+    fn is_dirty(&self) -> bool;
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
+    fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn release_canvas(&mut self);
+    fn has_canvas(&self) -> bool;
 }
 ```
 
-La **boucle de rendu** possède `update()` (l'envoi au panneau) et, après le retour de ton `render()`, peut exécuter la passe additive de **l'overlay Fighter** par-dessus ta frame (voir [ARCHITECTURE_FR.md §11](ARCHITECTURE_FR.md#11-le-compositeur-doverlay-fighter)).
+Exemple d'utilisation dans la méthode `render()` d'un moteur :
+
+```rust
+fn render(&mut self, ctx: &mut EngineContext) {
+    // 1. Dessin de pixels
+    ctx.surface.set_pixel(x, y, 255, 200, 0);
+
+    // 2. Blit rapide de sprites RGB565
+    ctx.surface.blit565(&sprite_raw_u16_slice, x, y, w, h, None);
+
+    // 3. Dessin d'images dynamiques
+    ctx.surface.draw_image(&image_buffer, x, y);
+
+    // 4. Accès direct au canvas linéaire RGB888
+    if let Some(canvas) = ctx.surface.acquire_canvas() {
+        let raw_pixels: &mut [u8] = canvas.data;
+        // manipulation directe du buffer linéaire RGB888
+    }
+}
+```
+
+### Règles d'or du Rendu
+1. **Ne jamais appeler `present()` dans `render()`** : La présentation matérielle aux panneaux HUB75 est la propriété exclusive de la boucle principale dans `app.rs`.
+2. **Profiter du dirty tracking** : Avec `RenderPipeline::CanvasSingle` (le mode par défaut recommandé, voir [ARCHITECTURE_FR.md §13](ARCHITECTURE_FR.md#13-pipeline-de-rendu-matériel--abstraction-idrawingsurface)), `IDrawingSurface` suit les tranches de lignes modifiées (`DirtyBounds`). Si rien ne change visuellement (`has_new_frame() == false`), `present()` se termine en $O(1)$ avec **zéro trafic sur le bus mémoire**, garantissant la protection du contrôleur Wi-Fi Broadcom SDIO (`brcmfmac`).
+3. **Contrôler l'effacement plein écran** : Si ton moteur redessine l'intégralité de l'écran à chaque tick (ex. flux GIF ou vidéo streaming), surcharge `wants_clear(&self) -> bool { false }` pour éviter une passe d'effacement noir redondante avant l'appel à ton `render()`.
+4. **Passe Overlay** : Après le retour de ton `render()`, la boucle de rendu peut exécuter la passe additive de **l'overlay Fighter** par-dessus ta frame (voir [ARCHITECTURE_FR.md §12](ARCHITECTURE_FR.md#12-larchitecture-doverlay-transverse--overlaymanager)). Si ton moteur n'admet pas d'overlay, retourne `allows_overlay(&self) -> bool { false }`.
 
 ---
 

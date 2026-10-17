@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::base_renderer::ArcadeFont;
 use crate::engines::renderers::BaseRenderer;
 
@@ -33,7 +33,7 @@ impl SlotMachineClock {
 
     pub fn render(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         time_str: &str,
         hours: u32,
         minutes: u32,
@@ -309,7 +309,7 @@ impl SlotMachineClock {
     }
 
     fn draw_box(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         w: i32,

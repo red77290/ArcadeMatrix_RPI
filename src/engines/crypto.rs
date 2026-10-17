@@ -3,7 +3,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::{draw_text_clipped, draw_text_scaled};
 use crate::engines::renderers::{
     draw_fast_hline, draw_fast_vline, draw_round_rect, draw_scrolling_text, draw_sparkline,
@@ -12,8 +12,9 @@ use crate::engines::renderers::{
 use linkme::distributed_slice;
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
-use tracing::warn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CryptoPage {
@@ -30,10 +31,23 @@ pub struct CachedQuote {
     image_url: Option<String>,
 }
 
+#[derive(Default)]
+struct PendingCryptoUpdates {
+    quotes: HashMap<String, CachedQuote>,
+    histories: HashMap<(String, Timeframe), (PriceHistory, Instant)>,
+    icons: HashMap<String, image::RgbaImage>,
+}
+
 pub struct CryptoEngine {
     cache: HashMap<String, CachedQuote>,
     history_cache: HashMap<(String, Timeframe), (PriceHistory, Instant)>,
-    providers: Vec<Box<dyn CryptoProvider>>,
+    icon_cache: HashMap<String, Option<image::RgbaImage>>,
+    last_quote_attempt: HashMap<String, Instant>,
+    last_history_attempt: HashMap<(String, Timeframe), Instant>,
+    last_icon_attempt: HashMap<String, Instant>,
+    providers: Arc<RwLock<Vec<Box<dyn CryptoProvider>>>>,
+    pending_updates: Arc<Mutex<PendingCryptoUpdates>>,
+    is_fetching: Arc<AtomicBool>,
     current_index: usize,
     current_page: CryptoPage,
     last_page_switch: Instant,
@@ -53,7 +67,13 @@ impl CryptoEngine {
         Self {
             cache: HashMap::new(),
             history_cache: HashMap::new(),
-            providers: Vec::new(),
+            icon_cache: HashMap::new(),
+            last_quote_attempt: HashMap::new(),
+            last_history_attempt: HashMap::new(),
+            last_icon_attempt: HashMap::new(),
+            providers: Arc::new(RwLock::new(Vec::new())),
+            pending_updates: Arc::new(Mutex::new(PendingCryptoUpdates::default())),
+            is_fetching: Arc::new(AtomicBool::new(false)),
             current_index: 0,
             current_page: CryptoPage::Info,
             last_page_switch: Instant::now(),
@@ -70,7 +90,9 @@ impl CryptoEngine {
     }
 
     pub fn add_provider(&mut self, provider: Box<dyn CryptoProvider>) {
-        self.providers.push(provider);
+        if let Ok(mut list) = self.providers.write() {
+            list.push(provider);
+        }
     }
 
     pub fn currency_symbol(&self) -> &'static str {
@@ -97,6 +119,8 @@ impl CryptoEngine {
             self.currency = new_curr;
             self.cache.clear();
             self.history_cache.clear();
+            self.last_quote_attempt.clear();
+            self.last_history_attempt.clear();
         }
 
         self.cache_ttl_min = config.get_int("cache_ttl_min", 1) as u32;
@@ -113,116 +137,23 @@ impl CryptoEngine {
         }
     }
 
-    fn fetch_history(&mut self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
-        let now = Instant::now();
-        let ttl_secs = match tf {
-            Timeframe::Hourly => 60,    // 1 min
-            Timeframe::Daily => 300,    // 5 min
-            Timeframe::Weekly => 1800,  // 30 min
-            Timeframe::Monthly => 7200, // 2 hours
-        };
-
-        if let Some((hist, ts)) = self.history_cache.get(&(symbol.to_string(), tf)) {
-            if now.duration_since(*ts).as_secs() < ttl_secs {
-                return Some(hist.clone());
+    fn drain_pending_updates(&mut self) {
+        if let Ok(mut pending) = self.pending_updates.try_lock() {
+            for (sym, quote) in pending.quotes.drain() {
+                self.cache.insert(sym, quote);
+            }
+            for (key, hist) in pending.histories.drain() {
+                self.history_cache.insert(key, hist);
+            }
+            for (key, img) in pending.icons.drain() {
+                self.icon_cache.insert(key, Some(img));
             }
         }
-
-        for provider in &self.providers {
-            if let Some(hist) = provider.fetch_history_currency(symbol, tf, &self.currency) {
-                self.history_cache
-                    .insert((symbol.to_string(), tf), (hist.clone(), now));
-                return Some(hist);
-            }
-        }
-
-        if let Some((hist, _)) = self.history_cache.get(&(symbol.to_string(), tf)) {
-            return Some(hist.clone());
-        }
-
-        None
     }
 
-    fn fetch_quote(&mut self, symbol: &str, ttl_min: u64) -> (f64, f64, bool, Option<String>) {
-        let now = Instant::now();
-        let ttl_secs = (if ttl_min > 0 { ttl_min } else { 1 }) * 60;
-
-        // 1. Check Cache First
-        if let Some(c) = self.cache.get(symbol) {
-            if c.has_data && now.duration_since(c.last_fetch).as_secs() < ttl_secs {
-                return (c.price, c.change_24h, true, c.image_url.clone());
-            }
-        }
-
-        let mut fetched = false;
-        let mut new_price = 0.0;
-        let mut new_change = 0.0;
-        let mut new_image_url = None;
-
-        for provider in &self.providers {
-            if let Some((price, change, img)) =
-                provider.fetch_quote_currency(symbol, &self.currency)
-            {
-                new_price = price;
-                new_change = change;
-                new_image_url = img;
-                fetched = true;
-                break;
-            }
-        }
-
-        if fetched && new_price > 0.0 {
-            self.cache.insert(
-                symbol.to_string(),
-                CachedQuote {
-                    price: new_price,
-                    change_24h: new_change,
-                    last_fetch: now,
-                    has_data: true,
-                    image_url: new_image_url.clone(),
-                },
-            );
-            return (new_price, new_change, true, new_image_url);
-        }
-
-        // 3. Fallback to last known quote for THIS symbol if HTTP failed
-        if let Some(c) = self.cache.get(symbol) {
-            if c.has_data {
-                warn!(
-                    "[HTTP Failed] Reusing last known cached price for {}: ${:.4}",
-                    symbol, c.price
-                );
-                return (c.price, c.change_24h, true, c.image_url.clone());
-            }
-        }
-
-        (0.0, 0.0, false, None)
-    }
-
-    fn get_and_load_icon(
-        &self,
-        symbol: &str,
-        url: Option<String>,
-        size: u32,
-    ) -> Option<image::RgbaImage> {
-        let icon_path = format!("data/crypto_icons/{}.png", symbol.to_lowercase());
-        if !Path::new(&icon_path).exists() {
-            if let Some(u) = url {
-                let proxy_url = format!("https://wsrv.nl/?url={}&w=16&h=16&output=png", u);
-                if let Ok(resp) = reqwest::blocking::get(&proxy_url) {
-                    if resp.status().is_success() {
-                        if let Ok(bytes) = resp.bytes() {
-                            let _ = std::fs::create_dir_all("data/crypto_icons");
-                            let _ = std::fs::write(&icon_path, &bytes);
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Ok(img) = image::open(&icon_path) {
+    fn decode_and_crop_icon(icon_path: &str, size: u32) -> Option<image::RgbaImage> {
+        if let Ok(img) = image::open(icon_path) {
             let rgba = img.into_rgba8();
-            // Try to crop transparent padding
             let mut min_x = rgba.width();
             let mut min_y = rgba.height();
             let mut max_x = 0;
@@ -261,10 +192,206 @@ impl CryptoEngine {
         None
     }
 
+    fn get_cached_or_disk_icon(&mut self, symbol: &str, size: u32) -> Option<image::RgbaImage> {
+        let key = format!("{}_{}", symbol.to_uppercase(), size);
+        if let Some(entry) = self.icon_cache.get(&key) {
+            return entry.clone();
+        }
+        let icon_path = format!("data/crypto_icons/{}.png", symbol.to_lowercase());
+        let decoded = if Path::new(&icon_path).exists() {
+            Self::decode_and_crop_icon(&icon_path, size)
+        } else {
+            None
+        };
+        self.icon_cache.insert(key, decoded.clone());
+        decoded
+    }
+
+    fn poll_market_state(
+        &mut self,
+        symbol: &str,
+        ttl_min: u64,
+        tf: Timeframe,
+        want_history: bool,
+        icon_size: u32,
+    ) -> (
+        f64,
+        f64,
+        bool,
+        Option<PriceHistory>,
+        Option<image::RgbaImage>,
+    ) {
+        self.drain_pending_updates();
+        let now = Instant::now();
+        let ttl_secs = (if ttl_min > 0 { ttl_min } else { 1 }) * 60;
+
+        let mut price = 0.0;
+        let mut change = 0.0;
+        let mut has_data = false;
+        let mut image_url = None;
+        let mut quote_expired = true;
+
+        if let Some(c) = self.cache.get(symbol) {
+            if c.has_data {
+                price = c.price;
+                change = c.change_24h;
+                has_data = true;
+                image_url = c.image_url.clone();
+                if now.duration_since(c.last_fetch).as_secs() < ttl_secs {
+                    quote_expired = false;
+                }
+            }
+        }
+
+        let hist_ttl_secs = match tf {
+            Timeframe::Hourly => 60,
+            Timeframe::Daily => 300,
+            Timeframe::Weekly => 1800,
+            Timeframe::Monthly => 7200,
+        };
+        let mut history_opt = None;
+        let mut hist_expired = want_history;
+        if want_history {
+            if let Some((hist, ts)) = self.history_cache.get(&(symbol.to_string(), tf)) {
+                history_opt = Some(hist.clone());
+                if now.duration_since(*ts).as_secs() < hist_ttl_secs {
+                    hist_expired = false;
+                }
+            }
+        }
+
+        let icon = self.get_cached_or_disk_icon(symbol, icon_size);
+        let icon_key = format!("{}_{}", symbol.to_uppercase(), icon_size);
+        let needs_icon = icon.is_none()
+            && image_url.is_some()
+            && self
+                .last_icon_attempt
+                .get(&icon_key)
+                .map_or(true, |t| now.duration_since(*t).as_secs() >= 60);
+
+        let has_providers = self.providers.read().map_or(false, |p| !p.is_empty());
+        let needs_quote = has_providers
+            && quote_expired
+            && self
+                .last_quote_attempt
+                .get(symbol)
+                .map_or(true, |t| now.duration_since(*t).as_secs() >= 60);
+        let needs_hist = has_providers
+            && hist_expired
+            && self
+                .last_history_attempt
+                .get(&(symbol.to_string(), tf))
+                .map_or(true, |t| now.duration_since(*t).as_secs() >= 60);
+
+        if (needs_quote || needs_hist || needs_icon)
+            && !self.is_fetching.swap(true, Ordering::SeqCst)
+        {
+            if needs_quote {
+                self.last_quote_attempt.insert(symbol.to_string(), now);
+            }
+            if needs_hist {
+                self.last_history_attempt
+                    .insert((symbol.to_string(), tf), now);
+            }
+            if needs_icon {
+                self.last_icon_attempt.insert(icon_key.clone(), now);
+            }
+
+            let sym_owned = symbol.to_string();
+            let curr_owned = self.currency.clone();
+            let providers = Arc::clone(&self.providers);
+            let pending = Arc::clone(&self.pending_updates);
+            let is_fetching = Arc::clone(&self.is_fetching);
+            let known_img_url = image_url.clone();
+
+            std::thread::spawn(move || {
+                let mut fetched_img_url = known_img_url;
+                if needs_quote {
+                    if let Ok(prov_list) = providers.read() {
+                        for provider in prov_list.iter() {
+                            if let Some((p, chg, img)) =
+                                provider.fetch_quote_currency(&sym_owned, &curr_owned)
+                            {
+                                if p > 0.0 {
+                                    if img.is_some() {
+                                        fetched_img_url = img.clone();
+                                    }
+                                    if let Ok(mut guard) = pending.lock() {
+                                        guard.quotes.insert(
+                                            sym_owned.clone(),
+                                            CachedQuote {
+                                                price: p,
+                                                change_24h: chg,
+                                                last_fetch: Instant::now(),
+                                                has_data: true,
+                                                image_url: img,
+                                            },
+                                        );
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if needs_hist {
+                    if let Ok(prov_list) = providers.read() {
+                        for provider in prov_list.iter() {
+                            if let Some(hist) =
+                                provider.fetch_history_currency(&sym_owned, tf, &curr_owned)
+                            {
+                                if let Ok(mut guard) = pending.lock() {
+                                    guard
+                                        .histories
+                                        .insert((sym_owned.clone(), tf), (hist, Instant::now()));
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                let icon_path = format!("data/crypto_icons/{}.png", sym_owned.to_lowercase());
+                if (needs_icon || !Path::new(&icon_path).exists()) && fetched_img_url.is_some() {
+                    if let Some(u) = fetched_img_url {
+                        let proxy_url = format!("https://wsrv.nl/?url={}&w=16&h=16&output=png", u);
+                        if let Ok(client) = reqwest::blocking::Client::builder()
+                            .timeout(Duration::from_secs(3))
+                            .build()
+                        {
+                            if let Ok(resp) = client.get(&proxy_url).send() {
+                                if resp.status().is_success() {
+                                    if let Ok(bytes) = resp.bytes() {
+                                        let _ = std::fs::create_dir_all("data/crypto_icons");
+                                        let _ = std::fs::write(&icon_path, &bytes);
+                                    }
+                                }
+                            }
+                        }
+                        if let Some(decoded) = Self::decode_and_crop_icon(&icon_path, icon_size) {
+                            if let Ok(mut guard) = pending.lock() {
+                                guard.icons.insert(icon_key, decoded);
+                            }
+                        }
+                    }
+                }
+
+                is_fetching.store(false, Ordering::SeqCst);
+            });
+        }
+
+        (price, change, has_data, history_opt, icon)
+    }
+
     fn format_price(&self, success: bool, price: f64) -> String {
+        self.format_price_localized(success, price, "en")
+    }
+
+    fn format_price_localized(&self, success: bool, price: f64, lang: &str) -> String {
         let cur_sym = self.currency_symbol();
         if !success || price <= 0.0 {
-            "Loading...".to_string()
+            crate::core::i18n::t(lang, "loading").to_string()
         } else if price >= 1000.0 {
             format!("{}{:.0}", cur_sym, price)
         } else if price >= 1.0 {
@@ -278,7 +405,7 @@ impl CryptoEngine {
 
     fn render_quote(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -352,11 +479,12 @@ impl CryptoEngine {
 
     fn render_chart(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         history_opt: Option<&PriceHistory>,
         elapsed_ms: u128,
+        lang: &str,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -433,12 +561,18 @@ impl CryptoEngine {
                 return;
             }
         }
-        draw_glcd_text(matrix, "Loading...", 4, spark_y + 4, (120, 120, 120));
+        draw_glcd_text(
+            matrix,
+            crate::core::i18n::t(lang, "loading"),
+            4,
+            spark_y + 4,
+            (120, 120, 120),
+        );
     }
 
     fn render_unified_vertical(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -449,6 +583,7 @@ impl CryptoEngine {
         cached_img: Option<&image::RgbaImage>,
         history_opt: Option<&PriceHistory>,
         elapsed_ms: u128,
+        lang: &str,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -528,7 +663,7 @@ impl CryptoEngine {
             }
             draw_glcd_text(
                 matrix,
-                "Loading...",
+                crate::core::i18n::t(lang, "loading"),
                 4,
                 spark_y + (spark_h as i32 / 2) - 3,
                 (120, 120, 120),
@@ -606,7 +741,7 @@ impl CryptoEngine {
 
     fn render_unified_wide(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -617,6 +752,7 @@ impl CryptoEngine {
         cached_img: Option<&image::RgbaImage>,
         history_opt: Option<&PriceHistory>,
         elapsed_ms: u128,
+        lang: &str,
     ) {
         matrix.clear();
         let m_w = matrix.width() as i32;
@@ -692,7 +828,7 @@ impl CryptoEngine {
         }
         draw_glcd_text(
             matrix,
-            "Loading chart...",
+            crate::core::i18n::t(lang, "loading_chart"),
             spark_x + 4,
             spark_y + (spark_h as i32 / 2) - 3,
             (120, 120, 120),
@@ -701,7 +837,7 @@ impl CryptoEngine {
 
     fn render_fullscreen_quote(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         symbol: &str,
         price_str: &str,
         pct_str: &str,
@@ -876,7 +1012,7 @@ impl CryptoEngine {
 } // End of impl CryptoEngine
 
 fn draw_crypto_icon(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     symbol: &str,
     icon_x: i32,
     icon_y: i32,
@@ -910,7 +1046,13 @@ fn draw_crypto_icon(
 }
 
 #[inline]
-fn draw_glcd_text(matrix: &mut dyn MatrixBackend, text: &str, x: i32, y: i32, color: (u8, u8, u8)) {
+fn draw_glcd_text(
+    matrix: &mut dyn IDrawingSurface,
+    text: &str,
+    x: i32,
+    y: i32,
+    color: (u8, u8, u8),
+) {
     let w = matrix.width() as i32;
     let h = matrix.height() as i32;
     draw_text_clipped(matrix, text, x, y, 0, w, 0, h, color);
@@ -918,7 +1060,7 @@ fn draw_glcd_text(matrix: &mut dyn MatrixBackend, text: &str, x: i32, y: i32, co
 
 #[inline]
 fn draw_glcd_text_scaled(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     text: &str,
     x: i32,
     y: i32,
@@ -945,7 +1087,9 @@ impl Engine for CryptoEngine {
     }
 
     fn activate(&mut self) {}
-    fn deactivate(&mut self) {}
+    fn deactivate(&mut self) {
+        self.is_fetching.store(false, Ordering::SeqCst);
+    }
     fn update(&mut self, _context: &mut EngineContext) {}
 
     fn is_realtime(&self) -> bool {
@@ -957,7 +1101,14 @@ impl Engine for CryptoEngine {
             return;
         }
 
-        let matrix = &mut *context.matrix;
+        let sys_lang = context.config.get_sys_string("language", "en");
+        let lang = if sys_lang.is_empty() {
+            "en"
+        } else {
+            sys_lang.as_str()
+        };
+
+        let matrix = &mut *context.surface;
         let width = matrix.width();
         let height = matrix.height();
 
@@ -990,15 +1141,15 @@ impl Engine for CryptoEngine {
         }
         let elapsed_ms = self.symbol_start_time.elapsed().as_millis();
 
-        let (price, change, success, image_url) =
-            self.fetch_quote(&symbol, self.cache_ttl_min as u64);
-        let history_opt = if self.show_chart {
-            self.fetch_history(&symbol, self.chart_timeframe)
-        } else {
-            None
-        };
+        let (price, change, success, history_opt, loaded_icon) = self.poll_market_state(
+            &symbol,
+            self.cache_ttl_min as u64,
+            self.chart_timeframe,
+            self.show_chart,
+            16,
+        );
 
-        let price_str = self.format_price(success, price);
+        let price_str = self.format_price_localized(success, price, lang);
         let pct_str = if !success || price <= 0.0 {
             "--".to_string()
         } else {
@@ -1011,8 +1162,6 @@ impl Engine for CryptoEngine {
         } else {
             (255, 60, 60)
         };
-
-        let loaded_icon = self.get_and_load_icon(&symbol, image_url, 16);
 
         if !self.show_chart {
             if height >= 64 {
@@ -1053,6 +1202,7 @@ impl Engine for CryptoEngine {
                     loaded_icon.as_ref(),
                     history_opt.as_ref(),
                     elapsed_ms,
+                    lang,
                 );
             } else {
                 self.render_unified_wide(
@@ -1067,6 +1217,7 @@ impl Engine for CryptoEngine {
                     loaded_icon.as_ref(),
                     history_opt.as_ref(),
                     elapsed_ms,
+                    lang,
                 );
             }
         } else if self.current_page == CryptoPage::Info {
@@ -1086,6 +1237,7 @@ impl Engine for CryptoEngine {
                 &price_str,
                 history_opt.as_ref(),
                 elapsed_ms,
+                lang,
             );
         }
     }
@@ -1216,7 +1368,7 @@ fn register_crypto_engine() -> EngineDescriptor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::matrix::MockMatrix;
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_crypto_price_formatting() {
@@ -1252,9 +1404,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(64, 32);
+        let mut matrix = MockSurface::new(64, 32);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 
@@ -1284,9 +1436,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(32, 64);
+        let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 
@@ -1317,9 +1469,9 @@ mod tests {
         let config = crate::core::config::Config::new("config.json");
 
         // 64x64 Square
-        let mut matrix_square = MockMatrix::new(64, 64);
+        let mut matrix_square = MockSurface::new(64, 64);
         let mut ctx_square = EngineContext {
-            matrix: &mut matrix_square,
+            surface: &mut matrix_square,
             config: &config,
         };
         engine.show_chart = true;
@@ -1328,9 +1480,9 @@ mod tests {
         engine.render(&mut ctx_square);
 
         // 128x64 Wide
-        let mut matrix_wide = MockMatrix::new(128, 64);
+        let mut matrix_wide = MockSurface::new(128, 64);
         let mut ctx_wide = EngineContext {
-            matrix: &mut matrix_wide,
+            surface: &mut matrix_wide,
             config: &config,
         };
         engine.show_chart = true;
@@ -1355,9 +1507,9 @@ mod tests {
         );
 
         let config = crate::core::config::Config::new("config.json");
-        let mut matrix = MockMatrix::new(32, 64);
+        let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
-            matrix: &mut matrix,
+            surface: &mut matrix,
             config: &config,
         };
 

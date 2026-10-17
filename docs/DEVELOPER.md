@@ -24,7 +24,7 @@ This is the **complete** guide to extending ArcadeMatrix on Raspberry Pi. It exp
 12. [Tutorial: Add a New Clock Face / Theme](#12-tutorial-add-a-new-clock-face--theme)
 13. [Internationalization & Centralized i18n (Front & Back)](#13-internationalization--centralized-i18n-front--back)
 14. [Reading Config in an Engine](#14-reading-config-in-an-engine)
-15. [Rendering into the Matrix](#15-rendering-into-the-matrix)
+15. [Rendering via IDrawingSurface](#15-rendering-via-idrawingsurface)
 16. [Testing & Local Run](#16-testing--local-run)
 17. [Checklist](#17-checklist)
 
@@ -63,6 +63,8 @@ pub trait Engine: Send + Sync {
     fn deactivate(&mut self);
 
     // --- Optional (have default impls) ---
+    fn wants_clear(&self) -> bool { true }
+    fn has_new_frame(&self) -> bool { true }
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
     fn is_finished(&self) -> bool { false }
     fn is_realtime(&self) -> bool { false }
@@ -74,6 +76,11 @@ pub trait Engine: Send + Sync {
     fn resume(&mut self) { self.activate(); }
     fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {}
 }
+
+pub struct EngineContext<'a> {
+    pub surface: &'a mut dyn IDrawingSurface,
+    pub config: &'a crate::core::config::Config,
+}
 ```
 
 | Method | Default | When to override |
@@ -81,8 +88,10 @@ pub trait Engine: Send + Sync {
 | `initialize` | — | Always. Allocate buffers, load assets, read config once. |
 | `activate` | — | Always. Cheap reset of transient state. |
 | `update` | — | Always. Business logic each frame. |
-| `render` | — | Always. Draw into `ctx.matrix`. |
+| `render` | — | Always. Draw into `ctx.surface`. |
 | `deactivate` | — | Always. Stop timers/listeners. |
+| `wants_clear` | `true` | Override to `false` if engine paints full canvas or manages its own clear to avoid redundant clear pass. |
+| `has_new_frame` | `true` | Dirty checking: return `false` if nothing changed visually this tick to skip presentation and protect Wi-Fi bus. |
 | `on_config_changed` | no-op | If your engine has editable settings (almost always). Re-read them **in place**. |
 | `is_finished` | `false` | If the engine has an intrinsic end (e.g. finished a token list) and should advance the rotation early. |
 | `is_realtime` | `false` | If the engine animates only under some live state and needs ~25 FPS then. |
@@ -128,6 +137,8 @@ Capabilities {
     supports_256x64: bool,
     realtime: bool,         // true -> polled at ~25 FPS; false -> 1 Hz
     interruptible: bool,    // may be pre-empted by a higher-priority source
+    allows_overlay: bool,   // permits transverse overlays (e.g. Fighter)
+    allow_rotation: bool,   // eligible for normal idle rotation loop
 }
 
 Requirements {
@@ -149,7 +160,7 @@ The schema is the **single source of truth** for the UI and the sanitizer. Every
 ```rust
 pub struct ConfigField {
     pub id: &'static str,                 // config key (stored in config.json)
-    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options
+    pub field_type: ConfigType,           // Boolean | Integer | Float | String | Options | FileAsset
     pub label: &'static str,              // UI label
     pub description: &'static str,        // UI tooltip
     pub default_value: &'static str,      // injected when missing (self-healing)
@@ -174,6 +185,7 @@ pub struct ConfigField {
 | `Float` | number input | parse + clamp/fallback to `min_val..max_val` |
 | `String` | text input | accepted as-is |
 | `Options` | dropdown (or checkbox grid if `multiple`) | value must be in `options` (unless dynamic) |
+| `FileAsset` | file/asset selector | accepted as-is (validated against asset directory) |
 
 > **Tip:** all values are stored as strings in `config.json`. Parse them with the `EngineConfig` helpers (`get_int`, `get_bool`, `get_string`).
 
@@ -349,8 +361,8 @@ impl Engine for MyEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        ctx.matrix.clear();
-        // draw self.my_setting using existing buffers
+        ctx.surface.clear();
+        ctx.surface.set_pixel(10, 10, 255, 0, 0);
     }
 
     fn deactivate(&mut self) {}
@@ -392,6 +404,8 @@ fn register_my_engine() -> EngineDescriptor {
                 ..Default::default() // use struct-update syntax for the rest
             }],
         },
+        available: true,
+        unavailable_reason: None,
         factory: || Box::new(MyEngine::new()),
     }
 }
@@ -485,14 +499,14 @@ impl SpaceInvadersClock {
 
     pub fn draw(
         &mut self,
-        matrix: &mut dyn crate::matrix::MatrixBackend,
+        surface: &mut dyn crate::core::matrix::IDrawingSurface,
         now: chrono::DateTime<chrono::Local>,
         font: &str,
         size: u32,
         color: (u8, u8, u8),
     ) {
         let time_str = now.format("%H:%M:%S").to_string();
-        self.base.draw_text_centered(matrix, &time_str, font, size, color);
+        self.base.draw_text_centered(surface, &time_str, font, size, color);
     }
 }
 ```
@@ -521,7 +535,7 @@ space_invaders: SpaceInvadersClock::new(),
 
 3. Route rendering in `render()`:
 ```rust
-25 => self.space_invaders.draw(ctx.matrix, now, &self.time_font, self.time_size, c1),
+25 => self.space_invaders.draw(ctx.surface, now, &self.time_font, self.time_size, c1),
 ```
 
 ### Step 4 — Declare option in `ClockEngine::descriptor()`
@@ -551,9 +565,9 @@ use crate::core::i18n::{self, Lang};
 
 // 1. Read system language from context
 let sys_lang = ctx.config.settings.read().system.lang.clone();
-let lang = Lang::from_str_code(&sys_lang);
+let lang = Lang::from_code(&sys_lang);
 
-// 2. Weather day names (e.g. "TODAY", "TMRW", "MON"..)
+// 2. Weather day names (e.g. "TODAY", "TOM.", "MON"..)
 let day_label = i18n::weather_day_label(lang, day_of_week, is_today, is_tomorrow);
 
 // 3. Translated weather condition strings
@@ -561,9 +575,6 @@ let condition = i18n::weather_condition(lang, "Thunderstorm with heavy rain");
 
 // 4. WordClock full text lines
 let lines = i18n::word_clock_lines(lang, hours, minutes);
-
-// 5. Noise / Decibel level statuses
-let noise = i18n::noise_level(lang, level_index);
 ```
 
 ### B. Tutorial: Adding a New Language (e.g. German `de`) in 3 Steps
@@ -580,7 +591,7 @@ let noise = i18n::noise_level(lang, level_index);
    ```
 2. **Raspberry Pi Back-end (`src/core/i18n.rs`):**
    - Add variant `De` to enum `Lang`.
-   - Provide translation lookups for weather, word clock, and noise status.
+   - Provide translation lookups for weather and word clock strings.
 3. **ESP32 Back-end (`src/core/I18n.h` & `src/core/I18n.cpp`):**
    - Add `DE` to enum `Lang` and implement the static translation methods.
 
@@ -600,19 +611,65 @@ These map onto the instance's `HashMap<String,String>`. Keys correspond to your 
 
 ---
 
-## 15. Rendering into the Matrix
+## 15. Rendering via IDrawingSurface
 
-`ctx.matrix` is a `&mut dyn MatrixBackend`. Typical pattern:
+`ctx.surface` is a `&mut dyn IDrawingSurface` (`crate::core::matrix::IDrawingSurface`). It provides high-performance, canonical drawing primitives with automatic dirty tracking:
 
 ```rust
-fn render(&mut self, ctx: &mut EngineContext) {
-    ctx.matrix.clear();
-    // draw pixels / text / bitmaps into ctx.matrix
-    // do NOT call ctx.matrix.update() — the render loop flushes the frame
+pub struct CanvasView<'a> {
+    pub data: &'a mut [u8],
+    pub width: u32,
+    pub height: u32,
+    pub stride_bytes: usize,
+}
+
+pub trait IDrawingSurface: Send + Sync {
+    fn width(&self) -> u32;
+    fn height(&self) -> u32;
+    fn physical_width(&self) -> u32;
+    fn physical_height(&self) -> u32;
+    fn set_rotation(&mut self, rotation: u8);
+    fn rotation(&self) -> u8;
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn clear(&mut self);
+    fn present(&mut self);
+    fn set_brightness(&mut self, brightness: u8);
+    fn mark_dirty(&mut self);
+    fn is_dirty(&self) -> bool;
+    fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
+    fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn release_canvas(&mut self);
+    fn has_canvas(&self) -> bool;
 }
 ```
 
-The **render loop** owns `update()` (the flush to the panel) and, after your `render()` returns, may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §11](ARCHITECTURE.md#11-the-fighter-overlay-compositor)).
+Example usage inside an engine's `render()` method:
+
+```rust
+fn render(&mut self, ctx: &mut EngineContext) {
+    // 1. Primitive pixel drawing
+    ctx.surface.set_pixel(x, y, 255, 200, 0);
+
+    // 2. High-speed RGB565 sprite blitting
+    ctx.surface.blit565(&sprite_raw_u16_slice, x, y, w, h, None);
+
+    // 3. Dynamic image drawing
+    ctx.surface.draw_image(&image_buffer, x, y);
+
+    // 4. Direct linear RGB888 canvas access
+    if let Some(canvas) = ctx.surface.acquire_canvas() {
+        let raw_pixels: &mut [u8] = canvas.data;
+        // direct manipulation of the linear RGB888 pixel buffer
+    }
+}
+```
+
+### Golden Rules of Rendering
+1. **Never call `present()` inside `render()`**: Presentation to hardware HUB75 panels is exclusively owned by the main loop in `app.rs`.
+2. **Take advantage of dirty tracking**: With `RenderPipeline::CanvasSingle` (the default, see [ARCHITECTURE.md §13](ARCHITECTURE.md#13-hardware-render-pipeline--the-idrawingsurface-abstraction)), `IDrawingSurface` tracks exact scanline bounds (`DirtyBounds`). If nothing changes (`has_new_frame() == false`), `present()` completes in $O(1)$ with **zero** memory bus traffic, guaranteeing protection for Broadcom SDIO Wi-Fi (`brcmfmac`).
+3. **Control full-screen clearing**: If your engine paints the entire display every tick (e.g. streaming GIF or video), override `wants_clear(&self) -> bool { false }` to avoid an unnecessary full-screen black clear before your `render()` call.
+4. **Overlay Pass**: After your `render()` returns, the render loop may run the additive **Fighter overlay** pass on top of your frame (see [ARCHITECTURE.md §12](ARCHITECTURE.md#12-the-transverse-overlay-architecture--overlaymanager)). If your engine cannot support overlays, return `allows_overlay(&self) -> bool { false }`.
 
 ---
 

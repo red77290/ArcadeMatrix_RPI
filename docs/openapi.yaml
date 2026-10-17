@@ -181,10 +181,11 @@ paths:
       tags: [System]
       summary: Update system settings (partial merge)
       description: >
-        Any subset of `system`, `matrix`, `mqtt`, `wifi`, plus the top-level
-        `api_auth_enabled` / `api_token` may be sent. `brightness_limit` (alias
-        `brightness`, 0-100) is applied live without a restart. Changes to matrix
-        parameters or the Wi-Fi radio state flag a render-loop reload.
+        Any subset of `system`, `matrix`, `mqtt`, `data_mqtt`, `wifi`, plus top-level
+        `api_auth_enabled`, `api_token`, `brightness_limit`, or flat system/matrix fields
+        may be sent. `brightness_limit` (alias `brightness`, 0-100) is applied live without
+        a restart. Changes to matrix parameters, MQTT, or the Wi-Fi radio state flag a
+        render-loop reload and return `status: "rebooting"`.
       requestBody:
         required: true
         content:
@@ -210,9 +211,55 @@ paths:
                   type: integer
                   minimum: 0
                   maximum: 100
+                lang:
+                  type: string
+                timezone:
+                  type: string
+                format_24h:
+                  type: boolean
+                temp_unit:
+                  type: string
+                  enum: [C, F]
+                unit:
+                  type: string
+                  enum: [C, F, metric, imperial]
+                idle_fighter_enabled:
+                  type: boolean
+                idle_fighter_interval:
+                  type: integer
+                idle_fighter_speed:
+                  type: integer
+                night_mode_enabled:
+                  type: boolean
+                turn_off_at:
+                  type: string
+                wake_up_at:
+                  type: string
+                night_brightness:
+                  type: integer
+                rotation:
+                  type: integer
+                  enum: [0, 90, 180, 270]
+                transition_effect:
+                  type: string
+                transition_duration_ms:
+                  type: integer
+                slot_transition:
+                  type: string
+                slot_transition_duration_ms:
+                  type: integer
       responses:
         '200':
-          $ref: '#/components/responses/StatusOk'
+          description: Settings applied or reload scheduled
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, rebooting]
+                    example: ok
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -252,6 +299,186 @@ paths:
                     type: number
                   disk_free_gb:
                     type: number
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/timezones:
+    get:
+      tags: [System]
+      summary: List supported IANA timezones
+      responses:
+        '200':
+          description: Array of timezone value/label options
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Option'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/hardware:
+    get:
+      tags: [System]
+      summary: Hardware profile and capabilities
+      responses:
+        '200':
+          description: Hardware capabilities and board details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  model:
+                    type: string
+                  ram_total_mb:
+                    type: integer
+                  psram_present:
+                    type: boolean
+                  i2s_mic_present:
+                    type: boolean
+                  temp_sensor_present:
+                    type: boolean
+                  gyro_present:
+                    type: boolean
+                  has_rtc:
+                    type: boolean
+                  network_ready:
+                    type: boolean
+                  sd_ready:
+                    type: boolean
+                  capabilities:
+                    type: object
+                    properties:
+                      http:
+                        type: object
+                        properties:
+                          recommendedConcurrency:
+                            type: integer
+                            example: 4
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/gyro:
+    get:
+      tags: [System]
+      summary: Gyroscope & orientation status
+      responses:
+        '200':
+          description: Orientation and IMU status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available:
+                    type: boolean
+                  pitch:
+                    type: number
+                  roll:
+                    type: number
+                  auto_rotate:
+                    type: boolean
+                  rotation:
+                    type: integer
+                    enum: [0, 90, 180, 270]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/gyro/calibrate:
+    post:
+      tags: [System]
+      summary: Calibrate gyroscope zero reference (stub on Raspberry Pi)
+      responses:
+        '200':
+          description: Calibration response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  message:
+                    type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/display/orientation:
+    post:
+      tags: [Display]
+      summary: Update panel orientation and transition effects
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rotation:
+                  type: integer
+                  enum: [0, 90, 180, 270]
+                transition_effect:
+                  type: string
+                transition_duration_ms:
+                  type: integer
+                slot_transition:
+                  type: string
+                slot_transition_duration_ms:
+                  type: integer
+      responses:
+        '200':
+          description: Orientation updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  rotation:
+                    type: integer
+                    enum: [0, 90, 180, 270]
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/message:
+    post:
+      tags: [Display]
+      summary: Trigger a temporary scrolling message overlay on the panel
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                color:
+                  type: string
+                  example: "#00FFCC"
+                size:
+                  type: integer
+                  default: 1
+                direction:
+                  type: string
+                  enum: [left, right, up, down, static]
+                  default: left
+                speed:
+                  type: integer
+                  default: 50
+                timeout:
+                  type: integer
+                  default: 15
+                  description: Display duration in seconds
+      responses:
+        '200':
+          $ref: '#/components/responses/StatusOk'
         '401':
           $ref: '#/components/responses/Unauthorized'
 
@@ -343,23 +570,6 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
-  /api/system/restart_app:
-    post:
-      tags: [System]
-      summary: Restart the ArcadeMatrix application (Alias to /api/system/restart)
-      responses:
-        '200':
-          description: Restarting
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: restarting
-        '401':
-          $ref: '#/components/responses/Unauthorized'
 
   /api/action/reboot:
     get:
@@ -626,6 +836,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Firmware binary exceeds 64 MB limit
 
   /api/fonts:
     get:
@@ -695,12 +909,16 @@ paths:
                     type: string
                   release_notes:
                     type: string
+                  published_at:
+                    type: string
                   download_url:
                     type: string
                   asset_name:
                     type: string
                   asset_size:
                     type: integer
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
   /api/ota/auto-update:
     post:
@@ -721,7 +939,11 @@ paths:
         '200':
           description: Download complete, service restarting
         '400':
-          description: Architecture mismatch or invalid download
+          description: Architecture mismatch, untrusted URL, or invalid download
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '413':
+          description: Downloaded firmware exceeds 64 MB limit
         '502':
           description: Download network failure
 
@@ -1360,6 +1582,13 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/ConfigField'
+        available:
+          type: boolean
+          description: Whether the engine is compatible with the current board and panel dimensions.
+        unavailable_reason:
+          type: string
+          nullable: true
+          description: Explanation when available is false.
 
     ConfigField:
       type: object
@@ -1369,7 +1598,7 @@ components:
           type: string
         field_type:
           type: string
-          enum: [Boolean, Integer, Float, String, Options]
+          enum: [Boolean, Integer, Float, String, Options, FileAsset]
         label:
           type: string
         description:
@@ -1416,11 +1645,10 @@ components:
           type: boolean
         lang:
           type: string
-        unit:
+        temp_unit:
           type: string
-          description: metric | imperial
-        temp_offset:
-          type: number
+          enum: [C, F]
+          description: Temperature display unit ("C" or "F")
         night_mode_enabled:
           type: boolean
         turn_off_at:
@@ -1458,6 +1686,8 @@ components:
           type: string
         chain_length:
           type: integer
+        parallel:
+          type: integer
         power_limit_percent:
           type: integer
         force_single_buffer:
@@ -1489,6 +1719,19 @@ components:
         disable_hardware_pulsing:
           type: boolean
         mapping:
+          type: string
+        rotation:
+          type: integer
+          enum: [0, 90, 180, 270]
+        transition_effect:
+          type: string
+        transition_duration_ms:
+          type: integer
+        slot_transition:
+          type: string
+        slot_transition_duration_ms:
+          type: integer
+        render_pipeline:
           type: string
 
     WifiConfig:

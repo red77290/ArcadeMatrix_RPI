@@ -4,7 +4,7 @@
 use arcadematrix::core::config::{Config, ConfigSettings, DataMqttConfig};
 use arcadematrix::core::engine_contract::{Engine, EngineContext, HashConfig};
 use arcadematrix::core::i18n::Lang;
-use arcadematrix::core::matrix::{MatrixBackend, MockMatrix};
+use arcadematrix::core::matrix::MockSurface;
 use arcadematrix::core::registry::EngineRegistry;
 use arcadematrix::engines::mqtt_data::payload::{parse_page, PageData, DEFAULT_PAGE_SECONDS};
 use arcadematrix::engines::mqtt_data::{
@@ -14,12 +14,12 @@ use arcadematrix::engines::mqtt_data::{
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-fn px(m: &MockMatrix, x: u32, y: u32) -> (u8, u8, u8) {
+fn px(m: &MockSurface, x: u32, y: u32) -> (u8, u8, u8) {
     let p = m.canvas.get_pixel(x, y);
     (p[0], p[1], p[2])
 }
 
-fn bbox(m: &MockMatrix, c: (u8, u8, u8)) -> Option<(u32, u32, u32, u32)> {
+fn bbox(m: &MockSurface, c: (u8, u8, u8)) -> Option<(u32, u32, u32, u32)> {
     let mut b: Option<(u32, u32, u32, u32)> = None;
     for y in 0..m.canvas.height() {
         for x in 0..m.canvas.width() {
@@ -199,7 +199,7 @@ fn notice_follows_connection_state() {
 fn notices_are_centred_on_128x32() {
     let grey = (0x78, 0x78, 0x78);
     let red = (0xB4, 0x50, 0x50);
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     draw_notice(&mut m, Notice::Connecting, Lang::En);
     let (x0, y0, x1, y1) = bbox(&m, grey).unwrap();
     // "CONNECTING" = 59 px at x=34, rows 12..18.
@@ -282,9 +282,9 @@ fn no_broker_shows_no_connection_and_starts_no_thread() {
     let (config, dir) = test_config("");
     let cfg = instance("a/b", "10");
     let mut engine = MqttDataEngine::new();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     let mut ctx = EngineContext {
-        matrix: &mut m,
+        surface: &mut m,
         config: &config,
     };
     engine
@@ -297,7 +297,7 @@ fn no_broker_shows_no_connection_and_starts_no_thread() {
     engine.render(&mut ctx);
     assert!(bbox(&m, (0xB4, 0x50, 0x50)).is_some(), "NO CONNECTION");
     let mut ctx = EngineContext {
-        matrix: &mut m,
+        surface: &mut m,
         config: &config,
     };
     engine.deactivate();
@@ -314,10 +314,10 @@ fn twenty_activations_free_everything() {
     config.settings.write().data_mqtt.port = 1; // nothing listens on port 1
     let cfg = instance("a/one,a/two", "10");
     let mut engine = MqttDataEngine::new();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     {
         let mut ctx = EngineContext {
-            matrix: &mut m,
+            surface: &mut m,
             config: &config,
         };
         engine
@@ -328,7 +328,7 @@ fn twenty_activations_free_everything() {
         engine.activate();
         {
             let mut ctx = EngineContext {
-                matrix: &mut m,
+                surface: &mut m,
                 config: &config,
             };
             engine.update(&mut ctx);
@@ -354,9 +354,9 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     let (config, dir) = test_config("");
     let cfg = instance("a/graph,a/table,a/odd", "");
     let mut engine = MqttDataEngine::new();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     let mut ctx = EngineContext {
-        matrix: &mut m,
+        surface: &mut m,
         config: &config,
     };
     engine
@@ -369,37 +369,51 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     shared.set_page(
         0,
         parse_page(
-            r##"{"type":"graph","seconds":3,"max":1,"series":[{"color":"#FF0000","data":[1]}]}"##,
-        ),
+            r##"{"type":"graph","seconds":1,"max":1,"series":[{"color":"#FF0000","data":[1]}]}"##,
+        )
+        .map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
     );
     shared.set_page(
         1,
         parse_page(
-            r##"{"type":"table","seconds":3,"tiles":[{"label":"A","value":"7","color":"#00FF00"}]}"##,
-        ),
+            r##"{"type":"table","seconds":1,"tiles":[{"label":"A","value":"7","color":"#00FF00"}]}"##,
+        )
+        .map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
     );
-    shared.set_page(2, parse_page(r#"{"type":"nope","seconds":3}"#));
+    shared.set_page(
+        2,
+        parse_page(r#"{"type":"nope","seconds":1}"#).map(|mut p| {
+            p.seconds = 1;
+            p
+        }),
+    );
     engine.update(&mut ctx);
     assert_eq!(engine.current_page(), Some(PageRef { topic: 0, sub: 0 }));
-    ctx.matrix.clear();
+    ctx.surface.clear();
     engine.render(&mut ctx);
     drop(ctx);
     assert_eq!(px(&m, 64, 31), (255, 0, 0), "graph page drawn");
-    assert!(!engine.is_finished(), "slot = 3 + 3 + 3 s");
-    std::thread::sleep(Duration::from_millis(3100));
+    assert!(!engine.is_finished(), "slot = 1 + 1 + 1 s");
+    std::thread::sleep(Duration::from_millis(1100));
     let mut ctx = EngineContext {
-        matrix: &mut m,
+        surface: &mut m,
         config: &config,
     };
     engine.update(&mut ctx);
     assert_eq!(engine.current_page(), Some(PageRef { topic: 1, sub: 0 }));
-    ctx.matrix.clear();
+    ctx.surface.clear();
     engine.render(&mut ctx);
     drop(ctx);
     assert!(bbox(&m, (0, 255, 0)).is_some(), "table page drawn");
-    std::thread::sleep(Duration::from_millis(3100));
+    std::thread::sleep(Duration::from_millis(1100));
     let mut ctx = EngineContext {
-        matrix: &mut m,
+        surface: &mut m,
         config: &config,
     };
     engine.update(&mut ctx);
@@ -407,7 +421,7 @@ fn pages_cycle_on_their_own_seconds_and_engine_owns_the_slot() {
     engine.render(&mut ctx);
     drop(ctx);
     assert!(bbox(&m, (0xC0, 0x80, 0x00)).is_some(), "UNSUPPORTED notice");
-    std::thread::sleep(Duration::from_millis(3100));
+    std::thread::sleep(Duration::from_millis(1100));
     assert!(engine.is_finished(), "one full cycle done");
     // The rotation re-activates the same slot (e.g. it is the only one): the
     // connection is kept and a new cycle starts at page 1.
@@ -439,7 +453,7 @@ fn value_page_matches_a_single_tile_table() {
         panic!()
     };
     for (w, h) in [(128u32, 32u32), (256, 64)] {
-        let (mut a, mut b) = (MockMatrix::new(w, h), MockMatrix::new(w, h));
+        let (mut a, mut b) = (MockSurface::new(w, h), MockSurface::new(w, h));
         render_table(&mut a, Some(&v), v.show_title, "");
         render_table(&mut b, Some(&t), t.show_title, "");
         assert_eq!(a.canvas, b.canvas, "{}x{}", w, h);
@@ -464,7 +478,7 @@ fn render_notice_previews() {
         ("mqttdata_unsupported", Notice::Unsupported),
     ] {
         for (w, h) in [(128u32, 32u32), (256, 64)] {
-            let mut m = MockMatrix::new(w, h);
+            let mut m = MockSurface::new(w, h);
             draw_notice(&mut m, notice, Lang::En);
             let big = image::imageops::resize(&m.canvas, w * 8, h * 8, image::imageops::Nearest);
             big.save(format!("{}/{}_{}x{}.png", dir, name, w, h))
@@ -472,12 +486,12 @@ fn render_notice_previews() {
         }
     }
     for (w, h) in [(128u32, 32u32), (256, 64)] {
-        let save = |m: &MockMatrix, name: &str| {
+        let save = |m: &MockSurface, name: &str| {
             let big = image::imageops::resize(&m.canvas, w * 8, h * 8, image::imageops::Nearest);
             big.save(format!("{}/{}_{}x{}.png", dir, name, w, h))
                 .unwrap();
         };
-        let mut m = MockMatrix::new(w, h);
+        let mut m = MockSurface::new(w, h);
         draw_notice(&mut m, Notice::Unsupported, Lang::Fr);
         save(&m, "mqttdata_unsupported_fr");
         // The value page, with the payload the value blueprint publishes.
@@ -487,7 +501,7 @@ fn render_notice_previews() {
         )
         .map(|p| p.data)
         {
-            let mut m = MockMatrix::new(w, h);
+            let mut m = MockSurface::new(w, h);
             render_table(&mut m, Some(&v), v.show_title, "");
             save(&m, "mqttdata_value");
         }
@@ -518,11 +532,11 @@ fn live_broker_pages() {
         }
         let cfg = instance(&topics, "3");
         let mut engine = MqttDataEngine::new();
-        let mut m = MockMatrix::new(w, h);
+        let mut m = MockSurface::new(w, h);
         let t0 = Instant::now();
         {
             let mut ctx = EngineContext {
-                matrix: &mut m,
+                surface: &mut m,
                 config: &config,
             };
             engine
@@ -532,7 +546,7 @@ fn live_broker_pages() {
             engine.update(&mut ctx);
             engine.render(&mut ctx);
         }
-        let save = |m: &MockMatrix, name: &str| {
+        let save = |m: &MockSurface, name: &str| {
             let big = image::imageops::resize(&m.canvas, w * 8, h * 8, image::imageops::Nearest);
             big.save(format!("{}/{}_{}x{}.png", dir, name, w, h))
                 .unwrap();
@@ -543,12 +557,12 @@ fn live_broker_pages() {
         let mut seen = Vec::new();
         for _ in 0..80 {
             let mut ctx = EngineContext {
-                matrix: &mut m,
+                surface: &mut m,
                 config: &config,
             };
             engine.update(&mut ctx);
             let page = engine.current_page();
-            ctx.matrix.clear();
+            ctx.surface.clear();
             engine.render(&mut ctx);
             drop(ctx);
             if let Some(p) = page {

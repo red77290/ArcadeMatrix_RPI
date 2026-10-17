@@ -204,7 +204,8 @@ async fn post_gifs_reindex(
     data.config.set_message_payload(None);
     REINDEX_RUNNING.store(false, std::sync::atomic::Ordering::SeqCst);
     let result = format!("ok: {} folders, {} files (yoko + tate)", folders, files);
-    *LAST_REINDEX.lock().unwrap() = (result.clone(), started.elapsed().as_millis() as u64, files);
+    *LAST_REINDEX.lock().unwrap_or_else(|e| e.into_inner()) =
+        (result.clone(), started.elapsed().as_millis() as u64, files);
     if let Some(obj) = lib.as_object_mut() {
         obj.insert("status".to_string(), json!("ok"));
         obj.insert("orientation".to_string(), json!(requested));
@@ -242,7 +243,10 @@ async fn get_gifs_reindex_status(req: HttpRequest, data: web::Data<AppState>) ->
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    let (result, elapsed, files) = LAST_REINDEX.lock().unwrap().clone();
+    let (result, elapsed, files) = LAST_REINDEX
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     HttpResponse::Ok().json(json!({
         "running": REINDEX_RUNNING.load(std::sync::atomic::Ordering::SeqCst),
         "total": 0, "done": 0, "files": files, "expected": 0, "eta": "", "cancelling": false,
@@ -371,6 +375,9 @@ fn walkdir_count(dir: &Path) -> usize {
     let mut n = 0;
     if let Ok(rd) = std::fs::read_dir(dir) {
         for e in rd.flatten() {
+            if e.file_type().map(|ft| ft.is_symlink()).unwrap_or(false) {
+                continue;
+            }
             let p = e.path();
             if p.is_dir() {
                 n += walkdir_count(&p);
@@ -541,6 +548,8 @@ async fn get_gifs_file(
     }
 }
 
+const MAX_GIF_UPLOAD_BYTES: usize = 25 * 1024 * 1024;
+
 #[post("/api/gifs/upload")]
 async fn post_gifs_upload(
     req: HttpRequest,
@@ -609,6 +618,14 @@ async fn post_gifs_upload(
         while let Some(chunk) = field.next().await {
             match chunk {
                 Ok(d) => {
+                    if bytes + d.len() > MAX_GIF_UPLOAD_BYTES {
+                        drop(file);
+                        let _ = std::fs::remove_file(&path);
+                        return HttpResponse::PayloadTooLarge().json(json!({
+                            "status": "error",
+                            "message": format!("File '{}' exceeds maximum allowed size (25 MB)", name)
+                        }));
+                    }
                     use std::io::Write;
                     if file.write_all(&d).is_err() {
                         ok = false;

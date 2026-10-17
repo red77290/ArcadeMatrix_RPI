@@ -1,5 +1,14 @@
-import { API } from './api.js';
+import { API, authHeaders } from './api.js';
 import { translations, t } from './i18n.js';
+
+function escHtml(s) {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 export const GLOBAL_TIMEZONES = [
   { value: "system", label: "System Default / Fuseau Système" },
@@ -427,8 +436,8 @@ window.switchToScreenTab = function(instanceId) {
   const cleanId = instanceId.replace(/[^a-zA-Z0-9]/g, '-');
   const tabId = `tab-dyn-${cleanId}`;
   
-  if (typeof window.switchToPage === 'function') {
-    window.switchToPage('display');
+  if (typeof window.switchPage === 'function') {
+    window.switchPage('display');
   }
   
   document.querySelectorAll('#page-display .tab-btn').forEach(btn => {
@@ -514,7 +523,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
             <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['Paris, FR', 'New York, US', 'Tokyo, JP', 'London, GB', 'Berlin, DE', 'Madrid, ES', 'Rome, IT', 'Los Angeles, US', 'Sydney, AU', 'Dubai, AE'].map(c => `
-              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c.split(',')[0]}</button>
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${escHtml(c)}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${escHtml(c.split(',')[0])}</button>
             `).join('')}
           </div>
         </div>
@@ -545,7 +554,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
             <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['BTC', 'ETH', 'SOL', 'DOGE', 'XRP', 'BNB', 'ADA', 'AVAX'].map(c => `
-              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${c}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${c}</button>
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${escHtml(c)}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${escHtml(c)}</button>
             `).join('')}
           </div>
         </div>
@@ -559,7 +568,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <div style="display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.35rem; align-items: center;">
             <span style="font-size: 0.72rem; color: var(--text-muted); margin-right: 0.2rem;">⚡ ${t('quick_presets_label', 'Quick presets:')}</span>
             ${['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META'].map(s => `
-              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${s}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${s}</button>
+              <button type="button" class="btn btn-sm modal-quick-chip" data-val="${escHtml(s)}" style="font-size: 0.72rem; padding: 0.15rem 0.45rem; background: rgba(255,255,255,0.06); border-radius: 4px; border: 1px solid rgba(255,255,255,0.1); cursor: pointer;">${escHtml(s)}</button>
             `).join('')}
           </div>
         </div>
@@ -586,7 +595,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       ) : null;
 
       if (primaryField) {
-        const fLabel = primaryField.label || primaryField.id;
+        const fLabel = escHtml(primaryField.label || primaryField.id);
         if (isFileAssetField(primaryField)) {
           initialVariant = primaryField.default_value || '';
           variantHtml = `
@@ -598,7 +607,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         } else if (isOptionsField(primaryField) || (primaryField.options && primaryField.options.length > 0)) {
           const opts = parseOptions(primaryField.options);
           initialVariant = primaryField.default_value || (opts.length > 0 ? opts[0].value : '');
-          const optsHtml = opts.map(o => `<option value="${o.value}" ${String(o.value) === String(initialVariant) ? 'selected' : ''}>${formatOptLabel(primaryField.id, o.value, o.label)}</option>`).join('');
+          const optsHtml = opts.map(o => `<option value="${escHtml(o.value)}" ${String(o.value) === String(initialVariant) ? 'selected' : ''}>${escHtml(formatOptLabel(primaryField.id, o.value, o.label))}</option>`).join('');
           variantHtml = `
             <div class="form-group" style="margin-top: 1rem;">
               <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
@@ -610,7 +619,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           variantHtml = `
             <div class="form-group" style="margin-top: 1rem;">
               <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
-              <input type="text" id="modal-field-variant" class="input" placeholder="${primaryField.description || primaryField.default_value || ''}" value="${initialVariant}">
+              <input type="text" id="modal-field-variant" class="input" placeholder="${escHtml(primaryField.description || primaryField.default_value || '')}" value="${escHtml(initialVariant)}">
             </div>
           `;
         }
@@ -635,7 +644,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
               ${descriptors.map(d => {
                 const dMeta = getEngineMeta(d);
                 const isSel = d.metadata.id === currentEngineId ? 'selected' : '';
-                return `<option value="${d.metadata.id}" ${isSel}>${dMeta.icon} ${dMeta.name}</option>`;
+                return `<option value="${escHtml(d.metadata.id)}" ${isSel}>${escHtml(dMeta.icon)} ${escHtml(dMeta.name)}</option>`;
               }).join('')}
             </select>
           </div>
@@ -644,12 +653,12 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
           <div class="form-group" style="margin-top: 1rem;">
             <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="screen_name_label">${t('screen_name_label', 'Screen Title / Label:')}</label>
-            <input type="text" id="modal-input-title" class="input" placeholder="e.g. Living Room Clock" value="${name}">
+            <input type="text" id="modal-input-title" class="input" placeholder="e.g. Living Room Clock" value="${escHtml(name)}">
           </div>
 
           <div class="form-group" style="margin-top: 0.75rem;">
             <label style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);" data-i18n="instance_name_id">${t('instance_name_id', 'Unique Instance ID:')}</label>
-            <input type="text" id="modal-input-id" class="input" style="font-size: 0.85rem; opacity: 0.85;" value="${defaultId}">
+            <input type="text" id="modal-input-id" class="input" style="font-size: 0.85rem; opacity: 0.85;" value="${escHtml(defaultId)}">
           </div>
 
           <div style="background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 1rem; margin-top: 1.25rem; border: 1px solid var(--glass-border);">
@@ -1238,10 +1247,12 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
     card.className = 'engine-catalog-card';
 
     let tagsHtml = '';
-    if (req.needsPsram) tagsHtml += `<span class="engine-tag psram">${t('tag_psram', '💾 PSRAM')}</span>`;
-    if (req.needsAudio) tagsHtml += `<span class="engine-tag sensor">${t('tag_audio', '🎙️ Micro I2S')}</span>`;
-    if (req.needsTempSensor) tagsHtml += `<span class="engine-tag sensor">${t('tag_temp', '🌡️ Capteur Temp')}</span>`;
-    if (cap.realtime) tagsHtml += `<span class="engine-tag realtime">${t('tag_realtime', '⚡ Temps Réel')}</span>`;
+    if (req.needs_psram || req.needsPsram) tagsHtml += `<span class="engine-tag psram">${t('tag_psram', '💾 PSRAM')}</span>`;
+    if (req.needs_audio || req.needsAudio) tagsHtml += `<span class="engine-tag sensor">${t('tag_audio', '🎙️ I2S Microphone')}</span>`;
+    if (req.needs_temp_sensor || req.needsTempSensor) tagsHtml += `<span class="engine-tag sensor">${t('tag_temp', '🌡️ Temp Sensor')}</span>`;
+    if (req.needs_network || req.needsNetwork) tagsHtml += `<span class="engine-tag sensor">${t('tag_network', '🌐 Network')}</span>`;
+    if (req.needs_sd || req.needsSd) tagsHtml += `<span class="engine-tag sensor">${t('tag_sd', '💾 SD Card')}</span>`;
+    if (cap.realtime) tagsHtml += `<span class="engine-tag realtime">${t('tag_realtime', '⚡ Real-Time')}</span>`;
 
     const existingCount = instancesList.filter(i => i.engine_id === eng.id).length;
     const existingBadge = existingCount > 0 ? `<span class="badge" style="background: rgba(16,185,129,0.2); color:#34d399; font-size: 0.75rem;">${existingCount} ${t('screens_active', 'active screen(s)')}</span>` : '';
@@ -1249,13 +1260,13 @@ export function renderEngineCatalog(descriptors, instancesList, enginesMap) {
     card.innerHTML = `
       <div>
         <div class="engine-card-header">
-          <div class="engine-card-icon">${icon}</div>
+          <div class="engine-card-icon">${escHtml(icon)}</div>
           <div>
-            <div class="engine-card-title">${name}</div>
-            <div style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;">${eng.id}</div>
+            <div class="engine-card-title">${escHtml(name)}</div>
+            <div style="font-size: 0.75rem; color: var(--text-muted); font-family: monospace;">${escHtml(eng.id)}</div>
           </div>
         </div>
-        <div class="engine-card-desc">${descText}</div>
+        <div class="engine-card-desc">${escHtml(descText)}</div>
         <div class="engine-card-tags">
           ${tagsHtml}
           ${existingBadge}
@@ -1327,8 +1338,8 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
     const tabNav = document.createElement('div');
     tabNav.style = 'display: flex; gap: 0.5rem; margin-top: 0.25rem;';
     tabNav.innerHTML = `
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-yoko-${instId}" style="flex:1; border: 1px solid var(--accent-primary, #00e5ff); font-weight: 700;">🖥️ ${t('tab_yoko', 'Horizontal (Landscape / YOKO)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${yokoOpts.length}</span></button>
-      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-tate-${instId}" style="flex:1; font-weight: 700; opacity: 0.7;">📱 ${t('tab_tate', 'Vertical (Portrait / TATE)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${tateOpts.length}</span></button>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-yoko-${escHtml(instId)}" style="flex:1; border: 1px solid var(--accent-primary, #00e5ff); font-weight: 700;">🖥️ ${t('tab_yoko', 'Horizontal (Landscape / YOKO)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${yokoOpts.length}</span></button>
+      <button type="button" class="btn btn-secondary btn-sm" id="btn-tab-tate-${escHtml(instId)}" style="flex:1; font-weight: 700; opacity: 0.7;">📱 ${t('tab_tate', 'Vertical (Portrait / TATE)')} <span class="badge" style="margin-left: 4px; opacity: 0.8;">${tateOpts.length}</span></button>
     `;
     container.appendChild(tabNav);
 
@@ -1342,8 +1353,8 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
     yokoActions.innerHTML = `
       <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">🖥️ /gifs/ (${yokoOpts.length} ${t('folders_count', 'folders')})</span>
       <div style="display: flex; gap: 0.35rem;">
-        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-yoko-${instId}">✅ ${t('select_all_btn', 'Select All')}</button>
-        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-yoko-${instId}">✖️ ${t('clear_btn', 'Clear')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-yoko-${escHtml(instId)}">✅ ${t('select_all_btn', 'Select All')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-yoko-${escHtml(instId)}">✖️ ${t('clear_btn', 'Clear')}</button>
       </div>
     `;
     yokoContainer.appendChild(yokoActions);
@@ -1360,7 +1371,7 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
         const lbl = document.createElement('label');
         lbl.className = 'toggle-btn';
         const countStr = (opt.count !== undefined && opt.count > 0) ? ` <span style="opacity:0.65; font-size:0.75rem;">(${opt.count})</span>` : '';
-        lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${opt.label}${countStr}</span>`;
+        lbl.innerHTML = `<input type="checkbox" value="${escHtml(opt.value)}" class="multi-cb-${escHtml(instId)}-${escHtml(targetFieldId)}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${escHtml(opt.label)}${countStr}</span>`;
         lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
         yokoTagBox.appendChild(lbl);
       });
@@ -1378,8 +1389,8 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
     tateActions.innerHTML = `
       <span style="font-size: 0.8rem; font-weight: 600; color: var(--text-muted);">📱 /gifs_tate/ (${tateOpts.length} ${t('folders_count', 'folders')})</span>
       <div style="display: flex; gap: 0.35rem;">
-        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-tate-${instId}">✅ ${t('select_all_btn', 'Select All')}</button>
-        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-tate-${instId}">✖️ ${t('clear_btn', 'Clear')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-sel-all-tate-${escHtml(instId)}">✅ ${t('select_all_btn', 'Select All')}</button>
+        <button type="button" class="btn btn-sm" style="font-size: 0.72rem; padding: 0.2rem 0.5rem;" id="btn-clr-tate-${escHtml(instId)}">✖️ ${t('clear_btn', 'Clear')}</button>
       </div>
     `;
     tateContainer.appendChild(tateActions);
@@ -1396,7 +1407,7 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
         const lbl = document.createElement('label');
         lbl.className = 'toggle-btn';
         const countStr = (opt.count !== undefined && opt.count > 0) ? ` <span style="opacity:0.65; font-size:0.75rem;">(${opt.count})</span>` : '';
-        lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${opt.label}${countStr}</span>`;
+        lbl.innerHTML = `<input type="checkbox" value="${escHtml(opt.value)}" class="multi-cb-${escHtml(instId)}-${escHtml(targetFieldId)}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${escHtml(opt.label)}${countStr}</span>`;
         lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
         tateTagBox.appendChild(lbl);
       });
@@ -1456,7 +1467,7 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
       const isChecked = initialTokens.includes(String(opt.value).trim().toUpperCase());
       const lbl = document.createElement('label');
       lbl.className = 'toggle-btn';
-      lbl.innerHTML = `<input type="checkbox" value="${opt.value}" class="multi-cb-${instId}-${targetFieldId}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${formatOptLabel(targetFieldId, opt.value, opt.label)}</span>`;
+      lbl.innerHTML = `<input type="checkbox" value="${escHtml(opt.value)}" class="multi-cb-${escHtml(instId)}-${escHtml(targetFieldId)}" style="display:none;" ${isChecked ? 'checked' : ''}> <span class="toggle-label">${escHtml(formatOptLabel(targetFieldId, opt.value, opt.label))}</span>`;
       lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncInputFromTags);
       tagContainer.appendChild(lbl);
     });
@@ -1856,7 +1867,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       tabBtn.id = `btn-tab-${cleanId}`;
       tabBtn.className = 'tab-btn' + (isTabActive ? ' active' : '');
       tabBtn.setAttribute('data-tab-target', tabId);
-      tabBtn.innerHTML = `${info.icon} <span class="tab-label-text">${info.title}</span>`;
+      tabBtn.innerHTML = `${escHtml(info.icon)} <span class="tab-label-text">${escHtml(info.title)}</span>`;
       tabBtn.onclick = (e) => {
         document.querySelectorAll('#page-display .tab-btn').forEach(btn => btn.classList.remove('active'));
         e.currentTarget.classList.add('active');
@@ -1887,10 +1898,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
 
       cardHeader.innerHTML = `
         <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <span style="font-size: 1.6rem;" id="header-icon-${cleanId}">${info.icon}</span>
+          <span style="font-size: 1.6rem;" id="header-icon-${cleanId}">${escHtml(info.icon)}</span>
           <div>
-            <h3 style="margin: 0; font-size: 1.2rem;" id="header-title-${cleanId}">${info.title}</h3>
-            <span style="font-size: 0.78rem; color: var(--text-muted); font-family: monospace;">${instance.instance_id} (${instance.engine_id})</span>
+            <h3 style="margin: 0; font-size: 1.2rem;" id="header-title-${cleanId}">${escHtml(info.title)}</h3>
+            <span style="font-size: 0.78rem; color: var(--text-muted); font-family: monospace;">${escHtml(instance.instance_id)} (${escHtml(instance.engine_id)})</span>
           </div>
           ${statusBadgeHtml}
         </div>
@@ -1989,7 +2000,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       titleFormGroup.style = "grid-column: 1 / -1; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--glass-border);";
       titleFormGroup.innerHTML = `
         <label style="font-size: 0.85rem; font-weight: 600; color: var(--accent-primary);" data-i18n="screen_name_label">${t('screen_name_label', 'Screen Title / Label:')}</label>
-        <input type="text" id="cfg-custom-title-${cleanId}" class="input" placeholder="e.g. ${info.title}" value="${(instance.config && instance.config.screen_title) ? instance.config.screen_title : ''}">
+        <input type="text" id="cfg-custom-title-${cleanId}" class="input" placeholder="e.g. ${escHtml(info.title)}" value="${escHtml((instance.config && instance.config.screen_title) ? instance.config.screen_title : '')}">
         <small class="text-muted" style="margin-top: 0.35rem; display: block;" data-i18n="screen_name_help">${t('screen_name_help', 'Custom friendly name displayed in tabs and the rotation playlist.')}</small>
       `;
       formGrid.appendChild(titleFormGroup);
@@ -2219,7 +2230,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              // Update tab button label, card header, and playlist row in-place
              const tabBtnEl = document.getElementById(`btn-tab-${cleanId}`);
              if (tabBtnEl) {
-               tabBtnEl.innerHTML = `${updatedInfo.icon} <span class="tab-label-text">${updatedInfo.title}</span>`;
+               tabBtnEl.innerHTML = `${escHtml(updatedInfo.icon)} <span class="tab-label-text">${escHtml(updatedInfo.title)}</span>`;
              }
              const headerTitleEl = document.getElementById(`header-title-${cleanId}`);
              if (headerTitleEl) headerTitleEl.innerText = updatedInfo.title;

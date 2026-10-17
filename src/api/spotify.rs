@@ -66,7 +66,10 @@ impl SpotifyClient {
                 .map_or(false, |exp| exp > Instant::now() + Duration::from_secs(30));
 
         if is_valid {
-            return Ok(self.access_token.as_deref().unwrap());
+            return self
+                .access_token
+                .as_deref()
+                .ok_or_else(|| "Access token missing".to_string());
         }
 
         if self.client_id.is_empty() || self.refresh_token.is_empty() {
@@ -114,7 +117,9 @@ impl SpotifyClient {
         self.access_token = Some(access_token.to_string());
         self.token_expires_at = Some(Instant::now() + Duration::from_secs(expires_in));
 
-        Ok(self.access_token.as_deref().unwrap())
+        self.access_token
+            .as_deref()
+            .ok_or_else(|| "Access token missing".to_string())
     }
 
     pub fn get_currently_playing(&mut self) -> Result<SpotifyNowPlaying, String> {

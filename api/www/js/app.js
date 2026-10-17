@@ -1,10 +1,17 @@
 import { API } from './api.js';
-import { setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
+import { t, setLanguage, SUPPORTED_LANGUAGES } from './i18n.js';
 import './components/toast.js';
 import { initDynamicEngines, GLOBAL_TIMEZONES } from './dynamic_engines.js';
 import { initGifLibrary } from './gif_library.js';
 
 let selectedOtaFile = null;
+
+window.toggleSidebar = function() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.toggle('open');
+  if (overlay) overlay.classList.toggle('open');
+};
 
 window.switchTab = function(tabId) {
   if (window.event && window.event.currentTarget) {
@@ -45,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDashboard();
   initOta();
   loadVersion();
-  initCustomMarquee();
+  initMessagePage();
   initFighterOverlay();
   initGifLibrary();
   initNetworkSettings();
@@ -62,10 +69,25 @@ export function switchPage(pageName) {
   if (navItem) navItem.classList.add('active');
   if (pageEl) pageEl.classList.add('active');
   localStorage.setItem('activePage', pageName);
+
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
 }
 window.switchPage = switchPage;
+window.switchToPage = switchPage;
 
 function initNavigation() {
+  const overlay = document.getElementById('sidebar-overlay');
+  if (overlay) {
+    overlay.addEventListener('click', () => {
+      const sidebar = document.getElementById('sidebar');
+      if (sidebar) sidebar.classList.remove('open');
+      overlay.classList.remove('open');
+    });
+  }
+
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
       const page = item.getAttribute('data-page');
@@ -398,39 +420,41 @@ function initOta() {
   });
 }
 
-function initCustomMarquee() {
-  const dropZone = document.getElementById('marquee-drop-zone');
-  const fileInput = document.getElementById('marquee-file-input');
-  if (!dropZone || !fileInput) return;
+function initMessagePage() {
+  const btnSend = document.getElementById('btn-send-message');
+  if (!btnSend) return;
 
-  dropZone.addEventListener('click', () => fileInput.click());
-  dropZone.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    dropZone.classList.add('drag-over');
-  });
-  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-  dropZone.addEventListener('drop', (e) => {
-    e.preventDefault();
-    dropZone.classList.remove('drag-over');
-    if (e.dataTransfer.files.length > 0) {
-      uploadMarqueeImage(e.dataTransfer.files[0]);
+  btnSend.addEventListener('click', async () => {
+    const textEl = document.getElementById('msg-input');
+    const text = textEl ? textEl.value.trim() : '';
+    if (!text) {
+      window.showToast(t('msg_empty_error', 'Please enter a message to display'), 'error');
+      return;
     }
-  });
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files.length > 0) {
-      uploadMarqueeImage(fileInput.files[0]);
-    }
-  });
 
-  async function uploadMarqueeImage(file) {
-    window.showToast('Uploading marquee image...', 'info');
+    const color = document.getElementById('msg-color')?.value || '#ffffff';
+    const size = parseInt(document.getElementById('msg-size')?.value, 10) || 1;
+    const direction = document.getElementById('msg-direction')?.value || 'rtl';
+    const speed = parseInt(document.getElementById('msg-speed')?.value, 10) || 30;
+    const timeout = parseInt(document.getElementById('msg-timeout')?.value, 10) || 10;
+
+    btnSend.disabled = true;
     try {
-      await API.uploadMarquee(file);
-      window.showToast('Marquee image displayed!', 'success');
+      await API.post('/api/message', {
+        text,
+        color,
+        size,
+        direction,
+        speed,
+        timeout,
+      });
+      window.showToast(t('msg_sent_toast', 'Message sent to matrix!'), 'success');
     } catch (e) {
-      window.showToast('Failed to display marquee image', 'error');
+      window.showToast(t('msg_error_toast', 'Failed to send message to matrix'), 'error');
+    } finally {
+      btnSend.disabled = false;
     }
-  }
+  });
 }
 
 function initFighterOverlay() {
@@ -658,8 +682,11 @@ function initNetworkSettings() {
   if (btnSaveApi) {
     btnSaveApi.addEventListener('click', async () => {
       const api_auth_enabled = document.getElementById('hw-api-auth').value === 'true';
-      const api_token = document.getElementById('hw-api-token').value;
+      const api_token = document.getElementById('hw-api-token').value.trim();
       try {
+        if (api_token && api_token !== '••••••••') {
+          localStorage.setItem('api_token', api_token);
+        }
         await API.post('/api/system', { api_auth_enabled, api_token });
         window.showToast('API Auth Settings Saved!', 'success');
       } catch (e) {
@@ -769,7 +796,7 @@ async function initSettings() {
     setVal('hw-rows', matrix.height || 32);
     setVal('hw-cols', matrix.width || 64);
     setVal('hw-chain', matrix.chain_length || 1);
-    setVal('hw-parallel', 1);
+    setVal('hw-parallel', matrix.parallel ?? 1);
     setVal('hw-driver-chip', matrix.driver_chip || 'SHIFTREG');
     setVal('hw-mapping', matrix.mapping || 'regular');
     setVal('hw-rgb', matrix.rgb_sequence || 'RGB');
@@ -780,6 +807,7 @@ async function initSettings() {
     setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds ?? 130);
     setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz ?? 0);
     setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing ?? false);
+    setVal('hw-render-pipeline', matrix.render_pipeline || 'canvas_single');
 
     // MQTT (nested mqtt.*)
     setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
@@ -799,6 +827,9 @@ async function initSettings() {
     // API auth (top-level)
     setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');
     setVal('hw-api-token', cfg.api_token || '');
+    if (cfg.api_token && cfg.api_token !== '••••••••' && !localStorage.getItem('api_token')) {
+      localStorage.setItem('api_token', cfg.api_token);
+    }
   } catch (e) {
     console.error('Failed to load settings', e);
   }
@@ -880,12 +911,16 @@ async function initSettings() {
     btnSaveHw._boundClick = true;
     btnSaveHw.addEventListener('click', async () => {
       const base = (window.__sysConfig && window.__sysConfig.matrix) ? { ...window.__sysConfig.matrix } : {};
-      const numOr = (id, d) => parseInt(document.getElementById(id)?.value) || d;
+      const numOr = (id, d) => {
+        const v = parseInt(document.getElementById(id)?.value, 10);
+        return Number.isNaN(v) ? d : v;
+      };
       const matrix = {
         ...base,
         height: numOr('hw-rows', 32),
         width: numOr('hw-cols', 64),
         chain_length: numOr('hw-chain', 1),
+        parallel: numOr('hw-parallel', 1),
         driver_chip: document.getElementById('hw-driver-chip')?.value || 'SHIFTREG',
         mapping: document.getElementById('hw-mapping')?.value || 'regular',
         rgb_sequence: document.getElementById('hw-rgb')?.value || 'RGB',
@@ -896,6 +931,7 @@ async function initSettings() {
         pwm_lsb_nanoseconds: numOr('hw-pwm-lsb', 130),
         limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
         disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
+        render_pipeline: document.getElementById('hw-render-pipeline')?.value || 'canvas_single',
       };
 
       try {

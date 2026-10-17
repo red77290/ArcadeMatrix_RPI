@@ -1,4 +1,4 @@
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Rect {
@@ -124,7 +124,7 @@ pub fn get_dashboard_theme(theme_id: i32) -> DashboardTheme {
 
 #[inline(always)]
 pub fn draw_pixel_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     x: i32,
     y: i32,
     min_x: i32,
@@ -141,7 +141,7 @@ pub fn draw_pixel_clipped(
 }
 
 pub fn draw_line_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     mut x0: i32,
     mut y0: i32,
     x1: i32,
@@ -176,7 +176,7 @@ pub fn draw_line_clipped(
 }
 
 pub fn fill_rect_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     min_x: i32,
     max_x: i32,
@@ -199,7 +199,7 @@ pub fn fill_rect_clipped(
 }
 
 pub fn draw_rect_clipped(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     min_x: i32,
     max_x: i32,

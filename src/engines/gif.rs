@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::types::DisplayGeometry;
 use image::RgbImage;
 use linkme::distributed_slice;
@@ -270,7 +270,7 @@ impl GifEngine {
         }
 
         // STRICT SEPARATION:
-        // "en vertical, s'il n'y a pas de gifs vertical tu ne joue rien, meme chose à l'horizontal"
+        // In vertical mode, if no vertical GIFs exist, play nothing; same rule applies to horizontal mode.
         // ZERO fallback to alternate orientation! If no files match the current orientation, return false and play nothing!
         if valid_files.is_empty() {
             self.frames.clear();
@@ -347,7 +347,7 @@ impl GifEngine {
         }
     }
 
-    pub fn draw_current_frame(&mut self, matrix: &mut dyn MatrixBackend) -> bool {
+    pub fn draw_current_frame(&mut self, matrix: &mut dyn IDrawingSurface) -> bool {
         if self.frames.is_empty() {
             return false;
         }
@@ -366,7 +366,7 @@ impl GifEngine {
         self.loop_count >= target_loops
     }
 
-    pub fn redraw_current(&mut self, matrix: &mut dyn MatrixBackend) {
+    pub fn redraw_current(&mut self, matrix: &mut dyn IDrawingSurface) {
         if let Some((ref img, _)) = self.frames.get(self.frame_index) {
             matrix.draw_image(img, 0, 0);
             self.last_drawn_index = Some(self.frame_index);
@@ -380,8 +380,8 @@ impl Engine for GifEngine {
         context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        self.target_width = context.matrix.width();
-        self.target_height = context.matrix.height();
+        self.target_width = context.surface.width();
+        self.target_height = context.surface.height();
         self.geometry = DisplayGeometry::new(self.target_width, self.target_height, 0, 0);
         self.apply_config(config);
         Ok(())
@@ -390,8 +390,17 @@ impl Engine for GifEngine {
     fn activate(&mut self) {
         self.gifs_played = 0;
         self.loop_count = 0;
+        self.last_drawn_index = None;
         self.play_random_playlist_gif(&self.playlists.clone());
         self.last_update = Some(Instant::now());
+    }
+
+    fn wants_clear(&self) -> bool {
+        false
+    }
+
+    fn has_new_frame(&self) -> bool {
+        self.last_drawn_index != Some(self.frame_index)
     }
 
     fn is_realtime(&self) -> bool {
@@ -399,8 +408,8 @@ impl Engine for GifEngine {
     }
 
     fn update(&mut self, context: &mut EngineContext) {
-        let w = context.matrix.width();
-        let h = context.matrix.height();
+        let w = context.surface.width();
+        let h = context.surface.height();
         if self.target_width != w || self.target_height != h {
             self.target_width = w;
             self.target_height = h;
@@ -444,7 +453,8 @@ impl Engine for GifEngine {
             return;
         }
         let (ref img, _) = self.frames[self.frame_index];
-        context.matrix.draw_image(img, 0, 0);
+        context.surface.draw_image(img, 0, 0);
+        self.last_drawn_index = Some(self.frame_index);
     }
 
     fn deactivate(&mut self) {

@@ -1,11 +1,11 @@
 //! MQTT Data engine: payload parsing and the graph page renderer.
 
-use arcadematrix::core::matrix::MockMatrix;
+use arcadematrix::core::matrix::MockSurface;
 use arcadematrix::engines::mqtt_data::graph::{layout_for, render_graph, slot_for_column};
 use arcadematrix::engines::mqtt_data::payload::{
     parse_graph_payload, parse_hex_color, MAX_POINTS, MAX_SERIES,
 };
-fn px(m: &MockMatrix, x: u32, y: u32) -> (u8, u8, u8) {
+fn px(m: &MockSurface, x: u32, y: u32) -> (u8, u8, u8) {
     let p = m.canvas.get_pixel(x, y);
     (p[0], p[1], p[2])
 }
@@ -161,7 +161,7 @@ fn columns_map_to_slots() {
 
 #[test]
 fn no_data_notice_is_drawn() {
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, None, true, "NO DATA");
     let lit = m.canvas.pixels().filter(|p| p[0] > 0).count();
     assert!(lit > 0);
@@ -180,7 +180,7 @@ fn stacked_bars_have_expected_heights_on_128x32() {
                                {"color":"#00D0A0","data":[0,1,1,0]}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     // Header on (empty title): plot rows 8..31 = 24 rows.
     render_graph(&mut m, Some(&g), true, "NO DATA");
     // Slot 0: empty.
@@ -204,7 +204,7 @@ fn overlay_draws_later_series_on_top() {
                                              {"color":"#00D0A0","data":[1]}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, Some(&g), false, "");
     assert_eq!(px(&m, 5, 31), DN); // overlay on top at the bottom half
     assert_eq!(px(&m, 5, 15), UP); // only the taller series above
@@ -220,7 +220,7 @@ fn bands_marks_and_header_render() {
             "marks":[{"at":1,"color":"#404040"}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(128, 32);
+    let mut m = MockSurface::new(128, 32);
     render_graph(&mut m, Some(&g), true, "");
     // Band covers slot 2 = columns 64..95, plot rows 8..31 only.
     assert_eq!(px(&m, 70, 8), (0x30, 0x18, 0x00));
@@ -245,7 +245,7 @@ fn tall_panel_uses_big_header_and_gridline() {
         r##"{"title":"AC","slots":96,"max":6,"series":[{"color":"#2080FF","data":[]}]}"##,
     )
     .unwrap();
-    let mut m = MockMatrix::new(256, 64);
+    let mut m = MockSurface::new(256, 64);
     render_graph(&mut m, Some(&g), true, "");
     // Gridline at 50 %: 49-row plot -> 25 rows up from the bottom = row 39.
     assert_eq!(px(&m, 100, 39), (0x20, 0x20, 0x20));

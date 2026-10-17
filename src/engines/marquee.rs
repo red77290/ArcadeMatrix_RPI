@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
     EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder, RgbImage};
 use linkme::distributed_slice;
@@ -18,6 +18,7 @@ pub struct MarqueeEngine {
     pub frame_index: usize,
     pub frame_elapsed: Duration,
     pub last_update: Option<Instant>,
+    pub last_drawn_frame: Option<usize>,
 }
 
 impl MarqueeEngine {
@@ -30,6 +31,7 @@ impl MarqueeEngine {
             frame_index: 0,
             frame_elapsed: Duration::ZERO,
             last_update: None,
+            last_drawn_frame: None,
         }
     }
 
@@ -68,6 +70,7 @@ impl MarqueeEngine {
                 self.frame_index = 0;
                 self.frame_elapsed = Duration::ZERO;
                 self.last_update = Some(Instant::now());
+                self.last_drawn_frame = None;
                 return true;
             }
         } else if let Ok(img) = image::open(p) {
@@ -75,6 +78,7 @@ impl MarqueeEngine {
             self.frame_index = 0;
             self.frame_elapsed = Duration::ZERO;
             self.last_update = Some(Instant::now());
+            self.last_drawn_frame = None;
             return true;
         }
         false
@@ -104,7 +108,7 @@ impl MarqueeEngine {
         None
     }
 
-    pub fn render_image(&self, matrix: &mut dyn MatrixBackend, image: &RgbImage) {
+    pub fn render_image(&self, matrix: &mut dyn IDrawingSurface, image: &RgbImage) {
         let mw = matrix.width() as u32;
         let mh = matrix.height() as u32;
         let iw = image.width();
@@ -170,6 +174,7 @@ impl Engine for MarqueeEngine {
             self.load_file(path);
         }
         self.last_update = Some(Instant::now());
+        self.last_drawn_frame = None;
     }
 
     fn update(&mut self, _context: &mut EngineContext) {
@@ -195,18 +200,35 @@ impl Engine for MarqueeEngine {
         }
     }
 
-    fn render(&mut self, context: &mut EngineContext) {
-        context.matrix.clear();
-        let lock = context.config.image_obj.lock();
-        if let Some(img) = lock.as_ref() {
-            self.render_image(&mut *context.matrix, img);
-        } else if !self.frames.is_empty() {
-            let img = &self.frames[self.frame_index].0;
-            self.render_image(&mut *context.matrix, img);
+    fn deactivate(&mut self) {}
+
+    fn wants_clear(&self) -> bool {
+        self.fit_mode != "fill"
+    }
+
+    fn is_realtime(&self) -> bool {
+        self.frames.len() > 1
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.frames.len() > 1 {
+            self.last_drawn_frame != Some(self.frame_index)
+        } else {
+            self.last_drawn_frame.is_none()
         }
     }
 
-    fn deactivate(&mut self) {}
+    fn render(&mut self, context: &mut EngineContext) {
+        let lock = context.config.image_obj.lock();
+        if let Some(img) = lock.as_ref() {
+            self.render_image(&mut *context.surface, img);
+            self.last_drawn_frame = Some(0);
+        } else if !self.frames.is_empty() {
+            let img = &self.frames[self.frame_index].0;
+            self.render_image(&mut *context.surface, img);
+            self.last_drawn_frame = Some(self.frame_index);
+        }
+    }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         self.file_path = config.get_string("file_path", "data/marquees/custom_marquee.gif");
@@ -226,10 +248,6 @@ impl Engine for MarqueeEngine {
     }
 
     fn allow_rotation(&self) -> bool {
-        true
-    }
-
-    fn is_realtime(&self) -> bool {
         true
     }
 

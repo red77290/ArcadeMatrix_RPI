@@ -78,6 +78,31 @@ impl RotationEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RenderPipeline {
+    /// Auto (Recommended): Automatically resolves to CanvasSingle for Wi-Fi safety
+    Auto,
+    /// Canvas Buffered + Single Buffer + Dirty Draw (Recommended):
+    /// Offscreen RgbImage canvas, dirty row tracking, no VSync swap churn, minimal memory bus contention.
+    CanvasSingle,
+    /// Canvas Buffered + Double Buffer:
+    /// Offscreen RgbImage canvas pushed to inactive LedCanvas with SwapOnVSync.
+    CanvasDouble,
+    /// Direct Double Buffer:
+    /// Direct rendering to inactive LedCanvas via C FFI + SwapOnVSync.
+    DirectDouble,
+    /// Direct Single Buffer:
+    /// Direct rendering to active scanning LedCanvas.
+    DirectSingle,
+}
+
+impl Default for RenderPipeline {
+    fn default() -> Self {
+        RenderPipeline::CanvasSingle
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MatrixConfig {
@@ -85,6 +110,8 @@ pub struct MatrixConfig {
     pub height: u32,
     pub panel_type: String,
     pub chain_length: u32,
+    #[serde(default = "default_parallel")]
+    pub parallel: u32,
     pub power_limit_percent: u32,
     pub force_single_buffer: bool,
     pub color_depth: u32,
@@ -94,6 +121,8 @@ pub struct MatrixConfig {
     pub clk_phase: bool,
     pub latch_blanking: u32,
     pub row_address_mode: u32,
+    #[serde(default)]
+    pub scan_mode: u32,
     pub matrix_power: bool,
     pub multiplexing: u32,
     pub slowdown: u32,
@@ -109,6 +138,8 @@ pub struct MatrixConfig {
     pub slot_transition: String,
     #[serde(default = "default_slot_transition_ms")]
     pub slot_transition_duration_ms: u32,
+    #[serde(default)]
+    pub render_pipeline: RenderPipeline,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -200,12 +231,28 @@ pub struct ConfigSettings {
     pub api_token: String,
 }
 
+fn default_parallel() -> u32 {
+    1
+}
+
 fn default_slot_transition() -> String {
     "none".to_string()
 }
 
 fn default_slot_transition_ms() -> u32 {
     500
+}
+
+pub fn generate_random_token() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let bytes: [u8; 16] = rng.gen();
+    let mut out = String::with_capacity(32);
+    for b in bytes {
+        use std::fmt::Write;
+        let _ = write!(&mut out, "{:02x}", b);
+    }
+    out
 }
 
 impl Default for MatrixConfig {
@@ -215,6 +262,7 @@ impl Default for MatrixConfig {
             height: 32,
             panel_type: "".to_string(),
             chain_length: 1,
+            parallel: 1,
             power_limit_percent: 40,
             force_single_buffer: false,
             color_depth: 24,
@@ -224,6 +272,7 @@ impl Default for MatrixConfig {
             clk_phase: false,
             latch_blanking: 0,
             row_address_mode: 0,
+            scan_mode: 0,
             matrix_power: true,
             multiplexing: 0,
             slowdown: 2,
@@ -236,6 +285,7 @@ impl Default for MatrixConfig {
             transition_duration_ms: 400,
             slot_transition: default_slot_transition(),
             slot_transition_duration_ms: default_slot_transition_ms(),
+            render_pipeline: RenderPipeline::CanvasSingle,
         }
     }
 }
@@ -305,7 +355,7 @@ impl Default for ConfigSettings {
             data_mqtt: DataMqttConfig::default(),
             system: SystemConfig::default(),
             api_auth_enabled: false,
-            api_token: "9101d2ff5928c93107e537aa3c07a282".to_string(),
+            api_token: generate_random_token(),
             instances: vec![],
             rotation: vec![],
         }
@@ -332,23 +382,44 @@ impl Config {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let path_buf = path.as_ref().to_path_buf();
         let json_file = path_buf.with_file_name("config.json");
+        let bak_file = json_file.with_extension("json.bak");
 
         let mut settings = ConfigSettings::default();
         let mut needs_save = false;
+        let mut loaded = false;
 
         if json_file.exists() {
             if let Ok(json_str) = std::fs::read_to_string(&json_file) {
                 match serde_json::from_str::<ConfigSettings>(&json_str) {
-                    Ok(s) => settings = s,
+                    Ok(s) => {
+                        settings = s;
+                        loaded = true;
+                    }
                     Err(e) => {
-                        tracing::error!("Failed to parse config.json, resetting to default: {}", e);
+                        tracing::error!(
+                            "Failed to parse config.json ({}), attempting backup recovery...",
+                            e
+                        );
                         needs_save = true;
                     }
                 }
             } else {
                 needs_save = true;
             }
-        } else {
+        }
+
+        if !loaded && bak_file.exists() {
+            if let Ok(bak_str) = std::fs::read_to_string(&bak_file) {
+                if let Ok(s) = serde_json::from_str::<ConfigSettings>(&bak_str) {
+                    tracing::warn!("Recovered configuration from config.json.bak");
+                    settings = s;
+                    loaded = true;
+                    needs_save = true;
+                }
+            }
+        }
+
+        if !loaded && !json_file.exists() {
             // Default setup if no JSON exists
             let mut clock_cfg = std::collections::HashMap::new();
             clock_cfg.insert("theme".to_string(), "0".to_string());
@@ -385,11 +456,12 @@ impl Config {
             needs_save = true;
         }
 
-        let sanitize_res =
-            crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
-        if sanitize_res.modified {
+        if settings.api_token.trim().is_empty() {
+            settings.api_token = generate_random_token();
             needs_save = true;
         }
+
+        let _ = crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
 
         // Seed the live daytime brightness from the persisted value so a user's
         // saved brightness survives restarts instead of resetting to full.
@@ -453,13 +525,81 @@ impl Config {
         });
     }
 
-    pub fn save(&self) -> bool {
-        let s = self.settings.read().clone();
-        if let Ok(json_str) = serde_json::to_string_pretty(&s) {
-            std::fs::write(&self.json_file, json_str).is_ok()
-        } else {
-            false
+    pub fn get_sys_string(&self, key: &str, default: &str) -> String {
+        let s = self.settings.read();
+        match key {
+            "language" | "lang" => {
+                if s.system.lang.is_empty() {
+                    default.to_string()
+                } else {
+                    s.system.lang.clone()
+                }
+            }
+            "timezone" => {
+                if s.system.timezone.is_empty() {
+                    default.to_string()
+                } else {
+                    s.system.timezone.clone()
+                }
+            }
+            "temp_unit" => {
+                if s.system.temp_unit.is_empty() {
+                    default.to_string()
+                } else {
+                    s.system.temp_unit.clone()
+                }
+            }
+            _ => default.to_string(),
         }
+    }
+
+    pub fn save(&self) -> bool {
+        use std::io::Write;
+        let s = self.settings.read().clone();
+        let Ok(json_str) = serde_json::to_string_pretty(&s) else {
+            return false;
+        };
+
+        let tmp_file = self.json_file.with_extension("json.tmp");
+        let bak_file = self.json_file.with_extension("json.bak");
+
+        let mut file = match std::fs::File::create(&tmp_file) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::error!(
+                    "Failed to create temporary config file {:?}: {}",
+                    tmp_file,
+                    e
+                );
+                return false;
+            }
+        };
+
+        if let Err(e) = file
+            .write_all(json_str.as_bytes())
+            .and_then(|_| file.sync_all())
+        {
+            tracing::error!(
+                "Failed to write and sync temporary config file {:?}: {}",
+                tmp_file,
+                e
+            );
+            let _ = std::fs::remove_file(&tmp_file);
+            return false;
+        }
+        drop(file);
+
+        if let Err(e) = std::fs::rename(&tmp_file, &self.json_file) {
+            tracing::error!(
+                "Failed to atomically rename {:?} to {:?}: {}",
+                tmp_file,
+                self.json_file,
+                e
+            );
+            return false;
+        }
+        let _ = std::fs::copy(&self.json_file, &bak_file);
+        true
     }
 }
 
@@ -493,5 +633,33 @@ mod tests {
         assert_eq!(entry.instance_id, "clock_main");
         assert_eq!(entry.duration_sec, 45);
         assert_eq!(entry.overlays.fighter, false);
+    }
+
+    #[test]
+    fn test_atomic_save_and_backup_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("config.json");
+        let cfg = Config::new(&cfg_path);
+        {
+            let mut s = cfg.settings.write();
+            s.wifi.hostname = "custom-arcade".to_string();
+        }
+        assert!(cfg.save());
+        assert!(dir.path().join("config.json.bak").exists());
+
+        // Corrupt config.json and verify recovery from config.json.bak
+        std::fs::write(&cfg_path, "{corrupted_json").unwrap();
+        let recovered = Config::new(&cfg_path);
+        assert_eq!(recovered.settings.read().wifi.hostname, "custom-arcade");
+    }
+
+    #[test]
+    fn test_empty_api_token_regenerated() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("config.json");
+        std::fs::write(&cfg_path, r#"{"api_token":""}"#).unwrap();
+        let cfg = Config::new(&cfg_path);
+        let token = cfg.settings.read().api_token.clone();
+        assert_eq!(token.len(), 32);
     }
 }

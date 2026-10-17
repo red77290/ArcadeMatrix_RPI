@@ -7,7 +7,7 @@
 //!
 //! The same helpers exist in the ESP32 firmware, so both signs lay these faces out identically.
 
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 
 pub const SIZE: i32 = 64;
 
@@ -53,7 +53,7 @@ fn rgb565(c: u16) -> (u8, u8, u8) {
     )
 }
 
-pub fn put(matrix: &mut dyn MatrixBackend, x: i32, y: i32, c: u16) {
+pub fn put(matrix: &mut dyn IDrawingSurface, x: i32, y: i32, c: u16) {
     if x < 0 || y < 0 || x >= matrix.width() as i32 || y >= matrix.height() as i32 {
         return;
     }
@@ -63,7 +63,7 @@ pub fn put(matrix: &mut dyn MatrixBackend, x: i32, y: i32, c: u16) {
 
 /// Paint a 64x64 background: the scene in the middle, with its outermost columns and rows carried
 /// out to the panel edges so the extra width reads as more of the same picture.
-pub fn draw_background(matrix: &mut dyn MatrixBackend, bg: &[u16], panel_w: i32, panel_h: i32) {
+pub fn draw_background(matrix: &mut dyn IDrawingSurface, bg: &[u16], panel_w: i32, panel_h: i32) {
     let d = divisor(panel_h);
     let ox = origin_x(panel_w, panel_h);
     let oy = origin_y(panel_h);
@@ -80,7 +80,7 @@ pub fn draw_background(matrix: &mut dyn MatrixBackend, bg: &[u16], panel_w: i32,
 
 /// Fill the panel outside the scene with one colour, for faces whose artwork is a framed picture
 /// rather than a landscape (repeating their edge would flood the panel).
-pub fn fill_surround(matrix: &mut dyn MatrixBackend, panel_w: i32, panel_h: i32, c: u16) {
+pub fn fill_surround(matrix: &mut dyn IDrawingSurface, panel_w: i32, panel_h: i32, c: u16) {
     let ox = origin_x(panel_w, panel_h);
     let oy = origin_y(panel_h);
     let size = scaled_size(panel_h);
@@ -97,7 +97,7 @@ pub fn fill_surround(matrix: &mut dyn MatrixBackend, panel_w: i32, panel_h: i32,
 /// Blit a sprite at scene coordinates, skipping `mask`.
 #[allow(clippy::too_many_arguments)]
 pub fn draw_sprite(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     data: &[u16],
     w: i32,
     h: i32,

@@ -2,7 +2,7 @@ use crate::core::engine_contract::{
     Capabilities, ConfigSchema, Engine, EngineConfig, EngineContext, EngineDescriptor, EngineError,
     EngineMetadata, Requirements,
 };
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::renderers::BaseRenderer;
 use linkme::distributed_slice;
 use serde::{Deserialize, Serialize};
@@ -80,6 +80,9 @@ pub struct MessageEngine {
     cached_pixels: Vec<Vec<(i32, i32)>>,
     last_update: Option<Instant>,
     last_payload: Option<std::sync::Arc<MessagePayload>>,
+    has_drawn_static: bool,
+    last_width: f32,
+    last_height: f32,
 }
 
 impl MessageEngine {
@@ -100,10 +103,16 @@ impl MessageEngine {
             cached_pixels: Vec::new(),
             last_update: None,
             last_payload: None,
+            has_drawn_static: false,
+            last_width: 128.0,
+            last_height: 64.0,
         }
     }
 
     pub fn reset_state(&mut self, width: f32, height: f32) {
+        self.last_width = width;
+        self.last_height = height;
+        self.has_drawn_static = false;
         self.move_accumulator = 0.0;
         let font = self.base_renderer.font();
         let (pixels, _, _) = font.get_pixel_map(&self.text, self.size as f32);
@@ -158,7 +167,7 @@ impl MessageEngine {
 
     pub fn render_payload(
         &mut self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         payload: &MessagePayload,
     ) -> bool {
         let move_px = 33.0 / payload.speed.max(1) as f32; // Assuming ~33ms frame time
@@ -250,18 +259,20 @@ impl Engine for MessageEngine {
         self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
         self.speed = config.get_int("speed", 50) as u32;
         self.reset_state(
-            context.matrix.width() as f32,
-            context.matrix.height() as f32,
+            context.surface.width() as f32,
+            context.surface.height() as f32,
         );
         Ok(())
     }
 
     fn activate(&mut self) {
-        self.reset_state(128.0, 64.0);
+        self.reset_state(self.last_width, self.last_height);
         self.last_update = Some(Instant::now());
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        self.last_width = context.surface.width() as f32;
+        self.last_height = context.surface.height() as f32;
         let snap = context.config.producer_snapshot.load();
         if let Some(ref payload) = snap.message_payload {
             let is_changed = match &self.last_payload {
@@ -276,8 +287,8 @@ impl Engine for MessageEngine {
                 self.direction = ScrollDirection::parse(&payload.direction);
                 self.speed = payload.speed;
                 self.reset_state(
-                    context.matrix.width() as f32,
-                    context.matrix.height() as f32,
+                    context.surface.width() as f32,
+                    context.surface.height() as f32,
                 );
             }
         }
@@ -301,47 +312,49 @@ impl Engine for MessageEngine {
 
         let step_ms = (self.speed.max(1) as f32).max(1.0);
         let move_px = dt_ms / step_ms;
-        let mat_w = context.matrix.width() as f32;
-        let mat_h = context.matrix.height() as f32;
+        let mat_w = context.surface.width() as f32;
+        let mat_h = context.surface.height() as f32;
 
         match self.direction {
             ScrollDirection::Rtl => {
                 self.offset_x -= move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
                 if self.offset_x < -(self.text_w as f32) {
                     self.offset_x = mat_w;
                 }
             }
             ScrollDirection::Ltr => {
                 self.offset_x += move_px;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
                 if self.offset_x > mat_w {
                     self.offset_x = -(self.text_w as f32);
                 }
             }
             ScrollDirection::Ttb => {
                 self.offset_y += move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
                 if self.offset_y > mat_h {
                     self.offset_y = -(self.text_h as f32);
                 }
             }
             ScrollDirection::Btt => {
                 self.offset_y -= move_px;
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
                 if self.offset_y < -(self.text_h as f32) {
                     self.offset_y = mat_h;
                 }
             }
             ScrollDirection::None => {
-                self.offset_x = ((context.matrix.width() as i32 - self.text_w) / 2).max(0) as f32;
-                self.offset_y = ((context.matrix.height() as i32 - self.text_h) / 2).max(0) as f32;
+                self.offset_x = ((context.surface.width() as i32 - self.text_w) / 2).max(0) as f32;
+                self.offset_y = ((context.surface.height() as i32 - self.text_h) / 2).max(0) as f32;
             }
         }
     }
 
     fn render(&mut self, context: &mut EngineContext) {
-        let matrix = &mut *context.matrix;
+        self.last_width = context.surface.width() as f32;
+        self.last_height = context.surface.height() as f32;
+        let matrix = &mut *context.surface;
         let (r, g, b) = self.parsed_color;
 
         let start_x = self.offset_x.round() as i32;
@@ -351,6 +364,26 @@ impl Engine for MessageEngine {
             for &(gx, gy) in char_pixels {
                 matrix.set_pixel(start_x + gx, start_y + gy, r, g, b);
             }
+        }
+
+        if self.direction == ScrollDirection::None {
+            self.has_drawn_static = true;
+        }
+    }
+
+    fn wants_clear(&self) -> bool {
+        true
+    }
+
+    fn is_realtime(&self) -> bool {
+        self.direction != ScrollDirection::None
+    }
+
+    fn has_new_frame(&self) -> bool {
+        if self.is_realtime() {
+            true
+        } else {
+            !self.has_drawn_static
         }
     }
 
@@ -362,7 +395,7 @@ impl Engine for MessageEngine {
         self.size = config.get_int("size", 1) as u32;
         self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
         self.speed = config.get_int("speed", 50) as u32;
-        self.reset_state(128.0, 64.0);
+        self.reset_state(self.last_width, self.last_height);
     }
 }
 

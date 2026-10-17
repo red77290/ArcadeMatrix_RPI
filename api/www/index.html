@@ -37,7 +37,9 @@
         <li class="nav-item" data-page="media">
           <span class="icon">🎬</span> <span data-i18n="nav_media">Media</span>
         </li>
-        
+        <li class="nav-item" data-page="message">
+          <span class="icon">💬</span> <span data-i18n="nav_message">Message</span>
+        </li>
         <li class="nav-item" data-page="system">
           <span class="icon">⚙️</span> <span data-i18n="nav_system">System</span>
         </li>
@@ -478,6 +480,18 @@
                     <span class="slider"></span>
                   </label>
                 </div>
+              </div>
+            </div>
+            <div class="form-grid col-1" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label><span data-i18n="hw_pipeline_label">Rendering & Buffering Pipeline</span> <span class="tooltip-icon tooltip-lg" data-tooltip="Choose buffering strategy. Canvas Single + Dirty Draw is recommended for Wi-Fi stability.">?</span></label>
+                <select id="hw-render-pipeline" class="input">
+                  <option value="auto" data-i18n="hw_pipeline_auto">✨ Auto (Recommended - Wi-Fi Safe)</option>
+                  <option value="canvas_single" data-i18n="hw_pipeline_canvas_single" selected>⚡ Canvas Buffered + Single Buffer + Dirty Draw (Recommended)</option>
+                  <option value="canvas_double" data-i18n="hw_pipeline_canvas_double">🚀 Canvas Buffered + Double Buffer (SwapOnVSync)</option>
+                  <option value="direct_double" data-i18n="hw_pipeline_direct_double">🛡️ Direct Double Buffer (Hardware VSync, Low CPU)</option>
+                  <option value="direct_single" data-i18n="hw_pipeline_direct_single">⚠️ Direct Single Buffer (Raw Active Canvas)</option>
+                </select>
               </div>
             </div>
             <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">💾 Save Hardware Settings</button>

@@ -3,7 +3,7 @@
 //! spec section A). Pure drawing: no I/O, no JSON.
 
 use super::payload::GraphData;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::{draw_text_scaled, measure_text};
 use crate::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width, TINY_ADVANCE, TINY_H};
 
@@ -48,7 +48,7 @@ pub fn slot_for_column(x: i32, width: i32, slots: usize) -> usize {
 }
 
 fn fill_column(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     x: i32,
     y_from: i32,
     y_to_exclusive: i32,
@@ -94,7 +94,7 @@ impl YScale {
     /// Fills the bar rows strictly between values `a` and `b` in column `x`.
     fn fill_between(
         &self,
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         a: f32,
         b: f32,
@@ -117,7 +117,7 @@ fn axis_label(v: f32, out: &mut String) {
 /// Draws the whole screen for `graph` (or the "no data" notice). Pure drawing
 /// with no I/O, so it can be unit-tested on the mock matrix.
 pub fn render_graph(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     graph: Option<&GraphData>,
     show_header: bool,
     no_data_label: &str,
@@ -129,7 +129,7 @@ pub fn render_graph(
 /// [`render_graph`] with caller-owned buffers for the y-axis label text, so
 /// the engine's render path does not allocate.
 pub fn render_graph_with(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     graph: Option<&GraphData>,
     show_header: bool,
     no_data_label: &str,

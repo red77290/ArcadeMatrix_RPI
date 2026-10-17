@@ -1,5 +1,5 @@
 use actix_multipart::Multipart;
-use actix_web::{get, post, web, HttpResponse, Responder};
+use actix_web::{get, post, web, HttpRequest, HttpResponse, Responder};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
@@ -11,6 +11,14 @@ const EM_AARCH64: u16 = 183;
 const EM_ARM: u16 = 40;
 
 const GITHUB_RELEASES_API: &str = "https://api.github.com/repos/red77290/ArcadeMatrix_RPI/releases";
+const MAX_OTA_BYTES: usize = 64 * 1024 * 1024;
+
+fn is_allowed_ota_download_url(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    lower.starts_with("https://github.com/red77290/arcadematrix_rpi/releases/download/")
+        || lower
+            .starts_with("https://api.github.com/repos/red77290/arcadematrix_rpi/releases/assets/")
+}
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct ParsedVersion {
@@ -151,7 +159,14 @@ pub async fn get_version() -> impl Responder {
 }
 
 #[get("/api/ota/check")]
-pub async fn check_update() -> impl Responder {
+pub async fn check_update(
+    req: HttpRequest,
+    data: web::Data<crate::api::server::AppState>,
+) -> impl Responder {
+    if let Err(e) = crate::api::server::check_auth(&req, &data.config) {
+        return e;
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("ArcadeMatrix-RPi-OTA")
         .timeout(std::time::Duration::from_secs(10))
@@ -267,9 +282,14 @@ pub async fn check_update() -> impl Responder {
 
 #[post("/api/ota/auto-update")]
 pub async fn auto_update(
+    req: HttpRequest,
     body: Option<web::Json<AutoUpdateRequest>>,
     data: web::Data<crate::api::server::AppState>,
 ) -> impl Responder {
+    if let Err(e) = crate::api::server::check_auth(&req, &data.config) {
+        return e;
+    }
+
     let client = reqwest::Client::builder()
         .user_agent("ArcadeMatrix-RPi-OTA")
         .timeout(std::time::Duration::from_secs(120))
@@ -285,7 +305,16 @@ pub async fn auto_update(
         }
     };
 
-    let download_url = if let Some(b) = body.and_then(|b| b.download_url.clone()) {
+    let download_url = if let Some(b) = body
+        .and_then(|b| b.download_url.clone())
+        .filter(|u| !u.trim().is_empty())
+    {
+        if !is_allowed_ota_download_url(&b) {
+            return HttpResponse::BadRequest().json(serde_json::json!({
+                "status": "error",
+                "message": "Invalid download_url: must originate from official ArcadeMatrix_RPI GitHub releases"
+            }));
+        }
         b
     } else {
         let res = match client.get(GITHUB_RELEASES_API).send().await {
@@ -367,7 +396,7 @@ pub async fn auto_update(
     };
 
     info!("Downloading binary from: {}", download_url);
-    let resp = match client.get(&download_url).send().await {
+    let mut resp = match client.get(&download_url).send().await {
         Ok(r) => r,
         Err(e) => {
             return HttpResponse::BadGateway().json(serde_json::json!({
@@ -384,15 +413,34 @@ pub async fn auto_update(
         }));
     }
 
-    let firmware_bytes = match resp.bytes().await {
-        Ok(b) => b,
-        Err(e) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
+    if let Some(len) = resp.content_length() {
+        if len as usize > MAX_OTA_BYTES {
+            return HttpResponse::PayloadTooLarge().json(serde_json::json!({
                 "status": "error",
-                "message": format!("Failed reading downloaded bytes: {}", e)
-            }))
+                "message": "Firmware binary exceeds maximum allowed size (64 MB)"
+            }));
         }
-    };
+    }
+
+    let mut firmware_bytes = Vec::new();
+    while let Some(chunk_res) = resp.chunk().await.transpose() {
+        let chunk = match chunk_res {
+            Ok(c) => c,
+            Err(e) => {
+                return HttpResponse::InternalServerError().json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("Failed reading downloaded bytes: {}", e)
+                }))
+            }
+        };
+        if firmware_bytes.len() + chunk.len() > MAX_OTA_BYTES {
+            return HttpResponse::PayloadTooLarge().json(serde_json::json!({
+                "status": "error",
+                "message": "Firmware binary exceeds maximum allowed size (64 MB)"
+            }));
+        }
+        firmware_bytes.extend_from_slice(&chunk);
+    }
 
     if let Err(msg) = validate_firmware(&firmware_bytes, crate::core::build_info::ARCH) {
         if !(msg.starts_with("Architecture mismatch") && cfg!(debug_assertions)) {
@@ -421,9 +469,14 @@ pub async fn auto_update(
 
 #[post("/api/update")]
 pub async fn handle_update(
+    req: HttpRequest,
     mut payload: Multipart,
     data: web::Data<crate::api::server::AppState>,
 ) -> impl Responder {
+    if let Err(e) = crate::api::server::check_auth(&req, &data.config) {
+        return e;
+    }
+
     let mut firmware_bytes = Vec::new();
 
     while let Some(item) = payload.next().await {
@@ -447,6 +500,12 @@ pub async fn handle_update(
                     }))
                 }
             };
+            if firmware_bytes.len() + data.len() > MAX_OTA_BYTES {
+                return HttpResponse::PayloadTooLarge().json(serde_json::json!({
+                    "status": "error",
+                    "message": "Firmware binary exceeds maximum allowed size (64 MB)"
+                }));
+            }
             firmware_bytes.extend_from_slice(&data);
         }
     }
@@ -481,20 +540,13 @@ fn apply_binary_update(firmware_bytes: &[u8]) -> Result<std::path::PathBuf, Stri
         .and_then(|p| p.canonicalize().or(Ok(p)))
         .map_err(|e| format!("Failed to locate current executable path: {}", e))?;
 
-    // 1. Stage in /tmp/arcadematrix_update (world-writable 1777, guaranteed to succeed regardless of UID)
-    let tmp_staging = std::path::PathBuf::from("/tmp/arcadematrix_update");
-    let _ = std::fs::remove_file(&tmp_staging);
+    let parent_dir = binary_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let staging_path = parent_dir.join(".arcadematrix_update.tmp");
+    let fallback_staging = std::path::PathBuf::from(".arcadematrix_update.tmp");
 
-    std::fs::write(&tmp_staging, firmware_bytes)
-        .map_err(|e| format!("Failed to write to /tmp/arcadematrix_update: {}", e))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp_staging, std::fs::Permissions::from_mode(0o755));
-    }
-
-    // 2. Try direct local atomic replacement in case we have write permissions on the directory
+    // 1. Try direct local atomic replacement in the executable directory
     let temp_path = binary_path.with_extension("tmp_ota");
     let backup_path = binary_path.with_extension("old_ota");
 
@@ -511,7 +563,8 @@ fn apply_binary_update(firmware_bytes: &[u8]) -> Result<std::path::PathBuf, Stri
         if std::fs::rename(&binary_path, &backup_path).is_ok() {
             if std::fs::rename(&temp_path, &binary_path).is_ok() {
                 let _ = std::fs::remove_file(&backup_path);
-                let _ = std::fs::remove_file(&tmp_staging);
+                let _ = std::fs::remove_file(&staging_path);
+                let _ = std::fs::remove_file(&fallback_staging);
                 info!("Direct atomic replacement succeeded at {:?}", binary_path);
                 return Ok(binary_path);
             } else {
@@ -521,12 +574,24 @@ fn apply_binary_update(firmware_bytes: &[u8]) -> Result<std::path::PathBuf, Stri
         let _ = std::fs::remove_file(&temp_path);
     }
 
-    // If direct local replacement wasn't permitted (e.g. dropped privileges),
-    // the binary is safely staged at /tmp/arcadematrix_update and recovery.sh
-    // (running as root via ExecStartPre) will atomically install it upon service restart.
+    // 2. Stage inside executable's directory (or current working directory) with 0o755 permissions
+    let chosen_staging = if std::fs::write(&staging_path, firmware_bytes).is_ok() {
+        staging_path
+    } else {
+        std::fs::write(&fallback_staging, firmware_bytes)
+            .map_err(|e| format!("Failed to write staged firmware binary: {}", e))?;
+        fallback_staging
+    };
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&chosen_staging, std::fs::Permissions::from_mode(0o755));
+    }
+
     info!(
         "Staged firmware at {:?} for root installer during restart",
-        tmp_staging
+        chosen_staging
     );
     Ok(binary_path)
 }

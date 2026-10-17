@@ -3,7 +3,7 @@ use crate::core::engine_contract::{
     EngineContext, EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
 use crate::core::i18n::{self, GNewsStatus, Lang};
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use crate::core::types::DisplayGeometry;
 use crate::engines::dashboard::font::{
     draw_char_clipped, draw_text_clipped, draw_text_scaled, measure_text,
@@ -68,6 +68,7 @@ pub struct GNewsEngine {
     // Thread-safe Async Shared State
     shared_articles: Arc<Mutex<Vec<GNewsArticle>>>,
     shared_status: Arc<Mutex<GNewsStatus>>,
+    shared_quota: Arc<Mutex<(usize, Vec<u32>)>>,
     is_fetching: Arc<AtomicBool>,
 
     // Runtime state
@@ -171,6 +172,7 @@ impl GNewsEngine {
 
             shared_articles: Arc::new(Mutex::new(loaded_articles.clone())),
             shared_status: Arc::new(Mutex::new(loaded_status)),
+            shared_quota: Arc::new(Mutex::new((loaded_key_idx, loaded_usages.clone()))),
             is_fetching: Arc::new(AtomicBool::new(false)),
 
             articles: loaded_articles,
@@ -293,24 +295,7 @@ impl GNewsEngine {
     }
 
     pub fn get_category_short(category: &str) -> &'static str {
-        let cat = category.to_lowercase();
-        if cat.contains("tech") {
-            "TECH"
-        } else if cat.contains("sci") {
-            "SCI"
-        } else if cat.contains("sport") {
-            "SPORT"
-        } else if cat.contains("bus") || cat.contains("fin") || cat.contains("econ") {
-            "BIZ"
-        } else if cat.contains("world") || cat.contains("nation") {
-            "WORLD"
-        } else if cat.contains("ent") || cat.contains("art") {
-            "CULT"
-        } else if cat.contains("heal") {
-            "SANTE"
-        } else {
-            "NEWS"
-        }
+        i18n::gnews_category_short(Lang::En, category)
     }
 
     pub fn get_category_color(category: &str) -> (u8, u8, u8) {
@@ -424,7 +409,7 @@ impl GNewsEngine {
     /// Renders a headline flowing in continuous mental serpentine motion where letters
     /// slide organically into and out of the matrix frame (column-by-column clipping).
     pub fn render_serpentine_headline(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         title_chars: &[char],
         scroll_offset: i32,
         _mw: i32,
@@ -721,7 +706,7 @@ impl GNewsEngine {
     }
 
     fn fill_rect_util(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         w: u32,
@@ -736,7 +721,7 @@ impl GNewsEngine {
     }
 
     fn draw_rect_util(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         w: u32,
@@ -757,7 +742,7 @@ impl GNewsEngine {
     }
 
     fn draw_hline_util(
-        matrix: &mut dyn MatrixBackend,
+        matrix: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
         w: u32,
@@ -916,8 +901,8 @@ impl Engine for GNewsEngine {
 
         let article = &self.articles[self.current_index];
         let headline = article.headline();
-        let mw = ctx.matrix.width();
-        let mh = ctx.matrix.height();
+        let mw = ctx.surface.width();
+        let mh = ctx.surface.height();
         let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
         let cache_invalid = self.cached_article_index != self.current_index
@@ -1095,9 +1080,9 @@ impl Engine for GNewsEngine {
     }
 
     fn render(&mut self, ctx: &mut EngineContext) {
-        let mw = ctx.matrix.width();
-        let mh = ctx.matrix.height();
-        ctx.matrix.clear();
+        let mw = ctx.surface.width();
+        let mh = ctx.surface.height();
+        ctx.surface.clear();
 
         if self.articles.is_empty() {
             let sys_lang = ctx.config.settings.read().system.lang.clone();
@@ -1110,7 +1095,7 @@ impl Engine for GNewsEngine {
                 _ => (0, 229, 255),
             };
 
-            let matrix = &mut *ctx.matrix;
+            let matrix = &mut *ctx.surface;
             let text_w = measure_text(msg);
             let x = ((mw as i32) - text_w) / 2;
             let y = ((mh as i32) - 7) / 2;
@@ -1151,7 +1136,7 @@ impl Engine for GNewsEngine {
             cat_color = (224, 230, 237);
         }
 
-        let matrix = &mut *ctx.matrix;
+        let matrix = &mut *ctx.surface;
         let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
 
         if is_vertical {

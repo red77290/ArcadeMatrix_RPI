@@ -180,3 +180,47 @@ fn prunes_keys_not_in_schema() {
     assert!(!c.contains_key("obsolete_key"), "obsolete key pruned");
     assert_eq!(res.keys_pruned, 1);
 }
+
+#[test]
+fn recreates_missing_rotatable_instances_referenced_by_rotation() {
+    use arcadematrix::core::config::{OverlayConfig, RotationEntry};
+
+    let mut s = ConfigSettings {
+        instances: Vec::new(),
+        rotation: vec![
+            RotationEntry {
+                instance_id: "default_clock".to_string(),
+                duration_sec: 30,
+                overlays: OverlayConfig { fighter: true },
+                fighter_overlay: None,
+            },
+            RotationEntry {
+                instance_id: "google_cast_living_room".to_string(),
+                duration_sec: 20,
+                overlays: OverlayConfig { fighter: false },
+                fighter_overlay: None,
+            },
+            RotationEntry {
+                instance_id: "unknown_engine_99".to_string(),
+                duration_sec: 15,
+                overlays: OverlayConfig { fighter: false },
+                fighter_overlay: None,
+            },
+        ],
+        ..Default::default()
+    };
+
+    let res = ConfigSanitizer::sanitize_instances(&mut s);
+    assert!(res.modified);
+    assert_eq!(s.rotation.len(), 2);
+    assert_eq!(s.rotation[0].instance_id, "default_clock");
+    assert_eq!(s.rotation[1].instance_id, "google_cast_living_room");
+    assert!(s
+        .instances
+        .iter()
+        .any(|i| i.instance_id == "default_clock" && i.engine_id == "clock"));
+    assert!(s
+        .instances
+        .iter()
+        .any(|i| i.instance_id == "google_cast_living_room" && i.engine_id == "google_cast"));
+}

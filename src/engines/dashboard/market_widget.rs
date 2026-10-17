@@ -1,16 +1,21 @@
 use super::data::{format_market_price, MarketQuote};
 use super::font::{draw_text_clipped, measure_text};
 use super::geometry::*;
-use crate::core::matrix::MatrixBackend;
+use crate::core::matrix::IDrawingSurface;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::OnceLock;
 
 static ICON_CACHE_8X8: OnceLock<Mutex<HashMap<String, Option<image::RgbaImage>>>> = OnceLock::new();
+static ICON_FETCH_ATTEMPTED: OnceLock<Mutex<std::collections::HashSet<String>>> = OnceLock::new();
 
 fn get_icon_cache() -> &'static Mutex<HashMap<String, Option<image::RgbaImage>>> {
     ICON_CACHE_8X8.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn get_fetch_attempted() -> &'static Mutex<std::collections::HashSet<String>> {
+    ICON_FETCH_ATTEMPTED.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
 }
 
 pub fn get_or_load_market_icon_8x8(symbol: &str) -> Option<image::RgbaImage> {
@@ -22,13 +27,13 @@ pub fn get_or_load_market_icon_8x8(symbol: &str) -> Option<image::RgbaImage> {
         }
     }
 
-    let loaded = load_or_fetch_market_icon(&sym);
+    let loaded = load_market_icon_from_disk(&sym);
     let mut cache = get_icon_cache().lock();
     cache.insert(sym, loaded.clone());
     loaded
 }
 
-fn load_or_fetch_market_icon(symbol: &str) -> Option<image::RgbaImage> {
+fn load_market_icon_from_disk(symbol: &str) -> Option<image::RgbaImage> {
     let lower = symbol.to_lowercase();
     let paths = [
         format!("data/crypto_icons/{}.png", lower),
@@ -47,21 +52,44 @@ fn load_or_fetch_market_icon(symbol: &str) -> Option<image::RgbaImage> {
             }
         }
     }
+    None
+}
 
-    // Attempt background download from standard ticker endpoints
+pub fn prefetch_market_icon_8x8(symbol: &str) {
+    let sym = symbol.to_uppercase();
+    {
+        let cache = get_icon_cache().lock();
+        if matches!(cache.get(&sym), Some(Some(_))) {
+            return;
+        }
+    }
+
+    if let Some(img) = load_market_icon_from_disk(&sym) {
+        let mut cache = get_icon_cache().lock();
+        cache.insert(sym, Some(img));
+        return;
+    }
+
+    {
+        let mut attempted = get_fetch_attempted().lock();
+        if !attempted.insert(sym.clone()) {
+            return;
+        }
+    }
+
+    let lower = sym.to_lowercase();
     let urls = [
-        format!(
-            "https://financialmodelingprep.com/image-stock/{}.png",
-            symbol
-        ),
+        format!("https://financialmodelingprep.com/image-stock/{}.png", sym),
         format!("https://assets.coincap.io/assets/icons/{}@2x.png", lower),
     ];
 
-    let client = reqwest::blocking::Client::builder()
+    let Ok(client) = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(2))
         .user_agent("Mozilla/5.0")
         .build()
-        .ok()?;
+    else {
+        return;
+    };
 
     for u in &urls {
         let proxy_url = format!("https://wsrv.nl/?url={}&w=8&h=8&output=png", u);
@@ -80,14 +108,14 @@ fn load_or_fetch_market_icon(symbol: &str) -> Option<image::RgbaImage> {
                             8,
                             image::imageops::FilterType::Triangle,
                         );
-                        return Some(resized);
+                        let mut cache = get_icon_cache().lock();
+                        cache.insert(sym, Some(resized));
+                        return;
                     }
                 }
             }
         }
     }
-
-    None
 }
 
 type Icon8x8 = [(u8, u8, u8); 64];
@@ -238,7 +266,7 @@ const ICON_MSFT: Icon8x8 = [
 ];
 
 pub fn draw_mini_market_icon(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     x: i32,
     y: i32,
     min_x: i32,
@@ -328,7 +356,7 @@ struct FormattedMarketItem<'a> {
 }
 
 pub fn render_market_ticker(
-    matrix: &mut dyn MatrixBackend,
+    matrix: &mut dyn IDrawingSurface,
     rect: &Rect,
     markets: &[MarketQuote],
     now_millis: u128,

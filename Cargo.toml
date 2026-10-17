@@ -1,10 +1,10 @@
 [package]
 name = "arcadematrix"
-version = "3.0.0"
+version = "3.0.1"
 edition = "2021"
 publish = false
 description = "ArcadeMatrix RPi - Native Rust LED matrix controller for HUB75 panels"
-license = "PolyForm-Noncommercial-1.0.0"
+license = "MIT"
 build = "build.rs"
 
 [features]

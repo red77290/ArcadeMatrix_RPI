@@ -592,8 +592,8 @@ impl Engine for GifEngine {
             return;
         }
 
-        let (_, delay) = self.frames[self.frame_index];
-        while self.frame_elapsed >= delay {
+        while self.frame_elapsed >= self.frames[self.frame_index].1 {
+            let delay = self.frames[self.frame_index].1;
             self.frame_elapsed -= delay;
             self.frame_index += 1;
             if self.frame_index >= self.frames.len() {

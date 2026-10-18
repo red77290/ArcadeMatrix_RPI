@@ -395,8 +395,8 @@ impl ArcadeMatrixApp {
             }
         };
 
-        let width = surface.width();
-        let height = surface.height();
+        let phys_width = surface.physical_width();
+        let phys_height = surface.physical_height();
 
         let mut arbiter = DisplayArbiter::new();
         let mut runtime = DisplayRuntime::new();
@@ -406,9 +406,11 @@ impl ArcadeMatrixApp {
         let initial_rot = normalize_rotation(config.settings.read().matrix.rotation);
         surface.set_rotation(initial_rot);
         let mut orientation_manager =
-            crate::core::orientation::OrientationManager::new(width, height, initial_rot);
-        let mut overlay_manager =
-            crate::core::overlay_manager::OverlayManager::new(surface.width(), surface.height());
+            crate::core::orientation::OrientationManager::new(phys_width, phys_height, initial_rot);
+        let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(
+            orientation_manager.geometry().width(),
+            orientation_manager.geometry().height(),
+        );
         let mut message_engine = crate::engines::message::MessageEngine::new();
 
         let mut snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());

@@ -653,7 +653,7 @@ impl IDrawingSurface for DirectSurface {
                     green: ((green as u16 * b_scale) / 100) as u8,
                     blue: ((blue as u16 * b_scale) / 100) as u8,
                 };
-                canvas.set(phys_x as usize, phys_y as usize, &color);
+                canvas.set(phys_x, phys_y, &color);
                 self.dirty = true;
             }
         }
@@ -747,7 +747,7 @@ fn init_led_matrix(
     };
     let (w, h) = canvas.canvas_size();
 
-    Ok((matrix, canvas, w, h))
+    Ok((matrix, canvas, w as usize, h as usize))
 }
 
 /// Factory creating the canonical IDrawingSurface according to configuration.

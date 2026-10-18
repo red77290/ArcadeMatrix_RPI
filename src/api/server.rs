@@ -802,15 +802,6 @@ async fn handle_file_upload(
         );
     }
 
-    if is_marquee {
-        // Enforce single-file overwrite: clear existing marquee files
-        if let Ok(entries) = std::fs::read_dir(target_dir) {
-            for entry in entries.flatten() {
-                let _ = std::fs::remove_file(entry.path());
-            }
-        }
-    }
-
     let dest_path = if is_marquee {
         target_dir.join(format!("marquee{}", file_ext))
     } else {
@@ -821,13 +812,29 @@ async fn handle_file_upload(
         target_dir.join(format!("asset_{}{}", ts, file_ext))
     };
 
-    if let Err(e) = std::fs::write(&dest_path, &bytes) {
+    let tmp_path = dest_path.with_extension(format!("{}.tmp", file_ext.trim_start_matches('.')));
+    if let Err(e) = std::fs::write(&tmp_path, &bytes) {
+        let _ = std::fs::remove_file(&tmp_path);
         return HttpResponse::InternalServerError()
             .json(json!({"status": "error", "message": format!("Failed to save file: {}", e)}));
     }
+    if let Err(e) = std::fs::rename(&tmp_path, &dest_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return HttpResponse::InternalServerError()
+            .json(json!({"status": "error", "message": format!("Failed to commit file: {}", e)}));
+    }
 
-    // Clear stale static image buffer if marquee
     if is_marquee {
+        // Remove any previous marquee files with different extensions after the new file is committed
+        if let Ok(entries) = std::fs::read_dir(target_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p != dest_path {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
+        // Clear stale static image buffer if marquee
         *data.config.image_obj.lock() = None;
         // Do NOT set ForcedEngineMode::Marquee: Marquee runs normally in the rotation loop
     }
@@ -1048,10 +1055,32 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
     let mut seen_yoko = std::collections::HashSet::new();
     let mut seen_tate = std::collections::HashSet::new();
 
-    // 1. Scan horizontal / yoko folders across candidate roots
+    // 1. Scan horizontal / yoko folders across candidate roots (live directories first)
     for root in find_gif_candidate_roots("yoko") {
+        let mut has_live_subdirs = false;
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.') && !name.starts_with('_') {
+                                has_live_subdirs = true;
+                                if seen_yoko.insert(name.to_string()) {
+                                    playlists.push(json!({
+                                        "value": format!("/gifs/{}", name),
+                                        "label": name,
+                                        "orientation": "yoko"
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let pl_json = root.join("playlists.json");
-        if pl_json.is_file() {
+        if !has_live_subdirs && pl_json.is_file() {
             if let Ok(content) = std::fs::read_to_string(&pl_json) {
                 if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(obj) = doc.as_object() {
@@ -1072,33 +1101,34 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
                 }
             }
         }
+    }
 
+    // 2. Scan vertical / tate folders across candidate roots (live directories first)
+    for root in find_gif_candidate_roots("tate") {
+        let mut has_live_subdirs = false;
         if let Ok(entries) = std::fs::read_dir(&root) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {
                     if file_type.is_dir() {
                         if let Some(name) = entry.file_name().to_str() {
-                            if !name.starts_with('.')
-                                && !name.starts_with('_')
-                                && seen_yoko.insert(name.to_string())
-                            {
-                                playlists.push(json!({
-                                    "value": format!("/gifs/{}", name),
-                                    "label": name,
-                                    "orientation": "yoko"
-                                }));
+                            if !name.starts_with('.') && !name.starts_with('_') {
+                                has_live_subdirs = true;
+                                if seen_tate.insert(name.to_string()) {
+                                    playlists.push(json!({
+                                        "value": format!("/gifs_tate/{}", name),
+                                        "label": name,
+                                        "orientation": "tate"
+                                    }));
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    // 2. Scan vertical / tate folders across candidate roots
-    for root in find_gif_candidate_roots("tate") {
         let pl_json = root.join("playlists.json");
-        if pl_json.is_file() {
+        if !has_live_subdirs && pl_json.is_file() {
             if let Ok(content) = std::fs::read_to_string(&pl_json) {
                 if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(obj) = doc.as_object() {
@@ -1111,27 +1141,6 @@ async fn get_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl Resp
                                 playlists.push(json!({
                                     "value": if path.starts_with('/') { path.to_string() } else { format!("/gifs_tate/{}", path) },
                                     "label": k,
-                                    "orientation": "tate"
-                                }));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Ok(entries) = std::fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if !name.starts_with('.')
-                                && !name.starts_with('_')
-                                && seen_tate.insert(name.to_string())
-                            {
-                                playlists.push(json!({
-                                    "value": format!("/gifs_tate/{}", name),
-                                    "label": name,
                                     "orientation": "tate"
                                 }));
                             }
@@ -1153,8 +1162,30 @@ async fn get_gifs_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl
 
     let mut yoko_map = serde_json::Map::new();
     for root in find_gif_candidate_roots("yoko") {
+        let mut has_live_subdirs = false;
+        if let Ok(entries) = std::fs::read_dir(&root) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if !name.starts_with('.') && !name.starts_with('_') {
+                                has_live_subdirs = true;
+                                if !yoko_map.contains_key(name) {
+                                    let count = count_gifs_in_dir(&entry.path());
+                                    yoko_map.insert(
+                                        name.to_string(),
+                                        json!({"path": format!("/gifs/{}", name), "count": count}),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let pl_json = root.join("playlists.json");
-        if pl_json.is_file() {
+        if !has_live_subdirs && pl_json.is_file() {
             if let Ok(content) = std::fs::read_to_string(&pl_json) {
                 if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(obj) = doc.as_object() {
@@ -1170,33 +1201,34 @@ async fn get_gifs_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl
                 }
             }
         }
+    }
 
+    let mut tate_map = serde_json::Map::new();
+    for root in find_gif_candidate_roots("tate") {
+        let mut has_live_subdirs = false;
         if let Ok(entries) = std::fs::read_dir(&root) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {
                     if file_type.is_dir() {
                         if let Some(name) = entry.file_name().to_str() {
-                            if !name.starts_with('.')
-                                && !name.starts_with('_')
-                                && !yoko_map.contains_key(name)
-                            {
-                                let count = count_gifs_in_dir(&entry.path());
-                                yoko_map.insert(
-                                    name.to_string(),
-                                    json!({"path": format!("/gifs/{}", name), "count": count}),
-                                );
+                            if !name.starts_with('.') && !name.starts_with('_') {
+                                has_live_subdirs = true;
+                                if !tate_map.contains_key(name) {
+                                    let count = count_gifs_in_dir(&entry.path());
+                                    tate_map.insert(
+                                        name.to_string(),
+                                        json!({"path": format!("/gifs_tate/{}", name), "count": count}),
+                                    );
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
 
-    let mut tate_map = serde_json::Map::new();
-    for root in find_gif_candidate_roots("tate") {
         let pl_json = root.join("playlists.json");
-        if pl_json.is_file() {
+        if !has_live_subdirs && pl_json.is_file() {
             if let Ok(content) = std::fs::read_to_string(&pl_json) {
                 if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
                     if let Some(obj) = doc.as_object() {
@@ -1206,27 +1238,6 @@ async fn get_gifs_playlists(req: HttpRequest, data: web::Data<AppState>) -> impl
                                 && !tate_map.contains_key(k)
                             {
                                 tate_map.insert(k.clone(), v.clone());
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if let Ok(entries) = std::fs::read_dir(&root) {
-            for entry in entries.flatten() {
-                if let Ok(file_type) = entry.file_type() {
-                    if file_type.is_dir() {
-                        if let Some(name) = entry.file_name().to_str() {
-                            if !name.starts_with('.')
-                                && !name.starts_with('_')
-                                && !tate_map.contains_key(name)
-                            {
-                                let count = count_gifs_in_dir(&entry.path());
-                                tate_map.insert(
-                                    name.to_string(),
-                                    json!({"path": format!("/gifs_tate/{}", name), "count": count}),
-                                );
                             }
                         }
                     }

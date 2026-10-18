@@ -259,6 +259,16 @@ impl DisplayGeometry {
     }
 
     #[inline]
+    pub fn width(&self) -> u32 {
+        self.logical_width
+    }
+
+    #[inline]
+    pub fn height(&self) -> u32 {
+        self.logical_height
+    }
+
+    #[inline]
     pub fn classify(width: u32, height: u32) -> LayoutClass {
         if width == height {
             LayoutClass::Square

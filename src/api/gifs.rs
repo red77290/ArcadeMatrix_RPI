@@ -126,6 +126,27 @@ fn gifs_scan_library_at(root: &Path, display_root: &str) -> serde_json::Value {
     json!({"root": display_root, "folders": folders})
 }
 
+/// Atomically refresh `playlists.json` (via `playlists.json.tmp` + `rename`) when present on disk,
+/// and invalidate `GifEngine`'s cached directory scan.
+fn notify_gif_library_mutated(orientation: &str) {
+    crate::engines::gif::bump_gif_cache_generation();
+    let root = gifs_root_for(orientation);
+    let pl_json = root.join("playlists.json");
+    if pl_json.is_file() {
+        let scan = gifs_scan_library_at(&root, gifs_display_root(orientation));
+        if let Some(folders) = scan.get("folders") {
+            if let Ok(serialized) = serde_json::to_string_pretty(folders) {
+                let tmp_path = root.join("playlists.json.tmp");
+                if std::fs::write(&tmp_path, serialized).is_ok() {
+                    if std::fs::rename(&tmp_path, &pl_json).is_err() {
+                        let _ = std::fs::remove_file(&tmp_path);
+                    }
+                }
+            }
+        }
+    }
+}
+
 #[get("/api/gifs/library")]
 async fn get_gifs_library(
     req: HttpRequest,
@@ -185,6 +206,7 @@ async fn post_gifs_reindex(
     let mut files: u64 = 0;
     let mut folders: usize = 0;
     for o in ORIENTATIONS {
+        notify_gif_library_mutated(o);
         let scan = gifs_scan_library(o);
         let (f, n) = gifs_totals(&scan);
         files += f;
@@ -297,8 +319,12 @@ async fn delete_gifs_file(
             .json(json!({"status": "error", "message": "File not found"}));
     }
     match std::fs::remove_file(&path) {
-        Ok(_) => HttpResponse::Ok()
-            .json(json!({"status": "ok", "orientation": orientation, "deleted": format!("{}/{}/{}", disp, folder, name)})),
+        Ok(_) => {
+            notify_gif_library_mutated(orientation);
+            HttpResponse::Ok().json(
+                json!({"status": "ok", "orientation": orientation, "deleted": format!("{}/{}/{}", disp, folder, name)}),
+            )
+        }
         Err(e) => HttpResponse::InternalServerError()
             .json(json!({"status": "error", "message": format!("Delete failed: {}", e)})),
     }
@@ -363,9 +389,12 @@ async fn delete_gifs_folder(
     // count what we remove (whole playlist folder incl. subfolders such as Logo/256)
     let removed = walkdir_count(&dir);
     match std::fs::remove_dir_all(&dir) {
-        Ok(_) => HttpResponse::Ok().json(
-            json!({"status": "ok", "orientation": orientation, "deleted": format!("{}/{}", disp, folder), "files": removed}),
-        ),
+        Ok(_) => {
+            notify_gif_library_mutated(orientation);
+            HttpResponse::Ok().json(
+                json!({"status": "ok", "orientation": orientation, "deleted": format!("{}/{}", disp, folder), "files": removed}),
+            )
+        }
         Err(e) => HttpResponse::InternalServerError()
             .json(json!({"status": "error", "message": format!("Delete failed: {}", e)})),
     }
@@ -417,9 +446,12 @@ async fn post_gifs_mkdir(
             .json(json!({"status": "error", "message": "Folder already exists"}));
     }
     match std::fs::create_dir_all(&dir) {
-        Ok(_) => HttpResponse::Ok().json(
-            json!({"status": "ok", "folder": folder, "orientation": orientation, "path": format!("{}/{}", disp, folder)}),
-        ),
+        Ok(_) => {
+            notify_gif_library_mutated(orientation);
+            HttpResponse::Ok().json(
+                json!({"status": "ok", "folder": folder, "orientation": orientation, "path": format!("{}/{}", disp, folder)}),
+            )
+        }
         Err(e) => HttpResponse::InternalServerError()
             .json(json!({"status": "error", "message": format!("{}", e)})),
     }
@@ -494,8 +526,11 @@ async fn post_gifs_rename(
             .json(json!({"status": "error", "message": "Target already exists"}));
     }
     match std::fs::rename(&from, &to) {
-        Ok(_) => HttpResponse::Ok()
-            .json(json!({"status": "ok", "orientation": orientation, "renamed_to": what})),
+        Ok(_) => {
+            notify_gif_library_mutated(orientation);
+            HttpResponse::Ok()
+                .json(json!({"status": "ok", "orientation": orientation, "renamed_to": what}))
+        }
         Err(e) => HttpResponse::InternalServerError()
             .json(json!({"status": "error", "message": format!("{}", e)})),
     }
@@ -605,7 +640,8 @@ async fn post_gifs_upload(
             continue;
         }
         let path = dir.join(&name);
-        let mut file = match std::fs::File::create(&path) {
+        let tmp_path = dir.join(format!(".{}.tmp", name));
+        let mut file = match std::fs::File::create(&tmp_path) {
             Ok(f) => f,
             Err(e) => {
                 while let Some(_) = field.next().await {}
@@ -620,7 +656,7 @@ async fn post_gifs_upload(
                 Ok(d) => {
                     if bytes + d.len() > MAX_GIF_UPLOAD_BYTES {
                         drop(file);
-                        let _ = std::fs::remove_file(&path);
+                        let _ = std::fs::remove_file(&tmp_path);
                         return HttpResponse::PayloadTooLarge().json(json!({
                             "status": "error",
                             "message": format!("File '{}' exceeds maximum allowed size (25 MB)", name)
@@ -640,12 +676,16 @@ async fn post_gifs_upload(
             }
         }
         drop(file);
-        if ok && bytes > 0 {
+        if ok && bytes > 0 && std::fs::rename(&tmp_path, &path).is_ok() {
             saved.push(json!({"name": name, "bytes": bytes}));
         } else {
-            let _ = std::fs::remove_file(&path);
+            let _ = std::fs::remove_file(&tmp_path);
             skipped.push(json!({"name": name, "reason": "write failed"}));
         }
+    }
+
+    if !saved.is_empty() {
+        notify_gif_library_mutated(orientation);
     }
 
     let status = if saved.is_empty() { "error" } else { "ok" };

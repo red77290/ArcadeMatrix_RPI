@@ -272,7 +272,12 @@ impl GNewsProvider {
         });
 
         if let Ok(serialized) = serde_json::to_string_pretty(&json_data) {
-            let _ = std::fs::write(path, serialized);
+            let tmp_path = format!("{}.tmp", path);
+            if std::fs::write(&tmp_path, serialized).is_ok() {
+                if std::fs::rename(&tmp_path, path).is_err() {
+                    let _ = std::fs::remove_file(&tmp_path);
+                }
+            }
         }
     }
 

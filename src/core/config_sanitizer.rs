@@ -76,6 +76,33 @@ impl ConfigSanitizer {
             };
             let schema = desc.schema;
 
+            // Migrate legacy per-instance folder/variant keys on GIF instances to `playlists`
+            // before schema defaults and unknown-key pruning run.
+            if engine_id == "gifs" {
+                let playlists_empty = inst
+                    .config
+                    .get("playlists")
+                    .map(|s| s.trim().is_empty())
+                    .unwrap_or(true);
+                if playlists_empty {
+                    let legacy = inst
+                        .config
+                        .get("folder")
+                        .filter(|s| !s.trim().is_empty())
+                        .cloned()
+                        .or_else(|| {
+                            inst.config
+                                .get("variant")
+                                .filter(|s| !s.trim().is_empty())
+                                .cloned()
+                        });
+                    if let Some(val) = legacy {
+                        inst.config.insert("playlists".to_string(), val);
+                        result.modified = true;
+                    }
+                }
+            }
+
             let valid_keys: std::collections::HashSet<String> =
                 schema.fields.iter().map(|f| f.id.to_string()).collect();
 

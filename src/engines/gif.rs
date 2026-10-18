@@ -9,8 +9,27 @@ use linkme::distributed_slice;
 use rand::seq::SliceRandom;
 use std::fs::File;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::time::Instant;
+
+static GIF_CACHE_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+/// Invalidate cached GIF playlist directory scans when files/folders are added, removed, or renamed.
+pub fn bump_gif_cache_generation() {
+    GIF_CACHE_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+struct PreloadedGif {
+    path: PathBuf,
+    frames: Vec<(RgbImage, Duration)>,
+    playlists: Vec<String>,
+    is_vertical: bool,
+    target_width: u32,
+    target_height: u32,
+    generation: u64,
+}
 
 pub struct GifEngine {
     current_gif_path: Option<PathBuf>,
@@ -34,6 +53,10 @@ pub struct GifEngine {
     target_count: u32,
     /// How many GIFs have completed a full loop in the current rotation visit.
     gifs_played: u32,
+    cached_files: Vec<PathBuf>,
+    cached_scan_key: Option<(Vec<String>, bool, u64)>,
+    preloaded: Arc<Mutex<Option<PreloadedGif>>>,
+    preload_in_flight: Arc<AtomicBool>,
 }
 
 impl GifEngine {
@@ -53,20 +76,21 @@ impl GifEngine {
             playlists: Vec::new(),
             target_count: 1,
             gifs_played: 0,
+            cached_files: Vec::new(),
+            cached_scan_key: None,
+            preloaded: Arc::new(Mutex::new(None)),
+            preload_in_flight: Arc::new(AtomicBool::new(false)),
         }
     }
 
-    pub fn load_gif<P: AsRef<Path>>(&mut self, path: P) -> bool {
-        let file = match File::open(&path) {
-            Ok(f) => f,
-            Err(_) => return false,
-        };
+    fn decode_gif_frames(
+        path: &Path,
+        target_width: u32,
+        target_height: u32,
+    ) -> Option<Vec<(RgbImage, Duration)>> {
+        let file = File::open(path).ok()?;
         let reader = std::io::BufReader::new(file);
-
-        let decoder = match image::codecs::gif::GifDecoder::new(reader) {
-            Ok(d) => d,
-            Err(_) => return false,
-        };
+        let decoder = image::codecs::gif::GifDecoder::new(reader).ok()?;
 
         let mut frames = Vec::new();
         use image::AnimationDecoder;
@@ -81,14 +105,14 @@ impl GifEngine {
 
                 // Compute uniform scaling preserving aspect ratio (zero distortion/stretching)
                 let (new_w, new_h) = if src_w > 0 && src_h > 0 {
-                    let scale_x = self.target_width as f32 / src_w as f32;
-                    let scale_y = self.target_height as f32 / src_h as f32;
+                    let scale_x = target_width as f32 / src_w as f32;
+                    let scale_y = target_height as f32 / src_h as f32;
                     let scale = scale_x.min(scale_y);
-                    let nw = ((src_w as f32 * scale).round() as u32).clamp(1, self.target_width);
-                    let nh = ((src_h as f32 * scale).round() as u32).clamp(1, self.target_height);
+                    let nw = ((src_w as f32 * scale).round() as u32).clamp(1, target_width);
+                    let nh = ((src_h as f32 * scale).round() as u32).clamp(1, target_height);
                     (nw, nh)
                 } else {
-                    (self.target_width, self.target_height)
+                    (target_width, target_height)
                 };
 
                 let resized = image::imageops::resize(
@@ -99,9 +123,9 @@ impl GifEngine {
                 );
 
                 // Create a canvas filled with black and center the resized frame (letterboxed)
-                let mut canvas = RgbImage::new(self.target_width, self.target_height);
-                let offset_x = (self.target_width.saturating_sub(new_w)) / 2;
-                let offset_y = (self.target_height.saturating_sub(new_h)) / 2;
+                let mut canvas = RgbImage::new(target_width, target_height);
+                let offset_x = (target_width.saturating_sub(new_w)) / 2;
+                let offset_y = (target_height.saturating_sub(new_h)) / 2;
                 image::imageops::overlay(&mut canvas, &resized, offset_x as i64, offset_y as i64);
 
                 let (num, den) = frame.delay().numer_denom_ms();
@@ -119,8 +143,19 @@ impl GifEngine {
             }
         }
 
-        if !frames.is_empty() {
-            let pb = path.as_ref().to_path_buf();
+        if frames.is_empty() {
+            None
+        } else {
+            Some(frames)
+        }
+    }
+
+    pub fn load_gif<P: AsRef<Path>>(&mut self, path: P) -> bool {
+        let path_ref = path.as_ref();
+        if let Some(frames) =
+            Self::decode_gif_frames(path_ref, self.target_width, self.target_height)
+        {
+            let pb = path_ref.to_path_buf();
             self.last_played_gif = Some(pb.clone());
             self.current_gif_path = Some(pb);
             self.frames = frames;
@@ -191,8 +226,7 @@ impl GifEngine {
         roots
     }
 
-    pub fn play_random_playlist_gif(&mut self, selected_playlists: &[String]) -> bool {
-        let is_vertical = self.is_tate();
+    fn collect_playlist_files(selected_playlists: &[String], is_vertical: bool) -> Vec<PathBuf> {
         let candidate_roots = Self::get_candidate_roots(is_vertical);
         let mut valid_files = Vec::new();
 
@@ -269,6 +303,122 @@ impl GifEngine {
             }
         }
 
+        valid_files
+    }
+
+    fn get_cached_or_scan_files(&mut self, selected_playlists: &[String]) -> Vec<PathBuf> {
+        let is_vertical = self.is_tate();
+        let gen = GIF_CACHE_GENERATION.load(Ordering::Relaxed);
+        let key = (selected_playlists.to_vec(), is_vertical, gen);
+        if self.cached_scan_key.as_ref() == Some(&key) && !self.cached_files.is_empty() {
+            return self.cached_files.clone();
+        }
+        let files = Self::collect_playlist_files(selected_playlists, is_vertical);
+        if !files.is_empty() {
+            self.cached_files = files.clone();
+            self.cached_scan_key = Some(key);
+        }
+        files
+    }
+
+    fn spawn_preload(&mut self, selected_playlists: &[String]) {
+        if self
+            .preload_in_flight
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
+        {
+            return;
+        }
+
+        let playlists = selected_playlists.to_vec();
+        let is_vertical = self.is_tate();
+        let target_width = self.target_width;
+        let target_height = self.target_height;
+        let last_played = self.last_played_gif.clone();
+        let gen = GIF_CACHE_GENERATION.load(Ordering::Relaxed);
+        let cached = if self.cached_scan_key.as_ref()
+            == Some(&(playlists.clone(), is_vertical, gen))
+            && !self.cached_files.is_empty()
+        {
+            Some(self.cached_files.clone())
+        } else {
+            None
+        };
+        let preloaded_arc = Arc::clone(&self.preloaded);
+        let in_flight_arc = Arc::clone(&self.preload_in_flight);
+
+        std::thread::spawn(move || {
+            let mut valid_files =
+                cached.unwrap_or_else(|| Self::collect_playlist_files(&playlists, is_vertical));
+            if valid_files.len() > 1 {
+                if let Some(ref last) = last_played {
+                    valid_files.retain(|p| p != last);
+                }
+            }
+            let mut rng = rand::thread_rng();
+            valid_files.shuffle(&mut rng);
+
+            for candidate in valid_files.into_iter().take(4) {
+                if let Some(frames) =
+                    Self::decode_gif_frames(&candidate, target_width, target_height)
+                {
+                    if let Ok(mut guard) = preloaded_arc.lock() {
+                        *guard = Some(PreloadedGif {
+                            path: candidate,
+                            frames,
+                            playlists,
+                            is_vertical,
+                            target_width,
+                            target_height,
+                            generation: gen,
+                        });
+                    }
+                    break;
+                }
+            }
+            in_flight_arc.store(false, Ordering::Release);
+        });
+    }
+
+    pub fn play_random_playlist_gif(&mut self, selected_playlists: &[String]) -> bool {
+        let is_vertical = self.is_tate();
+        let gen = GIF_CACHE_GENERATION.load(Ordering::Relaxed);
+
+        // Fast path: swap in the pre-decoded next GIF in O(1) without blocking the render thread
+        let preloaded_hit = if let Ok(mut guard) = self.preloaded.lock() {
+            if let Some(ref pre) = *guard {
+                if pre.playlists == selected_playlists
+                    && pre.is_vertical == is_vertical
+                    && pre.target_width == self.target_width
+                    && pre.target_height == self.target_height
+                    && pre.generation == gen
+                    && pre.path.is_file()
+                {
+                    guard.take()
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if let Some(pre) = preloaded_hit {
+            self.last_played_gif = Some(pre.path.clone());
+            self.current_gif_path = Some(pre.path);
+            self.frames = pre.frames;
+            self.frame_index = 0;
+            self.frame_elapsed = Duration::ZERO;
+            self.loop_count = 0;
+            self.last_drawn_index = None;
+            self.spawn_preload(selected_playlists);
+            return true;
+        }
+
+        let mut valid_files = self.get_cached_or_scan_files(selected_playlists);
+
         // STRICT SEPARATION:
         // In vertical mode, if no vertical GIFs exist, play nothing; same rule applies to horizontal mode.
         // ZERO fallback to alternate orientation! If no files match the current orientation, return false and play nothing!
@@ -285,8 +435,12 @@ impl GifEngine {
             }
         }
 
-        if let Some(chosen) = valid_files.choose(&mut rng) {
-            self.load_gif(chosen)
+        if let Some(chosen) = valid_files.choose(&mut rng).cloned() {
+            let ok = self.load_gif(&chosen);
+            if ok {
+                self.spawn_preload(selected_playlists);
+            }
+            ok
         } else {
             self.frames.clear();
             self.current_gif_path = None;
@@ -331,7 +485,7 @@ impl GifEngine {
         } else {
             "all".to_string()
         };
-        self.playlists = if playlists_str.is_empty() || playlists_str == "all" {
+        let new_playlists: Vec<String> = if playlists_str.is_empty() || playlists_str == "all" {
             Vec::new()
         } else {
             playlists_str
@@ -340,6 +494,14 @@ impl GifEngine {
                 .filter(|s| !s.is_empty())
                 .collect()
         };
+        if self.playlists != new_playlists {
+            self.playlists = new_playlists;
+            self.cached_scan_key = None;
+            self.cached_files.clear();
+            if let Ok(mut guard) = self.preloaded.lock() {
+                *guard = None;
+            }
+        }
 
         let count = config.get_int("gifs_count", 0);
         if count > 0 {
@@ -384,6 +546,8 @@ impl Engine for GifEngine {
         self.target_height = context.surface.height();
         self.geometry = DisplayGeometry::new(self.target_width, self.target_height, 0, 0);
         self.apply_config(config);
+        let playlists = self.playlists.clone();
+        self.spawn_preload(&playlists);
         Ok(())
     }
 
@@ -460,6 +624,11 @@ impl Engine for GifEngine {
     fn deactivate(&mut self) {
         self.frames.clear();
         self.current_gif_path = None;
+        let has_preloaded = self.preloaded.lock().map(|g| g.is_some()).unwrap_or(false);
+        if !has_preloaded {
+            let playlists = self.playlists.clone();
+            self.spawn_preload(&playlists);
+        }
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
@@ -468,12 +637,26 @@ impl Engine for GifEngine {
         self.target_height = geometry.logical_height;
         self.geometry = *geometry;
         if self.is_tate() != prev_tate {
+            self.cached_scan_key = None;
+            self.cached_files.clear();
+            if let Ok(mut guard) = self.preloaded.lock() {
+                *guard = None;
+            }
             self.play_random_playlist_gif(&self.playlists.clone());
         }
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
+        let prev = self.playlists.clone();
         self.apply_config(config);
+        if self.playlists != prev {
+            let playlists = self.playlists.clone();
+            if !self.frames.is_empty() {
+                self.play_random_playlist_gif(&playlists);
+            } else {
+                self.spawn_preload(&playlists);
+            }
+        }
     }
 
     fn set_rotation_budget(&mut self, budget: u32) {

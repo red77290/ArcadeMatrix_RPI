@@ -464,6 +464,7 @@ impl ArcadeMatrixApp {
             &snapshot.system.wake_up_at,
         );
         let mut last_night_check = std::time::Instant::now();
+        let mut was_composited = false;
 
         while running.load(Ordering::SeqCst) {
             // Auto-restart if configuration requires hardware reload
@@ -629,13 +630,16 @@ impl ArcadeMatrixApp {
             let decision = arbiter.evaluate(std::time::Instant::now());
 
             // 4. Transition, Update & Render Active Engine in scoped context
-            let mut realtime_cadence = false;
-            let mut is_finished = false;
-            let mut self_paced = false;
-            let mut allows_overlay = false;
+            let mut realtime_cadence;
+            let is_finished;
+            let self_paced;
+            let allows_overlay;
+            let wants_clear;
+            let has_frame;
+            let transition_mode;
 
             {
-                let transition_mode =
+                transition_mode =
                     runtime.transition_session(decision, &arbiter, &mut engine_runtime);
 
                 if runtime.active_session().source_id == DisplaySourceId::Rotation
@@ -654,37 +658,35 @@ impl ArcadeMatrixApp {
                     }
                 }
 
-                let mut ctx = crate::core::engine_contract::EngineContext {
-                    surface: surface.as_mut(),
-                    config: &config,
-                };
-                let (wants_clear, has_frame) = if let Some(engine) =
-                    engine_runtime.get_active_instance(runtime.active_session().engine_handle)
+                // Always advance engine state/timers BEFORE querying has_new_frame()
                 {
-                    (engine.wants_clear(), engine.has_new_frame())
-                } else {
-                    (true, true)
-                };
-
-                if wants_clear && has_frame {
-                    ctx.surface.clear();
-                }
-                if has_frame {
+                    let mut ctx = crate::core::engine_contract::EngineContext {
+                        surface: surface.as_mut(),
+                        config: &config,
+                    };
                     runtime.update(&mut engine_runtime, &mut ctx);
-                    runtime.render(&mut engine_runtime, &mut ctx);
                 }
 
                 if let Some(engine) =
                     engine_runtime.get_active_instance(runtime.active_session().engine_handle)
                 {
+                    wants_clear = engine.wants_clear();
+                    has_frame = engine.has_new_frame();
                     realtime_cadence = engine.is_realtime();
                     is_finished = engine.is_finished();
                     self_paced = engine.self_paced();
                     allows_overlay = engine.allows_overlay();
+                } else {
+                    wants_clear = true;
+                    has_frame = true;
+                    realtime_cadence = false;
+                    is_finished = false;
+                    self_paced = false;
+                    allows_overlay = false;
                 }
             }
 
-            // 5. Configure & Composite Overlay
+            // 5. Configure Overlay before rendering so we know if overlay compositing is active
             if decision.source_id == DisplaySourceId::Mqtt
                 || decision.source_id == DisplaySourceId::Marquee
             {
@@ -707,6 +709,25 @@ impl ArcadeMatrixApp {
                     &crate::core::config::OverlayConfig::default(),
                     &snapshot.system,
                 );
+            }
+
+            let transition_running = slot_transition.is_running();
+            let overlay_active = overlay_manager.is_active();
+            let should_render = has_frame
+                || transition_mode != TransitionMode::None
+                || transition_running
+                || overlay_active
+                || was_composited;
+
+            if should_render {
+                if wants_clear || transition_mode != TransitionMode::None {
+                    surface.clear();
+                }
+                let mut ctx = crate::core::engine_contract::EngineContext {
+                    surface: surface.as_mut(),
+                    config: &config,
+                };
+                runtime.render(&mut engine_runtime, &mut ctx);
             }
 
             // 6. Check rotation advance
@@ -734,13 +755,19 @@ impl ArcadeMatrixApp {
 
             // The transition covers the gap while the next engine prepares its first frame: a GIF
             // spends it opening a file, which used to show as a blank panel.
+            let mut composited_this_frame = false;
             if slot_transition.is_running() {
                 slot_transition.render(surface.as_mut());
                 realtime_cadence = true;
+                composited_this_frame = true;
             }
 
-            overlay_manager.composite(surface.as_mut());
-            realtime_cadence = realtime_cadence || overlay_manager.is_active();
+            if overlay_active {
+                overlay_manager.composite(surface.as_mut());
+                realtime_cadence = true;
+                composited_this_frame = true;
+            }
+            was_composited = composited_this_frame;
             surface.present();
 
             // Adaptive sleep: realtime engines run at ~50fps (20ms), static at 1000ms

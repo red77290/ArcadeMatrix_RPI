@@ -105,6 +105,186 @@ pub trait IDrawingSurface: Send + Sync {
         }
     }
 
+    fn draw_pixel(&mut self, x: i32, y: i32, r: u8, g: u8, b: u8) {
+        self.set_pixel(x, y, r, g, b);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        let max_w = self.width() as i32;
+        let max_h = self.height() as i32;
+        let x0 = x.max(0);
+        let y0 = y.max(0);
+        let x1 = (x + w).min(max_w);
+        let y1 = (y + h).min(max_h);
+        for py in y0..y1 {
+            for px in x0..x1 {
+                self.set_pixel(px, py, r, g, b);
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) {
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        for px in x..(x + w) {
+            self.set_pixel(px, y, r, g, b);
+            self.set_pixel(px, y + h - 1, r, g, b);
+        }
+        for py in y..(y + h) {
+            self.set_pixel(x, py, r, g, b);
+            self.set_pixel(x + w - 1, py, r, g, b);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_line(&mut self, mut x0: i32, mut y0: i32, x1: i32, y1: i32, r: u8, g: u8, b: u8) {
+        let dx = (x1 - x0).abs();
+        let sx = if x0 < x1 { 1 } else { -1 };
+        let dy = -(y1 - y0).abs();
+        let sy = if y0 < y1 { 1 } else { -1 };
+        let mut err = dx + dy;
+        loop {
+            self.set_pixel(x0, y0, r, g, b);
+            if x0 == x1 && y0 == y1 {
+                break;
+            }
+            let e2 = 2 * err;
+            if e2 >= dy {
+                err += dy;
+                x0 += sx;
+            }
+            if e2 <= dx {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    fn draw_circle(&mut self, cx: i32, cy: i32, radius: i32, r: u8, g: u8, b: u8) {
+        if radius <= 0 {
+            self.set_pixel(cx, cy, r, g, b);
+            return;
+        }
+        let mut f = 1 - radius;
+        let mut dd_f_x = 1;
+        let mut dd_f_y = -2 * radius;
+        let mut x = 0;
+        let mut y = radius;
+
+        self.set_pixel(cx, cy + radius, r, g, b);
+        self.set_pixel(cx, cy - radius, r, g, b);
+        self.set_pixel(cx + radius, cy, r, g, b);
+        self.set_pixel(cx - radius, cy, r, g, b);
+
+        while x < y {
+            if f >= 0 {
+                y -= 1;
+                dd_f_y += 2;
+                f += dd_f_y;
+            }
+            x += 1;
+            dd_f_x += 2;
+            f += dd_f_x;
+
+            self.set_pixel(cx + x, cy + y, r, g, b);
+            self.set_pixel(cx - x, cy + y, r, g, b);
+            self.set_pixel(cx + x, cy - y, r, g, b);
+            self.set_pixel(cx - x, cy - y, r, g, b);
+            self.set_pixel(cx + y, cy + x, r, g, b);
+            self.set_pixel(cx - y, cy + x, r, g, b);
+            self.set_pixel(cx + y, cy - x, r, g, b);
+            self.set_pixel(cx - y, cy - x, r, g, b);
+        }
+    }
+
+    fn fill_circle(&mut self, cx: i32, cy: i32, radius: i32, r: u8, g: u8, b: u8) {
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dy * dy <= radius * radius {
+                    self.set_pixel(cx + dx, cy + dy, r, g, b);
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_triangle(
+        &mut self,
+        mut x0: i32,
+        mut y0: i32,
+        mut x1: i32,
+        mut y1: i32,
+        mut x2: i32,
+        mut y2: i32,
+        r: u8,
+        g: u8,
+        b: u8,
+    ) {
+        if y0 > y1 {
+            std::mem::swap(&mut y0, &mut y1);
+            std::mem::swap(&mut x0, &mut x1);
+        }
+        if y1 > y2 {
+            std::mem::swap(&mut y1, &mut y2);
+            std::mem::swap(&mut x1, &mut x2);
+        }
+        if y0 > y1 {
+            std::mem::swap(&mut y0, &mut y1);
+            std::mem::swap(&mut x0, &mut x1);
+        }
+
+        if y0 == y2 {
+            let min_x = x0.min(x1).min(x2);
+            let max_x = x0.max(x1).max(x2);
+            self.fill_rect(min_x, y0, max_x - min_x + 1, 1, r, g, b);
+            return;
+        }
+
+        let dx01 = x1 - x0;
+        let dy01 = y1 - y0;
+        let dx02 = x2 - x0;
+        let dy02 = y2 - y0;
+        let dx12 = x2 - x1;
+        let dy12 = y2 - y1;
+        let mut sa: i32 = 0;
+        let mut sb: i32 = 0;
+
+        let last = if y1 == y2 { y1 } else { y1 - 1 };
+
+        let mut y = y0;
+        while y <= last {
+            let mut a = x0 + if dy01 != 0 { sa / dy01 } else { 0 };
+            let mut b_x = x0 + if dy02 != 0 { sb / dy02 } else { 0 };
+            sa += dx01;
+            sb += dx02;
+            if a > b_x {
+                std::mem::swap(&mut a, &mut b_x);
+            }
+            self.fill_rect(a, y, b_x - a + 1, 1, r, g, b);
+            y += 1;
+        }
+
+        sa = dx12 * (y - y1);
+        sb = dx02 * (y - y0);
+        while y <= y2 {
+            let mut a = x1 + if dy12 != 0 { sa / dy12 } else { 0 };
+            let mut b_x = x0 + if dy02 != 0 { sb / dy02 } else { 0 };
+            sa += dx12;
+            sb += dx02;
+            if a > b_x {
+                std::mem::swap(&mut a, &mut b_x);
+            }
+            self.fill_rect(a, y, b_x - a + 1, 1, r, g, b);
+            y += 1;
+        }
+    }
+
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>> {
         None
     }
@@ -737,6 +917,15 @@ fn init_led_matrix(
     let mut rt_options = LedRuntimeOptions::new();
     rt_options.set_gpio_slowdown(cfg.slowdown);
     rt_options.set_drop_privileges(false);
+    // In hzeller/rpi-rgb-led-matrix C API (led-matrix-c.cc), drop_privileges == 0
+    // means "use C++ default (1 = drop privileges to 'daemon')". Only -1 disables
+    // privilege dropping so the daemon retains write access to config.json and nmcli.
+    if std::mem::size_of::<LedRuntimeOptions>() >= 3 * std::mem::size_of::<std::ffi::c_int>() {
+        unsafe {
+            let raw = (&mut rt_options as *mut LedRuntimeOptions).cast::<std::ffi::c_int>();
+            *raw.add(2) = -1;
+        }
+    }
 
     let matrix = LedMatrix::new(Some(options), Some(rt_options))
         .map_err(|e| format!("Failed to init LED matrix: {:?}", e))?;

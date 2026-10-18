@@ -369,6 +369,7 @@ use std::sync::Arc;
 pub struct Config {
     pub config_file: Mutex<PathBuf>,
     pub json_file: PathBuf,
+    save_lock: Mutex<()>,
     pub reload_flag: AtomicBool,
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
@@ -380,7 +381,14 @@ pub struct Config {
 
 impl Config {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
-        let path_buf = path.as_ref().to_path_buf();
+        let raw_path = path.as_ref().to_path_buf();
+        let path_buf = if raw_path.is_absolute() {
+            raw_path
+        } else {
+            std::env::current_dir()
+                .map(|cwd| cwd.join(&raw_path))
+                .unwrap_or(raw_path)
+        };
         let json_file = path_buf.with_file_name("config.json");
         let bak_file = json_file.with_extension("json.bak");
 
@@ -470,6 +478,7 @@ impl Config {
         let cfg = Self {
             config_file: Mutex::new(path_buf),
             json_file,
+            save_lock: Mutex::new(()),
             reload_flag: AtomicBool::new(false),
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
@@ -555,51 +564,104 @@ impl Config {
 
     pub fn save(&self) -> bool {
         use std::io::Write;
+        let _guard = self.save_lock.lock();
         let s = self.settings.read().clone();
         let Ok(json_str) = serde_json::to_string_pretty(&s) else {
             return false;
         };
 
         let tmp_file = self.json_file.with_extension("json.tmp");
+        let bak_tmp_file = self.json_file.with_extension("json.bak.tmp");
         let bak_file = self.json_file.with_extension("json.bak");
 
-        let mut file = match std::fs::File::create(&tmp_file) {
-            Ok(f) => f,
+        // 1. Preserve previous valid config.json into config.json.bak before replacement if present
+        if self.json_file.exists() {
+            let _ = std::fs::copy(&self.json_file, &bak_file);
+        }
+
+        let persisted = match std::fs::File::create(&tmp_file) {
+            Ok(mut file) => {
+                if let Err(e) = file
+                    .write_all(json_str.as_bytes())
+                    .and_then(|_| file.sync_all())
+                {
+                    tracing::error!(
+                        "Failed to write and sync temporary config file {:?}: {}",
+                        tmp_file,
+                        e
+                    );
+                    let _ = std::fs::remove_file(&tmp_file);
+                    return false;
+                }
+                drop(file);
+
+                if let Err(e) = std::fs::rename(&tmp_file, &self.json_file) {
+                    tracing::error!(
+                        "Failed to atomically rename {:?} to {:?}: {}",
+                        tmp_file,
+                        self.json_file,
+                        e
+                    );
+                    return false;
+                }
+                true
+            }
             Err(e) => {
-                tracing::error!(
-                    "Failed to create temporary config file {:?}: {}",
+                tracing::warn!(
+                    "Failed to create temporary config file {:?} ({}); falling back to direct write to {:?}",
                     tmp_file,
-                    e
+                    e,
+                    self.json_file
                 );
-                return false;
+                let Ok(mut file) = std::fs::File::create(&self.json_file) else {
+                    tracing::error!(
+                        "Failed to open config file {:?} for direct write: {}",
+                        self.json_file,
+                        e
+                    );
+                    return false;
+                };
+                if let Err(write_err) = file
+                    .write_all(json_str.as_bytes())
+                    .and_then(|_| file.sync_all())
+                {
+                    tracing::error!(
+                        "Failed to write config file {:?}: {}",
+                        self.json_file,
+                        write_err
+                    );
+                    return false;
+                }
+                true
             }
         };
 
-        if let Err(e) = file
-            .write_all(json_str.as_bytes())
-            .and_then(|_| file.sync_all())
-        {
-            tracing::error!(
-                "Failed to write and sync temporary config file {:?}: {}",
-                tmp_file,
-                e
-            );
-            let _ = std::fs::remove_file(&tmp_file);
-            return false;
-        }
-        drop(file);
+        if persisted {
+            // 2. Atomically update config.json.bak with the newly committed configuration
+            if let Ok(mut bfile) = std::fs::File::create(&bak_tmp_file) {
+                if bfile
+                    .write_all(json_str.as_bytes())
+                    .and_then(|_| bfile.sync_all())
+                    .is_ok()
+                {
+                    drop(bfile);
+                    let _ = std::fs::rename(&bak_tmp_file, &bak_file);
+                } else {
+                    let _ = std::fs::remove_file(&bak_tmp_file);
+                }
+            } else {
+                let _ = std::fs::copy(&self.json_file, &bak_file);
+            }
 
-        if let Err(e) = std::fs::rename(&tmp_file, &self.json_file) {
-            tracing::error!(
-                "Failed to atomically rename {:?} to {:?}: {}",
-                tmp_file,
-                self.json_file,
-                e
-            );
-            return false;
+            // 3. Flush parent directory metadata so the atomic rename survives an immediate reboot
+            if let Some(parent) = self.json_file.parent() {
+                if let Ok(dir) = std::fs::File::open(parent) {
+                    let _ = dir.sync_all();
+                }
+            }
         }
-        let _ = std::fs::copy(&self.json_file, &bak_file);
-        true
+
+        persisted
     }
 }
 

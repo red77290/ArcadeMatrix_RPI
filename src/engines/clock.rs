@@ -350,6 +350,10 @@ impl Engine for ClockEngine {
         // both come through here: faces with their own state show the current
         // time at once instead of what they last showed.
         self.mario.on_activated();
+        self.castle.on_activated();
+        self.megaman.on_activated();
+        self.sonic.on_activated();
+        self.metal_slug.on_activated();
         self.last_rendered_time.clear();
     }
     fn deactivate(&mut self) {}
@@ -463,6 +467,11 @@ impl Engine for ClockEngine {
             self.slot_machine = SlotMachineClock::new();
             self.flip.reset();
             self.mario.configure(self.clock_speed);
+            self.mario.on_display_geometry_changed();
+            self.castle.on_display_geometry_changed();
+            self.megaman.on_display_geometry_changed();
+            self.sonic.on_display_geometry_changed();
+            self.metal_slug.on_display_geometry_changed();
             self.tetris.configure(self.clock_speed);
             self.tetris_gb.configure(self.clock_speed);
             self.pacman.configure(
@@ -601,7 +610,7 @@ impl Engine for ClockEngine {
             30 => self
                 .mario
                 .render(matrix, hours, minutes, &font, effective_size),
-            31 => self.castle.render(matrix, hours, minutes),
+            31 => self.castle.render(matrix, hours, minutes, seconds),
             32 => self
                 .pokedex
                 .render(matrix, hours, minutes, seconds, &font, effective_size),
@@ -611,17 +620,78 @@ impl Engine for ClockEngine {
             34 => self
                 .ms_pacman
                 .render(matrix, &time_str, hours, minutes, &font, effective_size),
-            35 => self.megaman.render(matrix, hours, minutes),
-            37 => self.words.render(
-                matrix,
-                hours,
-                minutes,
-                &font,
-                effective_size,
-                &context.config.settings.read().system.lang,
-            ),
-            39 => self.sonic.render(matrix, hours, minutes),
-            41 => self.metal_slug.render(matrix, hours, minutes),
+            35 => self.megaman.render(matrix, hours, minutes, seconds),
+            37 => {
+                if matrix.width() < 192 || matrix.height() < 64 {
+                    if is_tate {
+                        self.base_renderer.render_tate_time(
+                            matrix,
+                            hours,
+                            minutes,
+                            seconds,
+                            0,
+                            effective_size,
+                            self.time_offset_x,
+                            self.time_offset_y,
+                            None,
+                            None,
+                        );
+                    } else {
+                        self.base_renderer.render_text(
+                            matrix,
+                            &time_str,
+                            0,
+                            effective_size,
+                            self.time_offset_x,
+                            self.time_offset_y,
+                            None,
+                            None,
+                        );
+                    }
+                } else {
+                    self.words.render(
+                        matrix,
+                        hours,
+                        minutes,
+                        &font,
+                        effective_size,
+                        &context.config.settings.read().system.lang,
+                    );
+                }
+            }
+            39 => self.sonic.render(matrix, hours, minutes, seconds),
+            41 => {
+                let is_portrait = matrix.height() > matrix.width();
+                if (!is_portrait && matrix.height() < 64) || (is_portrait && matrix.width() < 64) {
+                    if is_tate {
+                        self.base_renderer.render_tate_time(
+                            matrix,
+                            hours,
+                            minutes,
+                            seconds,
+                            0,
+                            effective_size,
+                            self.time_offset_x,
+                            self.time_offset_y,
+                            None,
+                            None,
+                        );
+                    } else {
+                        self.base_renderer.render_text(
+                            matrix,
+                            &time_str,
+                            0,
+                            effective_size,
+                            self.time_offset_x,
+                            self.time_offset_y,
+                            None,
+                            None,
+                        );
+                    }
+                } else {
+                    self.metal_slug.render(matrix, hours, minutes, seconds);
+                }
+            }
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, effective_size),
@@ -674,6 +744,11 @@ impl Engine for ClockEngine {
         self.tetris.configure(self.clock_speed);
         self.tetris_gb.configure(self.clock_speed);
         self.flip.reset();
+        self.mario.on_display_geometry_changed();
+        self.castle.on_display_geometry_changed();
+        self.megaman.on_display_geometry_changed();
+        self.sonic.on_display_geometry_changed();
+        self.metal_slug.on_display_geometry_changed();
     }
 }
 
@@ -854,5 +929,78 @@ fn register_clock_engine() -> EngineDescriptor {
             // We pass 0, 0 since width/height are handled dynamically now or don't matter in new()
             Box::new(ClockEngine::new(64, 32))
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::matrix::MockSurface;
+
+    #[test]
+    fn test_themed_clocks_all_resolutions_and_rollovers() {
+        let geometries = [(256u32, 64u32), (128, 32), (64, 64), (64, 256), (32, 128)];
+
+        for (w, h) in geometries {
+            let mut surface = MockSurface::new(w, h);
+
+            let mut mario = MarioClock::new();
+            let mut sonic = SonicClock::new();
+            let mut megaman = MegamanClock::new();
+            let mut castle = CastleClock::new();
+            let mut metal_slug = MetalSlugClock::new();
+
+            mario.on_activated();
+            sonic.on_activated();
+            megaman.on_activated();
+            castle.on_activated();
+            metal_slug.on_activated();
+
+            // 1. Seed initial time (14:23)
+            mario.draw(&mut surface, 14, 23, 0.016);
+            sonic.draw(&mut surface, 14, 23, 10, 0.016);
+            megaman.draw(&mut surface, 14, 23, 10, 0.016);
+            castle.draw(&mut surface, 14, 23, 10, 0.016);
+            metal_slug.draw(&mut surface, 14, 23, 10, 0.016);
+
+            // 2. Minute rollover (14:23 -> 14:24) and full animation cycle (400 frames @ 60 FPS)
+            for tick in 0..400 {
+                let sec = (tick / 6) % 60;
+                mario.draw(&mut surface, 14, 24, 0.016);
+                sonic.draw(&mut surface, 14, 24, sec, 0.016);
+                megaman.draw(&mut surface, 14, 24, sec, 0.016);
+                castle.draw(&mut surface, 14, 24, sec, 0.016);
+                metal_slug.draw(&mut surface, 14, 24, sec, 0.016);
+            }
+
+            // 3. Hour rollover (14:59 -> 15:00) and full animation cycle
+            mario.draw(&mut surface, 14, 59, 0.016);
+            sonic.draw(&mut surface, 14, 59, 59, 0.016);
+            megaman.draw(&mut surface, 14, 59, 59, 0.016);
+            castle.draw(&mut surface, 14, 59, 59, 0.016);
+            metal_slug.draw(&mut surface, 14, 59, 59, 0.016);
+
+            for tick in 0..450 {
+                let sec = (tick / 6) % 60;
+                mario.draw(&mut surface, 15, 0, 0.016);
+                sonic.draw(&mut surface, 15, 0, sec, 0.016);
+                megaman.draw(&mut surface, 15, 0, sec, 0.016);
+                castle.draw(&mut surface, 15, 0, sec, 0.016);
+                metal_slug.draw(&mut surface, 15, 0, sec, 0.016);
+            }
+
+            // 4. Geometry change mid-animation
+            mario.on_display_geometry_changed();
+            sonic.on_display_geometry_changed();
+            megaman.on_display_geometry_changed();
+            castle.on_display_geometry_changed();
+            metal_slug.on_display_geometry_changed();
+
+            mario.draw(&mut surface, 15, 1, 0.016);
+            sonic.draw(&mut surface, 15, 1, 0, 0.016);
+            megaman.draw(&mut surface, 15, 1, 0, 0.016);
+            castle.draw(&mut surface, 15, 1, 0, 0.016);
+            metal_slug.draw(&mut surface, 15, 1, 0, 0.016);
+        }
     }
 }

@@ -265,7 +265,12 @@ async fn post_system(
     let needs_reload =
         hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
-    data.config.save();
+    if !data.config.save() {
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to persist configuration to disk"
+        }));
+    }
     // Always notify the render loop to refresh its runtime snapshot (night mode,
     // language, units, fighter overlay, slot transition, display orientation).
     data.config.reset_rotation.store(true, Ordering::Relaxed);
@@ -343,7 +348,12 @@ async fn post_instances(
     // Self-heal at write time: inject defaults, clamp/fallback out-of-range values.
     ConfigSanitizer::sanitize_instances(&mut s);
     drop(s);
-    data.config.save();
+    if !data.config.save() {
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to persist configuration to disk"
+        }));
+    }
     // Make the runtime pick up the new/edited instance immediately.
     data.config.reset_rotation.store(true, Ordering::Relaxed);
     HttpResponse::Ok().json(json!({"status": "ok"}))
@@ -364,7 +374,12 @@ async fn delete_instance(
     // render loop never points at a dangling instance_id.
     s.rotation.retain(|r| r.instance_id != *path);
     drop(s);
-    data.config.save();
+    if !data.config.save() {
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to persist configuration to disk"
+        }));
+    }
     data.config.reset_rotation.store(true, Ordering::Relaxed);
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
@@ -395,7 +410,12 @@ async fn post_rotation(
     s.rotation = rot;
     ConfigSanitizer::sanitize_instances(&mut s);
     drop(s);
-    data.config.save();
+    if !data.config.save() {
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to persist configuration to disk"
+        }));
+    }
     data.config.reset_rotation.store(true, Ordering::Relaxed);
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
@@ -1257,11 +1277,26 @@ async fn get_themes(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
     if let Err(e) = check_auth(&req, &data.config) {
         return e;
     }
-    // Built automatically from the single theme source of truth: adding a new
-    // ThemeInfo entry in core::theme makes it appear in the UI dropdown with no
-    // other change required here.
+    let (w, h) = {
+        let mat = &data.config.settings.read().matrix;
+        let phys_w = (mat.width * mat.chain_length).max(32) as i32;
+        let phys_h = (mat.height * mat.parallel.max(1)).max(32) as i32;
+        if mat.rotation == 90 || mat.rotation == 270 {
+            (phys_h, phys_w)
+        } else {
+            (phys_w, phys_h)
+        }
+    };
+    let is_portrait = h > w;
+    // Built automatically from the single theme source of truth, filtering out
+    // high-resolution specialty clock faces on compact 128x32 / 32x128 panels.
     let themes: Vec<_> = crate::core::theme::all_themes()
         .iter()
+        .filter(|t| match t.id {
+            37 => w >= 192 && h >= 64,
+            41 => (is_portrait && w >= 64) || (!is_portrait && h >= 64),
+            _ => true,
+        })
         .map(|t| json!({"value": t.id.to_string(), "label": t.name}))
         .collect();
     HttpResponse::Ok().json(themes)
@@ -1397,7 +1432,40 @@ async fn get_gyro_compat() -> impl Responder {
 }
 
 #[post("/api/display/orientation")]
-async fn post_orientation_compat() -> impl Responder {
+async fn post_orientation_compat(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    body: web::Json<serde_json::Value>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let mut s = data.config.settings.write();
+    if let Some(v) = body
+        .get("rotation")
+        .or_else(|| body.get("screen_rotation"))
+        .and_then(|v| v.as_u64())
+    {
+        s.matrix.rotation = v as u32;
+    }
+    if let Some(v) = body
+        .get("transition_effect")
+        .or_else(|| body.get("rotation_transition"))
+        .and_then(|v| v.as_str())
+    {
+        s.matrix.transition_effect = v.to_string();
+    }
+    if let Some(v) = body.get("transition_duration_ms").and_then(|v| v.as_u64()) {
+        s.matrix.transition_duration_ms = v as u32;
+    }
+    drop(s);
+    if !data.config.save() {
+        return HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": "Failed to persist orientation to disk"
+        }));
+    }
+    data.config.reset_rotation.store(true, Ordering::Relaxed);
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 

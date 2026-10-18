@@ -85,13 +85,23 @@ pub fn weather_day_label(
 // ----------------------------------------------------------------------------
 pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
     let lower = raw_condition.trim().to_lowercase();
+    let is_partly = lower.contains("few clouds")
+        || lower.contains("scattered")
+        || lower.contains("peu nuageux")
+        || lower.contains("partiellement")
+        || lower.contains("algo de nubes")
+        || lower.contains("nubes dispersas");
+    let is_overcast = lower.contains("overcast")
+        || lower.contains("couvert")
+        || lower.contains("muy nuboso")
+        || lower.contains("cubierto");
     match lang {
         Lang::Fr => {
             if lower.contains("clear") || lower.contains("sun") {
                 "Soleil"
-            } else if lower.contains("few clouds") || lower.contains("scattered") {
+            } else if is_partly {
                 "Eclairc."
-            } else if lower.contains("overcast") {
+            } else if is_overcast {
                 "Couvert"
             } else if lower.contains("cloud") {
                 "Nuages"
@@ -114,9 +124,9 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
         Lang::Es => {
             if lower.contains("clear") || lower.contains("sun") {
                 "Soleado"
-            } else if lower.contains("few clouds") || lower.contains("scattered") {
+            } else if is_partly {
                 "Parcial"
-            } else if lower.contains("overcast") {
+            } else if is_overcast {
                 "Cubierto"
             } else if lower.contains("cloud") {
                 "Nubes"
@@ -139,9 +149,9 @@ pub fn weather_condition(lang: Lang, raw_condition: &str) -> &'static str {
         Lang::En => {
             if lower.contains("clear") || lower.contains("sun") {
                 "Clear"
-            } else if lower.contains("few clouds") || lower.contains("scattered") {
+            } else if is_partly {
                 "P.Cloudy"
-            } else if lower.contains("overcast") {
+            } else if is_overcast {
                 "Overcast"
             } else if lower.contains("cloud") {
                 "Clouds"
@@ -495,9 +505,15 @@ pub fn weather_condition_long(lang: Lang, raw_condition: &str) -> &'static str {
     let has = |k: &str| l.contains(k);
     let idx = if has("clear") || has("sun") {
         0
-    } else if has("few clouds") || has("scattered") {
+    } else if has("few clouds")
+        || has("scattered")
+        || has("peu nuageux")
+        || has("partiellement")
+        || has("algo de nubes")
+        || has("nubes dispersas")
+    {
         1
-    } else if has("overcast") {
+    } else if has("overcast") || has("couvert") || has("muy nuboso") || has("cubierto") {
         2
     } else if has("cloud") {
         3

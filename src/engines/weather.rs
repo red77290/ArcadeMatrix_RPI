@@ -46,9 +46,9 @@ impl WeatherEngine {
             scroll_start: Instant::now(),
             api_key: "".to_string(),
             city: "".to_string(),
-            lang: "en".to_string(),
+            lang: "system".to_string(),
             last_lang: String::new(),
-            units: "metric".to_string(),
+            units: "system".to_string(),
             last_units: String::new(),
             offset_x: 0,
             offset_y: 0,
@@ -66,10 +66,20 @@ impl WeatherEngine {
     fn apply_config(&mut self, config: &dyn EngineConfig) {
         self.api_key = config.get_string("api_key", "");
         self.city = config.get_string("city", "");
-        self.lang = config.get_string("lang", "en");
-        self.units = config.get_string("units", "metric");
-        self.offset_x = config.get_int("offset_x", 0);
-        self.offset_y = config.get_int("offset_y", 0);
+        self.lang = config.get_string("lang", "system");
+        self.units = config.get_string("units", "system");
+        let ox = config.get_int("offset_x", 0);
+        self.offset_x = if ox != 0 {
+            ox
+        } else {
+            config.get_int("weather_offset_x", 0)
+        };
+        let oy = config.get_int("offset_y", 0);
+        self.offset_y = if oy != 0 {
+            oy
+        } else {
+            config.get_int("weather_offset_y", 0)
+        };
     }
 }
 
@@ -777,8 +787,12 @@ fn register_weather_engine() -> EngineDescriptor {
                     field_type: crate::core::engine_contract::ConfigType::Options,
                     label: "Units",
                     description: "Temperature unit: metric (°C) or imperial (°F)",
-                    default_value: "metric",
+                    default_value: "system",
                     options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "System (General)",
+                            value: "system",
+                        },
                         crate::core::engine_contract::ConfigOption {
                             label: "Celsius (°C)",
                             value: "metric",
@@ -786,6 +800,42 @@ fn register_weather_engine() -> EngineDescriptor {
                         crate::core::engine_contract::ConfigOption {
                             label: "Fahrenheit (°F)",
                             value: "imperial",
+                        },
+                    ]),
+                    validation_policy:
+                        crate::core::engine_contract::ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                crate::core::engine_contract::ConfigField {
+                    id: "lang",
+                    field_type: crate::core::engine_contract::ConfigType::Options,
+                    label: "Language",
+                    description: "Weather description language",
+                    default_value: "system",
+                    options: Some(vec![
+                        crate::core::engine_contract::ConfigOption {
+                            label: "System (General)",
+                            value: "system",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "English",
+                            value: "en",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Français",
+                            value: "fr",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Español",
+                            value: "es",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Deutsch",
+                            value: "de",
+                        },
+                        crate::core::engine_contract::ConfigOption {
+                            label: "Italiano",
+                            value: "it",
                         },
                     ]),
                     validation_policy:

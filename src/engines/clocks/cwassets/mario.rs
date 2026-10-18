@@ -419,3 +419,10 @@ pub const GOLD_COIN: [u16; 64] = [
     0xFFFF, 0xFFE0, 0x0000, SKY_COLOR, 0x0000, 0xFFE0, 0xFFE0, 0xFFE0, 0xFFE0, 0x0000, SKY_COLOR,
     SKY_COLOR, SKY_COLOR, 0x0000, 0x0000, 0x0000, 0x0000, SKY_COLOR, SKY_COLOR,
 ];
+pub const GOLD_COIN_SIZE: [u16; 2] = [8, 8];
+pub const BUSH_SIZE: [u16; 2] = [21, 9];
+pub const CLOUD1_SIZE: [u16; 2] = [13, 12];
+pub const CLOUD2_SIZE: [u16; 2] = [13, 12];
+pub const CLOUD_FULL_SIZE: [u16; 2] = [19, 12];
+pub const GROUND_SIZE: [u16; 2] = [8, 8];
+pub const HILL_SIZE: [u16; 2] = [20, 22];

@@ -494,6 +494,40 @@ impl Engine for ClockEngine {
 
         let is_tate = matrix.width() < 48 || matrix.height() > (matrix.width() * 3) / 2;
 
+        if !crate::core::theme::is_theme_compatible(
+            self.time_theme,
+            matrix.width() as u32,
+            matrix.height() as u32,
+        ) {
+            if is_tate {
+                self.base_renderer.render_tate_time(
+                    matrix,
+                    hours,
+                    minutes,
+                    seconds,
+                    0,
+                    effective_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
+                    None,
+                    None,
+                );
+            } else {
+                self.base_renderer.render_text(
+                    matrix,
+                    &time_str,
+                    0,
+                    effective_size,
+                    self.time_offset_x,
+                    self.time_offset_y,
+                    None,
+                    None,
+                );
+            }
+            self.last_rendered_time = time_str;
+            return;
+        }
+
         match self.time_theme {
             18 => {
                 self.cyberpunk.render(matrix);
@@ -621,77 +655,16 @@ impl Engine for ClockEngine {
                 .ms_pacman
                 .render(matrix, &time_str, hours, minutes, &font, effective_size),
             35 => self.megaman.render(matrix, hours, minutes, seconds),
-            37 => {
-                if matrix.width() < 192 || matrix.height() < 64 {
-                    if is_tate {
-                        self.base_renderer.render_tate_time(
-                            matrix,
-                            hours,
-                            minutes,
-                            seconds,
-                            0,
-                            effective_size,
-                            self.time_offset_x,
-                            self.time_offset_y,
-                            None,
-                            None,
-                        );
-                    } else {
-                        self.base_renderer.render_text(
-                            matrix,
-                            &time_str,
-                            0,
-                            effective_size,
-                            self.time_offset_x,
-                            self.time_offset_y,
-                            None,
-                            None,
-                        );
-                    }
-                } else {
-                    self.words.render(
-                        matrix,
-                        hours,
-                        minutes,
-                        &font,
-                        effective_size,
-                        &context.config.settings.read().system.lang,
-                    );
-                }
-            }
+            37 => self.words.render(
+                matrix,
+                hours,
+                minutes,
+                &font,
+                effective_size,
+                &context.config.settings.read().system.lang,
+            ),
             39 => self.sonic.render(matrix, hours, minutes, seconds),
-            41 => {
-                let is_portrait = matrix.height() > matrix.width();
-                if (!is_portrait && matrix.height() < 64) || (is_portrait && matrix.width() < 64) {
-                    if is_tate {
-                        self.base_renderer.render_tate_time(
-                            matrix,
-                            hours,
-                            minutes,
-                            seconds,
-                            0,
-                            effective_size,
-                            self.time_offset_x,
-                            self.time_offset_y,
-                            None,
-                            None,
-                        );
-                    } else {
-                        self.base_renderer.render_text(
-                            matrix,
-                            &time_str,
-                            0,
-                            effective_size,
-                            self.time_offset_x,
-                            self.time_offset_y,
-                            None,
-                            None,
-                        );
-                    }
-                } else {
-                    self.metal_slug.render(matrix, hours, minutes, seconds);
-                }
-            }
+            41 => self.metal_slug.render(matrix, hours, minutes, seconds),
             27 => self
                 .versus
                 .render(matrix, hours, minutes, &font, effective_size),

@@ -181,6 +181,38 @@ impl MetalSlugClock {
     ) {
         let panel_w = surface.width() as i32;
         let panel_h = surface.height() as i32;
+
+        if panel_w < w && panel_h < h && panel_w > 0 && panel_h > 0 {
+            let row_stride_bytes = (w * 3 / 4) as usize;
+            for py in 0..panel_h {
+                let sy = (py * h / panel_h).clamp(0, h - 1) as usize;
+                let row_base = sy * row_stride_bytes;
+                for px in 0..panel_w {
+                    let sx = (px * w / panel_w).clamp(0, w - 1) as usize;
+                    let group = sx / 4;
+                    let sub = sx % 4;
+                    let src = row_base + group * 3;
+                    if src + 2 >= packed_pixels.len() {
+                        continue;
+                    }
+                    let b0 = packed_pixels[src];
+                    let b1 = packed_pixels[src + 1];
+                    let b2 = packed_pixels[src + 2];
+                    let idx = match sub {
+                        0 => (b0 & 0x3F) as usize,
+                        1 => (((b0 >> 6) & 0x03) | ((b1 & 0x0F) << 2)) as usize,
+                        2 => (((b1 >> 4) & 0x0F) | ((b2 & 0x03) << 4)) as usize,
+                        _ => ((b2 >> 2) & 0x3F) as usize,
+                    };
+                    if let Some(&c) = palette.get(idx) {
+                        let (r, g, b) = rgb565_to_rgb888(c);
+                        surface.draw_pixel(px, py, r, g, b);
+                    }
+                }
+            }
+            return;
+        }
+
         let draw_w = w.min(panel_w);
         let draw_h = h.min(panel_h);
 
@@ -331,7 +363,15 @@ impl MetalSlugClock {
 
     fn draw_scene(&self, surface: &mut dyn IDrawingSurface, w: i32, h: i32) {
         let is_portrait = h > w;
-        let ground_top = if is_portrait { h - 26 } else { 64 };
+        let ground_top = if is_portrait {
+            if h < 192 {
+                h - 13
+            } else {
+                h - 26
+            }
+        } else {
+            64
+        };
 
         if is_portrait {
             Self::blit_backdrop(
@@ -554,14 +594,19 @@ impl MetalSlugClock {
 
                 Self::draw_arcade_time(surface, 10, 14, &time_str, hud_yellow, 2);
             } else {
-                let time_x = (w - 18) / 2;
+                let time_x = (w - 14) / 2;
                 let hh_bytes = self.shown_hh.as_bytes();
                 let mm_bytes = self.shown_mm.as_bytes();
                 if hh_bytes.len() >= 2 && mm_bytes.len() >= 2 {
+                    let shadow_color = (20, 10, 10);
+                    Self::draw_arcade_digit(surface, time_x + 1, 15, hh_bytes[0], shadow_color, 2);
+                    Self::draw_arcade_digit(surface, time_x + 9, 15, hh_bytes[1], shadow_color, 2);
+                    Self::draw_arcade_digit(surface, time_x + 1, 29, mm_bytes[0], shadow_color, 2);
+                    Self::draw_arcade_digit(surface, time_x + 9, 29, mm_bytes[1], shadow_color, 2);
                     Self::draw_arcade_digit(surface, time_x, 14, hh_bytes[0], hud_yellow, 2);
                     Self::draw_arcade_digit(surface, time_x + 8, 14, hh_bytes[1], hud_yellow, 2);
-                    Self::draw_arcade_digit(surface, time_x, 30, mm_bytes[0], hud_yellow, 2);
-                    Self::draw_arcade_digit(surface, time_x + 8, 30, mm_bytes[1], hud_yellow, 2);
+                    Self::draw_arcade_digit(surface, time_x, 28, mm_bytes[0], hud_yellow, 2);
+                    Self::draw_arcade_digit(surface, time_x + 8, 28, mm_bytes[1], hud_yellow, 2);
                 }
             }
         } else {
@@ -633,9 +678,33 @@ impl MetalSlugClock {
         let w = surface.width() as i32;
         let h = surface.height() as i32;
         let is_portrait = h > w;
-        let ground_top = if is_portrait { h - 36 } else { 64 };
-        let target_tank_x = if is_portrait { w as f32 - 34.0 } else { 185.0 };
-        let target_fire_x = if is_portrait { 2.0 } else { 42.0 };
+        let ground_top = if is_portrait {
+            if h < 192 {
+                h - 13
+            } else {
+                h - 26
+            }
+        } else {
+            64
+        };
+        let target_tank_x = if is_portrait {
+            if w < 64 {
+                (w - 22) as f32
+            } else {
+                w as f32 - 34.0
+            }
+        } else {
+            185.0
+        };
+        let target_fire_x = if is_portrait {
+            if w < 64 {
+                0.0
+            } else {
+                2.0
+            }
+        } else {
+            42.0
+        };
 
         let hh = format!("{:02}", hours);
         let mm = format!("{:02}", minutes);

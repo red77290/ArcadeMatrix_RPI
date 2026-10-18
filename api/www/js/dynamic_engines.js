@@ -99,6 +99,9 @@ export const THEME_ID_MAP = {
   "21": "Matrix Rain", "22": "Pong Clock", "23": "Tetris Clock",
   "24": "Word Clock", "25": "Binary Clock", "26": "Pac-Man Clock",
   "27": "Versus Clock", "28": "Slot Machine Clock", "29": "Tetris Game Boy",
+  "30": "Mario Clock", "31": "Castlevania Clock", "32": "Pocket Index",
+  "33": "World Clock", "34": "Ms. Pac-Man Clock", "35": "Mega Man Clock",
+  "37": "Words Clock", "39": "Sonic Clock", "41": "Metal Slug Clock",
   "tetris": "Tetris Clock", "matrix": "Matrix Rain", "matrix_rain": "Matrix Rain",
   "versus": "Capcom Versus", "arcade": "Arcade", "pacman": "Pac-Man",
   "flip": "Flip Clock", "word": "Word Clock", "cyberpunk": "Cyberpunk",
@@ -140,6 +143,14 @@ export function getEngineMeta(descOrMeta) {
 
 // Global in-memory cache to prevent multiple round-trips
 const endpointCache = new Map();
+
+export function invalidateCachedEndpoint(url) {
+  if (!url) return;
+  endpointCache.delete(url);
+}
+if (typeof window !== 'undefined') {
+  window.invalidateCachedEndpoint = invalidateCachedEndpoint;
+}
 
 async function fetchCachedEndpoint(url) {
   if (!url) return [];

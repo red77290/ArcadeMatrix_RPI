@@ -874,6 +874,7 @@ async function initSettings() {
           window.__sysConfig.matrix.slot_transition = slotTransition;
           window.__sysConfig.matrix.slot_transition_duration_ms = slotTransitionDuration;
         }
+        window.invalidateCachedEndpoint?.('/api/themes');
         setLanguage(lang);
         window.showToast(t('system_prefs_saved', 'System preferences and display rotation saved in real-time!'), 'success');
       } catch (e) {
@@ -937,6 +938,7 @@ async function initSettings() {
       try {
         await API.post('/api/system', { matrix });
         if (window.__sysConfig) window.__sysConfig.matrix = matrix;
+        window.invalidateCachedEndpoint?.('/api/themes');
         window.showToast('Hardware settings saved! The panel will restart to apply physical bus changes.', 'success');
       } catch (e) {
         window.showToast('Failed to save HW settings', 'error');

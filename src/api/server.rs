@@ -1287,16 +1287,11 @@ async fn get_themes(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
             (phys_w, phys_h)
         }
     };
-    let is_portrait = h > w;
     // Built automatically from the single theme source of truth, filtering out
-    // high-resolution specialty clock faces on compact 128x32 / 32x128 panels.
+    // themes whose declarative resolution constraints are not met by the panel.
     let themes: Vec<_> = crate::core::theme::all_themes()
         .iter()
-        .filter(|t| match t.id {
-            37 => w >= 192 && h >= 64,
-            41 => (is_portrait && w >= 64) || (!is_portrait && h >= 64),
-            _ => true,
-        })
+        .filter(|t| t.is_compatible(w as u32, h as u32))
         .map(|t| json!({"value": t.id.to_string(), "label": t.name}))
         .collect();
     HttpResponse::Ok().json(themes)

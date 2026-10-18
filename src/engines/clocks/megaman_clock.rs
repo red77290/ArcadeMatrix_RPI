@@ -13,20 +13,6 @@ fn rgb565_to_rgb888(val: u16) -> (u8, u8, u8) {
     )
 }
 
-// 4x6 Compact Pixel Font (0-9) for 32px wide portrait panels
-const COMPACT_FONT_4X6: [[u8; 6]; 10] = [
-    [0x6, 0x9, 0x9, 0x9, 0x9, 0x6], // 0
-    [0x2, 0x6, 0x2, 0x2, 0x2, 0x7], // 1
-    [0x6, 0x9, 0x2, 0x4, 0x8, 0xF], // 2
-    [0xE, 0x1, 0x6, 0x1, 0x1, 0xE], // 3
-    [0x9, 0x9, 0xF, 0x1, 0x1, 0x1], // 4
-    [0xF, 0x8, 0xE, 0x1, 0x1, 0xE], // 5
-    [0x6, 0x8, 0xE, 0x9, 0x9, 0x6], // 6
-    [0xF, 0x1, 0x2, 0x4, 0x4, 0x4], // 7
-    [0x6, 0x9, 0x6, 0x9, 0x9, 0x6], // 8
-    [0x6, 0x9, 0x7, 0x1, 0x1, 0x6], // 9
-];
-
 const SKYLINE_BUILDINGS: [(i32, i32, i32); 10] = [
     (0, 35, 18),
     (20, 25, 16),
@@ -40,49 +26,57 @@ const SKYLINE_BUILDINGS: [(i32, i32, i32); 10] = [
     (222, 34, 30),
 ];
 
+const DIGITS_4X6: [[u8; 6]; 10] = [
+    [0x6, 0x9, 0x9, 0x9, 0x9, 0x6], // 0
+    [0x2, 0x6, 0x2, 0x2, 0x2, 0x7], // 1
+    [0x6, 0x9, 0x1, 0x2, 0x4, 0xF], // 2
+    [0xE, 0x1, 0x6, 0x1, 0x1, 0xE], // 3
+    [0x9, 0x9, 0xF, 0x1, 0x1, 0x1], // 4
+    [0xF, 0x8, 0xE, 0x1, 0x1, 0xE], // 5
+    [0x6, 0x8, 0xE, 0x9, 0x9, 0x6], // 6
+    [0xF, 0x1, 0x2, 0x2, 0x4, 0x4], // 7
+    [0x6, 0x9, 0x6, 0x9, 0x9, 0x6], // 8
+    [0x6, 0x9, 0x9, 0x7, 0x1, 0x6], // 9
+];
+
 #[derive(PartialEq, Clone, Copy)]
-enum AnimPhase {
+enum Phase {
     Idle,
-    RunLeft,
-    JumpLeft,
-    RunRight,
-    JumpRight,
-    WalkBack,
+    HeroEnter,
+    HeroJump,
+    HeroExit,
 }
 
 pub struct MegamanClock {
-    phase: AnimPhase,
-    displayed_hour: String,
-    displayed_min: String,
-    pending_hour: String,
-    pending_min: String,
-    hour_changing: bool,
-
-    last_tick: Instant,
+    phase: Phase,
     phase_timer: f32,
-    blink_timer: f32,
     run_timer: f32,
-    run_frame: u8,
+    run_frame: usize,
+    climb_stage: u8,
+    jump_t: f32,
 
-    mm_x: f32,
-    mm_y: f32,
-    mm_vy: f32,
-    ground_y: f32,
-    facing_left: bool,
+    megaman_x: f32,
+    megaman_y: f32,
 
-    target_hour_x: f32,
-    target_min_x: f32,
-    pod_base_y: f32,
-
-    hour_pod_offset_y: f32,
-    min_pod_offset_y: f32,
-    hour_pod_flashing: bool,
-    min_pod_flashing: bool,
+    is_charge_shot: bool,
+    bullet_active: bool,
+    bullet_start_x: f32,
+    bullet_start_y: f32,
+    bullet_x: f32,
+    bullet_y: f32,
+    bullet_target_x: f32,
+    bullet_target_y: f32,
 
     spark_active: bool,
-    spark_x: f32,
-    spark_y: f32,
     spark_timer: f32,
+    pod_bounce: f32,
+
+    shown_hh: String,
+    shown_mm: String,
+    last_minute: i32,
+    last_second: i32,
+    snap_to_now: bool,
+    last_tick: Instant,
 }
 
 impl Default for MegamanClock {
@@ -94,368 +88,75 @@ impl Default for MegamanClock {
 impl MegamanClock {
     pub fn new() -> Self {
         Self {
-            phase: AnimPhase::Idle,
-            displayed_hour: String::new(),
-            displayed_min: String::new(),
-            pending_hour: String::new(),
-            pending_min: String::new(),
-            hour_changing: false,
-            last_tick: Instant::now(),
+            phase: Phase::Idle,
             phase_timer: 0.0,
-            blink_timer: 0.0,
             run_timer: 0.0,
             run_frame: 0,
-            mm_x: 16.0,
-            mm_y: 0.0,
-            mm_vy: 0.0,
-            ground_y: 0.0,
-            facing_left: false,
-            target_hour_x: 0.0,
-            target_min_x: 0.0,
-            pod_base_y: 0.0,
-            hour_pod_offset_y: 0.0,
-            min_pod_offset_y: 0.0,
-            hour_pod_flashing: false,
-            min_pod_flashing: false,
+            climb_stage: 0,
+            jump_t: 0.0,
+            megaman_x: -50.0,
+            megaman_y: 0.0,
+            is_charge_shot: false,
+            bullet_active: false,
+            bullet_start_x: 0.0,
+            bullet_start_y: 0.0,
+            bullet_x: 0.0,
+            bullet_y: 0.0,
+            bullet_target_x: 0.0,
+            bullet_target_y: 0.0,
             spark_active: false,
-            spark_x: 0.0,
-            spark_y: 0.0,
             spark_timer: 0.0,
+            pod_bounce: 0.0,
+            shown_hh: "00".to_string(),
+            shown_mm: "00".to_string(),
+            last_minute: -1,
+            last_second: -1,
+            snap_to_now: true,
+            last_tick: Instant::now(),
         }
     }
 
     pub fn on_activated(&mut self) {
-        self.displayed_hour.clear();
-        self.displayed_min.clear();
-        self.phase = AnimPhase::Idle;
+        self.snap_to_now = true;
     }
 
     pub fn on_display_geometry_changed(&mut self) {
-        self.displayed_hour.clear();
-        self.displayed_min.clear();
-        self.phase = AnimPhase::Idle;
-        self.spark_active = false;
+        self.snap_to_now = true;
+        self.climb_stage = 0;
+        self.jump_t = 0.0;
+        self.phase = Phase::Idle;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn draw_sprite(
+    fn blit_sprite(
         surface: &mut dyn IDrawingSurface,
-        sprite: &[u16],
-        x: i32,
-        y: i32,
+        data: &[u16],
         w: i32,
         h: i32,
-        flip_x: bool,
-        downscale: bool,
-    ) {
-        let sw = surface.width() as i32;
-        let sh = surface.height() as i32;
-        let step = if downscale { 2 } else { 1 };
-        let mut sy = 0;
-        let mut dy = 0;
-        while sy < h {
-            let py = y + dy;
-            if py >= 0 && py < sh {
-                let mut sx = 0;
-                let mut dx = 0;
-                while sx < w {
-                    let px = x + dx;
-                    if px >= 0 && px < sw {
-                        let idx_x = if flip_x { w - 1 - sx } else { sx };
-                        let col = sprite[(sy * w + idx_x) as usize];
-                        if col != MASK {
-                            let (r, g, b) = rgb565_to_rgb888(col);
-                            surface.draw_pixel(px, py, r, g, b);
-                        }
-                    }
-                    sx += step;
-                    dx += 1;
-                }
-            }
-            sy += step;
-            dy += 1;
-        }
-    }
-
-    fn draw_skyline(surface: &mut dyn IDrawingSurface, ground_y: i32) {
-        let w = surface.width() as i32;
-        let h = surface.height() as i32;
-
-        let (sr, sg, sb) = rgb565_to_rgb888(0x0005);
-        surface.fill_rect(0, 0, w, ground_y, sr, sg, sb);
-
-        if h >= 48 {
-            let star_coords: [(i32, i32); 11] = [
-                (14, 5),
-                (38, 11),
-                (62, 4),
-                (89, 8),
-                (112, 6),
-                (138, 12),
-                (164, 5),
-                (188, 9),
-                (210, 4),
-                (234, 10),
-                (248, 6),
-            ];
-            for (i, &(sx, sy)) in star_coords.iter().enumerate() {
-                if sx < w && sy < ground_y {
-                    let c = if i % 2 == 0 { 0xFFFF } else { 0x7BEF };
-                    let (r, g, b) = rgb565_to_rgb888(c);
-                    surface.draw_pixel(sx, sy, r, g, b);
-                }
-            }
-        }
-
-        for &(bx, bh_raw, bw) in &SKYLINE_BUILDINGS {
-            if bx >= w {
-                break;
-            }
-            let bh = if h < 48 { bh_raw / 2 } else { bh_raw };
-            let by = ground_y - bh;
-            let (br, bg, bb) = rgb565_to_rgb888(0x0864);
-            let (or, og, ob) = rgb565_to_rgb888(0x10E6);
-            surface.fill_rect(bx, by, bw, bh, br, bg, bb);
-            surface.draw_rect(bx, by, bw, bh, or, og, ob);
-
-            let (wr, wg, wb) = rgb565_to_rgb888(0xFFE0);
-            let mut wy = by + 3;
-            while wy < ground_y - 3 {
-                let mut wx = bx + 3;
-                while wx < bx + bw - 3 {
-                    if ((wx + wy) % 7) != 0 {
-                        surface.fill_rect(wx, wy, 2, 2, wr, wg, wb);
-                    }
-                    wx += 5;
-                }
-                wy += 5;
-            }
-        }
-    }
-
-    fn draw_ground(surface: &mut dyn IDrawingSurface, y: i32) {
-        let w = surface.width() as i32;
-        let mut x = 0;
-        while x < w {
-            Self::draw_sprite(
-                surface,
-                &GROUND_TILE,
-                x,
-                y,
-                GROUND_TILE_W,
-                GROUND_TILE_H,
-                false,
-                false,
-            );
-            x += GROUND_TILE_W;
-        }
-    }
-
-    fn draw_tech_platform(
-        surface: &mut dyn IDrawingSurface,
-        start_x: i32,
-        start_y: i32,
-        tile_count: i32,
-    ) {
-        let h = surface.height() as i32;
-        // On ESP32 GROUND_TILE_W is 16, whereas in cwassets/megaman.rs GROUND_TILE_W is 8.
-        // Multiply tile_count by 2 so 3 tiles = 48px and 2 tiles = 32px, matching ESP32 pixel widths.
-        let tiles_8px = tile_count * 2;
-        let pw = tiles_8px * GROUND_TILE_W;
-
-        let girder_h = h - (start_y + GROUND_TILE_H);
-        if girder_h > 0 {
-            let gx1 = start_x + 4;
-            let gx2 = start_x + pw - 8;
-            let (g1r, g1g, g1b) = rgb565_to_rgb888(0x18E5);
-            let (g2r, g2g, g2b) = rgb565_to_rgb888(0x31EA);
-            let (g3r, g3g, g3b) = rgb565_to_rgb888(0x10C4);
-            surface.fill_rect(gx1, start_y + GROUND_TILE_H, 4, girder_h, g1r, g1g, g1b);
-            surface.draw_line(
-                gx1 + 1,
-                start_y + GROUND_TILE_H,
-                gx1 + 1,
-                h - 1,
-                g2r,
-                g2g,
-                g2b,
-            );
-            if pw >= 28 {
-                surface.fill_rect(gx2, start_y + GROUND_TILE_H, 4, girder_h, g1r, g1g, g1b);
-                surface.draw_line(
-                    gx2 + 1,
-                    start_y + GROUND_TILE_H,
-                    gx2 + 1,
-                    h - 1,
-                    g2r,
-                    g2g,
-                    g2b,
-                );
-            }
-            let mut ry = start_y + GROUND_TILE_H + 3;
-            while ry < h {
-                surface.draw_line(gx1, ry, gx1 + 3, ry, g3r, g3g, g3b);
-                if pw >= 28 {
-                    surface.draw_line(gx2, ry, gx2 + 3, ry, g3r, g3g, g3b);
-                }
-                ry += 5;
-            }
-        }
-
-        for i in 0..tiles_8px {
-            Self::draw_sprite(
-                surface,
-                &GROUND_TILE,
-                start_x + i * GROUND_TILE_W,
-                start_y,
-                GROUND_TILE_W,
-                GROUND_TILE_H,
-                false,
-                false,
-            );
-        }
-
-        let (br, bg, bb) = rgb565_to_rgb888(0x2988);
-        let (cr, cg, cb) = rgb565_to_rgb888(0x075B);
-        surface.draw_line(
-            start_x,
-            start_y,
-            start_x,
-            start_y + GROUND_TILE_H - 1,
-            br,
-            bg,
-            bb,
-        );
-        surface.draw_line(
-            start_x + pw - 1,
-            start_y,
-            start_x + pw - 1,
-            start_y + GROUND_TILE_H - 1,
-            br,
-            bg,
-            bb,
-        );
-        surface.draw_pixel(start_x + 1, start_y + 2, cr, cg, cb);
-        surface.draw_pixel(start_x + pw - 2, start_y + 2, cr, cg, cb);
-    }
-
-    fn draw_energy_gauge(surface: &mut dyn IDrawingSurface, x: i32, y: i32, seconds: i32) {
-        let bar_h = 42;
-        let bar_w = 5;
-        surface.fill_rect(x, y, bar_w, bar_h, 0, 0, 0);
-        let (rr, rg, rb) = rgb565_to_rgb888(0x7BEF);
-        surface.draw_rect(x, y, bar_w, bar_h, rr, rg, rb);
-
-        let total_pips = 20;
-        let lit_pips = ((seconds.clamp(0, 59) * total_pips) / 59).clamp(1, total_pips);
-
-        let (p1r, p1g, p1b) = rgb565_to_rgb888(0xFCE0);
-        let (p2r, p2g, p2b) = rgb565_to_rgb888(0xFFFF);
-        let (p0r, p0g, p0b) = rgb565_to_rgb888(0x2104);
-
-        for i in 0..total_pips {
-            let py = y + bar_h - 3 - i * 2;
-            if i < lit_pips {
-                surface.draw_line(x + 1, py, x + bar_w - 2, py, p1r, p1g, p1b);
-                surface.draw_pixel(x + 2, py, p2r, p2g, p2b);
-            } else {
-                surface.draw_line(x + 1, py, x + bar_w - 2, py, p0r, p0g, p0b);
-            }
-        }
-    }
-
-    fn draw_mini_energy_gauge(surface: &mut dyn IDrawingSurface, x: i32, y: i32, seconds: i32) {
-        let bar_w = 30;
-        let bar_h = 4;
-        surface.fill_rect(x, y, bar_w, bar_h, 0, 0, 0);
-        let (rr, rg, rb) = rgb565_to_rgb888(0x7BEF);
-        surface.draw_rect(x, y, bar_w, bar_h, rr, rg, rb);
-
-        let total_pips = 14;
-        let lit_pips = ((seconds.clamp(0, 59) * total_pips) / 59).clamp(1, total_pips);
-        let (p1r, p1g, p1b) = rgb565_to_rgb888(0xFCE0);
-        let (p0r, p0g, p0b) = rgb565_to_rgb888(0x2104);
-
-        for i in 0..total_pips {
-            let px = x + 1 + i * 2;
-            if i < lit_pips {
-                surface.draw_line(px, y + 1, px, y + bar_h - 2, p1r, p1g, p1b);
-            } else {
-                surface.draw_line(px, y + 1, px, y + bar_h - 2, p0r, p0g, p0b);
-            }
-        }
-    }
-
-    fn draw_capcom_pod(
-        surface: &mut dyn IDrawingSurface,
         x: i32,
         y: i32,
-        text: &str,
-        flashing: bool,
-        downscale: bool,
+        transparent: bool,
+        flip_h: bool,
     ) {
-        let pod_w = if downscale { 14 } else { POD_W };
-        let pod_h = if downscale { 14 } else { POD_H };
-
-        let border_out = if flashing { 0xFFFF } else { 0x039D };
-        let border_in = if flashing { 0xFFE0 } else { 0x075B };
-        let pod_bg = if flashing { 0x039D } else { 0x0843 };
-
-        let (bgr, bgg, bgb) = rgb565_to_rgb888(pod_bg);
-        let (bor, bog, bob) = rgb565_to_rgb888(border_out);
-        let (bir, big, bib) = rgb565_to_rgb888(border_in);
-
-        surface.fill_rect(x + 1, y + 1, pod_w - 2, pod_h - 2, bgr, bgg, bgb);
-        surface.draw_rect(x, y, pod_w, pod_h, bor, bog, bob);
-        surface.draw_rect(x + 1, y + 1, pod_w - 2, pod_h - 2, bir, big, bib);
-
-        surface.draw_pixel(x, y, 0, 0, 0);
-        surface.draw_pixel(x + pod_w - 1, y, 0, 0, 0);
-        surface.draw_pixel(x, y + pod_h - 1, 0, 0, 0);
-        surface.draw_pixel(x + pod_w - 1, y + pod_h - 1, 0, 0, 0);
-        if !downscale {
-            let (rvr, rvg, rvb) = rgb565_to_rgb888(0xAD55);
-            surface.draw_pixel(x + 2, y + 2, rvr, rvg, rvb);
-            surface.draw_pixel(x + pod_w - 3, y + 2, rvr, rvg, rvb);
-            surface.draw_pixel(x + 2, y + pod_h - 3, rvr, rvg, rvb);
-            surface.draw_pixel(x + pod_w - 3, y + pod_h - 3, rvr, rvg, rvb);
-        }
-
-        let bytes = text.as_bytes();
-        let d0 = if !bytes.is_empty() { bytes[0] } else { b'0' };
-        let d1 = if bytes.len() >= 2 { bytes[1] } else { b'0' };
-
-        if downscale {
-            Self::draw_compact_digit(surface, x + 2, y + 4, d0, flashing);
-            Self::draw_compact_digit(surface, x + 7, y + 4, d1, flashing);
-        } else {
-            let scale = 1;
-            let start_x = x + (pod_w - 11) / 2;
-            let start_y = y + (pod_h - 7) / 2;
-            Self::draw_capcom_digit(surface, start_x, start_y, d0, scale, flashing);
-            Self::draw_capcom_digit(surface, start_x + 6, start_y, d1, scale, flashing);
-        }
-    }
-
-    fn draw_compact_digit(
-        surface: &mut dyn IDrawingSurface,
-        x: i32,
-        y: i32,
-        c: u8,
-        flashing: bool,
-    ) {
-        if !c.is_ascii_digit() {
-            return;
-        }
-        let idx = (c - b'0') as usize;
-        let fg = if flashing { 0xFFFF } else { 0xFCE0 };
-        let (r, g, b) = rgb565_to_rgb888(fg);
-        for row in 0..6i32 {
-            let bits = COMPACT_FONT_4X6[idx][row as usize];
-            for col in 0..4i32 {
-                if (bits & (0x08 >> col)) != 0 {
-                    surface.draw_pixel(x + col, y + row, r, g, b);
+        let panel_w = surface.width() as i32;
+        let panel_h = surface.height() as i32;
+        for row in 0..h {
+            let py = y + row;
+            if py < 0 || py >= panel_h {
+                continue;
+            }
+            for col in 0..w {
+                let px = x + if flip_h { w - 1 - col } else { col };
+                if px < 0 || px >= panel_w {
+                    continue;
                 }
+                let Some(&c) = data.get((row * w + col) as usize) else {
+                    continue;
+                };
+                if transparent && c == MASK {
+                    continue;
+                }
+                let (r, g, b) = rgb565_to_rgb888(c);
+                surface.draw_pixel(px, py, r, g, b);
             }
         }
     }
@@ -465,8 +166,7 @@ impl MegamanClock {
         x: i32,
         y: i32,
         c: u8,
-        scale: i32,
-        flashing: bool,
+        color: (u8, u8, u8),
     ) {
         let idx = if c.is_ascii_digit() {
             (c - b'0') as usize
@@ -476,225 +176,238 @@ impl MegamanClock {
             return;
         };
 
-        let fg = if flashing { 0xFFFF } else { 0xFCE0 };
-        let hi = 0xFFFF;
-        let shadow = 0x0010;
-
-        let (sr, sg, sb) = rgb565_to_rgb888(shadow);
         for row in 0..7i32 {
-            let bits = CAPCOM_FONT[idx][row as usize];
+            let row_bits = CAPCOM_FONT[idx][row as usize];
             for col in 0..5i32 {
-                if (bits & (0x10 >> col)) != 0 {
-                    surface.fill_rect(
-                        x + col * scale + 1,
-                        y + row * scale + 1,
-                        scale,
-                        scale,
-                        sr,
-                        sg,
-                        sb,
-                    );
-                }
-            }
-        }
-
-        for row in 0..7i32 {
-            let bits = CAPCOM_FONT[idx][row as usize];
-            let draw_col = if row < 2 { hi } else { fg };
-            let (r, g, b) = rgb565_to_rgb888(draw_col);
-            for col in 0..5i32 {
-                if (bits & (0x10 >> col)) != 0 {
-                    surface.fill_rect(x + col * scale, y + row * scale, scale, scale, r, g, b);
+                if ((row_bits >> (4 - col)) & 1) != 0 {
+                    surface.draw_pixel(x + col, y + row, color.0, color.1, color.2);
                 }
             }
         }
     }
 
-    fn update_animation(
-        &mut self,
-        dt: f32,
-        target_hour: &str,
-        target_min: &str,
-        rest_x: f32,
-        downscale: bool,
+    fn draw_digit_4x6(
+        surface: &mut dyn IDrawingSurface,
+        px: i32,
+        py: i32,
+        c: u8,
+        color: (u8, u8, u8),
     ) {
-        self.blink_timer += dt;
-        if self.blink_timer >= 3.6 {
-            self.blink_timer = 0.0;
-        }
-
-        if self.spark_active {
-            self.spark_timer += dt;
-            if self.spark_timer >= 0.22 {
-                self.spark_active = false;
-            }
-        }
-
-        if self.hour_pod_offset_y < 0.0 {
-            self.hour_pod_offset_y += 28.0 * dt;
-            if self.hour_pod_offset_y >= 0.0 {
-                self.hour_pod_offset_y = 0.0;
-                self.hour_pod_flashing = false;
-            }
-        }
-        if self.min_pod_offset_y < 0.0 {
-            self.min_pod_offset_y += 28.0 * dt;
-            if self.min_pod_offset_y >= 0.0 {
-                self.min_pod_offset_y = 0.0;
-                self.min_pod_flashing = false;
-            }
-        }
-
-        if self.displayed_min.is_empty() {
-            self.displayed_hour = target_hour.to_string();
-            self.displayed_min = target_min.to_string();
-            self.mm_x = rest_x;
+        if !c.is_ascii_digit() {
             return;
         }
+        let idx = (c - b'0') as usize;
+        for r in 0..6i32 {
+            let row = DIGITS_4X6[idx][r as usize];
+            for b in 0..4i32 {
+                if (row & (0x8 >> b)) != 0 {
+                    surface.draw_pixel(px + b, py + r, color.0, color.1, color.2);
+                }
+            }
+        }
+    }
 
-        if self.phase == AnimPhase::Idle
-            && (self.displayed_min != target_min || self.displayed_hour != target_hour)
-        {
-            self.pending_hour = target_hour.to_string();
-            self.pending_min = target_min.to_string();
-            self.hour_changing = self.displayed_hour != target_hour;
-            self.phase_timer = 0.0;
-            self.run_timer = 0.0;
+    fn draw_time_pod(
+        surface: &mut dyn IDrawingSurface,
+        x: i32,
+        y: i32,
+        text: &str,
+        bounce: i32,
+        highlight: bool,
+        downscaled: bool,
+    ) {
+        let py = y - bounce;
+        let border_col = if highlight {
+            (255, 255, 255)
+        } else {
+            (0, 112, 236)
+        };
+        let inner_col = if highlight {
+            (0, 232, 216)
+        } else {
+            (0, 40, 80)
+        };
+        let bg_col = (10, 16, 28);
+        let text_col = if highlight {
+            (255, 255, 255)
+        } else {
+            (0, 232, 216)
+        };
 
-            if self.hour_changing {
-                self.phase = AnimPhase::RunLeft;
-            } else {
-                self.phase = AnimPhase::RunRight;
+        let pw = if downscaled { 14 } else { POD_W };
+        let ph = if downscaled { 14 } else { POD_H };
+
+        surface.fill_rect(x, py, pw, ph, bg_col.0, bg_col.1, bg_col.2);
+        surface.draw_rect(x, py, pw, ph, border_col.0, border_col.1, border_col.2);
+        surface.fill_rect(
+            x + 1,
+            py + 1,
+            pw - 2,
+            1,
+            inner_col.0,
+            inner_col.1,
+            inner_col.2,
+        );
+        surface.fill_rect(
+            x + 1,
+            py + ph - 2,
+            pw - 2,
+            1,
+            inner_col.0,
+            inner_col.1,
+            inner_col.2,
+        );
+
+        let bytes = text.as_bytes();
+        let len = bytes.len() as i32;
+        if downscaled {
+            let tx = x + if len == 2 { 2 } else { 5 };
+            let ty = py + 4;
+            for (i, &b) in bytes.iter().enumerate() {
+                Self::draw_digit_4x6(surface, tx + (i as i32) * 5, ty, b, text_col);
+            }
+        } else {
+            let total_w = if len == 2 { 11 } else { 5 };
+            let tx = x + (POD_W - total_w) / 2;
+            let ty = py + (POD_H - 7) / 2;
+            for (i, &b) in bytes.iter().enumerate() {
+                Self::draw_capcom_digit(surface, tx + (i as i32) * 6, ty, b, text_col);
+            }
+        }
+    }
+
+    fn draw_energy_gauge(surface: &mut dyn IDrawingSurface, x: i32, y: i32, seconds: i32) {
+        let bars = (seconds.clamp(0, 59) * 28) / 59;
+        surface.fill_rect(x, y, 6, 30, 0, 0, 0);
+        surface.draw_rect(x, y, 6, 30, 255, 255, 255);
+
+        for b in 0..28i32 {
+            let by = y + 28 - b;
+            if b < bars {
+                let col = if b % 2 == 0 {
+                    (252, 224, 0)
+                } else {
+                    (255, 255, 255)
+                };
+                surface.fill_rect(x + 1, by, 4, 1, col.0, col.1, col.2);
+            }
+        }
+    }
+
+    fn draw_mini_energy_gauge(surface: &mut dyn IDrawingSurface, x: i32, y: i32, seconds: i32) {
+        surface.fill_rect(x, y, 22, 4, 0, 0, 0);
+        surface.draw_rect(x, y, 22, 4, 0, 112, 236);
+        let fill_len = (seconds.clamp(0, 59) * 20) / 59;
+        if fill_len > 0 {
+            surface.fill_rect(x + 1, y + 1, fill_len, 1, 252, 224, 0);
+            surface.fill_rect(x + 1, y + 2, fill_len, 1, 255, 255, 255);
+        }
+    }
+
+    fn draw_tech_platform(
+        surface: &mut dyn IDrawingSurface,
+        start_x: i32,
+        start_y: i32,
+        tile_count: i32,
+    ) {
+        for i in 0..tile_count {
+            Self::blit_sprite(
+                surface,
+                &GROUND_TILE,
+                GROUND_TILE_W,
+                GROUND_TILE_H,
+                start_x + i * GROUND_TILE_W,
+                start_y,
+                false,
+                false,
+            );
+        }
+    }
+
+    fn draw_scene(surface: &mut dyn IDrawingSurface, w: i32, h: i32) {
+        let is_portrait = h > w;
+
+        // Night sky vertical gradient
+        let denom = if h > 0 { h } else { 1 };
+        for y in 0..h {
+            let grad = (10 + (y * 22) / denom).clamp(0, 255) as u8;
+            surface.fill_rect(0, y, w, 1, 6, 10, grad);
+        }
+
+        // Skyline silhouettes
+        for &(bx, bh, bw_raw) in &SKYLINE_BUILDINGS {
+            if bx >= w {
+                continue;
+            }
+            let bw = if bx + bw_raw > w { w - bx } else { bw_raw };
+            let by = (h - bh).max(0);
+            surface.fill_rect(bx, by, bw, h - by, 16, 24, 40);
+
+            let mut wx = bx + 3;
+            while wx < bx + bw - 3 {
+                let mut wy = by + 4;
+                while wy < h - 8 {
+                    if (wx + wy) % 7 == 0 {
+                        surface.draw_pixel(wx, wy, 252, 224, 0);
+                    } else if (wx + wy) % 11 == 0 {
+                        surface.draw_pixel(wx, wy, 0, 232, 216);
+                    }
+                    wy += 6;
+                }
+                wx += 5;
             }
         }
 
-        let pod_w = if downscale { 14 } else { POD_W };
-        let pod_h = if downscale { 14 } else { POD_H };
-        let mm_w = if downscale {
-            MEGAMAN_IDLE_W / 2
+        if is_portrait {
+            if w >= 64 {
+                Self::draw_tech_platform(surface, 16, 190, 3);
+                Self::draw_tech_platform(surface, 8, 130, 3);
+                Self::blit_sprite(
+                    surface,
+                    &METOOL_SLEEP,
+                    METOOL_W,
+                    METOOL_H,
+                    38,
+                    130 - METOOL_H,
+                    true,
+                    false,
+                );
+                Self::draw_tech_platform(surface, 8, 70, 3);
+            } else {
+                Self::draw_tech_platform(surface, 0, 56, 2);
+                Self::draw_tech_platform(surface, 8, 88, 2);
+            }
+
+            let ground_top = h - GROUND_TILE_H;
+            let mut gx = 0;
+            while gx < w {
+                Self::blit_sprite(
+                    surface,
+                    &GROUND_TILE,
+                    GROUND_TILE_W,
+                    GROUND_TILE_H,
+                    gx,
+                    ground_top,
+                    false,
+                    false,
+                );
+                gx += GROUND_TILE_W;
+            }
         } else {
-            MEGAMAN_IDLE_W
-        };
-        let run_speed = if downscale { 55.0 } else { 95.0 };
-        let gravity = if downscale { 340.0 } else { 520.0 };
-
-        match self.phase {
-            AnimPhase::Idle => {
-                self.mm_x = rest_x;
-                self.mm_y = self.ground_y;
-                self.facing_left = false;
-            }
-            AnimPhase::RunLeft => {
-                self.run_timer += dt;
-                if self.run_timer >= 0.08 {
-                    self.run_timer = 0.0;
-                    self.run_frame = (self.run_frame + 1) % 4;
-                }
-                let goal_x = self.target_hour_x + (pod_w - mm_w) as f32 * 0.5;
-                if (self.mm_x - goal_x).abs() <= run_speed * dt + 1.5 {
-                    self.mm_x = goal_x;
-                    self.phase = AnimPhase::JumpLeft;
-                    self.mm_y = self.ground_y;
-                    let dist_y = (self.ground_y - (self.pod_base_y + pod_h as f32)).max(6.0);
-                    self.mm_vy = -(2.0 * gravity * (dist_y + 4.0)).sqrt();
-                } else if self.mm_x < goal_x {
-                    self.mm_x += run_speed * dt;
-                    self.facing_left = false;
-                } else {
-                    self.mm_x -= run_speed * dt;
-                    self.facing_left = true;
-                }
-            }
-            AnimPhase::JumpLeft => {
-                self.mm_y += self.mm_vy * dt;
-                self.mm_vy += gravity * dt;
-
-                if self.mm_vy < 0.0
-                    && self.mm_y <= self.pod_base_y + pod_h as f32
-                    && self.displayed_hour != self.pending_hour
-                {
-                    self.displayed_hour = self.pending_hour.clone();
-                    self.hour_pod_offset_y = -4.0;
-                    self.hour_pod_flashing = true;
-                    self.mm_vy = 45.0;
-
-                    self.spark_active = true;
-                    self.spark_x =
-                        self.target_hour_x + (pod_w / 2 - if downscale { 3 } else { 6 }) as f32;
-                    self.spark_y = self.pod_base_y + (pod_h - if downscale { 3 } else { 6 }) as f32;
-                    self.spark_timer = 0.0;
-                }
-
-                if self.mm_y >= self.ground_y {
-                    self.mm_y = self.ground_y;
-                    self.mm_vy = 0.0;
-                    self.phase = AnimPhase::RunRight;
-                }
-            }
-            AnimPhase::RunRight => {
-                self.run_timer += dt;
-                if self.run_timer >= 0.08 {
-                    self.run_timer = 0.0;
-                    self.run_frame = (self.run_frame + 1) % 4;
-                }
-                let goal_x = self.target_min_x + (pod_w - mm_w) as f32 * 0.5;
-                if (self.mm_x - goal_x).abs() <= run_speed * dt + 1.5 {
-                    self.mm_x = goal_x;
-                    self.phase = AnimPhase::JumpRight;
-                    self.mm_y = self.ground_y;
-                    let dist_y = (self.ground_y - (self.pod_base_y + pod_h as f32)).max(6.0);
-                    self.mm_vy = -(2.0 * gravity * (dist_y + 4.0)).sqrt();
-                } else if self.mm_x < goal_x {
-                    self.mm_x += run_speed * dt;
-                    self.facing_left = false;
-                } else {
-                    self.mm_x -= run_speed * dt;
-                    self.facing_left = true;
-                }
-            }
-            AnimPhase::JumpRight => {
-                self.mm_y += self.mm_vy * dt;
-                self.mm_vy += gravity * dt;
-
-                if self.mm_vy < 0.0
-                    && self.mm_y <= self.pod_base_y + pod_h as f32
-                    && self.displayed_min != self.pending_min
-                {
-                    self.displayed_min = self.pending_min.clone();
-                    self.min_pod_offset_y = -4.0;
-                    self.min_pod_flashing = true;
-                    self.mm_vy = 45.0;
-
-                    self.spark_active = true;
-                    self.spark_x =
-                        self.target_min_x + (pod_w / 2 - if downscale { 3 } else { 6 }) as f32;
-                    self.spark_y = self.pod_base_y + (pod_h - if downscale { 3 } else { 6 }) as f32;
-                    self.spark_timer = 0.0;
-                }
-
-                if self.mm_y >= self.ground_y {
-                    self.mm_y = self.ground_y;
-                    self.mm_vy = 0.0;
-                    self.phase = AnimPhase::WalkBack;
-                }
-            }
-            AnimPhase::WalkBack => {
-                self.run_timer += dt;
-                if self.run_timer >= 0.08 {
-                    self.run_timer = 0.0;
-                    self.run_frame = (self.run_frame + 1) % 4;
-                }
-                if (self.mm_x - rest_x).abs() <= run_speed * dt + 1.5 {
-                    self.mm_x = rest_x;
-                    self.facing_left = false;
-                    self.phase = AnimPhase::Idle;
-                } else if self.mm_x < rest_x {
-                    self.mm_x += run_speed * dt;
-                    self.facing_left = false;
-                } else {
-                    self.mm_x -= run_speed * dt;
-                    self.facing_left = true;
-                }
+            let ground_top = h - GROUND_TILE_H;
+            let mut gx = 0;
+            while gx < w {
+                Self::blit_sprite(
+                    surface,
+                    &GROUND_TILE,
+                    GROUND_TILE_W,
+                    GROUND_TILE_H,
+                    gx,
+                    ground_top,
+                    false,
+                    false,
+                );
+                gx += GROUND_TILE_W;
             }
         }
     }
@@ -710,7 +423,7 @@ impl MegamanClock {
         let dt = now
             .duration_since(self.last_tick)
             .as_secs_f32()
-            .clamp(0.001, 0.1);
+            .clamp(0.001, 0.2);
         self.last_tick = now;
         self.draw(surface, hours, minutes, seconds, dt);
     }
@@ -723,210 +436,547 @@ impl MegamanClock {
         seconds: u32,
         dt: f32,
     ) {
-        let hour_buf = format!("{:02}", hours);
-        let min_buf = format!("{:02}", minutes);
-        let seconds = seconds as i32;
-
         let w = surface.width() as i32;
         let h = surface.height() as i32;
 
-        let is_portrait = h > w;
-        let is_wide_tall = !is_portrait && h >= 48;
+        let hh = format!("{:02}", hours);
+        let mm = format!("{:02}", minutes);
 
-        let mut downscale = false;
-        let ground_top: i32;
-        let pod_y: i32;
-        let hour_x: i32;
-        let min_x: i32;
-        let rest_x: f32;
+        if self.snap_to_now || self.last_minute == -1 {
+            self.snap_to_now = false;
+            self.shown_hh = hh.clone();
+            self.shown_mm = mm.clone();
+            self.last_minute = minutes as i32;
+            self.last_second = seconds as i32;
+            self.phase = Phase::Idle;
+            self.phase_timer = 0.0;
+            self.run_timer = 0.0;
+            self.run_frame = 0;
+            self.megaman_x = -50.0;
+            self.bullet_active = false;
+            self.spark_active = false;
+            self.pod_bounce = 0.0;
+        }
 
-        if is_portrait {
-            if w >= 64 {
-                ground_top = h - GROUND_TILE_H - 12;
-                pod_y = 10;
-                hour_x = 12;
-                min_x = 38;
-                rest_x = 22.0;
-                Self::draw_skyline(surface, ground_top);
-                Self::draw_ground(surface, ground_top);
-                let (fr, fg, fb) = rgb565_to_rgb888(0x0842);
-                surface.fill_rect(0, ground_top + GROUND_TILE_H, w, 12, fr, fg, fb);
-                Self::draw_energy_gauge(surface, 3, 8, seconds);
+        if self.last_second != seconds as i32 {
+            self.last_second = seconds as i32;
+        }
+
+        // Minute change trigger: Mega Man enters running to fire his Buster at the clock!
+        if self.last_minute != -1
+            && (minutes as i32) != self.last_minute
+            && self.phase == Phase::Idle
+        {
+            self.phase = Phase::HeroEnter;
+            self.phase_timer = 0.0;
+            self.run_timer = 0.0;
+            self.run_frame = 0;
+            self.climb_stage = 0;
+            self.jump_t = 0.0;
+            if h > w {
+                self.megaman_x = -20.0;
+                self.megaman_y = (h - GROUND_TILE_H - MEGAMAN_RUN1_H) as f32;
             } else {
-                downscale = true;
-                ground_top = h - GROUND_TILE_H - 8;
-                pod_y = 18;
-                hour_x = 1;
-                min_x = 17;
-                rest_x = 10.0;
-                Self::draw_skyline(surface, ground_top);
-                Self::draw_ground(surface, ground_top);
-                let (fr, fg, fb) = rgb565_to_rgb888(0x0842);
-                surface.fill_rect(0, ground_top + GROUND_TILE_H, w, 8, fr, fg, fb);
-                Self::draw_mini_energy_gauge(surface, 1, h - 5, seconds);
+                self.megaman_x = -30.0;
+            }
+            self.is_charge_shot = minutes == 0;
+            self.bullet_active = false;
+            self.spark_active = false;
+        }
+
+        // Run animation step cycle
+        if self.phase == Phase::HeroEnter || self.phase == Phase::HeroExit {
+            self.run_timer += dt;
+            if self.run_timer >= 0.09 {
+                self.run_timer -= 0.09;
+                self.run_frame = self.run_frame.wrapping_add(1);
+            }
+        }
+
+        let is_portrait = h > w;
+        let is_wide_tall = h >= 48;
+        let ground_top = h - if is_wide_tall { GROUND_TILE_H } else { 6 };
+
+        let (hour_x, min_x, pod_y) = if is_portrait {
+            if w >= 64 {
+                (12, 38, 10)
+            } else {
+                (1, 17, 18)
             }
         } else if is_wide_tall {
-            ground_top = h - GROUND_TILE_H;
             let mid_x = w / 2;
-            pod_y = 10;
-            hour_x = mid_x - 28;
-            min_x = mid_x + 4;
-            rest_x = if w >= 128 { 18.0 } else { 8.0 };
-
-            Self::draw_skyline(surface, ground_top);
-            if w >= 128 {
-                Self::draw_tech_platform(surface, 4, ground_top, 3);
-                Self::draw_tech_platform(surface, mid_x - 32, ground_top, 4);
-                Self::draw_tech_platform(surface, w - 52, ground_top, 3);
-            } else {
-                Self::draw_ground(surface, ground_top);
-            }
-
-            Self::draw_energy_gauge(surface, 3, 6, seconds);
-
-            if w >= 128 {
-                let metool = if (seconds % 6) == 0 {
-                    &METOOL_PEEK[..]
-                } else {
-                    &METOOL_SLEEP[..]
-                };
-                Self::draw_sprite(
-                    surface,
-                    metool,
-                    w - METOOL_W - 4,
-                    ground_top - METOOL_H,
-                    METOOL_W,
-                    METOOL_H,
-                    false,
-                    false,
-                );
-            }
+            (mid_x - 28, mid_x + 4, 10)
         } else {
-            ground_top = h - 4;
-            pod_y = 6;
-            hour_x = w - 54;
-            min_x = w - 27;
-            rest_x = 14.0;
-
-            Self::draw_skyline(surface, ground_top);
-            Self::draw_tech_platform(surface, 2, ground_top, 2);
-            Self::draw_tech_platform(surface, hour_x - 4, ground_top, 4);
-            Self::draw_mini_energy_gauge(surface, 6, 2, seconds);
-        }
-
-        let mm_h = if downscale {
-            MEGAMAN_IDLE_H / 2
-        } else {
-            MEGAMAN_IDLE_H
+            (w - 54, w - 27, 6)
         };
-        self.ground_y = (ground_top - mm_h) as f32;
-        if self.phase == AnimPhase::Idle {
-            self.mm_y = self.ground_y;
-        }
-        self.target_hour_x = hour_x as f32;
-        self.target_min_x = min_x as f32;
-        self.pod_base_y = pod_y as f32;
 
-        self.update_animation(dt, &hour_buf, &min_buf, rest_x, downscale);
-
-        Self::draw_capcom_pod(
-            surface,
-            hour_x,
-            pod_y + self.hour_pod_offset_y as i32,
-            &self.displayed_hour,
-            self.hour_pod_flashing,
-            downscale,
-        );
-        Self::draw_capcom_pod(
-            surface,
-            min_x,
-            pod_y + self.min_pod_offset_y as i32,
-            &self.displayed_min,
-            self.min_pod_flashing,
-            downscale,
-        );
-
-        if !downscale && (seconds % 2 == 0) {
-            let colon_x = (hour_x + POD_W + min_x) / 2 - 1;
-            let colon_y = pod_y + 6;
-            let (cr, cg, cb) = rgb565_to_rgb888(0x075B);
-            surface.fill_rect(colon_x, colon_y, 2, 2, cr, cg, cb);
-            surface.fill_rect(colon_x, colon_y + 6, 2, 2, cr, cg, cb);
-        }
-
-        let mx = self.mm_x as i32;
-        let my = self.mm_y as i32;
+        let jump_start_x = (hour_x as f32 - if is_wide_tall { 44.0 } else { 32.0 }).max(4.0);
 
         match self.phase {
-            AnimPhase::Idle => {
-                let spr = if self.blink_timer >= 3.42 {
-                    &MEGAMAN_BLINK[..]
+            Phase::Idle => {}
+            Phase::HeroEnter => {
+                if is_portrait {
+                    if w >= 64 {
+                        let floor_y = (h - GROUND_TILE_H - MEGAMAN_RUN1_H) as f32;
+                        if self.climb_stage == 0 {
+                            self.megaman_x += 60.0 * dt;
+                            self.megaman_y = floor_y;
+                            if self.megaman_x >= 12.0 {
+                                self.climb_stage = 1;
+                                self.jump_t = 0.0;
+                            }
+                        } else if self.climb_stage == 1 {
+                            self.jump_t += dt * 2.6;
+                            let t = self.jump_t.min(1.0);
+                            self.megaman_x = 12.0 + (36.0 - 12.0) * t;
+                            let base_y = floor_y + ((190.0 - MEGAMAN_RUN1_H as f32) - floor_y) * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.megaman_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.megaman_y = 190.0 - MEGAMAN_RUN1_H as f32;
+                                self.climb_stage = 2;
+                            }
+                        } else if self.climb_stage == 2 {
+                            self.megaman_x -= 50.0 * dt;
+                            self.megaman_y = 190.0 - MEGAMAN_RUN1_H as f32;
+                            if self.megaman_x <= 30.0 {
+                                self.climb_stage = 3;
+                                self.jump_t = 0.0;
+                            }
+                        } else if self.climb_stage == 3 {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.megaman_x = 30.0 + (18.0 - 30.0) * t;
+                            let base_y = (190.0 - MEGAMAN_RUN1_H as f32)
+                                + ((130.0 - MEGAMAN_RUN1_H as f32)
+                                    - (190.0 - MEGAMAN_RUN1_H as f32))
+                                    * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.megaman_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.megaman_y = 130.0 - MEGAMAN_RUN1_H as f32;
+                                self.climb_stage = 4;
+                            }
+                        } else if self.climb_stage == 4 {
+                            self.megaman_x += 50.0 * dt;
+                            self.megaman_y = 130.0 - MEGAMAN_RUN1_H as f32;
+                            if self.megaman_x >= 24.0 {
+                                self.climb_stage = 5;
+                                self.jump_t = 0.0;
+                            }
+                        } else if self.climb_stage == 5 {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.megaman_x = 24.0 + (16.0 - 24.0) * t;
+                            let base_y = (130.0 - MEGAMAN_RUN1_H as f32)
+                                + ((70.0 - MEGAMAN_RUN1_H as f32)
+                                    - (130.0 - MEGAMAN_RUN1_H as f32))
+                                    * t;
+                            let arc = 4.0 * 14.0 * t * (1.0 - t);
+                            self.megaman_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.megaman_y = 70.0 - MEGAMAN_RUN1_H as f32;
+                                self.climb_stage = 6;
+                            }
+                        } else if self.climb_stage == 6 {
+                            self.megaman_x += 50.0 * dt;
+                            self.megaman_y = 70.0 - MEGAMAN_RUN1_H as f32;
+                            if self.megaman_x >= 18.0 {
+                                self.megaman_x = 18.0;
+                                self.phase = Phase::HeroJump;
+                                self.phase_timer = 0.0;
+                            }
+                        }
+                    } else {
+                        let floor_y = (h - GROUND_TILE_H - MEGAMAN_RUN1_H) as f32;
+                        if self.climb_stage == 0 {
+                            self.megaman_x += 60.0 * dt;
+                            self.megaman_y = floor_y;
+                            if self.megaman_x >= 8.0 {
+                                self.climb_stage = 1;
+                                self.jump_t = 0.0;
+                            }
+                        } else if self.climb_stage == 1 {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.megaman_x = 8.0 + (20.0 - 8.0) * t;
+                            let base_y = floor_y + ((88.0 - MEGAMAN_RUN1_H as f32) - floor_y) * t;
+                            let arc = 4.0 * 12.0 * t * (1.0 - t);
+                            self.megaman_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.megaman_y = 88.0 - MEGAMAN_RUN1_H as f32;
+                                self.climb_stage = 2;
+                            }
+                        } else if self.climb_stage == 2 {
+                            self.megaman_x -= 50.0 * dt;
+                            self.megaman_y = 88.0 - MEGAMAN_RUN1_H as f32;
+                            if self.megaman_x <= 10.0 {
+                                self.climb_stage = 3;
+                                self.jump_t = 0.0;
+                            }
+                        } else if self.climb_stage == 3 {
+                            self.jump_t += dt * 2.8;
+                            let t = self.jump_t.min(1.0);
+                            self.megaman_x = 10.0 + (6.0 - 10.0) * t;
+                            let base_y = (88.0 - MEGAMAN_RUN1_H as f32)
+                                + ((56.0 - MEGAMAN_RUN1_H as f32) - (88.0 - MEGAMAN_RUN1_H as f32))
+                                    * t;
+                            let arc = 4.0 * 12.0 * t * (1.0 - t);
+                            self.megaman_y = base_y - arc;
+                            if self.jump_t >= 1.0 {
+                                self.jump_t = 0.0;
+                                self.megaman_y = 56.0 - MEGAMAN_RUN1_H as f32;
+                                self.climb_stage = 4;
+                            }
+                        } else if self.climb_stage == 4 {
+                            self.megaman_x = 6.0;
+                            self.megaman_y = 56.0 - MEGAMAN_RUN1_H as f32;
+                            self.phase = Phase::HeroJump;
+                            self.phase_timer = 0.0;
+                        }
+                    }
+                } else if is_wide_tall {
+                    self.megaman_x += 85.0 * dt;
+                    self.megaman_y = (ground_top - MEGAMAN_RUN1_H) as f32;
+                    if self.megaman_x >= jump_start_x {
+                        self.phase = Phase::HeroJump;
+                        self.phase_timer = 0.0;
+                    }
                 } else {
-                    &MEGAMAN_IDLE[..]
+                    self.megaman_x += 85.0 * dt;
+                    self.megaman_y = (ground_top - MEGAMAN_RUN1_H) as f32;
+                    let shoot_start_x = 18.0;
+                    if self.megaman_x >= shoot_start_x {
+                        self.megaman_x = shoot_start_x;
+                        self.phase = Phase::HeroJump;
+                        self.phase_timer = 0.0;
+                    }
+                }
+            }
+            Phase::HeroJump => {
+                self.phase_timer += dt;
+
+                if is_portrait {
+                    let jump_duration = 0.85;
+                    let p = (self.phase_timer / jump_duration).min(1.0);
+                    let start_x = if w >= 64 { 18.0 } else { 4.0 };
+                    let travel_x = if w >= 64 { 10.0 } else { 4.0 };
+                    let base_plat_y = if w >= 64 { 70.0 } else { 56.0 };
+                    self.megaman_x = start_x + travel_x * p;
+                    let max_lift = 14.0;
+                    let lift = (p * std::f32::consts::PI).sin() * max_lift;
+                    self.megaman_y = (base_plat_y - MEGAMAN_JUMP_H as f32) - lift;
+
+                    if p >= 0.32 && !self.bullet_active && !self.spark_active {
+                        self.bullet_active = true;
+                        self.bullet_start_x = self.megaman_x + MEGAMAN_JUMP_SHOOT_W as f32 - 2.0;
+                        self.bullet_start_y = self.megaman_y + 6.0;
+                        self.bullet_x = self.bullet_start_x;
+                        self.bullet_y = self.bullet_start_y;
+                        self.bullet_target_x = (min_x + 6) as f32;
+                        self.bullet_target_y = (pod_y + 6) as f32;
+                    }
+
+                    if p >= 1.0 {
+                        self.phase = Phase::HeroExit;
+                        self.phase_timer = 0.0;
+                    }
+                } else if is_wide_tall {
+                    let jump_duration = 0.75;
+                    let p = (self.phase_timer / jump_duration).min(1.0);
+                    self.megaman_x += 80.0 * dt;
+                    let max_lift = 24.0;
+                    let lift = (p * std::f32::consts::PI).sin() * max_lift;
+                    self.megaman_y = (ground_top - MEGAMAN_JUMP_H) as f32 - lift;
+
+                    if p >= 0.32 && !self.bullet_active && !self.spark_active {
+                        self.bullet_active = true;
+                        self.bullet_start_x = self.megaman_x + MEGAMAN_JUMP_SHOOT_W as f32 - 2.0;
+                        self.bullet_start_y = self.megaman_y + 8.0;
+                        self.bullet_x = self.bullet_start_x;
+                        self.bullet_y = self.bullet_start_y;
+                        self.bullet_target_x = (min_x + 6) as f32;
+                        self.bullet_target_y = (pod_y + 12) as f32;
+                    }
+
+                    if p >= 1.0 {
+                        self.phase = Phase::HeroExit;
+                        self.phase_timer = 0.0;
+                    }
+                } else {
+                    // 128x32 horizontal: Mega Man advances straight without jumping, stops and fires Buster lemon
+                    self.megaman_y = (ground_top - MEGAMAN_SHOOT_H) as f32;
+
+                    if self.phase_timer >= 0.06 && !self.bullet_active && !self.spark_active {
+                        self.bullet_active = true;
+                        self.bullet_start_x = self.megaman_x + MEGAMAN_SHOOT_W as f32 - 2.0;
+                        self.bullet_start_y = self.megaman_y + 8.0;
+                        self.bullet_x = self.bullet_start_x;
+                        self.bullet_y = self.bullet_start_y;
+                        self.bullet_target_x = (min_x + 6) as f32;
+                        self.bullet_target_y = (pod_y + 7) as f32;
+                    }
+
+                    if self.phase_timer >= 0.42 {
+                        self.phase = Phase::HeroExit;
+                        self.phase_timer = 0.0;
+                    }
+                }
+            }
+            Phase::HeroExit => {
+                self.megaman_x += (if is_portrait { 85.0 } else { 95.0 }) * dt;
+                self.megaman_y = if is_portrait {
+                    (if w >= 64 { 70.0 } else { 56.0 }) - MEGAMAN_RUN1_H as f32
+                } else {
+                    (ground_top - MEGAMAN_RUN1_H) as f32
                 };
-                Self::draw_sprite(
+                if self.megaman_x > w as f32 + 24.0 {
+                    self.phase = Phase::Idle;
+                    self.phase_timer = 0.0;
+                    self.megaman_x = -50.0;
+                }
+            }
+        }
+
+        // Projectile physics (flies across screen to minute pod)
+        if self.bullet_active {
+            let bullet_speed = 420.0 * dt;
+            self.bullet_x += bullet_speed;
+            if self.bullet_target_x > self.bullet_start_x {
+                let prog = ((self.bullet_x - self.bullet_start_x)
+                    / (self.bullet_target_x - self.bullet_start_x))
+                    .clamp(0.0, 1.0);
+                self.bullet_y =
+                    self.bullet_start_y + (self.bullet_target_y - self.bullet_start_y) * prog;
+            }
+            if self.bullet_x >= self.bullet_target_x {
+                self.bullet_active = false;
+                self.spark_active = true;
+                self.spark_timer = 0.0;
+                self.pod_bounce = if self.is_charge_shot { 5.0 } else { 3.5 };
+                self.shown_hh = hh;
+                self.shown_mm = mm;
+                self.last_minute = minutes as i32;
+            }
+        }
+
+        // Hit Spark physics
+        if self.spark_active {
+            self.spark_timer += dt;
+            self.pod_bounce *= 0.85;
+            if self.spark_timer >= 0.22 {
+                self.spark_active = false;
+                self.pod_bounce = 0.0;
+            }
+        }
+
+        // --- Render frame ---
+        Self::draw_scene(surface, w, h);
+
+        let bounce_int = self.pod_bounce as i32;
+        let downscale = is_portrait && w < 64;
+        Self::draw_time_pod(
+            surface,
+            hour_x,
+            pod_y,
+            &self.shown_hh,
+            if self.is_charge_shot { bounce_int } else { 0 },
+            self.is_charge_shot && self.spark_active,
+            downscale,
+        );
+        Self::draw_time_pod(
+            surface,
+            min_x,
+            pod_y,
+            &self.shown_mm,
+            bounce_int,
+            self.spark_active,
+            downscale,
+        );
+
+        // Energy gauge
+        if is_portrait {
+            if w >= 64 {
+                Self::draw_energy_gauge(surface, 3, 8, seconds as i32);
+            } else {
+                Self::draw_mini_energy_gauge(surface, 1, h - 5, seconds as i32);
+            }
+        } else if is_wide_tall {
+            Self::draw_energy_gauge(surface, 3, 6, seconds as i32);
+            if w >= 128 {
+                let metool_x = w - METOOL_W - 4;
+                Self::blit_sprite(
                     surface,
-                    spr,
-                    mx,
-                    my,
-                    MEGAMAN_IDLE_W,
-                    MEGAMAN_IDLE_H,
+                    &METOOL_SLEEP,
+                    METOOL_W,
+                    METOOL_H,
+                    metool_x,
+                    ground_top - METOOL_H,
+                    true,
                     false,
-                    downscale,
                 );
             }
-            AnimPhase::RunLeft | AnimPhase::RunRight | AnimPhase::WalkBack => {
-                let (spr, sw, sh, y_off) = match self.run_frame {
-                    0 => (&MEGAMAN_RUN1[..], MEGAMAN_RUN1_W, MEGAMAN_RUN1_H, 2),
-                    1 => (
-                        &MEGAMAN_RUN_PASS1[..],
-                        MEGAMAN_RUN_PASS_W,
-                        MEGAMAN_RUN_PASS_H,
-                        0,
-                    ),
-                    2 => (&MEGAMAN_RUN2[..], MEGAMAN_RUN2_W, MEGAMAN_RUN2_H, 2),
-                    _ => (
-                        &MEGAMAN_RUN_PASS1[..],
-                        MEGAMAN_RUN_PASS_W,
-                        MEGAMAN_RUN_PASS_H,
-                        0,
-                    ),
+        } else {
+            Self::draw_mini_energy_gauge(surface, 6, 2, seconds as i32);
+        }
+
+        // Mega Man rendering (appears only during minute sequence)
+        if self.phase == Phase::HeroEnter || self.phase == Phase::HeroExit {
+            let is_jumping = is_portrait
+                && self.phase == Phase::HeroEnter
+                && (self.climb_stage == 1 || self.climb_stage == 3 || self.climb_stage == 5);
+            let flip_h = is_portrait
+                && self.phase == Phase::HeroEnter
+                && if w >= 64 {
+                    self.climb_stage == 2 || self.climb_stage == 3 || self.climb_stage == 5
+                } else {
+                    self.climb_stage == 2 || self.climb_stage == 3
                 };
-                Self::draw_sprite(
-                    surface,
-                    spr,
-                    mx,
-                    my + if downscale { y_off / 2 } else { y_off },
-                    sw,
-                    sh,
-                    self.facing_left,
-                    downscale,
-                );
-            }
-            AnimPhase::JumpLeft | AnimPhase::JumpRight => {
-                Self::draw_sprite(
+            if is_jumping {
+                Self::blit_sprite(
                     surface,
                     &MEGAMAN_JUMP,
-                    mx,
-                    my,
                     MEGAMAN_JUMP_W,
                     MEGAMAN_JUMP_H,
-                    self.facing_left,
-                    downscale,
+                    self.megaman_x as i32,
+                    self.megaman_y as i32,
+                    true,
+                    flip_h,
+                );
+            } else {
+                let (run_sprite, rw, rh): (&[u16], i32, i32) = match self.run_frame % 4 {
+                    0 => (&MEGAMAN_RUN1, MEGAMAN_RUN1_W, MEGAMAN_RUN1_H),
+                    1 => (&MEGAMAN_RUN_PASS1, MEGAMAN_RUN_PASS_W, MEGAMAN_RUN_PASS_H),
+                    2 => (&MEGAMAN_RUN2, MEGAMAN_RUN2_W, MEGAMAN_RUN2_H),
+                    _ => (&MEGAMAN_RUN_PASS2, MEGAMAN_RUN_PASS_W, MEGAMAN_RUN_PASS_H),
+                };
+                Self::blit_sprite(
+                    surface,
+                    run_sprite,
+                    rw,
+                    rh,
+                    self.megaman_x as i32,
+                    self.megaman_y as i32,
+                    true,
+                    flip_h,
+                );
+            }
+        } else if self.phase == Phase::HeroJump {
+            if is_portrait || is_wide_tall {
+                let jump_dur = if is_portrait { 0.85 } else { 0.75 };
+                let p = self.phase_timer / jump_dur;
+                if !(0.28..0.65).contains(&p) {
+                    Self::blit_sprite(
+                        surface,
+                        &MEGAMAN_JUMP,
+                        MEGAMAN_JUMP_W,
+                        MEGAMAN_JUMP_H,
+                        self.megaman_x as i32,
+                        self.megaman_y as i32,
+                        true,
+                        false,
+                    );
+                } else {
+                    Self::blit_sprite(
+                        surface,
+                        &MEGAMAN_JUMP_SHOOT,
+                        MEGAMAN_JUMP_SHOOT_W,
+                        MEGAMAN_JUMP_SHOOT_H,
+                        self.megaman_x as i32,
+                        self.megaman_y as i32,
+                        true,
+                        false,
+                    );
+                    if p < 0.40 {
+                        let aura = if ((self.phase_timer * 30.0) as i32) % 2 == 0 {
+                            (0, 232, 216)
+                        } else {
+                            (252, 224, 0)
+                        };
+                        surface.draw_circle(
+                            self.megaman_x as i32 + MEGAMAN_JUMP_SHOOT_W - 1,
+                            self.megaman_y as i32 + 8,
+                            3,
+                            aura.0,
+                            aura.1,
+                            aura.2,
+                        );
+                    }
+                }
+            } else {
+                // 128x32 horizontal: standing Buster cannon blast pose on ground
+                Self::blit_sprite(
+                    surface,
+                    &MEGAMAN_SHOOT,
+                    MEGAMAN_SHOOT_W,
+                    MEGAMAN_SHOOT_H,
+                    self.megaman_x as i32,
+                    self.megaman_y as i32,
+                    true,
+                    false,
+                );
+                if self.phase_timer < 0.20 {
+                    let aura = if ((self.phase_timer * 30.0) as i32) % 2 == 0 {
+                        (0, 232, 216)
+                    } else {
+                        (252, 224, 0)
+                    };
+                    surface.draw_circle(
+                        self.megaman_x as i32 + MEGAMAN_SHOOT_W - 1,
+                        self.megaman_y as i32 + 8,
+                        3,
+                        aura.0,
+                        aura.1,
+                        aura.2,
+                    );
+                }
+            }
+        }
+
+        // Bullet drawing
+        if self.bullet_active {
+            if self.is_charge_shot {
+                surface.fill_circle(
+                    self.bullet_x as i32 + 4,
+                    self.bullet_y as i32 + 3,
+                    5,
+                    0,
+                    232,
+                    216,
+                );
+                surface.fill_circle(
+                    self.bullet_x as i32 + 4,
+                    self.bullet_y as i32 + 3,
+                    3,
+                    255,
+                    255,
+                    255,
+                );
+            } else {
+                Self::blit_sprite(
+                    surface,
+                    &BUSTER_BULLET,
+                    BULLET_W,
+                    BULLET_H,
+                    self.bullet_x as i32,
+                    self.bullet_y as i32,
+                    true,
+                    false,
                 );
             }
         }
 
+        // Hit Spark drawing
         if self.spark_active {
-            Self::draw_sprite(
-                surface,
-                &HIT_SPARK,
-                self.spark_x as i32,
-                self.spark_y as i32,
-                SPARK_W,
-                SPARK_H,
-                false,
-                downscale,
+            let pod_h = if downscale { 14 } else { POD_H };
+            let spark_x = min_x - (SPARK_W / 2) + 2;
+            let spark_y = pod_y + (pod_h / 2) - (SPARK_H / 2);
+            Self::blit_sprite(
+                surface, &HIT_SPARK, SPARK_W, SPARK_H, spark_x, spark_y, true, false,
             );
         }
     }

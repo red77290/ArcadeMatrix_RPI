@@ -256,34 +256,57 @@ impl SonicClock {
             matrix.fill_rect(0, 0, w, h, sky_blue.0, sky_blue.1, sky_blue.2);
 
             let mountain_col = (32, 144, 96);
-            matrix.fill_triangle(
-                0,
-                48,
-                16,
-                28,
-                32,
-                48,
-                mountain_col.0,
-                mountain_col.1,
-                mountain_col.2,
-            );
-            matrix.fill_triangle(
-                24,
-                48,
-                44,
-                24,
-                64,
-                48,
-                mountain_col.0,
-                mountain_col.1,
-                mountain_col.2,
-            );
-
             if w >= 64 {
+                matrix.fill_triangle(
+                    0,
+                    48,
+                    16,
+                    28,
+                    32,
+                    48,
+                    mountain_col.0,
+                    mountain_col.1,
+                    mountain_col.2,
+                );
+                matrix.fill_triangle(
+                    24,
+                    48,
+                    44,
+                    24,
+                    64,
+                    48,
+                    mountain_col.0,
+                    mountain_col.1,
+                    mountain_col.2,
+                );
+
                 Self::draw_checkered_platform(matrix, 16, 190, 40, 6);
                 Self::draw_checkered_platform(matrix, 8, 130, 40, 6);
                 Self::draw_checkered_platform(matrix, 8, 70, 48, 6);
             } else {
+                matrix.fill_triangle(
+                    0,
+                    56,
+                    10,
+                    38,
+                    22,
+                    56,
+                    mountain_col.0,
+                    mountain_col.1,
+                    mountain_col.2,
+                );
+                matrix.fill_triangle(
+                    12,
+                    56,
+                    22,
+                    36,
+                    32,
+                    56,
+                    mountain_col.0,
+                    mountain_col.1,
+                    mountain_col.2,
+                );
+
                 Self::draw_checkered_platform(matrix, 0, 56, w, 6);
                 Self::draw_checkered_platform(matrix, 8, 88, w - 8, 6);
             }
@@ -653,9 +676,12 @@ impl SonicClock {
                             || self.climb_stage == 3
                             || self.climb_stage == 5));
                 let flip_h = is_portrait
-                    && w < 64
                     && self.phase == Phase::HeroEnter
-                    && self.climb_stage == 2;
+                    && if w >= 64 {
+                        self.climb_stage == 2 || self.climb_stage >= 6
+                    } else {
+                        self.climb_stage == 2
+                    };
                 if is_airborne {
                     Self::blit_sprite(
                         matrix,

@@ -582,9 +582,9 @@ impl CastleClock {
                                 }
                             }
                             _ => {
-                                self.simon_x += 45.0 * dt;
+                                self.simon_x -= 45.0 * dt;
                                 self.simon_y = 40.0;
-                                if self.simon_x >= 14.0 {
+                                if self.simon_x <= 14.0 {
                                     self.simon_x = 14.0;
                                     self.phase = Phase::WhipWindup;
                                     self.phase_timer = 0.0;
@@ -783,9 +783,12 @@ impl CastleClock {
                             || self.climb_stage == 3
                             || self.climb_stage == 5);
                     let flip_h = is_portrait
-                        && w < 64
                         && self.phase == Phase::HeroEnter
-                        && self.climb_stage == 2;
+                        && if w >= 64 {
+                            self.climb_stage == 2 || self.climb_stage == 3 || self.climb_stage >= 5
+                        } else {
+                            self.climb_stage == 2 || self.climb_stage == 3
+                        };
                     let p_pix = if is_jumping {
                         SIMON_WALK_PIXELS[1]
                     } else {

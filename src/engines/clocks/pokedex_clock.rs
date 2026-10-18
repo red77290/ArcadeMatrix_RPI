@@ -45,7 +45,7 @@ impl PokedexClock {
     ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
-        if w < 192 || h < 64 {
+        if w < 64 || h < 64 || (w >= h && w < 192) {
             super::wide_only_notice(matrix, font, scale);
             return;
         }

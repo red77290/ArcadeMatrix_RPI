@@ -43,97 +43,17 @@ const DIGITS_4X6: [[u8; 6]; 10] = [
     [0x6, 0x9, 0x9, 0x7, 0x1, 0x6], // 9
 ];
 
-/// Exact glyph bitmaps for '0'..'9' from `Super_Mario_Bros__24pt7b` (`MarioFont.h`).
-struct MarioDigitGlyph {
-    width: u8,
-    height: u8,
-    x_advance: i32,
-    x_offset: i32,
-    y_offset: i32,
-    bytes: &'static [u8],
-}
-
-const MARIO_DIGIT_GLYPHS: [MarioDigitGlyph; 10] = [
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9F, 0x3E, 0x7C, 0xF9, 0xDF, 0x00],
-    }, // '0'
-    MarioDigitGlyph {
-        width: 5,
-        height: 7,
-        x_advance: 8,
-        x_offset: 1,
-        y_offset: -6,
-        bytes: &[0x77, 0x9C, 0xE7, 0x3B, 0xE0],
-    }, // '1'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9C, 0x39, 0xE7, 0x1C, 0x3F, 0x80],
-    }, // '2'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9C, 0x38, 0x7C, 0xF9, 0xDF, 0x00],
-    }, // '3'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x39, 0xE7, 0x7F, 0xBE, 0x0C, 0x18, 0x00],
-    }, // '4'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0xFF, 0x83, 0xF1, 0xFC, 0xF9, 0xDF, 0x00],
-    }, // '5'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9E, 0x1F, 0x7C, 0xF9, 0xDF, 0x00],
-    }, // '6'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0xFF, 0x1C, 0x39, 0xC7, 0x1C, 0x38, 0x00],
-    }, // '7'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9F, 0x3C, 0xFC, 0xF9, 0xDF, 0x00],
-    }, // '8'
-    MarioDigitGlyph {
-        width: 7,
-        height: 7,
-        x_advance: 8,
-        x_offset: 0,
-        y_offset: -6,
-        bytes: &[0x7D, 0x9F, 0x3E, 0x7D, 0xF0, 0xDF, 0x00],
-    }, // '9'
+const DIGITS_5X7: [[u8; 7]; 10] = [
+    [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E], // 0
+    [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E], // 1
+    [0x0E, 0x11, 0x01, 0x06, 0x08, 0x10, 0x1F], // 2
+    [0x1E, 0x01, 0x01, 0x0E, 0x01, 0x01, 0x1E], // 3
+    [0x11, 0x11, 0x11, 0x1F, 0x01, 0x01, 0x01], // 4
+    [0x1F, 0x10, 0x1E, 0x01, 0x01, 0x11, 0x0E], // 5
+    [0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E], // 6
+    [0x1F, 0x01, 0x02, 0x04, 0x04, 0x08, 0x08], // 7
+    [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E], // 8
+    [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E], // 9
 ];
 
 const BLOCK_W: i32 = 19;
@@ -284,35 +204,17 @@ impl MarioClock {
         }
     }
 
-    fn draw_mario_font_digits(matrix: &mut dyn Matrix, cursor_x: i32, baseline_y: i32, s: &str) {
-        let mut cx = cursor_x;
-        for ch in s.chars() {
-            if !ch.is_ascii_digit() {
-                continue;
-            }
-            let glyph = &MARIO_DIGIT_GLYPHS[(ch as u8 - b'0') as usize];
-            let mut bit_idx = 0usize;
-            let mut bits = 0u8;
-            for yy in 0..glyph.height as i32 {
-                for xx in 0..glyph.width as i32 {
-                    if (bit_idx & 7) == 0 {
-                        bits = glyph.bytes.get(bit_idx >> 3).copied().unwrap_or(0);
-                    }
-                    bit_idx += 1;
-                    if (bits & 0x80) != 0 {
-                        // Black digits (0x0000) inside the golden block, matching MarioClock.cpp:113
-                        matrix.set_pixel(
-                            cx + glyph.x_offset + xx,
-                            baseline_y + glyph.y_offset + yy,
-                            0,
-                            0,
-                            0,
-                        );
-                    }
-                    bits <<= 1;
+    fn draw_digit_5x7(matrix: &mut dyn Matrix, px: i32, py: i32, c: char, color: (u8, u8, u8)) {
+        if !c.is_ascii_digit() {
+            return;
+        }
+        let rows = &DIGITS_5X7[(c as u8 - b'0') as usize];
+        for (r, &row) in rows.iter().enumerate() {
+            for b in 0..5 {
+                if (row & (0x10 >> b)) != 0 {
+                    matrix.set_pixel(px + b, py + r as i32, color.0, color.1, color.2);
                 }
             }
-            cx += glyph.x_advance;
         }
     }
 
@@ -328,9 +230,13 @@ impl MarioClock {
             }
         } else {
             Self::blit_sprite(matrix, &BLOCK, BLOCK_W, BLOCK_H, x, y, false, false);
-            let cursor_x = x + if text.len() == 1 { 6 } else { 2 };
-            let baseline_y = y + 12;
-            Self::draw_mario_font_digits(matrix, cursor_x, baseline_y, text);
+            let chars: Vec<char> = text.chars().collect();
+            if chars.len() == 1 {
+                Self::draw_digit_5x7(matrix, x + 7, y + 6, chars[0], (0, 0, 0));
+            } else if chars.len() >= 2 {
+                Self::draw_digit_5x7(matrix, x + 4, y + 6, chars[0], (0, 0, 0));
+                Self::draw_digit_5x7(matrix, x + 10, y + 6, chars[1], (0, 0, 0));
+            }
         }
     }
 
@@ -917,13 +823,14 @@ impl MarioClock {
                     }
                 }
                 Phase::RunOut => {
-                    self.runner_x -= pace * dt;
+                    self.runner_x += pace * dt;
                     self.runner_y = (ground_top - MARIO_H) as f32;
                     if self.shell_x > 55.0 {
                         self.shell_x -= 40.0 * speed_scale * dt;
                     }
-                    if self.runner_x < -(MARIO_W as f32) - 8.0 {
+                    if self.runner_x > (w + MARIO_JUMP_W + 16) as f32 {
                         self.phase = Phase::Waiting;
+                        self.runner_x = -40.0;
                         self.shell_dir = -1.0;
                     }
                 }
@@ -991,6 +898,12 @@ impl MarioClock {
 
                 if is_portrait {
                     if w >= 64 {
+                        let target_x = ((if self.jump_target == 0 {
+                            hour_x
+                        } else {
+                            minute_x
+                        }) + BLOCK_W / 2
+                            - MARIO_W / 2) as f32;
                         if self.phase == Phase::Jump {
                             airborne = true;
                             let lift = ((self.jump_t * std::f32::consts::PI).sin()
@@ -1007,6 +920,13 @@ impl MarioClock {
                         } else {
                             draw_y = self.runner_y as i32;
                         }
+                        if self.phase == Phase::RunIn
+                            && (self.climb_stage == 2
+                                || self.climb_stage == 3
+                                || (self.climb_stage >= 6 && self.runner_x > target_x))
+                        {
+                            flip_h = true;
+                        }
                     } else {
                         airborne = self.phase == Phase::Jump
                             || (self.phase == Phase::RunIn
@@ -1015,7 +935,8 @@ impl MarioClock {
                         let target_block_x = if self.jump_target == 0 { 2.0 } else { 18.0 };
                         if self.phase == Phase::RunIn
                             && (self.climb_stage == 2
-                                || (self.climb_stage == 4 && self.runner_x > target_block_x))
+                                || self.climb_stage == 3
+                                || (self.climb_stage >= 4 && self.runner_x > target_block_x))
                         {
                             flip_h = true;
                         }
@@ -1058,8 +979,11 @@ impl MarioClock {
                 }
             }
         } else {
-            // 128x32: Draw Mario if on screen
-            if self.runner_x >= -(MARIO_W as f32) && self.runner_x < w as f32 {
+            // 128x32: Draw Mario if on screen during his run/jump/kick/exit sequence
+            if self.phase != Phase::Waiting
+                && self.runner_x >= -(MARIO_JUMP_W as f32)
+                && self.runner_x < w as f32
+            {
                 if self.phase == Phase::Jump {
                     Self::blit_sprite(
                         matrix,

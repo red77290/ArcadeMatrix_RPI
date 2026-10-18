@@ -1,30 +1,39 @@
-//! Authentic Konami Castlevania (NES) Clock Face for ArcadeMatrix.
-//!
-//! Features:
-//! - Simon Belmont walking and whip attack animation on minute flip.
-//! - Blood Moon with flying vampire bat flapping across the moon.
-//! - Animated candle torch with 3-frame flickering flame.
-//! - Gothic 3x5 font for time display.
-//! - Full support for Tate/portrait mode (multi-tier castle platforms), wide/tall 256x64, and compact 128x32.
-//! - Zero-legacy canonical `IDrawingSurface`.
-
 use crate::core::matrix::IDrawingSurface;
 use crate::engines::clocks::cwassets::castlevania::*;
-use crate::engines::clocks::cwscene;
 use std::time::Instant;
 
-#[derive(PartialEq, Clone, Copy, Debug)]
+fn rgb565_to_rgb888(val: u16) -> (u8, u8, u8) {
+    let r5 = ((val >> 11) & 0x1F) as u32;
+    let g6 = ((val >> 5) & 0x3F) as u32;
+    let b5 = (val & 0x1F) as u32;
+    (
+        ((r5 * 255 + 15) / 31) as u8,
+        ((g6 * 255 + 31) / 63) as u8,
+        ((b5 * 255 + 15) / 31) as u8,
+    )
+}
+
+const BAT_PALS: [&[u16]; 2] = [&BAT_F0_PAL, &BAT_F1_PAL];
+const BAT_PIXELS: [&[u8]; 2] = [&BAT_F0_PIXELS, &BAT_F1_PIXELS];
+
+const FLAME_PALS: [&[u16]; 3] = [&FLAME_F0_PAL, &FLAME_F1_PAL, &FLAME_F2_PAL];
+const FLAME_PIXELS: [&[u8]; 3] = [&FLAME_F0_PIXELS, &FLAME_F1_PIXELS, &FLAME_F2_PIXELS];
+
+const SIMON_WALK_PALS: [&[u16]; 3] = [&SIMON_IDLE_PAL, &SIMON_IDLE_PAL, &SIMON_IDLE_PAL];
+const SIMON_WALK_PIXELS: [&[u8]; 3] = [
+    &SIMON_WALK_0_PIXELS,
+    &SIMON_WALK_1_PIXELS,
+    &SIMON_WALK_2_PIXELS,
+];
+
+#[derive(PartialEq, Clone, Copy)]
 enum Phase {
     Idle,
     HeroEnter,
     WhipWindup,
     WhipStrike,
+    Impact,
     HeroExit,
-}
-
-#[inline]
-fn rgb565(r: u8, g: u8, b: u8) -> u16 {
-    ((r as u16 & 0xF8) << 8) | ((g as u16 & 0xFC) << 3) | ((b as u16) >> 3)
 }
 
 pub struct CastleClock {
@@ -44,8 +53,15 @@ pub struct CastleClock {
     shown_hh: String,
     shown_mm: String,
     last_minute: i32,
-    last_frame: Instant,
-    dirty: u8,
+    last_second: i32,
+    snap_to_now: bool,
+    last_frame_ms: Instant,
+}
+
+impl Default for CastleClock {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CastleClock {
@@ -59,19 +75,33 @@ impl CastleClock {
             flame_frame: 0,
             bat_timer: 0.0,
             bat_frame: 0,
-            bat_x: 64.0,
+            bat_x: 140.0,
             simon_x: -40.0,
             simon_y: 0.0,
             climb_stage: 0,
             jump_t: 0.0,
-            shown_hh: String::from("--"),
-            shown_mm: String::from("--"),
+            shown_hh: "00".to_string(),
+            shown_mm: "00".to_string(),
             last_minute: -1,
-            last_frame: Instant::now(),
-            dirty: 3,
+            last_second: -1,
+            snap_to_now: true,
+            last_frame_ms: Instant::now(),
         }
     }
 
+    pub fn on_activated(&mut self) {
+        self.snap_to_now = true;
+    }
+
+    pub fn on_display_geometry_changed(&mut self) {
+        self.snap_to_now = true;
+        self.phase = Phase::Idle;
+        self.phase_timer = 0.0;
+        self.bat_x = 140.0;
+        self.simon_x = -40.0;
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn blit_sprite(
         matrix: &mut dyn IDrawingSurface,
         palette: &[u16],
@@ -82,24 +112,29 @@ impl CastleClock {
         y: i32,
         flip_h: bool,
     ) {
-        let mw = matrix.width() as i32;
-        let mh = matrix.height() as i32;
+        let panel_w = matrix.width() as i32;
+        let panel_h = matrix.height() as i32;
         for row in 0..h {
             let py = y + row;
-            if py < 0 || py >= mh {
+            if py < 0 || py >= panel_h {
                 continue;
             }
             for col in 0..w {
                 let px = x + col;
-                if px < 0 || px >= mw {
+                if px < 0 || px >= panel_w {
                     continue;
                 }
                 let src_col = if flip_h { w - 1 - col } else { col };
-                let idx = pixels[(row * w + src_col) as usize] as usize;
-                if idx == 0 || idx >= palette.len() {
+                let Some(&idx) = pixels.get((row * w + src_col) as usize) else {
+                    continue;
+                };
+                if idx == 0 {
                     continue;
                 }
-                cwscene::put(matrix, px, py, palette[idx]);
+                if let Some(&col565) = palette.get(idx as usize) {
+                    let (r, g, b) = rgb565_to_rgb888(col565);
+                    matrix.draw_pixel(px, py, r, g, b);
+                }
             }
         }
     }
@@ -109,28 +144,24 @@ impl CastleClock {
         x: i32,
         y: i32,
         c: char,
-        color: u16,
+        color: (u8, u8, u8),
         scale: i32,
     ) {
         let idx = if c.is_ascii_digit() {
-            c as usize - '0' as usize
+            (c as u8 - b'0') as usize
         } else if c == ':' {
             10
         } else {
             return;
         };
 
-        for r in 0..5 {
-            let row_bits = GOTHIC_FONT_3x5[idx][r];
-            let py = y + r as i32 * scale;
-            for b in 0..3 {
+        for r in 0..5i32 {
+            let row_bits = GOTHIC_FONT_3x5[idx][r as usize];
+            let py = y + r * scale;
+            for b in 0..3i32 {
                 if ((row_bits >> (2 - b)) & 1) != 0 {
                     let px = x + b * scale;
-                    for sy in 0..scale {
-                        for sx in 0..scale {
-                            cwscene::put(matrix, px + sx, py + sy, color);
-                        }
-                    }
+                    matrix.fill_rect(px, py, scale, scale, color.0, color.1, color.2);
                 }
             }
         }
@@ -140,22 +171,22 @@ impl CastleClock {
         matrix: &mut dyn IDrawingSurface,
         start_x: i32,
         start_y: i32,
-        str_val: &str,
-        color: u16,
+        s: &str,
+        color: (u8, u8, u8),
         scale: i32,
     ) {
-        let chars: Vec<char> = str_val.chars().collect();
+        let chars: Vec<char> = s.chars().collect();
         if chars.len() < 5 {
             return;
         }
         let digit_w = 3 * scale;
-        let digit_gap = 1 * scale;
-        let s = 2 * scale;
+        let digit_gap = scale;
+        let sym_s = 2 * scale;
 
         let x_h1 = start_x;
         let x_h2 = x_h1 + digit_w + digit_gap;
-        let x_colon = x_h2 + 2 * scale + s;
-        let x_m1 = x_colon + 2 * scale + s;
+        let x_colon = x_h2 + 2 * scale + sym_s;
+        let x_m1 = x_colon + 2 * scale + sym_s;
         let x_m2 = x_m1 + digit_w + digit_gap;
 
         Self::draw_gothic_digit(matrix, x_h1, start_y, chars[0], color, scale);
@@ -165,51 +196,26 @@ impl CastleClock {
         Self::draw_gothic_digit(matrix, x_m2, start_y, chars[4], color, scale);
     }
 
-    fn draw_circle_fill(matrix: &mut dyn IDrawingSurface, cx: i32, cy: i32, r: i32, color: u16) {
-        for dy in -r..=r {
-            for dx in -r..=r {
-                if dx * dx + dy * dy <= r * r {
-                    cwscene::put(matrix, cx + dx, cy + dy, color);
-                }
-            }
-        }
-    }
-
     fn draw_scene(&self, matrix: &mut dyn IDrawingSurface, w: i32, h: i32) {
         let is_portrait = h > w;
 
         if is_portrait {
-            // Dracula Castle Tower in Tate Mode
-            let night_sky = rgb565(16, 0, 24);
-            for y in 0..h {
-                for x in 0..w {
-                    cwscene::put(matrix, x, y, night_sky);
-                }
-            }
+            // --- Portrait (64x256 / 64x128) Dracula Castle Tower ---
+            matrix.fill_rect(0, 0, w, h, 16, 0, 24);
 
-            // Blood Moon
-            let moon_outer = rgb565(220, 40, 20);
-            let moon_inner = rgb565(240, 80, 40);
+            // Blood Moon top center - separated from clock time below
             let moon_x = w / 2;
             let moon_r = if w >= 64 { 11 } else { 6 };
-            Self::draw_circle_fill(matrix, moon_x, 12, moon_r, moon_outer);
-            Self::draw_circle_fill(matrix, moon_x - 1, 11, (moon_r - 3).max(1), moon_inner);
+            matrix.fill_circle(moon_x, 12, moon_r, 220, 40, 20);
+            matrix.fill_circle(moon_x - 1, 11, (moon_r - 3).max(1), 240, 80, 40);
 
-            // Flying bat across blood moon
-            let bat_pixels = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PIXELS[..]
-            } else {
-                &BAT_F1_PIXELS[..]
-            };
-            let bat_pal = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PAL[..]
-            } else {
-                &BAT_F1_PAL[..]
-            };
+            // Flying Vampire Bat across moon
+            let bat_pal = BAT_PALS[self.bat_frame % 2];
+            let bat_pix = BAT_PIXELS[self.bat_frame % 2];
             Self::blit_sprite(
                 matrix,
                 bat_pal,
-                bat_pixels,
+                bat_pix,
                 BAT_F0_W,
                 BAT_F0_H,
                 self.bat_x as i32,
@@ -217,71 +223,89 @@ impl CastleClock {
                 false,
             );
 
-            // Stone cornice at y=56
-            let stone_base = rgb565(80, 80, 96);
-            let stone_light = rgb565(140, 140, 160);
-            let stone_dark = rgb565(36, 36, 48);
+            // Stone battlement / cornice at y=56
+            let stone_base = (80u8, 80u8, 96u8);
+            let stone_light = (140u8, 140u8, 160u8);
+            let stone_dark = (36u8, 36u8, 48u8);
 
-            for x in 0..w {
-                cwscene::put(matrix, x, 56, stone_light);
-                for dy in 57..61 {
-                    cwscene::put(matrix, x, dy, stone_base);
-                }
+            matrix.draw_line(
+                0,
+                56,
+                w - 1,
+                56,
+                stone_light.0,
+                stone_light.1,
+                stone_light.2,
+            );
+            matrix.fill_rect(0, 57, w, 4, stone_base.0, stone_base.1, stone_base.2);
+            let mut x = 0;
+            while x < w {
+                matrix.draw_line(x, 57, x, 60, stone_dark.0, stone_dark.1, stone_dark.2);
+                x += 16;
             }
-            let mut sx = 0;
-            while sx < w {
-                for dy in 57..61 {
-                    cwscene::put(matrix, sx, dy, stone_dark);
-                }
-                sx += 16;
-            }
+
+            // Bottom dungeon floor (8px high)
+            matrix.fill_rect(0, h - 8, w, 8, stone_dark.0, stone_dark.1, stone_dark.2);
+            matrix.draw_line(
+                0,
+                h - 8,
+                w - 1,
+                h - 8,
+                stone_light.0,
+                stone_light.1,
+                stone_light.2,
+            );
 
             if w >= 64 {
-                // Platforms at y=190, 130, 70
-                let platforms = [(16, 190, 40), (8, 130, 40), (8, 70, 48)];
-                for (px, py, pw) in platforms {
-                    for x in px..px + pw {
-                        for dy in py..py + 5 {
-                            cwscene::put(matrix, x, dy, stone_base);
-                        }
-                        cwscene::put(matrix, x, py, stone_light);
-                    }
-                }
+                // Platform 3 (bottom): y=190, from x=16 to x=56 (width 40)
+                matrix.fill_rect(16, 190, 40, 5, stone_base.0, stone_base.1, stone_base.2);
+                matrix.draw_line(
+                    16,
+                    190,
+                    55,
+                    190,
+                    stone_light.0,
+                    stone_light.1,
+                    stone_light.2,
+                );
+                // Platform 2 (middle): y=130, from x=8 to x=48 (width 40)
+                matrix.fill_rect(8, 130, 40, 5, stone_base.0, stone_base.1, stone_base.2);
+                matrix.draw_line(8, 130, 47, 130, stone_light.0, stone_light.1, stone_light.2);
+                // Platform 1 (top): y=70, from x=8 to x=56 (width 48)
+                matrix.fill_rect(8, 70, 48, 5, stone_base.0, stone_base.1, stone_base.2);
+                matrix.draw_line(8, 70, 55, 70, stone_light.0, stone_light.1, stone_light.2);
             } else {
                 // 32-wide Tate (128x32 rotated: w=32, h=128)
-                for x in 0..w {
-                    for dy in 70..75 {
-                        cwscene::put(matrix, x, dy, stone_base);
-                    }
-                    cwscene::put(matrix, x, 70, stone_light);
-                }
+                matrix.fill_rect(0, 56, w, 5, stone_base.0, stone_base.1, stone_base.2);
+                matrix.draw_line(
+                    0,
+                    56,
+                    w - 1,
+                    56,
+                    stone_light.0,
+                    stone_light.1,
+                    stone_light.2,
+                );
+                matrix.fill_rect(8, 88, w - 8, 5, stone_base.0, stone_base.1, stone_base.2);
+                matrix.draw_line(
+                    8,
+                    88,
+                    w - 1,
+                    88,
+                    stone_light.0,
+                    stone_light.1,
+                    stone_light.2,
+                );
             }
 
-            // Candle stand on Platform 1
-            let torch_x = if w >= 64 { 46 } else { 25 };
-            let torch_metal = rgb565(140, 100, 50);
-            for y in 56..70 {
-                for x in torch_x..torch_x + 4 {
-                    cwscene::put(matrix, x, y, torch_metal);
-                }
-            }
-            for y in 52..56 {
-                for x in torch_x - 2..torch_x + 6 {
-                    cwscene::put(matrix, x, y, torch_metal);
-                }
-            }
+            // Candle torch stand on Platform 1
+            let torch_x = if w >= 64 { 46 } else { w - 7 };
+            let torch_plat_y = if w >= 64 { 70 } else { 56 };
+            matrix.fill_rect(torch_x, torch_plat_y - 14, 4, 14, 140, 100, 50);
+            matrix.fill_rect(torch_x - 2, torch_plat_y - 18, 8, 4, 140, 100, 50);
 
-            // Animated candle flame
-            let flame_pal = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PAL[..],
-                1 => &FLAME_F1_PAL[..],
-                _ => &FLAME_F2_PAL[..],
-            };
-            let flame_pix = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PIXELS[..],
-                1 => &FLAME_F1_PIXELS[..],
-                _ => &FLAME_F2_PIXELS[..],
-            };
+            let flame_pal = FLAME_PALS[self.flame_frame % 3];
+            let flame_pix = FLAME_PIXELS[self.flame_frame % 3];
             Self::blit_sprite(
                 matrix,
                 flame_pal,
@@ -289,97 +313,64 @@ impl CastleClock {
                 FLAME_F0_W,
                 FLAME_F0_H,
                 torch_x - 2,
-                42,
+                torch_plat_y - 28,
                 false,
             );
         } else if h >= 48 {
-            // Dracula's Castle Parapets (256x64)
-            let night_sky = rgb565(16, 0, 24);
-            for y in 0..48 {
-                for x in 0..w {
-                    cwscene::put(matrix, x, y, night_sky);
-                }
-            }
+            // --- 256x64 Dracula's Castle Parapets ---
+            matrix.fill_rect(0, 0, w, 48, 16, 0, 24);
 
-            // Blood Moon
-            let moon_outer = rgb565(220, 40, 20);
-            let moon_inner = rgb565(240, 80, 40);
-            Self::draw_circle_fill(matrix, (w - 40).max(40), 22, 18, moon_outer);
-            Self::draw_circle_fill(matrix, (w - 42).max(38), 20, 15, moon_inner);
+            // Blood Moon on right
+            matrix.fill_circle(216, 22, 18, 220, 40, 20);
+            matrix.fill_circle(214, 20, 15, 240, 80, 40);
 
             // Parapets at y=48..63
-            let stone_base = rgb565(80, 80, 96);
-            let stone_light = rgb565(140, 140, 160);
-            let stone_dark = rgb565(36, 36, 48);
+            let stone_base = (80u8, 80u8, 96u8);
+            let stone_light = (140u8, 140u8, 160u8);
+            let stone_dark = (36u8, 36u8, 48u8);
 
-            for y in 48..h {
-                for x in 0..w {
-                    cwscene::put(matrix, x, y, stone_base);
-                }
-            }
-            for x in 0..w {
-                cwscene::put(matrix, x, 48, stone_light);
-            }
-            let mut sx = 0;
-            while sx < w {
-                for y in 48..h {
-                    cwscene::put(matrix, sx, y, stone_dark);
-                    cwscene::put(matrix, sx + 1, y, stone_light);
-                }
-                sx += 16;
-            }
-
-            // Candle stand on right
-            let torch_metal = rgb565(140, 100, 50);
-            let torch_x = (w - 16).max(10);
-            for y in 34..48 {
-                for x in torch_x..torch_x + 4 {
-                    cwscene::put(matrix, x, y, torch_metal);
-                }
-            }
-            for y in 30..34 {
-                for x in torch_x - 2..torch_x + 6 {
-                    cwscene::put(matrix, x, y, torch_metal);
-                }
-            }
-
-            // Torch flame
-            let flame_pal = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PAL[..],
-                1 => &FLAME_F1_PAL[..],
-                _ => &FLAME_F2_PAL[..],
-            };
-            let flame_pix = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PIXELS[..],
-                1 => &FLAME_F1_PIXELS[..],
-                _ => &FLAME_F2_PIXELS[..],
-            };
-            Self::blit_sprite(
-                matrix,
-                flame_pal,
-                flame_pix,
-                FLAME_F0_W,
-                FLAME_F0_H,
-                torch_x - 2,
-                20,
-                false,
+            matrix.fill_rect(0, 48, w, h - 48, stone_base.0, stone_base.1, stone_base.2);
+            matrix.draw_line(
+                0,
+                48,
+                w - 1,
+                48,
+                stone_light.0,
+                stone_light.1,
+                stone_light.2,
             );
 
-            // Flying Bat
-            let bat_pixels = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PIXELS[..]
-            } else {
-                &BAT_F1_PIXELS[..]
-            };
-            let bat_pal = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PAL[..]
-            } else {
-                &BAT_F1_PAL[..]
-            };
+            let mut x = 0;
+            while x < w {
+                matrix.draw_line(x, 48, x, h - 1, stone_dark.0, stone_dark.1, stone_dark.2);
+                matrix.draw_line(
+                    x + 1,
+                    48,
+                    x + 1,
+                    h - 1,
+                    stone_light.0,
+                    stone_light.1,
+                    stone_light.2,
+                );
+                x += 16;
+            }
+
+            // Candle Torch Stand on right (x=240, y=26..47)
+            matrix.fill_rect(240, 34, 4, 14, 140, 100, 50);
+            matrix.fill_rect(238, 30, 8, 4, 140, 100, 50);
+
+            let flame_pal = FLAME_PALS[self.flame_frame % 3];
+            let flame_pix = FLAME_PIXELS[self.flame_frame % 3];
+            Self::blit_sprite(
+                matrix, flame_pal, flame_pix, FLAME_F0_W, FLAME_F0_H, 238, 20, false,
+            );
+
+            let bat_pal = BAT_PALS[self.bat_frame % 2];
+            let bat_pix = BAT_PIXELS[self.bat_frame % 2];
             Self::blit_sprite(
                 matrix,
                 bat_pal,
-                bat_pixels,
+                bat_pix,
                 BAT_F0_W,
                 BAT_F0_H,
                 self.bat_x as i32,
@@ -387,79 +378,37 @@ impl CastleClock {
                 false,
             );
         } else {
-            // 128x32 Dungeon floor
-            for y in 0..26 {
-                for x in 0..w {
-                    cwscene::put(matrix, x, y, 0x0000);
-                }
-            }
+            // --- 128x32 Dungeon Floor ---
+            matrix.fill_rect(0, 0, w, 26, 0, 0, 0);
 
-            // Blood Moon
-            let moon_outer = rgb565(220, 40, 20);
-            let moon_inner = rgb565(240, 80, 40);
-            Self::draw_circle_fill(matrix, 14, 10, 8, moon_outer);
-            Self::draw_circle_fill(matrix, 13, 9, 6, moon_inner);
-            let brick_col = rgb565(116, 40, 12);
-            let brick_mortar = rgb565(40, 16, 8);
-            for y in 26..h {
-                for x in 0..w {
-                    cwscene::put(matrix, x, y, brick_col);
-                }
-            }
-            for x in 0..w {
-                cwscene::put(matrix, x, 26, rgb565(180, 70, 20));
-            }
-            let mut sx = 0;
-            while sx < w {
-                for y in 26..h {
-                    cwscene::put(matrix, sx, y, brick_mortar);
-                }
-                sx += 8;
+            // Blood Moon in upper-left sky
+            matrix.fill_circle(14, 10, 8, 220, 40, 20);
+            matrix.fill_circle(13, 9, 6, 240, 80, 40);
+
+            // Brick floor at y=26..31
+            matrix.fill_rect(0, 26, w, h - 26, 116, 40, 12);
+            matrix.draw_line(0, 26, w - 1, 26, 180, 70, 20);
+
+            let mut x = 0;
+            while x < w {
+                matrix.draw_line(x, 26, x, h - 1, 40, 16, 8);
+                x += 8;
             }
 
             // Candle Torch on right
-            let torch_x = (w - 12).max(10);
-            for y in 20..26 {
-                for x in torch_x..torch_x + 2 {
-                    cwscene::put(matrix, x, y, rgb565(140, 100, 50));
-                }
-            }
-            let flame_pal = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PAL[..],
-                1 => &FLAME_F1_PAL[..],
-                _ => &FLAME_F2_PAL[..],
-            };
-            let flame_pix = match self.flame_frame % 3 {
-                0 => &FLAME_F0_PIXELS[..],
-                1 => &FLAME_F1_PIXELS[..],
-                _ => &FLAME_F2_PIXELS[..],
-            };
+            matrix.fill_rect(116, 20, 2, 6, 140, 100, 50);
+            let flame_pal = FLAME_PALS[self.flame_frame % 3];
+            let flame_pix = FLAME_PIXELS[self.flame_frame % 3];
             Self::blit_sprite(
-                matrix,
-                flame_pal,
-                flame_pix,
-                FLAME_F0_W,
-                FLAME_F0_H,
-                torch_x - 3,
-                10,
-                false,
+                matrix, flame_pal, flame_pix, FLAME_F0_W, FLAME_F0_H, 113, 10, false,
             );
 
-            // Flying Bat
-            let bat_pixels = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PIXELS[..]
-            } else {
-                &BAT_F1_PIXELS[..]
-            };
-            let bat_pal = if self.bat_frame % 2 == 0 {
-                &BAT_F0_PAL[..]
-            } else {
-                &BAT_F1_PAL[..]
-            };
+            let bat_pal = BAT_PALS[self.bat_frame % 2];
+            let bat_pix = BAT_PIXELS[self.bat_frame % 2];
             Self::blit_sprite(
                 matrix,
                 bat_pal,
-                bat_pixels,
+                bat_pix,
                 BAT_F0_W,
                 BAT_F0_H,
                 self.bat_x as i32,
@@ -469,256 +418,511 @@ impl CastleClock {
         }
     }
 
-    pub fn render(&mut self, matrix: &mut dyn IDrawingSurface, hours: u32, minutes: u32) {
+    pub fn render(
+        &mut self,
+        matrix: &mut dyn IDrawingSurface,
+        hours: u32,
+        minutes: u32,
+        seconds: u32,
+    ) {
+        let now = Instant::now();
+        let dt = now
+            .duration_since(self.last_frame_ms)
+            .as_secs_f32()
+            .clamp(0.001, 0.2);
+        self.last_frame_ms = now;
+        self.draw(matrix, hours, minutes, seconds, dt);
+    }
+
+    pub fn draw(
+        &mut self,
+        matrix: &mut dyn IDrawingSurface,
+        hours: u32,
+        minutes: u32,
+        seconds: u32,
+        dt: f32,
+    ) {
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
         let is_portrait = h > w;
 
-        let dt = self.last_frame.elapsed().as_secs_f32().min(0.2);
-        self.last_frame = Instant::now();
-
         let hh = format!("{:02}", hours);
         let mm = format!("{:02}", minutes);
-        if self.shown_hh == "--" {
+
+        if self.snap_to_now || self.last_minute == -1 {
+            self.snap_to_now = false;
             self.shown_hh = hh.clone();
             self.shown_mm = mm.clone();
-            self.dirty = 3;
+            self.last_minute = minutes as i32;
+            self.last_second = seconds as i32;
+            self.phase = Phase::Idle;
+            self.phase_timer = 0.0;
+            self.walk_timer = 0.0;
+            self.walk_frame = 0;
+            self.flame_timer = 0.0;
+            self.flame_frame = 0;
+            self.bat_timer = 0.0;
+            self.bat_frame = 0;
+            self.bat_x = w as f32;
+            self.simon_x = -40.0;
         }
 
-        // Minute change trigger
-        if minutes as i32 != self.last_minute && self.phase == Phase::Idle {
-            self.last_minute = minutes as i32;
+        if self.last_second != seconds as i32 {
+            self.last_second = seconds as i32;
+        }
+
+        if self.last_minute != minutes as i32 && self.phase == Phase::Idle {
             self.phase = Phase::HeroEnter;
             self.phase_timer = 0.0;
             if is_portrait {
                 self.simon_x = -16.0;
-                self.simon_y = if w >= 64 { (h - 8 - 30) as f32 } else { 40.0 };
+                self.simon_y = (h - 8 - 30) as f32;
                 self.climb_stage = 0;
                 self.jump_t = 0.0;
             } else {
                 self.simon_x = -20.0;
-                self.simon_y = if h >= 48 { (48 - 30) as f32 } else { 0.0 };
+                self.simon_y = if h >= 48 { 48.0 - 30.0 } else { 0.0 };
             }
-            self.dirty = 3;
         }
 
-        // Flame animation (120ms)
+        // Flame flicker (every 120ms)
         self.flame_timer += dt;
         if self.flame_timer >= 0.12 {
             self.flame_timer = 0.0;
             self.flame_frame = (self.flame_frame + 1) % 3;
-            self.dirty = self.dirty.max(2);
         }
 
-        // Bat flight
+        // Bat flap and glide across sky
         self.bat_timer += dt;
-        if self.bat_timer >= 0.14 {
+        if self.bat_timer >= 0.18 {
             self.bat_timer = 0.0;
             self.bat_frame = (self.bat_frame + 1) % 2;
         }
-        self.bat_x -= 35.0 * dt;
+        self.bat_x -= (if is_portrait { 18.0 } else { 25.0 }) * dt;
         if self.bat_x < -20.0 {
             self.bat_x = w as f32 + 10.0;
         }
 
-        // Simon movement & attack state machine
-        let target_x = if is_portrait {
-            if w >= 64 {
-                14.0
-            } else {
-                2.0
+        if self.phase == Phase::HeroEnter || self.phase == Phase::HeroExit {
+            self.walk_timer += dt;
+            if self.walk_timer >= 0.12 {
+                self.walk_timer = 0.0;
+                self.walk_frame = self.walk_frame.wrapping_add(1);
             }
-        } else if h >= 48 {
-            (w - 70).max(30) as f32
-        } else {
-            (w - 55).max(20) as f32
-        };
+        }
 
         match self.phase {
             Phase::Idle => {}
             Phase::HeroEnter => {
-                self.walk_timer += dt;
-                if self.walk_timer >= 0.12 {
-                    self.walk_timer = 0.0;
-                    self.walk_frame = (self.walk_frame + 1) % 3;
+                if is_portrait {
+                    if w >= 64 {
+                        let floor_y = (h - 8 - 30) as f32;
+                        match self.climb_stage {
+                            0 => {
+                                self.simon_x += 50.0 * dt;
+                                self.simon_y = floor_y;
+                                if self.simon_x >= 12.0 {
+                                    self.climb_stage = 1;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            1 => {
+                                self.jump_t += dt * 2.6;
+                                let t = self.jump_t.min(1.0);
+                                self.simon_x = 12.0 + (36.0 - 12.0) * t;
+                                let base_y = floor_y + (160.0 - floor_y) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.simon_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.simon_y = 160.0;
+                                    self.climb_stage = 2;
+                                }
+                            }
+                            2 => {
+                                self.simon_x -= 45.0 * dt;
+                                self.simon_y = 160.0;
+                                if self.simon_x <= 30.0 {
+                                    self.climb_stage = 3;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            3 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.simon_x = 30.0 + (18.0 - 30.0) * t;
+                                let base_y = 160.0 + (100.0 - 160.0) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.simon_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.simon_y = 100.0;
+                                    self.climb_stage = 4;
+                                }
+                            }
+                            4 => {
+                                self.simon_x += 45.0 * dt;
+                                self.simon_y = 100.0;
+                                if self.simon_x >= 24.0 {
+                                    self.climb_stage = 5;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            5 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.simon_x = 24.0 + (16.0 - 24.0) * t;
+                                let base_y = 100.0 + (40.0 - 100.0) * t;
+                                let arc = 4.0 * 14.0 * t * (1.0 - t);
+                                self.simon_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.simon_y = 40.0;
+                                    self.climb_stage = 6;
+                                }
+                            }
+                            _ => {
+                                self.simon_x += 45.0 * dt;
+                                self.simon_y = 40.0;
+                                if self.simon_x >= 14.0 {
+                                    self.simon_x = 14.0;
+                                    self.phase = Phase::WhipWindup;
+                                    self.phase_timer = 0.0;
+                                }
+                            }
+                        }
+                    } else {
+                        let floor_y = (h - 8 - 30) as f32;
+                        match self.climb_stage {
+                            0 => {
+                                self.simon_x += 50.0 * dt;
+                                self.simon_y = floor_y;
+                                if self.simon_x >= 8.0 {
+                                    self.climb_stage = 1;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            1 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.simon_x = 8.0 + (20.0 - 8.0) * t;
+                                let base_y = floor_y + ((88.0 - 30.0) - floor_y) * t;
+                                let arc = 4.0 * 12.0 * t * (1.0 - t);
+                                self.simon_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.simon_y = 88.0 - 30.0;
+                                    self.climb_stage = 2;
+                                }
+                            }
+                            2 => {
+                                self.simon_x -= 45.0 * dt;
+                                self.simon_y = 88.0 - 30.0;
+                                if self.simon_x <= 10.0 {
+                                    self.climb_stage = 3;
+                                    self.jump_t = 0.0;
+                                }
+                            }
+                            3 => {
+                                self.jump_t += dt * 2.8;
+                                let t = self.jump_t.min(1.0);
+                                self.simon_x = 10.0 + (2.0 - 10.0) * t;
+                                let base_y = (88.0 - 30.0) + ((56.0 - 30.0) - (88.0 - 30.0)) * t;
+                                let arc = 4.0 * 12.0 * t * (1.0 - t);
+                                self.simon_y = base_y - arc;
+                                if self.jump_t >= 1.0 {
+                                    self.jump_t = 0.0;
+                                    self.simon_y = 56.0 - 30.0;
+                                    self.climb_stage = 4;
+                                }
+                            }
+                            _ => {
+                                self.simon_x = 2.0;
+                                self.simon_y = 56.0 - 30.0;
+                                self.phase = Phase::WhipWindup;
+                                self.phase_timer = 0.0;
+                            }
+                        }
+                    }
+                } else {
+                    let target_x = if h >= 48 { 20.0 } else { 6.0 };
+                    self.simon_x += 65.0 * dt;
+                    if self.simon_x >= target_x {
+                        self.simon_x = target_x;
+                        self.phase = Phase::WhipWindup;
+                        self.phase_timer = 0.0;
+                    }
                 }
-                self.simon_x += 45.0 * dt;
-                if self.simon_x >= target_x {
-                    self.simon_x = target_x;
-                    self.phase = Phase::WhipWindup;
-                    self.phase_timer = 0.0;
-                }
-                self.dirty = self.dirty.max(2);
             }
             Phase::WhipWindup => {
                 self.phase_timer += dt;
-                if self.phase_timer >= 0.22 {
+                if self.phase_timer >= 0.15 {
                     self.phase = Phase::WhipStrike;
                     self.phase_timer = 0.0;
-                    // Minute strike flips digits!
-                    self.shown_hh = hh.clone();
-                    self.shown_mm = mm.clone();
                 }
-                self.dirty = self.dirty.max(2);
             }
             Phase::WhipStrike => {
                 self.phase_timer += dt;
-                if self.phase_timer >= 0.35 {
+                if self.phase_timer >= 0.20 {
+                    self.phase = Phase::Impact;
+                    self.phase_timer = 0.0;
+                    self.shown_hh = hh;
+                    self.shown_mm = mm;
+                    self.last_minute = minutes as i32;
+                }
+            }
+            Phase::Impact => {
+                self.phase_timer += dt;
+                if self.phase_timer >= 0.18 {
                     self.phase = Phase::HeroExit;
                     self.phase_timer = 0.0;
                 }
-                self.dirty = self.dirty.max(2);
             }
             Phase::HeroExit => {
-                self.walk_timer += dt;
-                if self.walk_timer >= 0.12 {
-                    self.walk_timer = 0.0;
-                    self.walk_frame = (self.walk_frame + 1) % 3;
+                if is_portrait {
+                    self.simon_x += 60.0 * dt;
+                    self.simon_y = (if w >= 64 { 70.0 } else { 56.0 }) - 30.0;
+                    if self.simon_x > w as f32 + 24.0 {
+                        self.phase = Phase::Idle;
+                        self.phase_timer = 0.0;
+                    }
+                } else {
+                    self.simon_x += 75.0 * dt;
+                    if self.simon_x > w as f32 + 24.0 {
+                        self.phase = Phase::Idle;
+                        self.phase_timer = 0.0;
+                    }
                 }
-                self.simon_x -= 45.0 * dt;
-                if self.simon_x < -35.0 {
-                    self.phase = Phase::Idle;
-                    self.dirty = 3;
-                }
-                self.dirty = self.dirty.max(2);
             }
         }
 
-        if self.dirty > 0 {
-            self.dirty -= 1;
-        }
-
+        // --- Render frame ---
         self.draw_scene(matrix, w, h);
 
-        // Time display
-        let time_str = format!("{}:{}", self.shown_hh, self.shown_mm);
-        let gold_col = rgb565(255, 200, 40);
+        let time_buf = format!("{}:{}", self.shown_hh, self.shown_mm);
+        let crimson = (248u8, 56u8, 0u8);
+
+        let step_cycle = self.walk_frame % 4;
+        let wf = if step_cycle == 3 { 1 } else { step_cycle };
+        let walk_pal = SIMON_WALK_PALS[wf];
+        let walk_pix = SIMON_WALK_PIXELS[wf];
 
         if is_portrait {
+            let time_shadow = (120u8, 10u8, 10u8);
+            let time_ivory = (255u8, 245u8, 220u8);
             if w >= 64 {
-                Self::draw_gothic_time(matrix, 6, 28, &time_str, gold_col, 2);
+                Self::draw_gothic_time(matrix, 11, 35, &time_buf, time_shadow, 2);
+                Self::draw_gothic_time(matrix, 10, 34, &time_buf, time_ivory, 2);
             } else {
-                // 32-wide Tate (128x32 rotated: w=32, h=128)
                 let x_pos = 3;
-                let hh_bytes = self.shown_hh.as_bytes();
-                let mm_bytes = self.shown_mm.as_bytes();
-                if hh_bytes.len() >= 2 && mm_bytes.len() >= 2 {
-                    Self::draw_gothic_digit(matrix, x_pos, 18, hh_bytes[0] as char, gold_col, 2);
-                    Self::draw_gothic_digit(
+                let hh_chars: Vec<char> = self.shown_hh.chars().collect();
+                let mm_chars: Vec<char> = self.shown_mm.chars().collect();
+                let h0 = hh_chars.first().copied().unwrap_or('0');
+                let h1 = hh_chars.get(1).copied().unwrap_or('0');
+                let m0 = mm_chars.first().copied().unwrap_or('0');
+                let m1 = mm_chars.get(1).copied().unwrap_or('0');
+
+                Self::draw_gothic_digit(matrix, x_pos + 1, 19, h0, time_shadow, 2);
+                Self::draw_gothic_digit(matrix, x_pos + 9, 19, h1, time_shadow, 2);
+                Self::draw_gothic_digit(matrix, x_pos, 18, h0, time_ivory, 2);
+                Self::draw_gothic_digit(matrix, x_pos + 8, 18, h1, time_ivory, 2);
+
+                Self::draw_gothic_digit(matrix, x_pos + 1, 37, m0, time_shadow, 2);
+                Self::draw_gothic_digit(matrix, x_pos + 9, 37, m1, time_shadow, 2);
+                Self::draw_gothic_digit(matrix, x_pos, 36, m0, time_ivory, 2);
+                Self::draw_gothic_digit(matrix, x_pos + 8, 36, m1, time_ivory, 2);
+            }
+
+            if self.phase != Phase::Idle {
+                if self.phase == Phase::WhipWindup {
+                    Self::blit_sprite(
                         matrix,
-                        x_pos + 8,
-                        18,
-                        hh_bytes[1] as char,
-                        gold_col,
-                        2,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_WINDUP_PIXELS,
+                        SIMON_WHIP_WINDUP_W,
+                        SIMON_WHIP_WINDUP_H,
+                        self.simon_x as i32 - 8,
+                        self.simon_y as i32,
+                        false,
                     );
-                    Self::draw_gothic_digit(matrix, x_pos, 36, mm_bytes[0] as char, gold_col, 2);
-                    Self::draw_gothic_digit(
+                } else if self.phase == Phase::WhipStrike || self.phase == Phase::Impact {
+                    Self::blit_sprite(
                         matrix,
-                        x_pos + 8,
-                        36,
-                        mm_bytes[1] as char,
-                        gold_col,
-                        2,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_STRIKE_PIXELS,
+                        SIMON_WHIP_STRIKE_W,
+                        SIMON_WHIP_STRIKE_H,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        false,
+                    );
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &WHIP_EXTENDED_PIXELS,
+                        WHIP_EXTENDED_W,
+                        WHIP_EXTENDED_H,
+                        self.simon_x as i32 + SIMON_WHIP_STRIKE_W,
+                        self.simon_y as i32 + 11,
+                        false,
+                    );
+                    if self.phase == Phase::Impact {
+                        let spark_offset = if w >= 64 { 16 } else { 8 };
+                        matrix.fill_circle(
+                            self.simon_x as i32 + SIMON_WHIP_STRIKE_W + spark_offset,
+                            self.simon_y as i32 + 12,
+                            3,
+                            255,
+                            255,
+                            255,
+                        );
+                    }
+                } else {
+                    let is_jumping = self.phase == Phase::HeroEnter
+                        && (self.climb_stage == 1
+                            || self.climb_stage == 3
+                            || self.climb_stage == 5);
+                    let flip_h = is_portrait
+                        && w < 64
+                        && self.phase == Phase::HeroEnter
+                        && self.climb_stage == 2;
+                    let p_pix = if is_jumping {
+                        SIMON_WALK_PIXELS[1]
+                    } else {
+                        walk_pix
+                    };
+                    Self::blit_sprite(
+                        matrix,
+                        walk_pal,
+                        p_pix,
+                        16,
+                        30,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        flip_h,
                     );
                 }
             }
         } else if h >= 48 {
-            Self::draw_gothic_time(matrix, 20, 14, &time_str, gold_col, 2);
+            // --- 256x64 Layout: Blood Red Gothic Digits Centered (scale 4 = 88px wide) ---
+            Self::draw_gothic_time(matrix, 84, 16, &time_buf, crimson, 4);
+
+            if self.phase != Phase::Idle {
+                if self.phase == Phase::WhipWindup {
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_WINDUP_PIXELS,
+                        SIMON_WHIP_WINDUP_W,
+                        SIMON_WHIP_WINDUP_H,
+                        self.simon_x as i32 - 8,
+                        self.simon_y as i32,
+                        false,
+                    );
+                } else if self.phase == Phase::WhipStrike || self.phase == Phase::Impact {
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_STRIKE_PIXELS,
+                        SIMON_WHIP_STRIKE_W,
+                        SIMON_WHIP_STRIKE_H,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        false,
+                    );
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &WHIP_EXTENDED_PIXELS,
+                        WHIP_EXTENDED_W,
+                        WHIP_EXTENDED_H,
+                        self.simon_x as i32 + SIMON_WHIP_STRIKE_W,
+                        self.simon_y as i32 + 11,
+                        false,
+                    );
+                    if self.phase == Phase::Impact {
+                        matrix.fill_circle(
+                            self.simon_x as i32 + SIMON_WHIP_STRIKE_W + 38,
+                            self.simon_y as i32 + 12,
+                            3,
+                            255,
+                            255,
+                            255,
+                        );
+                    }
+                } else {
+                    Self::blit_sprite(
+                        matrix,
+                        walk_pal,
+                        walk_pix,
+                        16,
+                        30,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        false,
+                    );
+                }
+            }
         } else {
-            Self::draw_gothic_time(matrix, 6, 6, &time_str, gold_col, 1);
-        }
+            // --- 128x32 Layout: Blood Red Gothic Digits Centered (scale 3 = 66px wide) ---
+            Self::draw_gothic_time(matrix, 31, 8, &time_buf, crimson, 3);
 
-        // Simon Belmont rendering
-        let simon_draw_y = if is_portrait {
-            if w >= 64 {
-                (h - 8 - 30) as i32
-            } else {
-                40
-            }
-        } else if h >= 48 {
-            (48 - 30) as i32
-        } else {
-            (26 - 30 + 6) as i32
-        };
-
-        match self.phase {
-            Phase::Idle => {}
-            Phase::HeroEnter => {
-                let pix = match self.walk_frame % 3 {
-                    0 => &SIMON_WALK_0_PIXELS[..],
-                    1 => &SIMON_WALK_1_PIXELS[..],
-                    _ => &SIMON_WALK_2_PIXELS[..],
-                };
-                Self::blit_sprite(
-                    matrix,
-                    &SIMON_IDLE_PAL[..],
-                    pix,
-                    SIMON_WALK_0_W,
-                    SIMON_WALK_0_H,
-                    self.simon_x as i32,
-                    simon_draw_y,
-                    false,
-                );
-            }
-            Phase::WhipWindup => {
-                Self::blit_sprite(
-                    matrix,
-                    &SIMON_IDLE_PAL[..],
-                    &SIMON_WHIP_WINDUP_PIXELS[..],
-                    SIMON_WHIP_WINDUP_W,
-                    SIMON_WHIP_WINDUP_H,
-                    self.simon_x as i32 - 4,
-                    simon_draw_y,
-                    false,
-                );
-            }
-            Phase::WhipStrike => {
-                Self::blit_sprite(
-                    matrix,
-                    &SIMON_IDLE_PAL[..],
-                    &SIMON_WHIP_STRIKE_PIXELS[..],
-                    SIMON_WHIP_STRIKE_W,
-                    SIMON_WHIP_STRIKE_H,
-                    self.simon_x as i32,
-                    simon_draw_y,
-                    false,
-                );
-                // Draw extended leather whip
-                Self::blit_sprite(
-                    matrix,
-                    &SIMON_IDLE_PAL[..],
-                    &WHIP_EXTENDED_PIXELS[..],
-                    WHIP_EXTENDED_W,
-                    WHIP_EXTENDED_H,
-                    self.simon_x as i32 + SIMON_WHIP_STRIKE_W - 2,
-                    simon_draw_y + 11,
-                    false,
-                );
-            }
-            Phase::HeroExit => {
-                let pix = match self.walk_frame % 3 {
-                    0 => &SIMON_WALK_0_PIXELS[..],
-                    1 => &SIMON_WALK_1_PIXELS[..],
-                    _ => &SIMON_WALK_2_PIXELS[..],
-                };
-                Self::blit_sprite(
-                    matrix,
-                    &SIMON_IDLE_PAL[..],
-                    pix,
-                    SIMON_WALK_0_W,
-                    SIMON_WALK_0_H,
-                    self.simon_x as i32,
-                    simon_draw_y,
-                    true,
-                );
+            if self.phase != Phase::Idle {
+                if self.phase == Phase::WhipWindup {
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_WINDUP_PIXELS,
+                        SIMON_WHIP_WINDUP_W,
+                        SIMON_WHIP_WINDUP_H,
+                        self.simon_x as i32 - 8,
+                        self.simon_y as i32,
+                        false,
+                    );
+                } else if self.phase == Phase::WhipStrike || self.phase == Phase::Impact {
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &SIMON_WHIP_STRIKE_PIXELS,
+                        SIMON_WHIP_STRIKE_W,
+                        SIMON_WHIP_STRIKE_H,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        false,
+                    );
+                    Self::blit_sprite(
+                        matrix,
+                        &SIMON_IDLE_PAL,
+                        &WHIP_EXTENDED_PIXELS,
+                        WHIP_EXTENDED_W,
+                        WHIP_EXTENDED_H,
+                        self.simon_x as i32 + SIMON_WHIP_STRIKE_W,
+                        self.simon_y as i32 + 11,
+                        false,
+                    );
+                    if self.phase == Phase::Impact {
+                        matrix.fill_circle(
+                            self.simon_x as i32 + SIMON_WHIP_STRIKE_W + 38,
+                            self.simon_y as i32 + 12,
+                            2,
+                            255,
+                            255,
+                            255,
+                        );
+                    }
+                } else {
+                    Self::blit_sprite(
+                        matrix,
+                        walk_pal,
+                        walk_pix,
+                        16,
+                        30,
+                        self.simon_x as i32,
+                        self.simon_y as i32,
+                        false,
+                    );
+                }
             }
         }
-    }
-}
-
-impl Default for CastleClock {
-    fn default() -> Self {
-        Self::new()
     }
 }

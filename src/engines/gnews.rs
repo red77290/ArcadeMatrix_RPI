@@ -75,6 +75,8 @@ pub struct GNewsEngine {
     articles: Vec<GNewsArticle>,
     status: GNewsStatus,
     current_index: usize,
+    shuffled_order: Vec<usize>,
+    shuffle_pos: usize,
     cat_round_robin_idx: usize,
     active_key_idx: usize,
     key_usages: Vec<u32>,
@@ -148,7 +150,7 @@ impl GNewsEngine {
             }
         }
 
-        Self {
+        let mut engine = Self {
             api_key: String::new(),
             category: "technology".to_string(),
             keywords: String::new(),
@@ -178,6 +180,8 @@ impl GNewsEngine {
             articles: loaded_articles,
             status: loaded_status,
             current_index: 0,
+            shuffled_order: Vec::new(),
+            shuffle_pos: 0,
             cat_round_robin_idx: loaded_cat_idx,
             active_key_idx: loaded_key_idx,
             key_usages: loaded_usages,
@@ -200,7 +204,11 @@ impl GNewsEngine {
             cached_article_index: usize::MAX,
             cached_article_title: String::new(),
             cached_display_mode: String::new(),
+        };
+        if !engine.articles.is_empty() {
+            engine.pick_next_random_article();
         }
+        engine
     }
 
     pub fn wrap_text_to_lines(text: &str, max_w: i32) -> Vec<String> {
@@ -686,12 +694,34 @@ impl GNewsEngine {
         self.last_fetched_lang = effective_lang;
     }
 
-    fn advance_to_next_article(&mut self) {
-        if !self.articles.is_empty() {
-            self.current_index = (self.current_index + 1) % self.articles.len();
-        } else {
+    fn pick_next_random_article(&mut self) {
+        let n = self.articles.len();
+        if n == 0 {
             self.current_index = 0;
+            self.shuffled_order.clear();
+            self.shuffle_pos = 0;
+            return;
         }
+        if n == 1 {
+            self.current_index = 0;
+            return;
+        }
+        if self.shuffled_order.len() != n || self.shuffle_pos >= self.shuffled_order.len() {
+            use rand::seq::SliceRandom;
+            let prev_idx = self.current_index;
+            self.shuffled_order = (0..n).collect();
+            self.shuffled_order.shuffle(&mut rand::thread_rng());
+            if self.shuffled_order[0] == prev_idx && n > 1 {
+                self.shuffled_order.swap(0, n - 1);
+            }
+            self.shuffle_pos = 0;
+        }
+        self.current_index = self.shuffled_order[self.shuffle_pos];
+        self.shuffle_pos += 1;
+    }
+
+    fn advance_to_next_article(&mut self) {
+        self.pick_next_random_article();
         let now = Instant::now();
         self.scroll_pixel_offset = 0;
         self.scroll_state = ScrollState::PauseStart;
@@ -765,7 +795,7 @@ impl Engine for GNewsEngine {
     }
 
     fn activate(&mut self) {
-        self.current_index = 0;
+        self.pick_next_random_article();
         self.scroll_pixel_offset = 0;
         self.source_marquee_offset = 0;
         self.scroll_state = ScrollState::PauseStart;
@@ -788,6 +818,8 @@ impl Engine for GNewsEngine {
         if self.force_refresh && !prev_force {
             // Force refresh requested -> clear stale articles and trigger immediate fetch
             self.articles.clear();
+            self.shuffled_order.clear();
+            self.shuffle_pos = 0;
             if let Ok(mut g) = self.shared_articles.lock() {
                 g.clear();
             }
@@ -818,22 +850,32 @@ impl Engine for GNewsEngine {
         if let Ok(guard) = self.shared_status.try_lock() {
             self.status = *guard;
         }
-        if let Ok(guard) = self.shared_articles.try_lock() {
+        let fresh_articles = if let Ok(guard) = self.shared_articles.try_lock() {
             if !guard.is_empty()
                 && (self.articles.is_empty()
                     || guard.len() != self.articles.len()
                     || guard[0].title != self.articles[0].title)
             {
-                self.articles = guard.clone();
-                if self.current_index >= self.articles.len() {
-                    self.current_index = 0;
-                }
-                self.cached_display_lines.clear();
-                self.cached_max_scroll = 0;
-                self.cached_article_index = usize::MAX;
-                self.cached_article_title.clear();
-                self.cached_display_mode.clear();
+                Some(guard.clone())
+            } else {
+                None
             }
+        } else {
+            None
+        };
+        if let Some(new_articles) = fresh_articles {
+            let was_empty = self.articles.is_empty();
+            self.articles = new_articles;
+            self.shuffled_order.clear();
+            self.shuffle_pos = 0;
+            if was_empty || self.current_index >= self.articles.len() {
+                self.pick_next_random_article();
+            }
+            self.cached_display_lines.clear();
+            self.cached_max_scroll = 0;
+            self.cached_article_index = usize::MAX;
+            self.cached_article_title.clear();
+            self.cached_display_mode.clear();
         }
 
         // 2. Midnight quota reset detector (00:00 UTC / 12:00 AM UTC daily rollover)
@@ -1965,5 +2007,42 @@ fn register_gnews_engine() -> EngineDescriptor {
             ],
         },
         factory: || -> Box<dyn Engine> { Box::new(GNewsEngine::new(64, 32)) },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_gnews_random_article_selection_cycles_all_cached_articles() {
+        let mut engine = GNewsEngine::new(64, 32);
+        engine.articles = (0..6)
+            .map(|i| GNewsArticle {
+                title: format!("Headline {i}"),
+                description: format!("Description {i}"),
+                source: "TestSource".to_string(),
+                category: "technology".to_string(),
+                published_epoch: 0,
+                badge_color: (0, 229, 255),
+            })
+            .collect();
+        engine.shuffled_order.clear();
+        engine.shuffle_pos = 0;
+
+        // First permutation of 6 articles must visit every cached article index 0..6 without repetition
+        let mut first_cycle = Vec::new();
+        for _ in 0..6 {
+            engine.activate();
+            first_cycle.push(engine.current_index);
+        }
+        let unique_first: HashSet<usize> = first_cycle.iter().copied().collect();
+        assert_eq!(unique_first.len(), 6);
+
+        // Next permutation must not repeat the last article of the previous cycle on boundary
+        let last_of_first_cycle = *first_cycle.last().unwrap();
+        engine.advance_to_next_article();
+        assert_ne!(engine.current_index, last_of_first_cycle);
     }
 }

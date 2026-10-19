@@ -47,14 +47,17 @@ pub struct DashboardEngine {
     show_seconds: bool,
     smooth_seconds: bool,
     weather_city: String,
+    weather_api_key: String,
+    refresh_interval_min: u64,
     tracked_markets: String,
     world_clocks_str: String,
     offset_x: i32,
     offset_y: i32,
 
     data: Arc<Mutex<DashboardData>>,
-    shared_config: Arc<RwLock<(String, String)>>,
+    shared_config: Arc<RwLock<(String, String, String, u64)>>,
     worker_stop: Option<Arc<AtomicBool>>,
+    needs_weather_fallback: bool,
 }
 
 impl Default for DashboardEngine {
@@ -66,6 +69,8 @@ impl Default for DashboardEngine {
 impl DashboardEngine {
     pub fn new() -> Self {
         let weather_city = "Paris, FR".to_string();
+        let weather_api_key = String::new();
+        let refresh_interval_min = 10u64;
         let tracked_markets = "BTC,ETH,SOL,NVDA".to_string();
         Self {
             theme: 0,
@@ -82,8 +87,15 @@ impl DashboardEngine {
             show_date: true,
             show_seconds: true,
             smooth_seconds: true,
-            shared_config: Arc::new(RwLock::new((tracked_markets.clone(), weather_city.clone()))),
+            shared_config: Arc::new(RwLock::new((
+                tracked_markets.clone(),
+                weather_city.clone(),
+                weather_api_key.clone(),
+                refresh_interval_min,
+            ))),
             weather_city,
+            weather_api_key,
+            refresh_interval_min,
             tracked_markets,
             world_clocks_str: "NYC,TYO,LON".to_string(),
             offset_x: 0,
@@ -133,6 +145,7 @@ impl DashboardEngine {
                 ],
             })),
             worker_stop: None,
+            needs_weather_fallback: true,
         }
     }
 
@@ -157,19 +170,65 @@ impl DashboardEngine {
         self.show_seconds = config.get_bool("show_seconds", true);
         self.smooth_seconds = config.get_bool("smooth_seconds", true);
         self.weather_city = config.get_string("weather_city", "Paris, FR");
+        self.weather_api_key = config.get_string("weather_api_key", "");
+        self.refresh_interval_min = config.get_int("refresh_interval", 10).clamp(1, 60) as u64;
         self.tracked_markets = config.get_string("tracked_markets", "BTC,ETH,SOL,NVDA");
         self.world_clocks_str = config.get_string("world_clocks", "NYC,TYO,LON");
         self.offset_x = config.get_int("offset_x", 0);
         self.offset_y = config.get_int("offset_y", 0);
+        self.needs_weather_fallback =
+            self.weather_api_key.is_empty() || self.weather_city.is_empty();
 
-        if let Ok(mut cfg) = self.shared_config.write() {
-            *cfg = (self.tracked_markets.clone(), self.weather_city.clone());
-        }
+        self.sync_shared_config();
 
         let parsed = parse_world_clocks(&self.world_clocks_str);
         if let Ok(mut lock) = self.data.lock() {
             if !parsed.is_empty() {
                 lock.world_times = parsed;
+            }
+        }
+    }
+
+    fn sync_shared_config(&self) {
+        if let Ok(mut cfg) = self.shared_config.write() {
+            *cfg = (
+                self.tracked_markets.clone(),
+                self.weather_city.clone(),
+                self.weather_api_key.clone(),
+                self.refresh_interval_min,
+            );
+        }
+    }
+
+    fn inherit_weather_fallback(&mut self, ctx: &EngineContext) {
+        self.needs_weather_fallback = false;
+        if !self.weather_api_key.is_empty() && !self.weather_city.is_empty() {
+            return;
+        }
+        let sys = ctx.config.settings.read();
+        for inst in &sys.instances {
+            if inst.engine_id == "weather" {
+                let mut changed = false;
+                if self.weather_api_key.is_empty() {
+                    if let Some(k) = inst.config.get("api_key") {
+                        if !k.trim().is_empty() {
+                            self.weather_api_key = k.trim().to_string();
+                            changed = true;
+                        }
+                    }
+                }
+                if self.weather_city.is_empty() {
+                    if let Some(c) = inst.config.get("city") {
+                        if !c.trim().is_empty() {
+                            self.weather_city = c.trim().to_string();
+                            changed = true;
+                        }
+                    }
+                }
+                if changed {
+                    self.sync_shared_config();
+                }
+                break;
             }
         }
     }
@@ -195,10 +254,11 @@ impl DashboardEngine {
 
             let binance = crate::api::binance::BinanceProvider;
             let yahoo = crate::api::yahoo_finance::YahooFinanceProvider;
-            let mut last_fetch = Instant::now() - Duration::from_secs(3600);
+            let mut last_fetch = Instant::now() - Duration::from_secs(7200);
             let mut last_sys_metrics = Instant::now() - Duration::from_secs(10);
             let mut last_markets = String::new();
             let mut last_city = String::new();
+            let mut last_api_key = String::new();
 
             while !stop_token.load(Ordering::SeqCst) {
                 // Live system metrics (CPU load, RAM usage, WiFi signal) refreshed every 2 seconds
@@ -213,17 +273,25 @@ impl DashboardEngine {
                     }
                 }
 
-                let (markets, city) = shared_config
-                    .read()
-                    .map(|g| g.clone())
-                    .unwrap_or_else(|_| ("BTC,ETH,SOL,NVDA".to_string(), "Paris, FR".to_string()));
-                let config_changed = markets != last_markets || city != last_city;
+                let (markets, city, api_key, refresh_min) =
+                    shared_config.read().map(|g| g.clone()).unwrap_or_else(|_| {
+                        (
+                            "BTC,ETH,SOL,NVDA".to_string(),
+                            "Paris, FR".to_string(),
+                            String::new(),
+                            10,
+                        )
+                    });
+                let config_changed =
+                    markets != last_markets || city != last_city || api_key != last_api_key;
+                let interval = Duration::from_secs(refresh_min.max(1) * 60);
 
-                // Web API market and weather quotes refreshed every 30 seconds or on config change
-                if config_changed || last_fetch.elapsed() >= Duration::from_secs(30) {
+                // Web API market and weather quotes refreshed per refresh_interval or on config change
+                if config_changed || last_fetch.elapsed() >= interval {
                     last_fetch = Instant::now();
                     last_markets = markets.clone();
                     last_city = city.clone();
+                    last_api_key = api_key.clone();
 
                     let syms: Vec<String> = markets
                         .split(',')
@@ -257,7 +325,7 @@ impl DashboardEngine {
                     if stop_token.load(Ordering::SeqCst) {
                         break;
                     }
-                    let weather_info = fetch_live_weather(&city);
+                    let weather_info = fetch_live_weather(&city, &api_key);
 
                     if let Ok(mut lock) = data.lock() {
                         if !updated_markets.is_empty() {
@@ -279,10 +347,11 @@ impl DashboardEngine {
 impl Engine for DashboardEngine {
     fn initialize(
         &mut self,
-        _context: &mut EngineContext,
+        context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
         self.apply_config(config);
+        self.inherit_weather_fallback(context);
         Ok(())
     }
 
@@ -302,7 +371,11 @@ impl Engine for DashboardEngine {
         true
     }
 
-    fn update(&mut self, _context: &mut EngineContext) {}
+    fn update(&mut self, context: &mut EngineContext) {
+        if self.needs_weather_fallback {
+            self.inherit_weather_fallback(context);
+        }
+    }
 
     fn render(&mut self, ctx: &mut EngineContext) {
         let matrix = &mut *ctx.surface;
@@ -1069,6 +1142,15 @@ fn register_dashboard_engine() -> EngineDescriptor {
                     ..Default::default()
                 },
                 ConfigField {
+                    id: "weather_api_key",
+                    field_type: ConfigType::String,
+                    label: "Weather API Key",
+                    description: "Optional OpenWeatherMap key (falls back to free Open-Meteo)",
+                    default_value: "",
+                    validation_policy: ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                ConfigField {
                     id: "show_markets",
                     field_type: ConfigType::Boolean,
                     label: "Show Markets / Stocks",
@@ -1084,6 +1166,18 @@ fn register_dashboard_engine() -> EngineDescriptor {
                     description: "Comma-separated list of symbols (e.g. BTC,ETH,SOL,NVDA)",
                     default_value: "BTC,ETH,SOL,NVDA",
                     validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "refresh_interval",
+                    field_type: ConfigType::Integer,
+                    label: "Refresh Interval (min)",
+                    description: "Weather and market data refresh rate in minutes",
+                    default_value: "10",
+                    min_val: Some("1"),
+                    max_val: Some("60"),
+                    step: Some("1"),
+                    validation_policy: ValidationPolicy::Clamp,
                     ..Default::default()
                 },
                 ConfigField {

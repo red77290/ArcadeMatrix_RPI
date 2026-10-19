@@ -745,11 +745,13 @@ impl ArcadeMatrixApp {
                 };
                 if should_advance {
                     rotation_manager.advance_len(snapshot.rotation.len());
-                    slot_transition.configure(
-                        &snapshot.slot_transition,
-                        snapshot.slot_transition_duration_ms,
-                    );
-                    slot_transition.start();
+                    if snapshot.rotation.len() > 1 {
+                        slot_transition.configure(
+                            &snapshot.slot_transition,
+                            snapshot.slot_transition_duration_ms,
+                        );
+                        slot_transition.start();
+                    }
                 }
             }
 

@@ -721,8 +721,11 @@ impl ArcadeMatrixApp {
                 );
             }
 
+            overlay_manager.update(surface.width(), surface.height());
+
             let transition_running = slot_transition.is_running();
             let overlay_active = overlay_manager.is_active();
+            let overlay_loading = overlay_manager.is_loading();
             let should_render = has_frame
                 || transition_mode != TransitionMode::None
                 || transition_running
@@ -778,6 +781,8 @@ impl ArcadeMatrixApp {
                 overlay_manager.composite(surface.as_mut());
                 realtime_cadence = true;
                 composited_this_frame = true;
+            } else if overlay_loading {
+                realtime_cadence = true;
             }
             was_composited = composited_this_frame;
             surface.present();

@@ -52,10 +52,19 @@ impl OverlayManager {
             self.fighter.set_speed(system_config.idle_fighter_speed);
             self.fighter_active = true;
         } else {
-            if self.fighter.is_active() {
+            if self.fighter.is_active() || self.fighter.is_loading() {
                 self.fighter.stop();
             }
             self.fighter_active = false;
+        }
+    }
+
+    /// Advances overlay schedulers and polls background sprite loading channels.
+    /// Must be called before `is_active()` so newly scheduled/loaded fights activate
+    /// before the frame's render/composite gate is evaluated.
+    pub fn update(&mut self, width: u32, height: u32) {
+        if self.fighter_active {
+            self.fighter.update(width, height);
         }
     }
 
@@ -66,14 +75,19 @@ impl OverlayManager {
         }
     }
 
-    /// Whether any overlay is currently active and animating (demands realtime ~25fps cadence).
+    /// Whether any overlay is currently active and animating (demands realtime cadence).
     pub fn is_active(&self) -> bool {
         self.fighter_active && self.fighter.is_active()
     }
 
+    /// Whether a background overlay asset load is in flight (demands fast polling cadence).
+    pub fn is_loading(&self) -> bool {
+        self.fighter_active && self.fighter.is_loading()
+    }
+
     /// Deactivates all overlays (e.g. during priority events or standby).
     pub fn deactivate(&mut self) {
-        if self.fighter.is_active() {
+        if self.fighter.is_active() || self.fighter.is_loading() {
             self.fighter.stop();
         }
         self.fighter_active = false;
@@ -82,5 +96,28 @@ impl OverlayManager {
     /// Propagates display geometry/rotation updates to active overlays.
     pub fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
         self.fighter.on_display_geometry_changed(geometry);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_overlay_manager_update_triggers_fight_without_deadlock() {
+        let mut mgr = OverlayManager::new(128, 32);
+        let ov = OverlayConfig { fighter: true };
+        let mut sys = SystemConfig::default();
+        sys.idle_fighter_enabled = true;
+        sys.idle_fighter_interval = 1;
+
+        mgr.configure(&ov, &sys);
+        // Before update(), no fight has been scheduled yet
+        assert!(!mgr.is_active());
+        assert!(!mgr.is_loading());
+
+        // Calling update() must schedule the fight (entering loading or active state)
+        mgr.update(128, 32);
+        assert!(mgr.is_loading() || mgr.is_active());
     }
 }

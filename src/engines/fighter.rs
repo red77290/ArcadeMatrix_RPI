@@ -711,10 +711,15 @@ impl FighterEngine {
         });
     }
 
-    pub fn composite(&mut self, matrix: &mut dyn IDrawingSurface) {
+    pub fn is_loading(&self) -> bool {
+        self.loading
+    }
+
+    /// Advances the fight scheduler and polls the background sprite loader channel.
+    /// Must be called every frame when the fighter overlay is enabled for the active slot,
+    /// BEFORE checking `is_active()` to decide whether to render/composite.
+    pub fn update(&mut self, mat_w: u32, mat_h: u32) {
         let now = now_ms();
-        let mat_w = matrix.width();
-        let mat_h = matrix.height();
 
         // Dynamically track display dimensions and handle dynamic rotation
         if mat_w != self.matrix_width || mat_h != self.matrix_height {
@@ -771,10 +776,14 @@ impl FighterEngine {
         if !self.active && !self.loading && now >= self.next_fight_time {
             self.init_fight(self.matrix_height, self.interval_sec);
         }
+    }
 
+    pub fn composite(&mut self, matrix: &mut dyn IDrawingSurface) {
+        self.update(matrix.width(), matrix.height());
         if !self.active {
             return;
         }
+        let now = now_ms();
 
         // Update animation frames
         let speed = self.speed_percent;

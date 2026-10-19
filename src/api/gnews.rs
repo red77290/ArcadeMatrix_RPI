@@ -6,6 +6,7 @@ use tracing::{info, warn};
 pub struct FetchedArticle {
     pub title: String,
     pub description: String,
+    pub content: String,
     pub source: String,
     pub category: String,
     pub published_epoch: u64,
@@ -247,6 +248,19 @@ impl GNewsProvider {
             .to_string()
     }
 
+    pub fn strip_truncation_marker(mut text: String) -> String {
+        if let Some(pos) = text.rfind("[+") {
+            text.truncate(pos);
+            text = text.trim().to_string();
+        } else if let Some(pos) = text.rfind(" [") {
+            if text[pos..].ends_with("chars]") {
+                text.truncate(pos);
+                text = text.trim().to_string();
+            }
+        }
+        text
+    }
+
     pub fn save_cache_file(
         path: &str,
         articles: &[FetchedArticle],
@@ -265,6 +279,7 @@ impl GNewsProvider {
             "articles": articles.iter().map(|a| serde_json::json!({
                 "title": a.title,
                 "description": a.description,
+                "content": a.content,
                 "source": a.source,
                 "category": a.category,
                 "published_epoch": a.published_epoch,
@@ -314,6 +329,11 @@ impl GNewsProvider {
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
+            let content = item
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let source = item.get("source")?.as_str()?.to_string();
             let category = item.get("category")?.as_str()?.to_string();
             let published_epoch = item
@@ -323,6 +343,7 @@ impl GNewsProvider {
             list.push(FetchedArticle {
                 title,
                 description,
+                content,
                 source,
                 category,
                 published_epoch,
@@ -357,14 +378,12 @@ impl GNewsProvider {
             }
             let raw_desc = item
                 .get("description")
-                .or_else(|| item.get("content"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            let mut clean_desc = Self::clean_text(raw_desc);
-            if let Some(pos) = clean_desc.rfind("[+") {
-                clean_desc.truncate(pos);
-                clean_desc = clean_desc.trim().to_string();
-            }
+            let clean_desc = Self::strip_truncation_marker(Self::clean_text(raw_desc));
+
+            let raw_content = item.get("content").and_then(|v| v.as_str()).unwrap_or("");
+            let clean_content = Self::strip_truncation_marker(Self::clean_text(raw_content));
 
             let source = item
                 .get("source")
@@ -375,6 +394,7 @@ impl GNewsProvider {
             list.push(FetchedArticle {
                 title: Self::clean_text(title),
                 description: clean_desc,
+                content: clean_content,
                 source: Self::clean_text(source),
                 category: def_cat.to_string(),
                 published_epoch: 0,
@@ -401,12 +421,14 @@ mod tests {
                 {
                     "title": "Quantum Computing Milestone",
                     "description": "Researchers achieve new breakthrough in quantum processing.",
+                    "content": "Researchers achieve new breakthrough in quantum processing at CERN laboratories... [1542 chars]",
                     "source": { "name": "TechCrunch" },
                     "publishedAt": "2026-09-02T08:00:00Z"
                 },
                 {
                     "title": "New Telescope Discovery",
                     "description": "Astronomers spot distant exoplanet with water vapor.",
+                    "content": "Full body of the astronomy report... [+980 chars]",
                     "source": { "name": "Nature" },
                     "publishedAt": "2026-09-02T08:15:00Z"
                 }
@@ -420,6 +442,11 @@ mod tests {
             parsed[0].description,
             "Researchers achieve new breakthrough in quantum processing."
         );
+        assert_eq!(
+            parsed[0].content,
+            "Researchers achieve new breakthrough in quantum processing at CERN laboratories..."
+        );
+        assert_eq!(parsed[1].content, "Full body of the astronomy report...");
         assert_eq!(parsed[0].source, "TechCrunch");
         assert_eq!(parsed[0].category, "technology");
     }

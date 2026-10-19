@@ -513,9 +513,19 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
           <select id="modal-field-variant" class="input" style="font-weight: 600;">
             <option value="23" selected>🎮 Tetris Clock</option>
+            <option value="30">🍄 Mario Clock</option>
+            <option value="31">🦇 Castlevania Clock</option>
+            <option value="35">🤖 Mega Man Clock</option>
+            <option value="39">💨 Sonic Clock</option>
+            <option value="41">🪖 Metal Slug Clock</option>
+            <option value="26">🟡 Pac-Man Clock</option>
+            <option value="34">🎀 Ms. Pac-Man Clock</option>
+            <option value="29">🟩 Tetris Gameboy Clock</option>
             <option value="21">💻 Matrix Rain Clock</option>
             <option value="27">🥊 Capcom / Versus Clock</option>
-            <option value="26">🟡 Pac-Man Clock</option>
+            <option value="32">📕 Pocket Index</option>
+            <option value="33">🌍 World Clock</option>
+            <option value="37">📝 Words Clock</option>
             <option value="19">⏱️ Flip Clock</option>
             <option value="24">🔤 Word Clock</option>
             <option value="18">🌆 Cyberpunk Clock</option>

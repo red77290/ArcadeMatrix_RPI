@@ -41,6 +41,10 @@ impl RotationManager {
         self.slot_start_time = Instant::now();
     }
 
+    pub fn reset_slot_timer(&mut self) {
+        self.slot_start_time = Instant::now();
+    }
+
     /// Advances to the next rotation slot
     pub fn advance(&mut self, rotation_list: &[RotationEntry]) {
         self.advance_len(rotation_list.len());

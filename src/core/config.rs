@@ -380,6 +380,28 @@ pub struct Config {
 }
 
 impl Config {
+    /// Resolves `path` through any symlink (even if the symlink target does not exist yet)
+    /// so atomic `.tmp` writes and `rename()` operate on the underlying target file (e.g.
+    /// `data/config.json`) without ever replacing the `config.json` symlink itself.
+    fn resolve_symlink_target(path: &Path) -> PathBuf {
+        if let Ok(canon) = std::fs::canonicalize(path) {
+            return canon;
+        }
+        if let Ok(meta) = std::fs::symlink_metadata(path) {
+            if meta.file_type().is_symlink() {
+                if let Ok(target) = std::fs::read_link(path) {
+                    if target.is_absolute() {
+                        return target;
+                    }
+                    if let Some(parent) = path.parent() {
+                        return parent.join(target);
+                    }
+                }
+            }
+        }
+        path.to_path_buf()
+    }
+
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let raw_path = path.as_ref().to_path_buf();
         let path_buf = if raw_path.is_absolute() {
@@ -389,8 +411,10 @@ impl Config {
                 .map(|cwd| cwd.join(&raw_path))
                 .unwrap_or(raw_path)
         };
-        let json_file = path_buf.with_file_name("config.json");
+        let link_file = path_buf.with_file_name("config.json");
+        let json_file = Self::resolve_symlink_target(&link_file);
         let bak_file = json_file.with_extension("json.bak");
+        let legacy_bak_file = link_file.with_extension("json.bak");
 
         let mut settings = ConfigSettings::default();
         let mut needs_save = false;
@@ -416,13 +440,18 @@ impl Config {
             }
         }
 
-        if !loaded && bak_file.exists() {
-            if let Ok(bak_str) = std::fs::read_to_string(&bak_file) {
-                if let Ok(s) = serde_json::from_str::<ConfigSettings>(&bak_str) {
-                    tracing::warn!("Recovered configuration from config.json.bak");
-                    settings = s;
-                    loaded = true;
-                    needs_save = true;
+        if !loaded {
+            for candidate_bak in [&bak_file, &legacy_bak_file] {
+                if candidate_bak.exists() {
+                    if let Ok(bak_str) = std::fs::read_to_string(candidate_bak) {
+                        if let Ok(s) = serde_json::from_str::<ConfigSettings>(&bak_str) {
+                            tracing::warn!("Recovered configuration from {:?}", candidate_bak);
+                            settings = s;
+                            loaded = true;
+                            needs_save = true;
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -570,13 +599,18 @@ impl Config {
             return false;
         };
 
-        let tmp_file = self.json_file.with_extension("json.tmp");
-        let bak_tmp_file = self.json_file.with_extension("json.bak.tmp");
-        let bak_file = self.json_file.with_extension("json.bak");
+        let target_file = Self::resolve_symlink_target(&self.json_file);
+        if let Some(parent) = target_file.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        let tmp_file = target_file.with_extension("json.tmp");
+        let bak_tmp_file = target_file.with_extension("json.bak.tmp");
+        let bak_file = target_file.with_extension("json.bak");
 
         // 1. Preserve previous valid config.json into config.json.bak before replacement if present
-        if self.json_file.exists() {
-            let _ = std::fs::copy(&self.json_file, &bak_file);
+        if target_file.exists() {
+            let _ = std::fs::copy(&target_file, &bak_file);
         }
 
         let persisted = match std::fs::File::create(&tmp_file) {
@@ -595,11 +629,11 @@ impl Config {
                 }
                 drop(file);
 
-                if let Err(e) = std::fs::rename(&tmp_file, &self.json_file) {
+                if let Err(e) = std::fs::rename(&tmp_file, &target_file) {
                     tracing::error!(
                         "Failed to atomically rename {:?} to {:?}: {}",
                         tmp_file,
-                        self.json_file,
+                        target_file,
                         e
                     );
                     return false;
@@ -611,12 +645,12 @@ impl Config {
                     "Failed to create temporary config file {:?} ({}); falling back to direct write to {:?}",
                     tmp_file,
                     e,
-                    self.json_file
+                    target_file
                 );
-                let Ok(mut file) = std::fs::File::create(&self.json_file) else {
+                let Ok(mut file) = std::fs::File::create(&target_file) else {
                     tracing::error!(
                         "Failed to open config file {:?} for direct write: {}",
-                        self.json_file,
+                        target_file,
                         e
                     );
                     return false;
@@ -627,7 +661,7 @@ impl Config {
                 {
                     tracing::error!(
                         "Failed to write config file {:?}: {}",
-                        self.json_file,
+                        target_file,
                         write_err
                     );
                     return false;
@@ -650,11 +684,11 @@ impl Config {
                     let _ = std::fs::remove_file(&bak_tmp_file);
                 }
             } else {
-                let _ = std::fs::copy(&self.json_file, &bak_file);
+                let _ = std::fs::copy(&target_file, &bak_file);
             }
 
             // 3. Flush parent directory metadata so the atomic rename survives an immediate reboot
-            if let Some(parent) = self.json_file.parent() {
+            if let Some(parent) = target_file.parent() {
                 if let Ok(dir) = std::fs::File::open(parent) {
                     let _ = dir.sync_all();
                 }
@@ -713,6 +747,38 @@ mod tests {
         std::fs::write(&cfg_path, "{corrupted_json").unwrap();
         let recovered = Config::new(&cfg_path);
         assert_eq!(recovered.settings.read().wifi.hostname, "custom-arcade");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_atomic_save_preserves_symlink_to_data_partition() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().join("data");
+        std::fs::create_dir_all(&data_dir).unwrap();
+        let data_cfg = data_dir.join("config.json");
+        std::fs::write(&data_cfg, r#"{"wifi":{"hostname":"old-pacman-config"}}"#).unwrap();
+
+        let symlink_cfg = dir.path().join("config.json");
+        std::os::unix::fs::symlink("data/config.json", &symlink_cfg).unwrap();
+
+        let cfg = Config::new(&symlink_cfg);
+        assert_eq!(cfg.settings.read().wifi.hostname, "old-pacman-config");
+        {
+            let mut s = cfg.settings.write();
+            s.wifi.hostname = "mario-castlevania-megaman".to_string();
+        }
+        assert!(cfg.save());
+
+        // Symlink MUST remain a symlink and data/config.json MUST have the new content
+        let meta = std::fs::symlink_metadata(&symlink_cfg).unwrap();
+        assert!(meta.file_type().is_symlink());
+        let reloaded = Config::new(&symlink_cfg);
+        assert_eq!(
+            reloaded.settings.read().wifi.hostname,
+            "mario-castlevania-megaman"
+        );
+        let raw_data = std::fs::read_to_string(&data_cfg).unwrap();
+        assert!(raw_data.contains("mario-castlevania-megaman"));
     }
 
     #[test]

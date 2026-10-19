@@ -261,7 +261,9 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `show_world_clock` | `bool` | `true` | `true`, `false` | Muestra zonas horarias mundiales secundarias (`NYC`, `TYO`, `LON`...). |
 | `world_clocks` | `String` | `NYC,TYO,LON` | Códigos de ciudad | Zonas horarias separadas por comas (ej. `NYC,TYO,LON,PAR`). |
 | `show_weather` | `bool` | `true` | `true`, `false` | Muestra el pronóstico del clima y temperatura exterior. |
-| `weather_city` | `String` | `Paris, FR` | Ciudad | Ciudad para el pronóstico meteorológico. |
+| `weather_city` | `String` | `Paris, FR` | Ciudad | Ciudad para el pronóstico meteorológico (hereda automáticamente `city` de la instancia `weather` si se deja por defecto). |
+| `weather_api_key` | `String` | `""` | Clave API opcional | Clave API opcional de OpenWeatherMap (hereda `api_key` de la instancia `weather` si está vacía, y recurre automáticamente al servicio gratuito Open-Meteo sin clave). |
+| `refresh_interval` | `Options` | `10` | `1`, `5`, `10`, `15`, `30`, `60` min | Frecuencia de actualización en segundo plano para el clima y mercados. |
 | `show_markets` | `bool` | `true` | `true`, `false` | Muestra el teletipo bursátil y cripto en tiempo real. |
 | `tracked_markets` | `String` | `BTC,ETH,SOL,NVDA` | Símbolos | Símbolos bursátiles y cripto separados por comas. |
 | `show_sysinfo` | `bool` | `true` | `true`, `false` | Muestra métricas de CPU, RAM y Wi-Fi. |
@@ -277,7 +279,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `symbols` | `String` | `BTC,ETH` | Separados por comas | Símbolos de criptomonedas a monitorear (CoinGecko / Binance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
-| `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
+| `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. Como `crypto` es autónomo (`self_paced`), este tiempo por página controla la duración completa de la ranura de rotación para mostrar todas las criptomonedas configuradas antes de avanzar. |
 | `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
 
@@ -287,7 +289,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Separados por comas | Tickers bursátiles a monitorear (Yahoo Finance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Mostrar el gráfico sparkline histórico. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Intervalo temporal para el historial de precios. |
-| `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. |
+| `page_seconds` | `int` | `5` | `3` a `30` | Segundos de permanencia en cada página antes de alternar. Como `stock` es autónomo (`self_paced`), este tiempo por página controla la duración completa de la ranura de rotación para mostrar todas las acciones configuradas antes de avanzar. |
 | `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Moneda de comparación y símbolo de visualización (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` a `60` | Minutos de caché para la cotización. |
 
@@ -299,7 +301,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `keywords` | `String` | `""` | Texto / Consulta | Palabras clave de búsqueda o etiquetas personalizadas (ej. `ai OR arcade`). |
 | `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Idioma de las noticias (`auto` sincroniza con el sistema). |
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Edición regional por país. |
-| `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché por ciclo. |
+| `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché y seleccionados en orden aleatorio sin repetición entre ranuras de rotación. |
 | `requests_per_day` | `int` | `10` | `1` a `100` | Total de solicitudes API por 24 horas (plan gratuito: máx. 100). |
 | `force_refresh` | `bool` | `false` | `true`, `false` | Purga la caché de noticias y consulta inmediatamente la API. |
 | `cache_ttl_min` | `int` | `30` | `5` a `120` | Intervalo de refresco de la caché en red (minutos). |
@@ -307,7 +309,7 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `scroll_speed` | `int` | `3` | `1` a `10` | Velocidad de desplazamiento del teletipo (1: Lento a 10: Rápido). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` a `4000` | Tiempo de pausa inicial (ms) antes de comenzar el desplazamiento. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` a `4000` | Tiempo de pausa final (ms) al final del titular antes de cambiar. |
-| `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización por artículo en segundos. |
+| `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización por artículo en segundos (selección aleatoria sin repetición desde la caché en cada ranura de rotación). |
 | `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Esquema de colores visual. |
 | `show_category_badge` | `bool` | `true` | `true`, `false` | Muestra la píldora de categoría en color (`[TECH]`, `[WORLD]`, etc.). |
 | `show_source` | `bool` | `true` | `true`, `false` | Muestra el nombre de la fuente de noticias (`BBC News`, `Reuters`, etc.). |

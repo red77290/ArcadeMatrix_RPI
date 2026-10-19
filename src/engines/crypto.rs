@@ -50,6 +50,7 @@ pub struct CryptoEngine {
     is_fetching: Arc<AtomicBool>,
     current_index: usize,
     current_page: CryptoPage,
+    symbols_shown_this_cycle: usize,
     last_page_switch: Instant,
     symbols: Vec<String>,
     currency: String,
@@ -76,6 +77,7 @@ impl CryptoEngine {
             is_fetching: Arc::new(AtomicBool::new(false)),
             current_index: 0,
             current_page: CryptoPage::Info,
+            symbols_shown_this_cycle: 0,
             last_page_switch: Instant::now(),
             symbols: vec![],
             currency: "USD".to_string(),
@@ -132,8 +134,60 @@ impl CryptoEngine {
         // Keep the cursor in range after the symbol list shrinks.
         if self.symbols.is_empty() {
             self.current_index = 0;
+            self.symbols_shown_this_cycle = 0;
         } else {
             self.current_index %= self.symbols.len();
+        }
+    }
+
+    fn advance_page_if_due(&mut self, height: u32) {
+        if self.symbols.is_empty() {
+            return;
+        }
+        let page_duration = Duration::from_secs(self.page_seconds);
+        if self.last_page_switch.elapsed() < page_duration {
+            return;
+        }
+        self.last_page_switch = Instant::now();
+
+        if self.symbols_shown_this_cycle >= self.symbols.len() {
+            self.symbols_shown_this_cycle = 0;
+            self.current_index = 0;
+            self.current_page = CryptoPage::Info;
+            return;
+        }
+
+        if height >= 64 || !self.show_chart {
+            self.current_page = CryptoPage::Info;
+            self.symbols_shown_this_cycle += 1;
+            if self.symbols_shown_this_cycle < self.symbols.len() {
+                self.current_index = (self.current_index + 1) % self.symbols.len();
+            }
+        } else {
+            match self.current_page {
+                CryptoPage::Info => {
+                    let sym = &self.symbols[self.current_index % self.symbols.len()];
+                    let has_chart_data = self
+                        .history_cache
+                        .get(&(sym.clone(), self.chart_timeframe))
+                        .map_or(false, |(hist, _)| hist.points.len() > 1);
+                    if has_chart_data {
+                        self.current_page = CryptoPage::Chart;
+                    } else {
+                        self.symbols_shown_this_cycle += 1;
+                        if self.symbols_shown_this_cycle < self.symbols.len() {
+                            self.current_index = (self.current_index + 1) % self.symbols.len();
+                        }
+                    }
+                }
+                CryptoPage::Chart => {
+                    self.current_page = CryptoPage::Info;
+                    self.symbols_shown_this_cycle += 1;
+                    if self.symbols_shown_this_cycle < self.symbols.len() {
+                        self.current_index = (self.current_index + 1) % self.symbols.len();
+                    }
+                }
+            }
         }
     }
 
@@ -1086,11 +1140,32 @@ impl Engine for CryptoEngine {
         self.apply_config(config);
     }
 
-    fn activate(&mut self) {}
+    fn activate(&mut self) {
+        self.current_index = 0;
+        self.current_page = CryptoPage::Info;
+        self.symbols_shown_this_cycle = 0;
+        self.last_page_switch = Instant::now();
+        self.symbol_start_time = Instant::now();
+        self.last_rendered_symbol.clear();
+        self.last_rendered_page = CryptoPage::Info;
+    }
+
     fn deactivate(&mut self) {
         self.is_fetching.store(false, Ordering::SeqCst);
     }
-    fn update(&mut self, _context: &mut EngineContext) {}
+
+    fn update(&mut self, context: &mut EngineContext) {
+        let height = context.surface.height();
+        self.advance_page_if_due(height);
+    }
+
+    fn self_paced(&self) -> bool {
+        true
+    }
+
+    fn is_finished(&self) -> bool {
+        self.symbols.is_empty() || self.symbols_shown_this_cycle >= self.symbols.len()
+    }
 
     fn is_realtime(&self) -> bool {
         true
@@ -1108,28 +1183,12 @@ impl Engine for CryptoEngine {
             sys_lang.as_str()
         };
 
+        let height = context.surface.height();
+        self.advance_page_if_due(height);
+
         let matrix = &mut *context.surface;
         let width = matrix.width();
         let height = matrix.height();
-
-        let page_duration = Duration::from_secs(self.page_seconds);
-        if self.last_page_switch.elapsed() >= page_duration {
-            self.last_page_switch = Instant::now();
-            if height >= 64 || !self.show_chart {
-                self.current_page = CryptoPage::Info;
-                self.current_index = (self.current_index + 1) % self.symbols.len();
-            } else {
-                match self.current_page {
-                    CryptoPage::Info => {
-                        self.current_page = CryptoPage::Chart;
-                    }
-                    CryptoPage::Chart => {
-                        self.current_page = CryptoPage::Info;
-                        self.current_index = (self.current_index + 1) % self.symbols.len();
-                    }
-                }
-            }
-        }
 
         let symbol = self.symbols[self.current_index % self.symbols.len()].clone();
         let page_changed = self.current_page != self.last_rendered_page;
@@ -1520,5 +1579,47 @@ mod tests {
         // Fast-forward symbol_start_time by 2000ms (scrolling active)
         engine.symbol_start_time = Instant::now() - Duration::from_millis(2000);
         engine.render(&mut context);
+    }
+
+    #[test]
+    fn test_crypto_self_paced_full_cycle_over_six_symbols() {
+        let mut engine = CryptoEngine::new(128, 64);
+        engine.symbols = vec![
+            "BTC".into(),
+            "ETH".into(),
+            "SOL".into(),
+            "ADA".into(),
+            "DOT".into(),
+            "XRP".into(),
+            "DOGE".into(),
+            "AVAX".into(),
+        ];
+        engine.page_seconds = 5;
+        engine.show_chart = false;
+        engine.activate();
+
+        assert!(engine.self_paced());
+        assert!(!engine.is_finished());
+
+        let config = crate::core::config::Config::new("config.json");
+        let mut matrix = MockSurface::new(128, 64);
+        let mut context = EngineContext {
+            surface: &mut matrix,
+            config: &config,
+        };
+
+        for idx in 0..8 {
+            assert_eq!(engine.current_index, idx);
+            assert!(!engine.is_finished());
+            engine.last_page_switch = Instant::now() - Duration::from_secs(6);
+            engine.update(&mut context);
+        }
+
+        assert!(engine.is_finished());
+
+        // Re-activating resets the cycle back to index 0
+        engine.activate();
+        assert_eq!(engine.current_index, 0);
+        assert!(!engine.is_finished());
     }
 }

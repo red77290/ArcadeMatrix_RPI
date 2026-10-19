@@ -1522,7 +1522,10 @@ components:
           type: string
         duration_sec:
           type: integer
-          description: Base display duration; engines may end early via is_finished().
+          description: >-
+            Base display duration in seconds (or GIF count for gifs). Self-paced engines
+            (such as crypto, stock, and gifs) govern their own cycle completion via
+            self_paced() and is_finished() before rotation advances.
         overlays:
           type: object
           description: Transverse additive overlay configurations.
@@ -1566,6 +1569,9 @@ components:
             allow_rotation:
               type: boolean
               description: Whether this engine can be selected by users in the rotation loop.
+            self_paced:
+              type: boolean
+              description: Whether the engine governs its own rotation slot completion via is_finished().
         requirements:
           type: object
           properties:

@@ -261,7 +261,9 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `show_world_clock` | `bool` | `true` | `true`, `false` | Display secondary world timezones (`NYC`, `TYO`, `LON`...). |
 | `world_clocks` | `String` | `NYC,TYO,LON` | Airport/City codes | Comma-separated list of secondary timezone codes. |
 | `show_weather` | `bool` | `true` | `true`, `false` | Display outdoor temperature and weather forecast. |
-| `weather_city` | `String` | `Paris, FR` | Text | City location for weather forecast. |
+| `weather_city` | `String` | `Paris, FR` | Text | City location for weather forecast (inherits `city` from the `weather` instance if left at default). |
+| `weather_api_key` | `String` | `""` | Optional API key | Optional OpenWeatherMap API key (inherits `api_key` from the `weather` instance if empty, and falls back automatically to free Open-Meteo without an API key). |
+| `refresh_interval` | `Options` | `10` | `1`, `5`, `10`, `15`, `30`, `60` min | Background refresh frequency for weather and market quotes. |
 | `show_markets` | `bool` | `true` | `true`, `false` | Display real-time crypto and stock ticker badges. |
 | `tracked_markets` | `String` | `BTC,ETH,SOL,NVDA` | Comma-separated | Crypto and stock ticker symbols to cycle through. |
 | `show_sysinfo` | `bool` | `true` | `true`, `false` | Display CPU, RAM & Wi-Fi metrics. |
@@ -277,7 +279,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `symbols` | `String` | `BTC,ETH` | Comma-separated | Crypto symbols to monitor (CoinGecko / Binance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
-| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
+| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. Because `crypto` is self-paced in rotation, it overrides the slot timer and displays all configured symbols for one complete cycle before rotation advances. |
 | `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Currency comparison and display symbol (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
 
@@ -287,7 +289,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `symbols` | `String` | `AAPL,NVDA,TSLA` | Comma-separated | Stock ticker symbols to monitor (Yahoo Finance). |
 | `show_chart` | `bool` | `true` | `true`, `false` | Display historical price sparkline chart. |
 | `chart_timeframe` | `Options` | `daily` | `hourly`, `daily`, `weekly`, `monthly` | Timeframe for historical price series. |
-| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. |
+| `page_seconds` | `int` | `5` | `3` to `30` | Seconds to dwell on each page. Because `stock` is self-paced in rotation, it overrides the slot timer and displays all configured symbols for one complete cycle before rotation advances. |
 | `currency` | `Options` | `USD` | `USD`, `EUR`, `GBP`, `JPY` | Currency comparison and display symbol (`$`, `€`, `£`, `¥`). |
 | `cache_ttl_min` | `int` | `1` | `1` to `60` | Minutes to cache quote price. |
 
@@ -299,7 +301,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `keywords` | `String` | `""` | Text / Query | Custom search query or filter tags (e.g. `ai OR arcade`). |
 | `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Article language (`auto` syncs with system language). |
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Country edition (`auto` uses local region). |
-| `max_articles` | `int` | `5` | `3` to `15` | Maximum number of headlines cached and rotated per cycle. |
+| `max_articles` | `int` | `5` | `3` to `15` | Maximum number of headlines cached and rotated in randomized non-repeating order across rotation slots. |
 | `requests_per_day` | `int` | `10` | `1` to `100` | Total API requests per 24 hours (Free tier: max 100). |
 | `force_refresh` | `bool` | `false` | `true`, `false` | Purge cached news of obsolete language and immediately query API. |
 | `cache_ttl_min` | `int` | `30` | `5` to `120` | Cache refresh interval in minutes between background API queries. |
@@ -307,7 +309,7 @@ Each engine advertises its own fields through its `ConfigSchema` (discoverable a
 | `scroll_speed` | `int` | `3` | `1` to `10` | Ticker scrolling speed (1: Slow to 10: Fast). |
 | `scroll_pause_start_ms` | `int` | `1200` | `0` to `4000` | Initial pause dwell time (ms) at headline start before scrolling. |
 | `scroll_pause_end_ms` | `int` | `1000` | `0` to `4000` | Pause dwell time (ms) at end of headline before transitioning. |
-| `article_duration_sec` | `int` | `12` | `5` to `60` | Display duration per article in seconds. |
+| `article_duration_sec` | `int` | `12` | `5` to `60` | Display duration per article in seconds (cached headlines are selected in random non-repeating order across rotation slots). |
 | `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Color palette scheme. |
 | `show_category_badge` | `bool` | `true` | `true`, `false` | Display color-coded category pill (`[TECH]`, `[WORLD]`, etc.). |
 | `show_source` | `bool` | `true` | `true`, `false` | Display news source name badge (`BBC News`, `Reuters`, etc.). |

@@ -74,17 +74,117 @@ pub fn format_market_price(price: f32) -> String {
     }
 }
 
-pub fn fetch_live_weather(city: &str) -> Option<(f32, i32, String)> {
-    if city.trim().is_empty() {
+pub fn fetch_live_weather(city: &str, api_key: &str) -> Option<(f32, i32, String)> {
+    let trimmed_city = city.trim();
+    if trimmed_city.is_empty() {
         return None;
     }
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(3))
+        .timeout(Duration::from_secs(4))
         .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
         .build()
         .ok()?;
 
-    let encoded_city = city.trim().replace(' ', "+");
+    // 1. Try OpenWeatherMap if an API key is provided (either directly or inherited from Weather engine)
+    let clean_key = api_key.trim();
+    if clean_key.len() > 5 && clean_key != "API_KEY" {
+        let encoded_city = trimmed_city.replace(' ', "%20");
+        let owm_url = format!(
+            "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric",
+            encoded_city, clean_key
+        );
+        if let Ok(res) = client.get(&owm_url).send() {
+            if res.status().is_success() {
+                if let Ok(json) = res.json::<serde_json::Value>() {
+                    if let Some(temp_c) = json
+                        .get("main")
+                        .and_then(|m| m.get("temp"))
+                        .and_then(|t| t.as_f64())
+                    {
+                        let weather_obj = json.get("weather").and_then(|w| w.get(0));
+                        let code = weather_obj
+                            .and_then(|w| w.get("id"))
+                            .and_then(|id| id.as_i64())
+                            .unwrap_or(800) as i32;
+                        let desc = weather_obj
+                            .and_then(|w| w.get("main"))
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("Clear")
+                            .to_string();
+                        return Some((temp_c as f32, code, desc));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Free Open-Meteo fallback (No API key needed, aligned with ESP32 DashboardDataProvider)
+    let base_city = trimmed_city
+        .split(',')
+        .next()
+        .unwrap_or(trimmed_city)
+        .trim();
+    let mut lat = 48.8566_f64;
+    let mut lon = 2.3522_f64;
+
+    if !base_city.eq_ignore_ascii_case("Paris") && !base_city.is_empty() {
+        let enc_city = base_city.replace(' ', "%20");
+        let geo_url = format!(
+            "https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&format=json",
+            enc_city
+        );
+        if let Ok(res) = client.get(&geo_url).send() {
+            if res.status().is_success() {
+                if let Ok(json) = res.json::<serde_json::Value>() {
+                    if let Some(first) = json
+                        .get("results")
+                        .and_then(|r| r.as_array())
+                        .and_then(|a| a.first())
+                    {
+                        if let (Some(la), Some(lo)) = (
+                            first.get("latitude").and_then(|v| v.as_f64()),
+                            first.get("longitude").and_then(|v| v.as_f64()),
+                        ) {
+                            lat = la;
+                            lon = lo;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let met_url = format!(
+        "https://api.open-meteo.com/v1/forecast?latitude={:.4}&longitude={:.4}&current=temperature_2m,weather_code",
+        lat, lon
+    );
+    if let Ok(res) = client.get(&met_url).send() {
+        if res.status().is_success() {
+            if let Ok(json) = res.json::<serde_json::Value>() {
+                if let Some(curr) = json.get("current") {
+                    if let Some(temp_c) = curr.get("temperature_2m").and_then(|t| t.as_f64()) {
+                        let wmo_code = curr
+                            .get("weather_code")
+                            .and_then(|c| c.as_i64())
+                            .unwrap_or(0) as i32;
+                        let (owm_code, desc) = match wmo_code {
+                            0 => (800, "Clear"),
+                            1..=3 => (802, "Clouds"),
+                            45..=48 => (741, "Fog"),
+                            51..=67 | 80..=82 => (500, "Rain"),
+                            71..=77 | 85..=86 => (600, "Snow"),
+                            95..=99 => (500, "Storm"),
+                            _ => (800, "Clear"),
+                        };
+                        return Some((temp_c as f32, owm_code, desc.to_string()));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Tertiary fallback: wttr.in with WWO-to-OWM weatherCode normalization
+    let encoded_city = trimmed_city.replace(' ', "+");
     let url = format!("https://wttr.in/{}?format=j1", encoded_city);
 
     if let Ok(res) = client.get(&url).send() {
@@ -95,11 +195,17 @@ pub fn fetch_live_weather(city: &str) -> Option<(f32, i32, String)> {
                         .get("temp_C")
                         .and_then(|t| t.as_str())
                         .and_then(|s| s.parse::<f32>().ok())?;
-                    let code = curr
+                    let wwo_code = curr
                         .get("weatherCode")
                         .and_then(|c| c.as_str())
                         .and_then(|s| s.parse::<i32>().ok())
-                        .unwrap_or(800);
+                        .unwrap_or(113);
+                    let code = match wwo_code {
+                        113 => 800,
+                        176 | 263 | 266 | 293 | 296 | 299 | 302 | 305 | 308 | 353 | 356 | 359
+                        | 386 | 389 => 500,
+                        _ => 802,
+                    };
                     let desc = curr
                         .get("weatherDesc")
                         .and_then(|d| d.get(0))

@@ -301,16 +301,20 @@ Cada motor anuncia sus propios campos mediante su `ConfigSchema` (descubrible en
 | `keywords` | `String` | `""` | Texto / Consulta | Palabras clave de búsqueda o etiquetas personalizadas (ej. `ai OR arcade`). |
 | `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Idioma de las noticias (`auto` sincroniza con el sistema). |
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Edición regional por país. |
-| `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de titulares almacenados en caché y seleccionados en orden aleatorio sin repetición entre ranuras de rotación. |
+| `max_articles` | `int` | `5` | `3` a `15` | Cantidad máxima de artículos almacenados en caché y seleccionados en orden aleatorio sin repetición entre ranuras de rotación. |
+| `articles_per_rotation` | `int` | `2` | `1` a `15` | Rotación con ritmo propio: cantidad de artículos aleatorios a desplazar por completo (`PauseStart` -> `Scrolling` -> `PauseEnd`) antes de avanzar la rotación. |
 | `requests_per_day` | `int` | `10` | `1` a `100` | Total de solicitudes API por 24 horas (plan gratuito: máx. 100). |
 | `force_refresh` | `bool` | `false` | `true`, `false` | Purga la caché de noticias y consulta inmediatamente la API. |
 | `cache_ttl_min` | `int` | `30` | `5` a `120` | Intervalo de refresco de la caché en red (minutos). |
 | `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Modo de animación (desplazamiento continuo derecha a izquierda, flujo serpentina arcade, desplazamiento vertical o paginación fija). |
 | `scroll_speed` | `int` | `3` | `1` a `10` | Velocidad de desplazamiento del teletipo (1: Lento a 10: Rápido). |
-| `scroll_pause_start_ms` | `int` | `1200` | `0` a `4000` | Tiempo de pausa inicial (ms) antes de comenzar el desplazamiento. |
-| `scroll_pause_end_ms` | `int` | `1000` | `0` a `4000` | Tiempo de pausa final (ms) al final del titular antes de cambiar. |
-| `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización por artículo en segundos (selección aleatoria sin repetición desde la caché en cada ranura de rotación). |
+| `pause_start_sec` / `scroll_pause_start_ms` | `int` | `2` / `1200` | `0` a `10` s (`0` a `4000` ms) | Tiempo de pausa inicial antes de comenzar el desplazamiento del artículo. |
+| `pause_end_sec` / `scroll_pause_end_ms` | `int` | `2` / `1000` | `0` a `10` s (`0` a `4000` ms) | Tiempo de pausa final al terminar el artículo antes de cambiar. |
+| `article_duration_sec` | `int` | `12` | `5` a `60` | Duración de visualización de respaldo por artículo en segundos. |
 | `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Esquema de colores visual. |
+| `show_title` | `bool` | `false` | `true`, `false` | Incluye el titular del artículo en el texto desplazado. |
+| `show_description` | `bool` | `false` | `true`, `false` | Incluye el resumen / entradilla del artículo en el texto desplazado. |
+| `show_content` | `bool` | `true` | `true`, `false` | Incluye el cuerpo del artículo en el texto desplazado (con respaldo automático a descripción/título si está vacío). |
 | `show_category_badge` | `bool` | `true` | `true`, `false` | Muestra la píldora de categoría en color (`[TECH]`, `[WORLD]`, etc.). |
 | `show_source` | `bool` | `true` | `true`, `false` | Muestra el nombre de la fuente de noticias (`BBC News`, `Reuters`, etc.). |
 | `show_time_ago` | `bool` | `true` | `true`, `false` | Muestra la antigüedad relativa (`5m ago`, `2h ago`). |

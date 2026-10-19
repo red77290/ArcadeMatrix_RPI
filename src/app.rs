@@ -467,6 +467,8 @@ impl ArcadeMatrixApp {
         let mut was_composited = false;
 
         while running.load(Ordering::SeqCst) {
+            let frame_start = std::time::Instant::now();
+
             // Auto-restart if configuration requires hardware reload
             if config.reload_flag.swap(false, Ordering::Relaxed) {
                 tracing::info!(
@@ -476,14 +478,22 @@ impl ArcadeMatrixApp {
             }
 
             if config.reset_rotation.swap(false, Ordering::Relaxed) {
+                let prev_handles: Vec<EngineHandle> =
+                    snapshot.rotation.iter().map(|r| r.handle).collect();
                 snapshot = build_runtime_snapshot(&config, &mut engine_runtime, surface.as_mut());
+                let new_handles: Vec<EngineHandle> =
+                    snapshot.rotation.iter().map(|r| r.handle).collect();
                 cached_is_night = crate::core::rotation::is_night_time(
                     snapshot.system.night_mode_enabled,
                     &snapshot.system.turn_off_at,
                     &snapshot.system.wake_up_at,
                 );
                 last_night_check = std::time::Instant::now();
-                rotation_manager.reset();
+                if prev_handles == new_handles && !new_handles.is_empty() {
+                    rotation_manager.reset_slot_timer();
+                } else {
+                    rotation_manager.reset();
+                }
                 surface.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
                     runtime.on_display_geometry_changed(
@@ -772,9 +782,18 @@ impl ArcadeMatrixApp {
             was_composited = composited_this_frame;
             surface.present();
 
-            // Adaptive sleep: realtime engines run at ~50fps (20ms), static at 1000ms
-            let sleep_ms = if realtime_cadence { 20 } else { 1000 };
-            std::thread::sleep(std::time::Duration::from_millis(sleep_ms));
+            // Adaptive frame-paced sleep: realtime engines target ~60fps (16ms), static at 1000ms
+            if realtime_cadence {
+                let elapsed = frame_start.elapsed();
+                let target = std::time::Duration::from_millis(16);
+                if elapsed < target {
+                    std::thread::sleep(target - elapsed);
+                } else {
+                    std::thread::sleep(std::time::Duration::from_millis(1));
+                }
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(1000));
+            }
         }
 
         surface.clear();

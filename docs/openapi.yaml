@@ -1524,7 +1524,7 @@ components:
           type: integer
           description: >-
             Base display duration in seconds (or GIF count for gifs). Self-paced engines
-            (such as crypto, stock, and gifs) govern their own cycle completion via
+            (such as crypto, stock, gnews, and gifs) govern their own cycle completion via
             self_paced() and is_finished() before rotation advances.
         overlays:
           type: object

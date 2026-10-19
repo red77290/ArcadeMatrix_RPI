@@ -302,15 +302,19 @@ Chaque moteur expose ses propres champs via son `ConfigSchema` (consultable à `
 | `lang` | `Options` | `auto` | `auto`, `en`, `fr`, `es`, `de`, `it`, `pt`, `nl`, `ru`, `zh`, `ja` | Langue des articles (`auto` synchronise avec la langue système). |
 | `country` | `Options` | `auto` | `auto`, `us`, `fr`, `gb`, `es`, `de`, `ca`, `it`, `jp`, `au`, `br`, `in` | Édition régionale du pays. |
 | `max_articles` | `int` | `5` | `3` à `15` | Nombre maximal d'articles mis en cache et tirés aléatoirement sans répétition à travers les cycles de rotation. |
+| `articles_per_rotation` | `int` | `2` | `1` à `15` | Rotation auto-cadencée : nombre d'articles aléatoires à faire défiler intégralement (`PauseStart` -> `Scrolling` -> `PauseEnd`) avant de passer à l'écran suivant. |
 | `requests_per_day` | `int` | `10` | `1` à `100` | Nombre total de requêtes API par 24 heures (offre gratuite : max 100). |
 | `force_refresh` | `bool` | `false` | `true`, `false` | Purge le cache d'articles et interroge immédiatement l'API. |
 | `cache_ttl_min` | `int` | `30` | `5` à `120` | Intervalle de rafraîchissement réseau du cache en minutes. |
 | `display_mode` | `Options` | `smooth_scroll` | `smooth_scroll`, `serpentine`, `vertical_crawl`, `static_paged` | Mode d'animation (défilement fluide droite-gauche, flux serpentin arcade, défilement vertical ou pagination statique). |
 | `scroll_speed` | `int` | `3` | `1` à `10` | Vitesse de défilement du bandeau (1 : Lent à 10 : Rapide). |
-| `scroll_pause_start_ms` | `int` | `1200` | `0` à `4000` | Temps de pause fixe (ms) au début du titre avant le défilement. |
-| `scroll_pause_end_ms` | `int` | `1000` | `0` à `4000` | Temps de pause fixe (ms) à la fin du titre avant la transition. |
-| `article_duration_sec` | `int` | `12` | `5` à `60` | Durée d'affichage par article en secondes (sélection aléatoire sans remise depuis le cache à chaque créneau de rotation). |
+| `pause_start_sec` / `scroll_pause_start_ms` | `int` | `2` / `1200` | `0` à `10` s (`0` à `4000` ms) | Temps de pause fixe au début de l'article avant le défilement. |
+| `pause_end_sec` / `scroll_pause_end_ms` | `int` | `2` / `1000` | `0` à `10` s (`0` à `4000` ms) | Temps de pause fixe à la fin de l'article avant la transition. |
+| `article_duration_sec` | `int` | `12` | `5` à `60` | Durée d'affichage de repli par article en secondes. |
 | `theme` | `Options` | `category_dynamic` | `category_dynamic`, `breaking_crimson`, `cyberpunk`, `monochrome_paper` | Schéma de couleurs visuel. |
+| `show_title` | `bool` | `false` | `true`, `false` | Inclut le titre de l'article dans le texte défilant. |
+| `show_description` | `bool` | `false` | `true`, `false` | Inclut le résumé / chapeau de l'article dans le texte défilant. |
+| `show_content` | `bool` | `true` | `true`, `false` | Inclut le corps du texte de l'article dans le défilement (avec repli automatique sur description/titre si vide). |
 | `show_category_badge` | `bool` | `true` | `true`, `false` | Affiche le badge thématique coloré (`[TECH]`, `[WORLD]`, etc.). |
 | `show_source` | `bool` | `true` | `true`, `false` | Affiche le nom de la source d'actualités (`BBC News`, `Reuters`, etc.). |
 | `show_time_ago` | `bool` | `true` | `true`, `false` | Affiche l'ancienneté relative (`5m ago`, `2h ago`). |

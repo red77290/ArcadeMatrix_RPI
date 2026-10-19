@@ -25,6 +25,7 @@ pub enum ScrollState {
 pub struct GNewsArticle {
     pub title: String,
     pub description: String,
+    pub content: String,
     pub source: String,
     pub category: String,
     pub published_epoch: u64,
@@ -32,13 +33,43 @@ pub struct GNewsArticle {
 }
 
 impl GNewsArticle {
-    pub fn headline(&self) -> String {
+    pub fn compose_text(
+        &self,
+        show_title: bool,
+        show_description: bool,
+        show_content: bool,
+    ) -> String {
+        let title = self.title.trim();
         let desc = self.description.trim();
-        if desc.is_empty() {
-            self.title.clone()
-        } else {
-            format!("{} — {}", self.title, desc)
+        let content = self.content.trim();
+
+        let mut parts: Vec<&str> = Vec::new();
+        if show_title && !title.is_empty() {
+            parts.push(title);
         }
+        if show_description && !desc.is_empty() {
+            if !parts.iter().any(|p| p.contains(desc)) {
+                parts.push(desc);
+            }
+        }
+        if show_content && !content.is_empty() {
+            if let Some(pos) = parts.iter().position(|p| content.starts_with(p)) {
+                parts[pos] = content;
+            } else if !parts.iter().any(|p| p.contains(content)) {
+                parts.push(content);
+            }
+        }
+
+        if parts.is_empty() {
+            if !content.is_empty() {
+                return content.to_string();
+            }
+            if !desc.is_empty() {
+                return desc.to_string();
+            }
+            return title.to_string();
+        }
+        parts.join(" — ")
     }
 }
 
@@ -50,6 +81,7 @@ pub struct GNewsEngine {
     lang: String,
     country: String,
     max_articles: usize,
+    articles_per_rotation: usize,
     cache_ttl_min: u64,
     requests_per_day: u32,
     force_refresh: bool,
@@ -59,6 +91,9 @@ pub struct GNewsEngine {
     scroll_pause_end_ms: u64,
     article_duration_sec: u64,
     theme: String,
+    show_title: bool,
+    show_description: bool,
+    show_content: bool,
     show_category_badge: bool,
     show_source: bool,
     show_time_ago: bool,
@@ -77,6 +112,11 @@ pub struct GNewsEngine {
     current_index: usize,
     shuffled_order: Vec<usize>,
     shuffle_pos: usize,
+    articles_shown_this_cycle: usize,
+    activate_time: Instant,
+    current_page_index: usize,
+    total_pages: usize,
+    last_page_switch: Instant,
     cat_round_robin_idx: usize,
     active_key_idx: usize,
     key_usages: Vec<u32>,
@@ -127,6 +167,7 @@ impl GNewsEngine {
                     loaded_articles.push(GNewsArticle {
                         title: a.title,
                         description: a.description,
+                        content: a.content,
                         source: a.source,
                         category: a.category,
                         published_epoch: a.published_epoch,
@@ -143,7 +184,8 @@ impl GNewsEngine {
                     4 => GNewsStatus::NetworkError,
                     _ => GNewsStatus::Ok,
                 };
-                if now_epoch >= ep && (now_epoch - ep) < 86400 {
+                let has_content = loaded_articles.iter().any(|a| !a.content.is_empty());
+                if has_content && now_epoch >= ep && (now_epoch - ep) < 86400 {
                     let elapsed_sec = now_epoch - ep;
                     last_fetch_inst = now.checked_sub(Duration::from_secs(elapsed_sec));
                 }
@@ -157,6 +199,7 @@ impl GNewsEngine {
             lang: "auto".to_string(),
             country: "auto".to_string(),
             max_articles: 5,
+            articles_per_rotation: 2,
             cache_ttl_min: 30,
             requests_per_day: 10,
             force_refresh: false,
@@ -166,6 +209,9 @@ impl GNewsEngine {
             scroll_pause_end_ms: 1000,
             article_duration_sec: 12,
             theme: "category_dynamic".to_string(),
+            show_title: false,
+            show_description: false,
+            show_content: true,
             show_category_badge: true,
             show_source: true,
             show_time_ago: true,
@@ -182,6 +228,11 @@ impl GNewsEngine {
             current_index: 0,
             shuffled_order: Vec::new(),
             shuffle_pos: 0,
+            articles_shown_this_cycle: 0,
+            activate_time: now,
+            current_page_index: 0,
+            total_pages: 1,
+            last_page_switch: now,
             cat_round_robin_idx: loaded_cat_idx,
             active_key_idx: loaded_key_idx,
             key_usages: loaded_usages,
@@ -491,16 +542,33 @@ impl GNewsEngine {
         self.lang = config.get_string("lang", "auto");
         self.country = config.get_string("country", "auto");
         self.max_articles = config.get_int("max_articles", 5).clamp(3, 15) as usize;
+        self.articles_per_rotation =
+            config.get_int("articles_per_rotation", 2).clamp(1, 15) as usize;
         self.cache_ttl_min = config.get_int("cache_ttl_min", 30).clamp(5, 120) as u64;
         self.requests_per_day = config.get_int("requests_per_day", 10).clamp(1, 100) as u32;
         self.force_refresh = config.get_bool("force_refresh", false);
 
         let prev_mode = self.display_mode.clone();
+        let prev_title = self.show_title;
+        let prev_desc = self.show_description;
+        let prev_content = self.show_content;
+
         self.display_mode = config.get_string("display_mode", "smooth_scroll");
-        if self.display_mode != prev_mode {
+        self.show_title = config.get_bool("show_title", false);
+        self.show_description = config.get_bool("show_description", false);
+        self.show_content = config.get_bool("show_content", true);
+
+        if self.display_mode != prev_mode
+            || self.show_title != prev_title
+            || self.show_description != prev_desc
+            || self.show_content != prev_content
+        {
             self.scroll_pixel_offset = 0;
             self.scroll_state = ScrollState::PauseStart;
             self.state_start = Instant::now();
+            self.current_page_index = 0;
+            self.total_pages = 1;
+            self.last_page_switch = Instant::now();
             self.cached_display_lines.clear();
             self.cached_title_chars.clear();
             self.cached_max_scroll = 0;
@@ -616,13 +684,22 @@ impl GNewsEngine {
                 if let Ok(mut guard) = shared.lock() {
                     let mut existing = guard.clone();
                     for a in fetched {
-                        if !existing.iter().any(|x| x.title == a.title) {
+                        if let Some(existing_art) = existing.iter_mut().find(|x| x.title == a.title)
+                        {
+                            if existing_art.content.is_empty() && !a.content.is_empty() {
+                                existing_art.content = a.content;
+                            }
+                            if existing_art.description.is_empty() && !a.description.is_empty() {
+                                existing_art.description = a.description;
+                            }
+                        } else {
                             let badge_color = Self::get_category_color(&a.category);
                             existing.insert(
                                 0,
                                 GNewsArticle {
                                     title: a.title,
                                     description: a.description,
+                                    content: a.content,
                                     source: a.source,
                                     category: a.category,
                                     published_epoch: a.published_epoch,
@@ -639,6 +716,7 @@ impl GNewsEngine {
                         .map(|art| crate::api::gnews::FetchedArticle {
                             title: art.title.clone(),
                             description: art.description.clone(),
+                            content: art.content.clone(),
                             source: art.source.clone(),
                             category: art.category.clone(),
                             published_epoch: art.published_epoch,
@@ -666,6 +744,7 @@ impl GNewsEngine {
                     .map(|art| crate::api::gnews::FetchedArticle {
                         title: art.title.clone(),
                         description: art.description.clone(),
+                        content: art.content.clone(),
                         source: art.source.clone(),
                         category: art.category.clone(),
                         published_epoch: art.published_epoch,
@@ -721,6 +800,7 @@ impl GNewsEngine {
     }
 
     fn advance_to_next_article(&mut self) {
+        self.articles_shown_this_cycle = self.articles_shown_this_cycle.saturating_add(1);
         self.pick_next_random_article();
         let now = Instant::now();
         self.scroll_pixel_offset = 0;
@@ -728,6 +808,9 @@ impl GNewsEngine {
         self.state_start = now;
         self.last_scroll_tick = now;
         self.last_article_switch = now;
+        self.current_page_index = 0;
+        self.total_pages = 1;
+        self.last_page_switch = now;
         self.cached_display_lines.clear();
         self.cached_max_scroll = 0;
         self.cached_article_index = usize::MAX;
@@ -795,21 +878,38 @@ impl Engine for GNewsEngine {
     }
 
     fn activate(&mut self) {
+        self.articles_shown_this_cycle = 0;
         self.pick_next_random_article();
         self.scroll_pixel_offset = 0;
         self.source_marquee_offset = 0;
         self.scroll_state = ScrollState::PauseStart;
         let now = Instant::now();
+        self.activate_time = now;
         self.state_start = now;
         self.last_update = now;
         self.last_scroll_tick = now;
         self.last_source_tick = now;
         self.last_article_switch = now;
+        self.current_page_index = 0;
+        self.total_pages = 1;
+        self.last_page_switch = now;
         self.cached_display_lines.clear();
         self.cached_max_scroll = 0;
         self.cached_article_index = usize::MAX;
         self.cached_article_title.clear();
         self.cached_display_mode.clear();
+    }
+
+    fn self_paced(&self) -> bool {
+        true
+    }
+
+    fn is_finished(&self) -> bool {
+        if self.articles.is_empty() {
+            return self.activate_time.elapsed()
+                >= Duration::from_secs(self.article_duration_sec.max(5));
+        }
+        self.articles_shown_this_cycle >= self.articles_per_rotation.max(1)
     }
 
     fn on_config_changed(&mut self, config: &dyn EngineConfig) {
@@ -854,7 +954,8 @@ impl Engine for GNewsEngine {
             if !guard.is_empty()
                 && (self.articles.is_empty()
                     || guard.len() != self.articles.len()
-                    || guard[0].title != self.articles[0].title)
+                    || guard[0].title != self.articles[0].title
+                    || guard[0].content != self.articles[0].content)
             {
                 Some(guard.clone())
             } else {
@@ -942,7 +1043,8 @@ impl Engine for GNewsEngine {
         }
 
         let article = &self.articles[self.current_index];
-        let headline = article.headline();
+        let headline =
+            article.compose_text(self.show_title, self.show_description, self.show_content);
         let mw = ctx.surface.width();
         let mh = ctx.surface.height();
         let is_vertical = mh > mw || mw < 48 || mh > (mw * 3) / 2;
@@ -973,7 +1075,7 @@ impl Engine for GNewsEngine {
                             (t_len + chars_per_row - 1) / chars_per_row
                         };
                         if needed_rows <= num_rows {
-                            self.cached_max_scroll = 0;
+                            self.cached_max_scroll = ((t_len as i32) * 6).max(6);
                         } else {
                             let overflow = (t_len - (num_rows * chars_per_row) + 3) as i32;
                             self.cached_max_scroll = overflow * 6;
@@ -986,13 +1088,16 @@ impl Engine for GNewsEngine {
                         self.cached_max_scroll = if total_h > viewport_h {
                             (total_h - viewport_h) + 12
                         } else {
-                            0
+                            (total_h + 4).max(6)
                         };
                         self.cached_display_lines = lines;
                     }
                     "static_paged" => {
                         let lines = Self::wrap_text_to_lines(&headline, max_w);
                         self.cached_max_scroll = 0;
+                        self.total_pages = ((lines.len() + num_rows - 1) / num_rows.max(1)).max(1);
+                        self.current_page_index = 0;
+                        self.last_page_switch = now;
                         self.cached_display_lines = lines;
                     }
                     _ => {
@@ -1006,10 +1111,10 @@ impl Engine for GNewsEngine {
                 }
             } else {
                 // Horizontal display
-                let (body_y, clip_max_y, num_rows) = if mh >= 64 {
-                    (19, mh as i32, 4)
+                let (_body_y, _clip_max_y, num_rows) = if mh >= 64 {
+                    (19, mh as i32, 4usize)
                 } else {
-                    (13, mh as i32, 2)
+                    (13, mh as i32, 2usize)
                 };
 
                 match mode {
@@ -1023,7 +1128,7 @@ impl Engine for GNewsEngine {
                             (t_len + chars_per_row - 1) / chars_per_row
                         };
                         if needed_rows <= num_rows {
-                            self.cached_max_scroll = 0;
+                            self.cached_max_scroll = ((t_len as i32) * 6).max(6);
                         } else {
                             let overflow = (t_len - (num_rows * chars_per_row) + 3) as i32;
                             self.cached_max_scroll = overflow * 6;
@@ -1038,21 +1143,24 @@ impl Engine for GNewsEngine {
                         self.cached_max_scroll = if total_h > viewport_h {
                             (total_h - viewport_h) + 12
                         } else {
-                            0
+                            (total_h + 4).max(6)
                         };
                         self.cached_display_lines = lines;
                     }
                     "static_paged" => {
                         let max_w = (mw as i32) - 8;
                         let lines = Self::wrap_text_to_lines(&headline, max_w);
-                        let total_h = lines.len() as i32 * line_spacing;
                         self.cached_max_scroll = 0;
+                        self.total_pages = ((lines.len() + num_rows - 1) / num_rows.max(1)).max(1);
+                        self.current_page_index = 0;
+                        self.last_page_switch = now;
                         self.cached_display_lines = lines;
                     }
                     _ => {
                         // "smooth_scroll" on horizontal display
-                        let text_w = measure_text(&headline);
-                        self.cached_max_scroll = text_w + 12;
+                        let scale = if mh >= 64 && mw >= 256 { 2 } else { 1 };
+                        let text_w = measure_text(&headline) * scale;
+                        self.cached_max_scroll = text_w + 16;
                         self.cached_display_lines.clear();
                     }
                 }
@@ -1064,26 +1172,39 @@ impl Engine for GNewsEngine {
         }
 
         let max_scroll = self.cached_max_scroll;
+        let base_tick_ms: u64 = match self.scroll_speed {
+            1 => 100,
+            2 => 75,
+            3 => 55,
+            4 => 42,
+            5 => 32,
+            6 => 24,
+            7 => 18,
+            8 => 13,
+            9 => 9,
+            _ => 6,
+        };
 
-        if max_scroll == 0 || self.display_mode == "static_paged" {
+        if self.display_mode == "static_paged" {
+            let base_page_ms = ((self.article_duration_sec * 1000)
+                / self.total_pages.max(1) as u64)
+                .clamp(2000, 12000);
+            let page_dur_ms = ((base_page_ms * base_tick_ms) / 55).clamp(1000, 20000);
+            if now.duration_since(self.last_page_switch).as_millis() as u64 >= page_dur_ms {
+                self.last_page_switch = now;
+                if self.current_page_index + 1 < self.total_pages {
+                    self.current_page_index += 1;
+                } else {
+                    self.advance_to_next_article();
+                }
+            }
+        } else if max_scroll == 0 {
             if now.duration_since(self.last_article_switch).as_secs() >= self.article_duration_sec {
                 self.advance_to_next_article();
             }
         } else {
-            let base_tick_ms = match self.scroll_speed {
-                1 => 60,
-                2 => 48,
-                3 => 36,
-                4 => 26,
-                5 => 20,
-                6 => 15,
-                7 => 11,
-                8 => 8,
-                9 => 6,
-                _ => 4,
-            };
             let tick_ms = if self.display_mode == "vertical_crawl" {
-                base_tick_ms + 15
+                base_tick_ms * 4
             } else {
                 base_tick_ms
             };
@@ -1298,8 +1419,16 @@ impl Engine for GNewsEngine {
                 "static_paged" => {
                     let inner_min_x = 2;
                     let inner_max_x = (mw as i32) - 2;
-                    for (idx, line) in self.cached_display_lines.iter().enumerate() {
-                        let y = body_y + (idx as i32 * line_spacing);
+                    let lines_per_page = (((mh as i32) - body_y) / line_spacing).max(1) as usize;
+                    let start_idx = self.current_page_index * lines_per_page;
+                    for (row, line) in self
+                        .cached_display_lines
+                        .iter()
+                        .skip(start_idx)
+                        .take(lines_per_page)
+                        .enumerate()
+                    {
+                        let y = body_y + (row as i32 * line_spacing);
                         if y + line_spacing > clip_min_y && y < clip_max_y {
                             draw_text_clipped(
                                 matrix,
@@ -1472,8 +1601,16 @@ impl Engine for GNewsEngine {
                     }
                 }
             } else if self.display_mode == "static_paged" {
-                for (idx, line) in self.cached_display_lines.iter().enumerate() {
-                    let y = body_y + (idx as i32 * 9);
+                let lines_per_page = if mh >= 64 { 4usize } else { 2usize };
+                let start_idx = self.current_page_index * lines_per_page;
+                for (row, line) in self
+                    .cached_display_lines
+                    .iter()
+                    .skip(start_idx)
+                    .take(lines_per_page)
+                    .enumerate()
+                {
+                    let y = body_y + (row as i32 * 9);
                     if y + 9 > div_y && y < mh as i32 {
                         draw_text_clipped(
                             matrix,
@@ -1576,8 +1713,16 @@ impl Engine for GNewsEngine {
                     }
                 }
             } else if self.display_mode == "static_paged" {
-                for (idx, line) in self.cached_display_lines.iter().enumerate() {
-                    let y = 14 + (idx as i32 * 9);
+                let lines_per_page = if mh >= 64 { 4usize } else { 2usize };
+                let start_idx = self.current_page_index * lines_per_page;
+                for (row, line) in self
+                    .cached_display_lines
+                    .iter()
+                    .skip(start_idx)
+                    .take(lines_per_page)
+                    .enumerate()
+                {
+                    let y = 14 + (row as i32 * 9);
                     if y + 9 > 10 && y < mh as i32 {
                         draw_text_clipped(
                             matrix,
@@ -1831,6 +1976,44 @@ fn register_gnews_engine() -> EngineDescriptor {
                     ..Default::default()
                 },
                 ConfigField {
+                    id: "articles_per_rotation",
+                    field_type: ConfigType::Integer,
+                    label: "Articles per Rotation",
+                    description: "Number of random articles to scroll before rotating to the next screen (overrides slot timer)",
+                    default_value: "2",
+                    min_val: Some("1"),
+                    max_val: Some("15"),
+                    validation_policy: ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "show_title",
+                    field_type: ConfigType::Boolean,
+                    label: "Show Title",
+                    description: "Include article title in the scrolling feed",
+                    default_value: "false",
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "show_description",
+                    field_type: ConfigType::Boolean,
+                    label: "Show Description",
+                    description: "Include article summary description in the scrolling feed",
+                    default_value: "false",
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "show_content",
+                    field_type: ConfigType::Boolean,
+                    label: "Show Content",
+                    description: "Include full article body content in the scrolling feed",
+                    default_value: "true",
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
                     id: "requests_per_day",
                     field_type: ConfigType::Integer,
                     label: "Daily Requests Budget",
@@ -2022,6 +2205,7 @@ mod tests {
             .map(|i| GNewsArticle {
                 title: format!("Headline {i}"),
                 description: format!("Description {i}"),
+                content: format!("Full content body {i}"),
                 source: "TestSource".to_string(),
                 category: "technology".to_string(),
                 published_epoch: 0,
@@ -2044,5 +2228,50 @@ mod tests {
         let last_of_first_cycle = *first_cycle.last().unwrap();
         engine.advance_to_next_article();
         assert_ne!(engine.current_index, last_of_first_cycle);
+    }
+
+    #[test]
+    fn test_gnews_compose_text_and_self_paced_rotation() {
+        let art = GNewsArticle {
+            title: "Clickbait Title".to_string(),
+            description: "Summary description".to_string(),
+            content: "Full article content body".to_string(),
+            source: "Source".to_string(),
+            category: "technology".to_string(),
+            published_epoch: 0,
+            badge_color: (0, 229, 255),
+        };
+
+        // Default: only content enabled
+        assert_eq!(
+            art.compose_text(false, false, true),
+            "Full article content body"
+        );
+        // Title + Content
+        assert_eq!(
+            art.compose_text(true, false, true),
+            "Clickbait Title — Full article content body"
+        );
+        // Fallback when content is empty
+        let art_no_content = GNewsArticle {
+            content: String::new(),
+            ..art.clone()
+        };
+        assert_eq!(
+            art_no_content.compose_text(false, false, true),
+            "Summary description"
+        );
+
+        let mut engine = GNewsEngine::new(64, 32);
+        engine.articles = vec![art];
+        engine.articles_per_rotation = 2;
+        assert!(engine.self_paced());
+
+        engine.activate();
+        assert!(!engine.is_finished());
+        engine.advance_to_next_article();
+        assert!(!engine.is_finished());
+        engine.advance_to_next_article();
+        assert!(engine.is_finished());
     }
 }

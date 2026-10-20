@@ -1,6 +1,7 @@
 pub mod base_renderer;
 pub mod cyberpunk_renderer;
 pub mod flip_renderer;
+pub mod media_showcase;
 pub mod primitives;
 pub mod sparkline;
 pub mod tiny_font;

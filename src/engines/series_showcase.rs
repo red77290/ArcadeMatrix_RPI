@@ -1,7 +1,8 @@
 //! TV Series Showcase Engine (`series_showcase`).
 //!
-//! Displays localized TV series covers, network/era badges, synopses, backdrop pan-scans,
-//! and opening/promo trailer clips prepared by `dmd-media-showcase`.
+//! Displays localized TV series covers, network/era badges, complete scrolling synopses,
+//! granular panoramas (`jacket_panorama`, `marquee_panorama`, `snapshot_panorama_count`),
+//! and language-agnostic opening/trailer clips prepared live by `dmd-media-showcase`.
 
 use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig,
@@ -83,34 +84,106 @@ fn register_series_showcase_engine() -> EngineDescriptor {
     fields.push(ConfigField {
         id: "genres",
         field_type: ConfigType::Options,
-        label: "Series Genres",
-        description: "Filter TV series by genre",
-        default_value: "scifi,drama,crime,mystery",
+        label: "TV Series Genres (24 Categories)",
+        description: "Filter live TV series discovery by genre (aligned with TVMaze & TMDB)",
+        default_value: "scifi,drama,crime,mystery,thriller,action,fantasy",
         multiple: true,
         options: Some(vec![
             ConfigOption {
-                label: "Sci-Fi & Fantasy",
+                label: "Science-Fiction",
                 value: "scifi",
+            },
+            ConfigOption {
+                label: "Cyberpunk",
+                value: "cyberpunk",
+            },
+            ConfigOption {
+                label: "Action",
+                value: "action",
+            },
+            ConfigOption {
+                label: "Adventure",
+                value: "adventure",
             },
             ConfigOption {
                 label: "Drama",
                 value: "drama",
             },
             ConfigOption {
-                label: "Crime & Thriller",
+                label: "Crime",
                 value: "crime",
             },
             ConfigOption {
-                label: "Mystery & Paranormal",
+                label: "Thriller",
+                value: "thriller",
+            },
+            ConfigOption {
+                label: "Mystery",
                 value: "mystery",
             },
             ConfigOption {
-                label: "Action & Adventure",
-                value: "action",
+                label: "Supernatural",
+                value: "supernatural",
+            },
+            ConfigOption {
+                label: "Fantasy",
+                value: "fantasy",
+            },
+            ConfigOption {
+                label: "Horror",
+                value: "horror",
             },
             ConfigOption {
                 label: "Comedy",
                 value: "comedy",
+            },
+            ConfigOption {
+                label: "Espionage",
+                value: "espionage",
+            },
+            ConfigOption {
+                label: "Animation / Anime",
+                value: "anime",
+            },
+            ConfigOption {
+                label: "History",
+                value: "history",
+            },
+            ConfigOption {
+                label: "War",
+                value: "war",
+            },
+            ConfigOption {
+                label: "Western",
+                value: "western",
+            },
+            ConfigOption {
+                label: "Medical",
+                value: "medical",
+            },
+            ConfigOption {
+                label: "Legal",
+                value: "legal",
+            },
+            ConfigOption {
+                label: "Romance",
+                value: "romance",
+            },
+            ConfigOption {
+                label: "Family",
+                value: "family",
+            },
+            ConfigOption {
+                label: "Music",
+                value: "music",
+            },
+            ConfigOption {
+                label: "Sports",
+                value: "sports",
+            },
+            ConfigOption {
+                label: "Nature / Documentary",
+                value: "nature",
             },
         ]),
         validation_policy: ValidationPolicy::FallbackDefault,
@@ -120,10 +193,14 @@ fn register_series_showcase_engine() -> EngineDescriptor {
         id: "decades",
         field_type: ConfigType::Options,
         label: "Decades",
-        description: "Filter TV series by release decade",
+        description: "Filter TV series by premiere decade",
         default_value: "1990s,2000s,2010s,2020s",
         multiple: true,
         options: Some(vec![
+            ConfigOption {
+                label: "1970s",
+                value: "1970s",
+            },
             ConfigOption {
                 label: "1980s",
                 value: "1980s",

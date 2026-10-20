@@ -1,7 +1,9 @@
 //! Retro Games Showcase Engine (`retro_games`).
 //!
-//! Displays localized boxart/wheel, synopsis, pan-scan title screen, and gameplay
-//! video snaps (ScreenScraper / Steam / Built-in Arcade Catalog) prepared by `dmd-media-showcase`.
+//! Displays localized boxart/flyer mini-jacket, complete scrolling synopsis,
+//! granular top-to-bottom panoramas (`jacket_panorama`, `marquee_panorama`,
+//! `snapshot_panorama_count`), and gameplay video snaps prepared live by
+//! `dmd-media-showcase` across 28 arcade/console systems and 16 game genres.
 
 use crate::core::engine_contract::{
     Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig,
@@ -83,46 +85,231 @@ fn register_retro_games_engine() -> EngineDescriptor {
     fields.push(ConfigField {
         id: "systems",
         field_type: ConfigType::Options,
-        label: "Arcade & Console Systems",
-        description: "Selected arcade and retro console systems to showcase",
-        default_value: "mame,neogeo,snes,megadrive,psx",
+        label: "Arcade & Console Systems (28 Platforms)",
+        description:
+            "Select arcade, console, handheld, and home computer platforms to discover live",
+        default_value: "arcade,neogeo,cps1,cps2,snes,megadrive,psx,dreamcast",
         multiple: true,
         options: Some(vec![
             ConfigOption {
-                label: "MAME Arcade",
-                value: "mame",
+                label: "Arcade / MAME Classics",
+                value: "arcade",
             },
             ConfigOption {
-                label: "SNK Neo-Geo",
+                label: "SNK Neo-Geo MVS / AES",
                 value: "neogeo",
             },
             ConfigOption {
-                label: "Super Nintendo (SNES)",
-                value: "snes",
+                label: "Capcom CPS-1",
+                value: "cps1",
+            },
+            ConfigOption {
+                label: "Capcom CPS-2",
+                value: "cps2",
+            },
+            ConfigOption {
+                label: "Capcom CPS-3",
+                value: "cps3",
+            },
+            ConfigOption {
+                label: "FinalBurn Neo",
+                value: "fbneo",
             },
             ConfigOption {
                 label: "Sega Mega Drive / Genesis",
                 value: "megadrive",
             },
             ConfigOption {
-                label: "Sony PlayStation (PSX)",
-                value: "psx",
+                label: "Super Nintendo (SNES)",
+                value: "snes",
             },
             ConfigOption {
-                label: "Nintendo NES",
+                label: "Nintendo Entertainment System (NES)",
                 value: "nes",
             },
             ConfigOption {
-                label: "Game Boy Advance (GBA)",
-                value: "gba",
+                label: "Sega Master System",
+                value: "mastersystem",
             },
             ConfigOption {
                 label: "PC Engine / TurboGrafx-16",
                 value: "pcengine",
             },
             ConfigOption {
-                label: "Steam PC / Arcade Ports",
-                value: "steam",
+                label: "Sony PlayStation (PS1)",
+                value: "psx",
+            },
+            ConfigOption {
+                label: "Sega Saturn",
+                value: "saturn",
+            },
+            ConfigOption {
+                label: "Sega Dreamcast",
+                value: "dreamcast",
+            },
+            ConfigOption {
+                label: "Nintendo 64 (N64)",
+                value: "n64",
+            },
+            ConfigOption {
+                label: "Nintendo Game Boy (GB)",
+                value: "gb",
+            },
+            ConfigOption {
+                label: "Game Boy Color (GBC)",
+                value: "gbc",
+            },
+            ConfigOption {
+                label: "Game Boy Advance (GBA)",
+                value: "gba",
+            },
+            ConfigOption {
+                label: "Sega Game Gear",
+                value: "gamegear",
+            },
+            ConfigOption {
+                label: "Atari Lynx",
+                value: "lynx",
+            },
+            ConfigOption {
+                label: "Neo-Geo Pocket Color",
+                value: "ngp",
+            },
+            ConfigOption {
+                label: "Atari 2600",
+                value: "atari2600",
+            },
+            ConfigOption {
+                label: "Atari 7800",
+                value: "atari7800",
+            },
+            ConfigOption {
+                label: "Commodore 64 (C64)",
+                value: "c64",
+            },
+            ConfigOption {
+                label: "Commodore Amiga",
+                value: "amiga",
+            },
+            ConfigOption {
+                label: "MSX / MSX2",
+                value: "msx",
+            },
+            ConfigOption {
+                label: "ColecoVision",
+                value: "colecovision",
+            },
+            ConfigOption {
+                label: "Mattel Intellivision",
+                value: "intellivision",
+            },
+            ConfigOption {
+                label: "GCE Vectrex",
+                value: "vectrex",
+            },
+        ]),
+        validation_policy: ValidationPolicy::FallbackDefault,
+        ..Default::default()
+    });
+    fields.push(ConfigField {
+        id: "genres",
+        field_type: ConfigType::Options,
+        label: "Game Genres (16 Categories)",
+        description: "Filter retro & arcade games by genre",
+        default_value: "action,fighting,shootemup,runandgun,platform,beatemup,rpg,racing",
+        multiple: true,
+        options: Some(vec![
+            ConfigOption {
+                label: "Action",
+                value: "action",
+            },
+            ConfigOption {
+                label: "Platformer",
+                value: "platform",
+            },
+            ConfigOption {
+                label: "Shoot 'em Up (Shmup)",
+                value: "shootemup",
+            },
+            ConfigOption {
+                label: "Fighting (1v1)",
+                value: "fighting",
+            },
+            ConfigOption {
+                label: "Beat 'em Up (Brawler)",
+                value: "beatemup",
+            },
+            ConfigOption {
+                label: "Run and Gun",
+                value: "runandgun",
+            },
+            ConfigOption {
+                label: "Role-Playing (RPG)",
+                value: "rpg",
+            },
+            ConfigOption {
+                label: "Racing",
+                value: "racing",
+            },
+            ConfigOption {
+                label: "Puzzle",
+                value: "puzzle",
+            },
+            ConfigOption {
+                label: "Sports",
+                value: "sports",
+            },
+            ConfigOption {
+                label: "Adventure",
+                value: "adventure",
+            },
+            ConfigOption {
+                label: "Strategy / Tactics",
+                value: "strategy",
+            },
+            ConfigOption {
+                label: "Pinball",
+                value: "pinball",
+            },
+            ConfigOption {
+                label: "Light Gun Shooter",
+                value: "lightgun",
+            },
+            ConfigOption {
+                label: "Maze Arcade",
+                value: "maze",
+            },
+            ConfigOption {
+                label: "Simulation",
+                value: "simulation",
+            },
+        ]),
+        validation_policy: ValidationPolicy::FallbackDefault,
+        ..Default::default()
+    });
+    fields.push(ConfigField {
+        id: "decades",
+        field_type: ConfigType::Options,
+        label: "Decades",
+        description: "Filter games by release era",
+        default_value: "1980s,1990s,2000s",
+        multiple: true,
+        options: Some(vec![
+            ConfigOption {
+                label: "1970s",
+                value: "1970s",
+            },
+            ConfigOption {
+                label: "1980s",
+                value: "1980s",
+            },
+            ConfigOption {
+                label: "1990s",
+                value: "1990s",
+            },
+            ConfigOption {
+                label: "2000s",
+                value: "2000s",
             },
         ]),
         validation_policy: ValidationPolicy::FallbackDefault,

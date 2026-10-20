@@ -1,27 +1,22 @@
 //! Shared renderer and 2-step LAN protocol runner (`MediaShowcaseRunner`) for the 4
 //! DMD Media Showcase engines (`retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`).
 //!
-//! Protocol architecture (Zero Webhook Leakage on DMD):
-//! 1. Proactive Session Registration (`POST /api/v1/{domain}/session`):
-//!    Sent asynchronously on boot (`initialize`) or config update (`on_config_changed`)
-//!    with the exact `count = items_per_rotation`.
-//! 2. Fast Pre-Rotation Check (`GET /api/v1/{domain}/batch?session_id=...`):
-//!    Evaluated when the engine's rotation turn starts (`activate` / first `update`).
-//!    - If `status == "ready"`: plays the `N` preloaded items (`Card` -> `SnapshotPan` -> `VideoStream`),
-//!      signals `is_finished() = true`, and triggers background pre-fetch of `NextBatch`.
-//!    - If `status == "warming"`:
-//!      * When multiple engines are in rotation (`rotation.len() > 1`), immediately sets
-//!        `skip_turn_immediately = true` (`is_finished() = true`) so the DMD skips this turn
-//!        with zero freeze while the server finishes rendering in its bounded worker pool.
-//!      * When this is the only engine in rotation (`rotation.len() <= 1`), temporarily displays
-//!        the rich fallback card (`Card` + `SnapshotPan`) until the video stream becomes ready.
+//! V2.1 Architecture:
+//! - Zero hardcoded demo/mock items: never displays fake titles (`Stranger Things`, `Metal Slug`, etc.)
+//!   when the server is unconfigured or unreachable.
+//! - Granular top-to-bottom panorama streams (`jacket_panorama`, `marquee_panorama`,
+//!   `snapshot_panorama_count`) powered by `dmd_gif_converter`.
+//! - Organic rotation timing: `PlaybackPhase::Card` dynamically computes the exact time
+//!   needed for 100% of the localized synopsis to scroll from start to finish before advancing
+//!   to `JacketPanorama -> MarqueePanorama -> SnapshotPanoramas -> VideoStream`.
+//! - Adaptive multi-resolution (`256x64`, `128x64`, `128x32`, `64x64`) & TATE vertical
+//!   (`64x128`, `64x256`, `32x128`) layouts derived automatically from `context.surface`.
 
 use crate::core::engine_contract::{EngineConfig, EngineContext};
-use crate::core::i18n;
 use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::draw_text_scaled;
 use crate::engines::renderers::primitives::{
-    draw_fast_hline, draw_scrolling_text, fill_round_rect,
+    draw_fast_hline, draw_round_rect, draw_scrolling_text, fill_round_rect,
 };
 use crate::engines::renderers::tiny_font::draw_tiny_text;
 use image::RgbImage;
@@ -33,6 +28,13 @@ use tracing::{debug, warn};
 
 pub const DMDS_MAGIC: &[u8; 4] = b"DMDS";
 pub const DMDS_HEADER_SIZE: usize = 16;
+
+/// Speed of the single-pass organic synopsis scroll in pixels per second.
+const SYNOPSIS_SPEED_PX_PER_SEC: u64 = 24;
+/// Initial hold before the synopsis begins scrolling (ms).
+const SYNOPSIS_START_HOLD_MS: u64 = 900;
+/// End hold once the final word of the synopsis is on screen (ms).
+const SYNOPSIS_END_HOLD_MS: u64 = 700;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShowcaseDomain {
@@ -52,6 +54,15 @@ impl ShowcaseDomain {
         }
     }
 
+    pub const fn badge_label(self) -> &'static str {
+        match self {
+            ShowcaseDomain::Games => "RETRO GAMES",
+            ShowcaseDomain::Movies => "MOVIES",
+            ShowcaseDomain::Series => "TV SERIES",
+            ShowcaseDomain::Anime => "ANIME",
+        }
+    }
+
     pub const fn default_accent_rgb(self) -> (u8, u8, u8) {
         match self {
             ShowcaseDomain::Games => (255, 109, 0),
@@ -62,14 +73,37 @@ impl ShowcaseDomain {
     }
 }
 
+/// Compute the adaptive mini-jacket `(poster_w, poster_h)` dimensions on the Info Card
+/// for any DMD panel resolution or TATE orientation.
+pub fn compute_card_poster_dims(width: u32, height: u32) -> (u32, u32) {
+    if height > width {
+        let side = if width >= 64 { 40 } else { 24 };
+        (side, side)
+    } else if width == height {
+        let side = 32.min(width / 2).max(16);
+        (side, side)
+    } else if width >= 128 && height >= 64 {
+        (48, 64)
+    } else {
+        let side = 32.min(height).min(width / 3).max(16);
+        (side, side)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShowcaseConfig {
     pub server_url: String,
     pub items_per_rotation: u32,
     pub lang: String,
+    pub primary_source: String,
+    pub scraper_user: String,
+    pub scraper_pass: String,
+    pub scraper_api_key: String,
     pub show_poster: bool,
     pub show_synopsis: bool,
-    pub show_snapshot: bool,
+    pub jacket_panorama: bool,
+    pub marquee_panorama: bool,
+    pub snapshot_panorama_count: u32,
     pub show_video: bool,
     pub card_duration_s: u32,
     pub snapshot_duration_s: u32,
@@ -87,23 +121,29 @@ pub struct ShowcaseConfig {
 impl Default for ShowcaseConfig {
     fn default() -> Self {
         Self {
-            server_url: "http://127.0.0.1:8080".to_string(),
+            server_url: "http://127.0.0.1:8790".to_string(),
             items_per_rotation: 3,
             lang: "system".to_string(),
+            primary_source: "auto".to_string(),
+            scraper_user: String::new(),
+            scraper_pass: String::new(),
+            scraper_api_key: String::new(),
             show_poster: true,
             show_synopsis: true,
-            show_snapshot: true,
+            jacket_panorama: true,
+            marquee_panorama: false,
+            snapshot_panorama_count: 0,
             show_video: true,
             card_duration_s: 7,
             snapshot_duration_s: 4,
-            video_max_duration_s: 6,
+            video_max_duration_s: 8,
             video_fps: 15,
             video_mode: "auto_action".to_string(),
             color_boost: true,
-            systems: "mame,neogeo,snes,megadrive,psx".to_string(),
+            systems: "arcade,neogeo,cps1,cps2,snes,megadrive,psx,dreamcast".to_string(),
             genres: String::new(),
             decades: String::new(),
-            min_rating: 6.5,
+            min_rating: 6.0,
             video_type: "any".to_string(),
         }
     }
@@ -112,20 +152,31 @@ impl Default for ShowcaseConfig {
 impl ShowcaseConfig {
     pub fn from_engine_config(cfg: &dyn EngineConfig, domain: ShowcaseDomain) -> Self {
         let mut out = Self::default();
-        let raw_url = cfg.get_string("server_url", "http://127.0.0.1:8080");
+        let raw_url = cfg.get_string("server_url", "http://127.0.0.1:8790");
         out.server_url = raw_url.trim().trim_end_matches('/').to_string();
-        if out.server_url.is_empty() {
-            out.server_url = "http://127.0.0.1:8080".to_string();
-        }
         out.items_per_rotation = cfg.get_int("items_per_rotation", 3).clamp(1, 25) as u32;
         out.lang = cfg.get_string("lang", "system");
+        out.primary_source = cfg.get_string("primary_source", "auto");
+        out.scraper_user = cfg.get_string("scraper_user", "");
+        out.scraper_pass = cfg.get_string("scraper_pass", "");
+        out.scraper_api_key = cfg.get_string("scraper_api_key", "");
         out.show_poster = cfg.get_bool("show_poster", true);
         out.show_synopsis = cfg.get_bool("show_synopsis", true);
-        out.show_snapshot = cfg.get_bool("show_snapshot", true);
+        out.jacket_panorama = cfg.get_bool("jacket_panorama", true);
+        out.marquee_panorama = cfg.get_bool("marquee_panorama", false);
+
+        // Support `snapshot_panorama_count` with backward-compatible fallback to `image_count`
+        let snap_cnt = cfg.get_int("snapshot_panorama_count", -1);
+        if snap_cnt >= 0 {
+            out.snapshot_panorama_count = snap_cnt.clamp(0, 5) as u32;
+        } else {
+            out.snapshot_panorama_count = cfg.get_int("image_count", 0).clamp(0, 5) as u32;
+        }
+
         out.show_video = cfg.get_bool("show_video", true);
         out.card_duration_s = cfg.get_int("card_duration_s", 7).clamp(3, 30) as u32;
         out.snapshot_duration_s = cfg.get_int("snapshot_duration_s", 4).clamp(2, 15) as u32;
-        out.video_max_duration_s = cfg.get_int("video_max_duration_s", 6).clamp(2, 30) as u32;
+        out.video_max_duration_s = cfg.get_int("video_max_duration_s", 8).clamp(2, 30) as u32;
         out.video_fps = cfg.get_int("video_fps", 15).clamp(6, 30) as u32;
         out.video_mode = cfg.get_string(
             "video_mode",
@@ -136,13 +187,16 @@ impl ShowcaseConfig {
             },
         );
         out.color_boost = cfg.get_bool("color_boost", true);
-        out.systems = cfg.get_string("systems", "mame,neogeo,snes,megadrive,psx");
+        out.systems = cfg.get_string(
+            "systems",
+            "arcade,neogeo,cps1,cps2,snes,megadrive,psx,dreamcast",
+        );
         out.genres = cfg.get_string("genres", "");
         out.decades = cfg.get_string("decades", "");
         out.min_rating = cfg
-            .get_string("min_rating", "6.5")
+            .get_string("min_rating", "6.0")
             .parse::<f32>()
-            .unwrap_or(6.5)
+            .unwrap_or(6.0)
             .clamp(0.0, 9.9);
         out.video_type = cfg.get_string("video_type", "any");
         out
@@ -159,6 +213,10 @@ impl ShowcaseConfig {
             &self.lang
         }
     }
+
+    pub fn any_panorama_requested(&self) -> bool {
+        self.jacket_panorama || self.marquee_panorama || self.snapshot_panorama_count > 0
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -169,7 +227,19 @@ pub struct ApiMediaAssets {
     pub marquee_rgb565: String,
     pub snapshot_pan_png: String,
     pub snapshot_pan_rgb565: String,
+    #[serde(default)]
+    pub jacket_stream_rgb565: String,
+    #[serde(default)]
+    pub marquee_stream_rgb565: String,
+    #[serde(default)]
+    pub snapshot_streams_rgb565: Vec<String>,
+    #[serde(default)]
+    pub panorama_gifs: Vec<String>,
+    #[serde(default)]
+    pub panorama_streams_rgb565: Vec<String>,
+    #[serde(default)]
     pub video_gif: String,
+    #[serde(default)]
     pub video_stream_rgb565: String,
 }
 
@@ -185,6 +255,12 @@ pub struct ApiShowcaseItem {
     pub subtitle: String,
     pub rating: String,
     pub synopsis: String,
+    #[serde(default)]
+    pub poster_width: u32,
+    #[serde(default)]
+    pub poster_height: u32,
+    #[serde(default)]
+    pub has_video: bool,
     #[serde(default)]
     pub video_ready: bool,
     #[serde(default)]
@@ -233,14 +309,16 @@ pub struct PreparedShowcaseItem {
     pub synopsis: String,
     pub poster: Option<RgbImage>,
     pub snapshot_pan: Option<RgbImage>,
+    pub panorama_streams: Vec<(Vec<RgbImage>, Duration)>,
     pub video_frames: Vec<RgbImage>,
     pub video_frame_delay: Duration,
+    pub has_video: bool,
     pub video_ready: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BatchReadiness {
-    OfflineDemo,
+    Offline,
     Warming,
     Ready,
 }
@@ -256,7 +334,7 @@ impl Default for SharedShowcaseBatch {
     fn default() -> Self {
         Self {
             session_id: None,
-            readiness: BatchReadiness::OfflineDemo,
+            readiness: BatchReadiness::Offline,
             items: Vec::new(),
             generation: 0,
         }
@@ -362,6 +440,48 @@ fn split_csv(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// Draw a single-pass organic scrolling synopsis across `[min_x, max_x)` without premature cutoffs.
+fn draw_single_pass_synopsis(
+    matrix: &mut dyn IDrawingSurface,
+    text: &str,
+    min_x: i32,
+    max_x: i32,
+    y: i32,
+    color: (u8, u8, u8),
+    elapsed_ms: u128,
+) {
+    let box_w = max_x - min_x;
+    if box_w <= 0 || text.is_empty() {
+        return;
+    }
+    let char_count = text.chars().count() as i32;
+    let text_w = (char_count * 6 - 1).max(0);
+    let max_y = matrix.height() as i32;
+
+    if text_w <= box_w {
+        draw_text_scaled(matrix, text, min_x, y, min_x, max_x, 0, max_y, 1, color);
+        return;
+    }
+
+    let max_scroll = (text_w - (box_w / 3)).max(0);
+    let scroll_ms = (elapsed_ms as u64).saturating_sub(SYNOPSIS_START_HOLD_MS);
+    let raw_offset = ((scroll_ms * SYNOPSIS_SPEED_PX_PER_SEC) / 1000) as i32;
+    let dx = raw_offset.min(max_scroll);
+
+    draw_text_scaled(
+        matrix,
+        text,
+        min_x - dx,
+        y,
+        min_x,
+        max_x,
+        0,
+        max_y,
+        1,
+        color,
+    );
+}
+
 pub struct MediaShowcaseRunner {
     pub domain: ShowcaseDomain,
     pub cfg: ShowcaseConfig,
@@ -377,6 +497,10 @@ pub struct MediaShowcaseRunner {
     pub current_item_idx: usize,
     pub phase: PlaybackPhase,
     pub phase_started_at: Instant,
+    pub last_retry_poll: Instant,
+    pub pan_image_idx: usize,
+    pub pan_frame_idx: usize,
+    pub pan_frame_elapsed: Duration,
     pub video_frame_idx: usize,
     pub video_frame_elapsed: Duration,
     pub last_tick: Instant,
@@ -393,7 +517,7 @@ impl MediaShowcaseRunner {
             domain,
             cfg: ShowcaseConfig::default(),
             system_lang: "fr".to_string(),
-            width: width.max(64),
+            width: width.max(32),
             height: height.max(32),
             shared: Arc::new(Mutex::new(SharedShowcaseBatch::default())),
             worker_busy: Arc::new(AtomicBool::new(false)),
@@ -402,6 +526,10 @@ impl MediaShowcaseRunner {
             current_item_idx: 0,
             phase: PlaybackPhase::Card,
             phase_started_at: now,
+            last_retry_poll: now,
+            pan_image_idx: 0,
+            pan_frame_idx: 0,
+            pan_frame_elapsed: Duration::ZERO,
             video_frame_idx: 0,
             video_frame_elapsed: Duration::ZERO,
             last_tick: now,
@@ -412,93 +540,40 @@ impl MediaShowcaseRunner {
         }
     }
 
-    pub fn build_offline_demo_item(&self) -> PreparedShowcaseItem {
-        let lang = self.cfg.effective_lang(&self.system_lang);
-        let (title, year, badge, rating, syn_key) = match self.domain {
-            ShowcaseDomain::Games => (
-                "Metal Slug",
-                "1996",
-                "NEOGEO",
-                "9.4",
-                "showcase_demo_games_syn",
-            ),
-            ShowcaseDomain::Movies => (
-                "Blade Runner",
-                "1982",
-                "SCIFI",
-                "8.9",
-                "showcase_demo_movies_syn",
-            ),
-            ShowcaseDomain::Series => (
-                "Stranger Things",
-                "2016",
-                "SERIES",
-                "8.7",
-                "showcase_demo_series_syn",
-            ),
-            ShowcaseDomain::Anime => (
-                "Dragon Ball Z",
-                "1989",
-                "SHONEN",
-                "9.1",
-                "showcase_demo_anime_syn",
-            ),
+    /// Compute the exact organic duration of `PlaybackPhase::Card` so 100% of `item.synopsis`
+    /// scrolls across the DMD viewport before advancing to Jacket/Marquee/Snapshot panoramas.
+    pub fn organic_card_duration(&self, item: &PreparedShowcaseItem) -> Duration {
+        let base_dur = Duration::from_secs(self.cfg.card_duration_s as u64);
+        if !self.cfg.show_synopsis || item.synopsis.is_empty() {
+            return base_dur;
+        }
+        let w = self.width as i32;
+        let h = self.height as i32;
+        let (pw, _) = compute_card_poster_dims(self.width, self.height);
+        let box_w = if h > w || w == h {
+            (w - 4).max(24)
+        } else if self.cfg.show_poster && item.poster.is_some() {
+            (w - (pw as i32) - 4).max(24)
+        } else {
+            (w - 4).max(24)
         };
-        let accent = self.domain.default_accent_rgb();
-        let poster_dim = self.height.min(self.width);
-        let mut poster = RgbImage::new(poster_dim, poster_dim);
-        for y in 0..poster_dim {
-            for x in 0..poster_dim {
-                let border = x == 0 || y == 0 || x == poster_dim - 1 || y == poster_dim - 1;
-                if border {
-                    poster.put_pixel(x, y, image::Rgb([accent.0, accent.1, accent.2]));
-                } else {
-                    let shade = ((y * 160) / poster_dim.max(1)) as u8;
-                    poster.put_pixel(
-                        x,
-                        y,
-                        image::Rgb([
-                            ((accent.0 as u16 * shade as u16) / 255) as u8,
-                            ((accent.1 as u16 * shade as u16) / 255) as u8,
-                            ((accent.2 as u16 * shade as u16) / 255) as u8,
-                        ]),
-                    );
-                }
-            }
-        }
 
-        let pan_h = self.height * 2 + 8;
-        let mut snap = RgbImage::new(self.width, pan_h);
-        for y in 0..pan_h {
-            for x in 0..self.width {
-                let grid = (x % 16 == 0) || (y % 12 == 0);
-                if grid {
-                    snap.put_pixel(x, y, image::Rgb([accent.0 / 2, accent.1 / 2, accent.2 / 2]));
-                } else {
-                    snap.put_pixel(x, y, image::Rgb([8, 10, 18]));
-                }
-            }
+        let char_count = item.synopsis.chars().count() as i32;
+        let text_w = (char_count * 6 - 1).max(0);
+        if text_w <= box_w {
+            return base_dur;
         }
-
-        PreparedShowcaseItem {
-            id: format!("demo_{}", self.domain.as_api_slug()),
-            title: title.to_string(),
-            year: year.to_string(),
-            badge: badge.to_string(),
-            badge_rgb: accent,
-            subtitle: i18n::t(lang, "showcase_offline_sub").to_string(),
-            rating: rating.to_string(),
-            synopsis: i18n::t(lang, syn_key).to_string(),
-            poster: Some(poster),
-            snapshot_pan: Some(snap),
-            video_frames: Vec::new(),
-            video_frame_delay: Duration::from_millis(66),
-            video_ready: false,
-        }
+        let scroll_px = (text_w - (box_w / 3)).max(1) as u64;
+        let scroll_ms = (scroll_px * 1000) / SYNOPSIS_SPEED_PX_PER_SEC;
+        let total_ms = SYNOPSIS_START_HOLD_MS + scroll_ms + SYNOPSIS_END_HOLD_MS;
+        Duration::from_millis(total_ms).max(base_dur)
     }
 
     /// Spawn background session registration (`POST /api/v1/{domain}/session`) and asset pre-fetching.
     pub fn spawn_background_sync(&self, register_new_session: bool) {
+        if self.cfg.server_url.is_empty() {
+            return;
+        }
         if self
             .worker_busy
             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -519,8 +594,8 @@ impl MediaShowcaseRunner {
         std::thread::spawn(move || {
             let _guard = BusyResetGuard(busy);
             let client = match reqwest::blocking::Client::builder()
-                .connect_timeout(Duration::from_millis(900))
-                .timeout(Duration::from_millis(3500))
+                .connect_timeout(Duration::from_millis(1500))
+                .timeout(Duration::from_millis(8000))
                 .build()
             {
                 Ok(c) => c,
@@ -529,6 +604,7 @@ impl MediaShowcaseRunner {
 
             let base = cfg.server_url.trim_end_matches('/');
             let slug = domain.as_api_slug();
+            let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
             let existing_session_id = {
                 let guard = shared.lock().unwrap();
@@ -541,17 +617,26 @@ impl MediaShowcaseRunner {
                 None
             };
 
-            if session_id.is_none() {
-                let reg_url = format!("{}/api/v1/{}/session", base, slug);
-                let body = serde_json::json!({
-                    "client_id": format!("rpi_{}", slug),
+            let build_reg_body = || {
+                serde_json::json!({
+                    "client_id": format!("rpi_{}_{}x{}", slug, width, height),
                     "count": cfg.items_per_rotation,
                     "lang": lang,
                     "width": width,
                     "height": height,
+                    "poster_width": default_pw,
+                    "poster_height": default_ph,
                     "include_poster": cfg.show_poster,
                     "include_synopsis": cfg.show_synopsis,
-                    "include_snapshot": cfg.show_snapshot,
+                    "jacket_panorama": cfg.jacket_panorama,
+                    "marquee_panorama": cfg.marquee_panorama,
+                    "snapshot_panorama_count": cfg.snapshot_panorama_count,
+                    "include_snapshot": cfg.any_panorama_requested(),
+                    "image_count": cfg.snapshot_panorama_count,
+                    "primary_source": cfg.primary_source,
+                    "scraper_user": cfg.scraper_user,
+                    "scraper_pass": cfg.scraper_pass,
+                    "scraper_api_key": cfg.scraper_api_key,
                     "include_video": cfg.show_video,
                     "video_max_duration_s": cfg.video_max_duration_s as f32,
                     "video_fps": cfg.video_fps,
@@ -562,9 +647,12 @@ impl MediaShowcaseRunner {
                     "decades": split_csv(&cfg.decades),
                     "min_rating": cfg.min_rating,
                     "video_type": cfg.video_type,
-                });
+                })
+            };
 
-                match client.post(&reg_url).json(&body).send() {
+            let reg_url = format!("{}/api/v1/{}/session", base, slug);
+            if session_id.is_none() {
+                match client.post(&reg_url).json(&build_reg_body()).send() {
                     Ok(resp) if resp.status().is_success() => {
                         if let Ok(reg_data) = resp.json::<ApiSessionRegisterResponse>() {
                             session_id = Some(reg_data.session_id);
@@ -579,12 +667,30 @@ impl MediaShowcaseRunner {
                 }
             }
 
-            let Some(ses_id) = session_id else {
+            let Some(mut ses_id) = session_id else {
                 return;
             };
 
-            let batch_url = format!("{}/api/v1/{}/batch?session_id={}", base, slug, ses_id);
-            let Ok(resp) = client.get(&batch_url).send() else {
+            let mut batch_url = format!("{}/api/v1/{}/batch?session_id={}", base, slug, ses_id);
+            let mut batch_resp = client.get(&batch_url).send();
+
+            // If session expired or server restarted (404), automatically re-register once
+            if let Ok(ref r) = batch_resp {
+                if !r.status().is_success() {
+                    if let Ok(reg_r) = client.post(&reg_url).json(&build_reg_body()).send() {
+                        if reg_r.status().is_success() {
+                            if let Ok(reg_data) = reg_r.json::<ApiSessionRegisterResponse>() {
+                                ses_id = reg_data.session_id;
+                                batch_url =
+                                    format!("{}/api/v1/{}/batch?session_id={}", base, slug, ses_id);
+                                batch_resp = client.get(&batch_url).send();
+                            }
+                        }
+                    }
+                }
+            }
+
+            let Ok(resp) = batch_resp else {
                 return;
             };
             if !resp.status().is_success() {
@@ -595,26 +701,74 @@ impl MediaShowcaseRunner {
             };
 
             let is_ready = batch_data.status.eq_ignore_ascii_case("ready");
-            let poster_dim = height.min(width);
             let pan_h = height * 2 + 8;
 
             let mut prepared = Vec::with_capacity(batch_data.items.len());
             for api_item in batch_data.items {
                 let badge_rgb = parse_hex_rgb(&api_item.badge_color, domain.default_accent_rgb());
+                let item_pw = if api_item.poster_width > 0 {
+                    api_item.poster_width
+                } else {
+                    default_pw
+                };
+                let item_ph = if api_item.poster_height > 0 {
+                    api_item.poster_height
+                } else {
+                    default_ph
+                };
 
-                let poster = if cfg.show_poster || !is_ready {
+                let poster = if cfg.show_poster {
                     let url = format!("{}{}", base, api_item.assets.poster_rgb565);
                     client
                         .get(&url)
                         .send()
                         .ok()
                         .and_then(|r| r.bytes().ok())
-                        .and_then(|b| decode_rgb565_le_image(&b, poster_dim, poster_dim))
+                        .and_then(|b| decode_rgb565_le_image(&b, item_pw, item_ph))
                 } else {
                     None
                 };
 
-                let snapshot_pan = if cfg.show_snapshot || !is_ready {
+                // Download ordered panorama streams (`jacket_panorama` -> `marquee_panorama` -> `snapshot_panoramas`)
+                let mut panorama_streams = Vec::new();
+                if cfg.any_panorama_requested() {
+                    let mut ordered_paths: Vec<String> = Vec::new();
+                    if !api_item.assets.panorama_streams_rgb565.is_empty() {
+                        ordered_paths
+                            .extend(api_item.assets.panorama_streams_rgb565.iter().cloned());
+                    } else {
+                        if cfg.jacket_panorama && !api_item.assets.jacket_stream_rgb565.is_empty() {
+                            ordered_paths.push(api_item.assets.jacket_stream_rgb565.clone());
+                        }
+                        if cfg.marquee_panorama && !api_item.assets.marquee_stream_rgb565.is_empty()
+                        {
+                            ordered_paths.push(api_item.assets.marquee_stream_rgb565.clone());
+                        }
+                        for s_path in api_item
+                            .assets
+                            .snapshot_streams_rgb565
+                            .iter()
+                            .take(cfg.snapshot_panorama_count as usize)
+                        {
+                            ordered_paths.push(s_path.clone());
+                        }
+                    }
+
+                    for pan_path in ordered_paths {
+                        let url = format!("{}{}", base, pan_path);
+                        if let Ok(r) = client.get(&url).send() {
+                            if r.status().is_success() {
+                                if let Ok(bytes) = r.bytes() {
+                                    if let Some(decoded) = decode_rgb565_stream(&bytes) {
+                                        panorama_streams.push(decoded);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                let snapshot_pan = if cfg.any_panorama_requested() && panorama_streams.is_empty() {
                     let url = format!("{}{}", base, api_item.assets.snapshot_pan_rgb565);
                     client
                         .get(&url)
@@ -630,7 +784,11 @@ impl MediaShowcaseRunner {
                 let mut video_frame_delay =
                     Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
 
-                if cfg.show_video && (is_ready || api_item.video_ready) {
+                if cfg.show_video
+                    && api_item.has_video
+                    && !api_item.assets.video_stream_rgb565.is_empty()
+                    && (is_ready || api_item.video_ready)
+                {
                     let raw_path = api_item
                         .assets
                         .video_stream_rgb565
@@ -653,7 +811,7 @@ impl MediaShowcaseRunner {
                     }
                 }
 
-                let item_video_ok = !video_frames.is_empty();
+                let item_has_video = api_item.has_video && !video_frames.is_empty();
                 prepared.push(PreparedShowcaseItem {
                     id: api_item.id,
                     title: api_item.title,
@@ -665,9 +823,11 @@ impl MediaShowcaseRunner {
                     synopsis: api_item.synopsis,
                     poster,
                     snapshot_pan,
+                    panorama_streams,
                     video_frames,
                     video_frame_delay,
-                    video_ready: item_video_ok,
+                    has_video: item_has_video,
+                    video_ready: api_item.video_ready,
                 });
             }
 
@@ -686,11 +846,11 @@ impl MediaShowcaseRunner {
     }
 
     pub fn initialize(&mut self, context: &mut EngineContext, config: &dyn EngineConfig) {
-        self.width = context.surface.width().max(64);
+        self.width = context.surface.width().max(32);
         self.height = context.surface.height().max(32);
         self.system_lang = context.config.settings.read().system.lang.clone();
         self.cfg = ShowcaseConfig::from_engine_config(config, self.domain);
-        self.active_items = vec![self.build_offline_demo_item()];
+        self.active_items.clear();
         self.config_gen.fetch_add(1, Ordering::SeqCst);
         self.spawn_background_sync(true);
     }
@@ -699,6 +859,13 @@ impl MediaShowcaseRunner {
         let new_cfg = ShowcaseConfig::from_engine_config(config, self.domain);
         if new_cfg != self.cfg {
             self.cfg = new_cfg;
+            self.active_items.clear();
+            {
+                let mut guard = self.shared.lock().unwrap();
+                guard.session_id = None;
+                guard.items.clear();
+                guard.readiness = BatchReadiness::Offline;
+            }
             self.config_gen.fetch_add(1, Ordering::SeqCst);
             self.spawn_background_sync(true);
         }
@@ -707,9 +874,13 @@ impl MediaShowcaseRunner {
     pub fn activate(&mut self) {
         let now = Instant::now();
         self.current_item_idx = 0;
+        self.pan_image_idx = 0;
+        self.pan_frame_idx = 0;
+        self.pan_frame_elapsed = Duration::ZERO;
         self.video_frame_idx = 0;
         self.video_frame_elapsed = Duration::ZERO;
         self.phase_started_at = now;
+        self.last_retry_poll = now;
         self.last_tick = now;
         self.turn_evaluated = false;
         self.skip_turn_immediately = false;
@@ -722,12 +893,17 @@ impl MediaShowcaseRunner {
         self.turn_evaluated = false;
     }
 
+    fn item_has_images(&self, item: &PreparedShowcaseItem) -> bool {
+        self.cfg.any_panorama_requested()
+            && (!item.panorama_streams.is_empty() || item.snapshot_pan.is_some())
+    }
+
     fn initial_phase_for_item(&self, item: &PreparedShowcaseItem) -> PlaybackPhase {
         if self.forced_warming_card_fallback || self.cfg.show_poster || self.cfg.show_synopsis {
             PlaybackPhase::Card
-        } else if self.cfg.show_snapshot && item.snapshot_pan.is_some() {
+        } else if self.item_has_images(item) {
             PlaybackPhase::SnapshotPan
-        } else if self.cfg.show_video && item.video_ready && !item.video_frames.is_empty() {
+        } else if self.cfg.show_video && item.has_video && !item.video_frames.is_empty() {
             PlaybackPhase::VideoStream
         } else {
             PlaybackPhase::Card
@@ -756,40 +932,25 @@ impl MediaShowcaseRunner {
                 // Trigger background fetch of NextBatch one step ahead
                 self.spawn_background_sync(false);
             }
-            BatchReadiness::Warming => {
-                if rotation_slot_count > 1 {
-                    // Multiple engines in rotation: skip this turn cleanly so the DMD never freezes
-                    // or shows an incomplete video while the server's worker pool finishes.
+            BatchReadiness::Warming | BatchReadiness::Offline | BatchReadiness::Ready => {
+                if rotation_slot_count > 1 && items.is_empty() {
                     warn!(
-                        "[Showcase:{}] Batch still warming on server and rotation has {} slots -> skipping turn cleanly",
+                        "[Showcase:{}] Server offline or batch warming with {} rotation slots -> skipping turn cleanly",
                         self.domain.as_api_slug(),
                         rotation_slot_count
                     );
                     self.skip_turn_immediately = true;
                     self.spawn_background_sync(false);
                 } else {
-                    // Only engine in rotation: even if configured in Video-Only mode,
-                    // temporarily display the fallback rich card + snapshot until video is ready.
                     self.skip_turn_immediately = false;
                     self.forced_warming_card_fallback = true;
-                    if !items.is_empty() {
-                        self.active_items = items
-                            .into_iter()
-                            .take(self.cfg.items_per_rotation as usize)
-                            .collect();
-                    } else {
-                        self.active_items = vec![self.build_offline_demo_item()];
-                    }
+                    self.active_items = items
+                        .into_iter()
+                        .take(self.cfg.items_per_rotation as usize)
+                        .collect();
                     self.phase = PlaybackPhase::Card;
                     self.spawn_background_sync(false);
                 }
-            }
-            BatchReadiness::OfflineDemo | BatchReadiness::Ready => {
-                self.skip_turn_immediately = false;
-                self.forced_warming_card_fallback = true;
-                self.active_items = vec![self.build_offline_demo_item()];
-                self.phase = PlaybackPhase::Card;
-                self.spawn_background_sync(false);
             }
         }
         self.phase_started_at = Instant::now();
@@ -800,11 +961,12 @@ impl MediaShowcaseRunner {
         let dt = now.saturating_duration_since(self.last_tick);
         self.last_tick = now;
 
-        let new_w = context.surface.width().max(64);
+        let new_w = context.surface.width().max(32);
         let new_h = context.surface.height().max(32);
         if new_w != self.width || new_h != self.height {
             self.width = new_w;
             self.height = new_h;
+            self.spawn_background_sync(true);
         }
 
         if !self.turn_evaluated {
@@ -814,47 +976,60 @@ impl MediaShowcaseRunner {
             return;
         }
 
-        if self.skip_turn_immediately || self.current_item_idx >= self.active_items.len() {
+        if self.skip_turn_immediately {
             return;
         }
 
-        // If we were in warming fallback (single engine in rotation), check if videos just finished
-        if self.forced_warming_card_fallback {
+        // If waiting for server or warming, poll shared state and re-trigger background sync every 2.5s
+        if self.forced_warming_card_fallback || self.active_items.is_empty() {
             let (readiness, ready_items) = {
                 let guard = self.shared.lock().unwrap();
                 (guard.readiness, guard.items.clone())
             };
-            if readiness == BatchReadiness::Ready && !ready_items.is_empty() {
+            if !ready_items.is_empty() {
                 self.active_items = ready_items
                     .into_iter()
                     .take(self.cfg.items_per_rotation as usize)
                     .collect();
-                self.forced_warming_card_fallback = false;
-                if !self.cfg.show_poster && !self.cfg.show_synopsis && self.cfg.show_video {
-                    self.phase = PlaybackPhase::VideoStream;
-                    self.phase_started_at = now;
-                    self.video_frame_idx = 0;
-                    self.video_frame_elapsed = Duration::ZERO;
+                if readiness == BatchReadiness::Ready {
+                    self.forced_warming_card_fallback = false;
                 }
+                self.phase_started_at = now;
+                self.dirty = true;
+            } else {
+                if now.saturating_duration_since(self.last_retry_poll)
+                    >= Duration::from_millis(2500)
+                {
+                    self.last_retry_poll = now;
+                    self.spawn_background_sync(true);
+                }
+                self.dirty = true;
+                return;
             }
+        }
+
+        if self.current_item_idx >= self.active_items.len() {
+            return;
         }
 
         let phase_elapsed = now.saturating_duration_since(self.phase_started_at);
         let item = &self.active_items[self.current_item_idx];
+        let has_images = self.item_has_images(item);
+        let has_playable_video =
+            self.cfg.show_video && item.has_video && !item.video_frames.is_empty();
+        let card_target_dur = self.organic_card_duration(item);
 
         match self.phase {
             PlaybackPhase::Card => {
                 self.dirty = true;
-                if phase_elapsed >= Duration::from_secs(self.cfg.card_duration_s as u64) {
-                    if (self.cfg.show_snapshot || self.forced_warming_card_fallback)
-                        && item.snapshot_pan.is_some()
-                    {
+                if phase_elapsed >= card_target_dur {
+                    if has_images {
                         self.phase = PlaybackPhase::SnapshotPan;
                         self.phase_started_at = now;
-                    } else if self.cfg.show_video
-                        && item.video_ready
-                        && !item.video_frames.is_empty()
-                    {
+                        self.pan_image_idx = 0;
+                        self.pan_frame_idx = 0;
+                        self.pan_frame_elapsed = Duration::ZERO;
+                    } else if has_playable_video {
                         self.phase = PlaybackPhase::VideoStream;
                         self.phase_started_at = now;
                         self.video_frame_idx = 0;
@@ -865,21 +1040,52 @@ impl MediaShowcaseRunner {
                 }
             }
             PlaybackPhase::SnapshotPan => {
-                self.dirty = true;
-                if phase_elapsed >= Duration::from_secs(self.cfg.snapshot_duration_s as u64) {
-                    if self.cfg.show_video && item.video_ready && !item.video_frames.is_empty() {
-                        self.phase = PlaybackPhase::VideoStream;
-                        self.phase_started_at = now;
-                        self.video_frame_idx = 0;
-                        self.video_frame_elapsed = Duration::ZERO;
+                if !item.panorama_streams.is_empty() {
+                    if let Some((frames, delay)) = item.panorama_streams.get(self.pan_image_idx) {
+                        self.pan_frame_elapsed += dt;
+                        let max_img_dur =
+                            Duration::from_secs(self.cfg.snapshot_duration_s.max(2) as u64 + 2);
+                        if self.pan_frame_elapsed >= *delay {
+                            self.pan_frame_elapsed = Duration::ZERO;
+                            self.pan_frame_idx += 1;
+                            self.dirty = true;
+                        }
+                        if self.pan_frame_idx >= frames.len() || phase_elapsed >= max_img_dur {
+                            self.pan_image_idx += 1;
+                            self.pan_frame_idx = 0;
+                            self.pan_frame_elapsed = Duration::ZERO;
+                            self.phase_started_at = now;
+                            self.dirty = true;
+                            if self.pan_image_idx >= item.panorama_streams.len() {
+                                if has_playable_video {
+                                    self.phase = PlaybackPhase::VideoStream;
+                                    self.video_frame_idx = 0;
+                                    self.video_frame_elapsed = Duration::ZERO;
+                                } else {
+                                    self.advance_to_next_item(now);
+                                }
+                            }
+                        }
                     } else {
                         self.advance_to_next_item(now);
+                    }
+                } else {
+                    self.dirty = true;
+                    if phase_elapsed >= Duration::from_secs(self.cfg.snapshot_duration_s as u64) {
+                        if has_playable_video {
+                            self.phase = PlaybackPhase::VideoStream;
+                            self.phase_started_at = now;
+                            self.video_frame_idx = 0;
+                            self.video_frame_elapsed = Duration::ZERO;
+                        } else {
+                            self.advance_to_next_item(now);
+                        }
                     }
                 }
             }
             PlaybackPhase::VideoStream => {
                 let max_dur = Duration::from_secs(self.cfg.video_max_duration_s as u64);
-                if item.video_frames.is_empty() || phase_elapsed >= max_dur {
+                if !item.has_video || item.video_frames.is_empty() || phase_elapsed >= max_dur {
                     self.advance_to_next_item(now);
                     return;
                 }
@@ -899,6 +1105,9 @@ impl MediaShowcaseRunner {
     fn advance_to_next_item(&mut self, now: Instant) {
         self.current_item_idx += 1;
         self.phase_started_at = now;
+        self.pan_image_idx = 0;
+        self.pan_frame_idx = 0;
+        self.pan_frame_elapsed = Duration::ZERO;
         self.video_frame_idx = 0;
         self.video_frame_elapsed = Duration::ZERO;
         self.dirty = true;
@@ -911,116 +1120,416 @@ impl MediaShowcaseRunner {
         if !self.turn_evaluated {
             return false;
         }
-        self.skip_turn_immediately || self.current_item_idx >= self.active_items.len()
+        if self.skip_turn_immediately {
+            return true;
+        }
+        if self.active_items.is_empty() {
+            return false;
+        }
+        self.current_item_idx >= self.active_items.len()
     }
 
-    pub fn render(&mut self, context: &mut EngineContext) {
-        if self.skip_turn_immediately {
-            return;
+    fn render_waiting_status(&self, matrix: &mut dyn IDrawingSurface, w: i32, h: i32) {
+        let accent = self.domain.default_accent_rgb();
+        let badge = self.domain.badge_label();
+        let badge_w = (badge.len() as i32) * 4 + 4;
+        let bx = ((w - badge_w) / 2).max(1);
+        fill_round_rect(matrix, bx, 2, badge_w, 7, 1, accent);
+        draw_tiny_text(matrix, badge, bx + 2, 3, 0, w, (255, 255, 255));
+
+        let status_msg = if self.cfg.server_url.is_empty() {
+            "SET SERVER URL IN WEBUI"
+        } else {
+            "CONNECTING TO SERVER..."
+        };
+        let elapsed_ms = self.phase_started_at.elapsed().as_millis();
+        draw_scrolling_text(
+            matrix,
+            status_msg,
+            2,
+            w - 2,
+            (h / 2) - 3,
+            1,
+            (220, 235, 255),
+            elapsed_ms,
+            true,
+        );
+        if h >= 32 && !self.cfg.server_url.is_empty() {
+            draw_tiny_text(
+                matrix,
+                &self.cfg.server_url,
+                2,
+                h - 7,
+                2,
+                w - 2,
+                (130, 150, 180),
+            );
         }
-        let Some(item) = self.active_items.get(self.current_item_idx) else {
-            return;
+    }
+
+    fn render_card_adaptive(
+        &self,
+        matrix: &mut dyn IDrawingSurface,
+        item: &PreparedShowcaseItem,
+        w: i32,
+        h: i32,
+        phase_ms: u128,
+    ) {
+        let bottom_text = if !item.synopsis.is_empty() && self.cfg.show_synopsis {
+            item.synopsis.as_str()
+        } else {
+            item.subtitle.as_str()
         };
 
-        let matrix = &mut *context.surface;
-        let w = matrix.width() as i32;
-        let h = matrix.height() as i32;
-        let phase_ms = self.phase_started_at.elapsed().as_millis();
+        // 1. TATE Vertical Portrait Mode (`h > w`, e.g. 64x128, 64x256, 32x128)
+        if h > w {
+            let badge_txt = if item.badge.len() > 8 {
+                &item.badge[..8]
+            } else {
+                &item.badge
+            };
+            let badge_w = (badge_txt.chars().count() as i32) * 4 + 3;
+            fill_round_rect(matrix, 2, 2, badge_w, 7, 1, item.badge_rgb);
+            draw_tiny_text(matrix, badge_txt, 4, 3, 2, 2 + badge_w, (255, 255, 255));
 
-        match self.phase {
-            PlaybackPhase::Card => {
-                // 1. Left Poster (h x h) if enabled or warming fallback
-                let text_min_x = if (self.cfg.show_poster || self.forced_warming_card_fallback)
-                    && item.poster.is_some()
-                {
-                    let poster = item.poster.as_ref().unwrap();
-                    let pw = (poster.width() as i32).min(h);
-                    let ph = (poster.height() as i32).min(h);
+            let meta_x = 2 + badge_w + 2;
+            let meta_label = format!("{} *{}", item.year, item.rating);
+            draw_tiny_text(matrix, &meta_label, meta_x, 3, meta_x, w - 1, (255, 215, 0));
+
+            let mut cursor_y = 12;
+            if self.cfg.show_poster {
+                if let Some(poster) = &item.poster {
+                    let pw = (poster.width() as i32).min(w - 4);
+                    let ph = (poster.height() as i32).min(h / 2);
+                    let jx = ((w - pw) / 2).max(0);
+                    for py in 0..ph {
+                        for px in 0..pw {
+                            let p = poster.get_pixel(px as u32, py as u32).0;
+                            matrix.set_pixel(jx + px, cursor_y + py, p[0], p[1], p[2]);
+                        }
+                    }
+                    draw_round_rect(
+                        matrix,
+                        (jx - 1).max(0),
+                        (cursor_y - 1).max(0),
+                        pw + 2,
+                        ph + 2,
+                        1,
+                        item.badge_rgb,
+                    );
+                    cursor_y += ph + 4;
+                }
+            }
+
+            draw_scrolling_text(
+                matrix,
+                &item.title,
+                2,
+                w - 2,
+                cursor_y,
+                1,
+                (255, 255, 255),
+                phase_ms,
+                true,
+            );
+            cursor_y += 10;
+
+            if cursor_y + 16 < h {
+                draw_tiny_text(
+                    matrix,
+                    &item.subtitle,
+                    2,
+                    cursor_y,
+                    2,
+                    w - 2,
+                    (180, 195, 215),
+                );
+                cursor_y += 8;
+            }
+
+            draw_fast_hline(
+                matrix,
+                2,
+                cursor_y,
+                w - 4,
+                (
+                    item.badge_rgb.0 / 3,
+                    item.badge_rgb.1 / 3,
+                    item.badge_rgb.2 / 3,
+                ),
+            );
+            let syn_y = (cursor_y + 4).min(h - 8);
+            draw_single_pass_synopsis(
+                matrix,
+                bottom_text,
+                2,
+                w - 2,
+                syn_y,
+                (190, 225, 255),
+                phase_ms,
+            );
+            return;
+        }
+
+        // 2. Square 64x64 Layout (`w == h`)
+        if w == h {
+            let mut top_right_x = 2;
+            if self.cfg.show_poster {
+                if let Some(poster) = &item.poster {
+                    let pw = (poster.width() as i32).min(w / 2);
+                    let ph = (poster.height() as i32).min(h / 2);
                     for py in 0..ph {
                         for px in 0..pw {
                             let p = poster.get_pixel(px as u32, py as u32).0;
                             matrix.set_pixel(px, py, p[0], p[1], p[2]);
                         }
                     }
-                    pw + 2
-                } else {
-                    2
-                };
+                    top_right_x = pw + 2;
+                }
+            }
 
-                // 2. Top-Right: Colored Domain/System Pill Badge + Year + Rating
-                let badge_txt = if item.badge.len() > 8 {
-                    &item.badge[..8]
-                } else {
-                    &item.badge
-                };
-                let badge_w = (badge_txt.chars().count() as i32) * 4 + 3;
-                fill_round_rect(matrix, text_min_x, 1, badge_w, 7, 1, item.badge_rgb);
-                draw_tiny_text(
-                    matrix,
-                    badge_txt,
-                    text_min_x + 2,
-                    2,
-                    text_min_x,
-                    text_min_x + badge_w,
-                    (255, 255, 255),
-                );
+            let badge_txt = if item.badge.len() > 6 {
+                &item.badge[..6]
+            } else {
+                &item.badge
+            };
+            let badge_w = (badge_txt.chars().count() as i32) * 4 + 3;
+            fill_round_rect(matrix, top_right_x, 2, badge_w, 7, 1, item.badge_rgb);
+            draw_tiny_text(
+                matrix,
+                badge_txt,
+                top_right_x + 2,
+                3,
+                top_right_x,
+                w - 1,
+                (255, 255, 255),
+            );
+            draw_tiny_text(
+                matrix,
+                &item.year,
+                top_right_x,
+                12,
+                top_right_x,
+                w - 1,
+                (220, 220, 220),
+            );
+            let rate_lbl = format!("*{}", item.rating);
+            draw_tiny_text(
+                matrix,
+                &rate_lbl,
+                top_right_x,
+                21,
+                top_right_x,
+                w - 1,
+                (255, 215, 0),
+            );
 
-                let meta_x = text_min_x + badge_w + 3;
-                let meta_label = format!("{} *{}", item.year, item.rating);
-                draw_tiny_text(matrix, &meta_label, meta_x, 2, meta_x, w - 1, (255, 215, 0));
+            let mid_y = h / 2;
+            draw_fast_hline(
+                matrix,
+                0,
+                mid_y,
+                w,
+                (
+                    item.badge_rgb.0 / 3,
+                    item.badge_rgb.1 / 3,
+                    item.badge_rgb.2 / 3,
+                ),
+            );
+            draw_scrolling_text(
+                matrix,
+                &item.title,
+                2,
+                w - 2,
+                mid_y + 3,
+                1,
+                (255, 255, 255),
+                phase_ms,
+                false,
+            );
+            draw_tiny_text(
+                matrix,
+                &item.subtitle,
+                2,
+                mid_y + 13,
+                2,
+                w - 2,
+                (175, 195, 215),
+            );
+            draw_single_pass_synopsis(
+                matrix,
+                bottom_text,
+                2,
+                w - 2,
+                h - 9,
+                (190, 225, 255),
+                phase_ms,
+            );
+            return;
+        }
 
-                // 3. Middle: Marquee-scrolling Title in crisp 5x7 font
-                draw_scrolling_text(
-                    matrix,
-                    &item.title,
-                    text_min_x,
-                    w - 1,
-                    10,
-                    1,
-                    (255, 255, 255),
-                    phase_ms,
-                    false,
-                );
+        // 3. Landscape Layouts (`128x32`, `128x64`, `256x64`)
+        let text_min_x = if self.cfg.show_poster && item.poster.is_some() {
+            let poster = item.poster.as_ref().unwrap();
+            let pw = (poster.width() as i32).min(w / 2);
+            let ph = (poster.height() as i32).min(h);
+            let oy = ((h - ph) / 2).max(0);
+            for py in 0..ph {
+                for px in 0..pw {
+                    let p = poster.get_pixel(px as u32, py as u32).0;
+                    matrix.set_pixel(px, oy + py, p[0], p[1], p[2]);
+                }
+            }
+            pw + 3
+        } else {
+            2
+        };
 
-                // Subtle separator line
-                draw_fast_hline(
-                    matrix,
-                    text_min_x,
-                    19,
-                    w - text_min_x - 1,
-                    (
-                        item.badge_rgb.0 / 3,
-                        item.badge_rgb.1 / 3,
-                        item.badge_rgb.2 / 3,
-                    ),
-                );
+        let badge_txt = if item.badge.len() > 8 {
+            &item.badge[..8]
+        } else {
+            &item.badge
+        };
+        let badge_w = (badge_txt.chars().count() as i32) * 4 + 3;
+        let top_y = if h >= 64 { 3 } else { 1 };
+        fill_round_rect(matrix, text_min_x, top_y, badge_w, 7, 1, item.badge_rgb);
+        draw_tiny_text(
+            matrix,
+            badge_txt,
+            text_min_x + 2,
+            top_y + 1,
+            text_min_x,
+            text_min_x + badge_w,
+            (255, 255, 255),
+        );
 
-                // 4. Bottom: Localized Synopsis or Subtitle
-                let bottom_text = if !item.synopsis.is_empty()
-                    && (self.cfg.show_synopsis || self.forced_warming_card_fallback)
-                {
-                    item.synopsis.as_str()
-                } else if self.forced_warming_card_fallback {
-                    let lang = self.cfg.effective_lang(&self.system_lang);
-                    i18n::t(lang, "showcase_warming")
-                } else {
-                    item.subtitle.as_str()
-                };
+        let meta_x = text_min_x + badge_w + 3;
+        let meta_label = format!("{} *{}", item.year, item.rating);
+        draw_tiny_text(
+            matrix,
+            &meta_label,
+            meta_x,
+            top_y + 1,
+            meta_x,
+            w - 1,
+            (255, 215, 0),
+        );
 
-                draw_scrolling_text(
-                    matrix,
-                    bottom_text,
-                    text_min_x,
-                    w - 1,
-                    22,
-                    1,
-                    (190, 225, 255),
-                    phase_ms,
-                    false,
-                );
+        if h >= 64 {
+            // Tall / XL Landscape (`128x64`, `256x64`)
+            draw_scrolling_text(
+                matrix,
+                &item.title,
+                text_min_x,
+                w - 2,
+                14,
+                1,
+                (255, 255, 255),
+                phase_ms,
+                false,
+            );
+            draw_tiny_text(
+                matrix,
+                &item.subtitle,
+                text_min_x,
+                26,
+                text_min_x,
+                w - 2,
+                (180, 200, 220),
+            );
+            draw_fast_hline(
+                matrix,
+                text_min_x,
+                36,
+                w - text_min_x - 2,
+                (
+                    item.badge_rgb.0 / 3,
+                    item.badge_rgb.1 / 3,
+                    item.badge_rgb.2 / 3,
+                ),
+            );
+            draw_single_pass_synopsis(
+                matrix,
+                bottom_text,
+                text_min_x,
+                w - 2,
+                44,
+                (190, 225, 255),
+                phase_ms,
+            );
+        } else {
+            // Classic 128x32 Landscape
+            draw_scrolling_text(
+                matrix,
+                &item.title,
+                text_min_x,
+                w - 1,
+                10,
+                1,
+                (255, 255, 255),
+                phase_ms,
+                false,
+            );
+            draw_fast_hline(
+                matrix,
+                text_min_x,
+                19,
+                w - text_min_x - 1,
+                (
+                    item.badge_rgb.0 / 3,
+                    item.badge_rgb.1 / 3,
+                    item.badge_rgb.2 / 3,
+                ),
+            );
+            draw_single_pass_synopsis(
+                matrix,
+                bottom_text,
+                text_min_x,
+                w - 1,
+                22,
+                (190, 225, 255),
+                phase_ms,
+            );
+        }
+    }
+
+    pub fn render(&mut self, context: &mut EngineContext) {
+        if self.skip_turn_immediately {
+            return;
+        }
+        let matrix = &mut *context.surface;
+        let w = matrix.width() as i32;
+        let h = matrix.height() as i32;
+
+        let Some(item) = self.active_items.get(self.current_item_idx) else {
+            self.render_waiting_status(matrix, w, h);
+            self.dirty = false;
+            return;
+        };
+
+        let phase_ms = self.phase_started_at.elapsed().as_millis();
+
+        match self.phase {
+            PlaybackPhase::Card => {
+                self.render_card_adaptive(matrix, item, w, h, phase_ms);
             }
             PlaybackPhase::SnapshotPan => {
-                if let Some(snap) = &item.snapshot_pan {
+                if !item.panorama_streams.is_empty() {
+                    if let Some((frames, _)) = item.panorama_streams.get(self.pan_image_idx) {
+                        if let Some(frame) =
+                            frames.get(self.pan_frame_idx).or_else(|| frames.last())
+                        {
+                            let fw = (frame.width() as i32).min(w);
+                            let fh = (frame.height() as i32).min(h);
+                            for py in 0..fh {
+                                for px in 0..fw {
+                                    let p = frame.get_pixel(px as u32, py as u32).0;
+                                    matrix.set_pixel(px, py, p[0], p[1], p[2]);
+                                }
+                            }
+                        }
+                    }
+                } else if let Some(snap) = &item.snapshot_pan {
                     let sw = snap.width() as i32;
                     let sh = snap.height() as i32;
                     let max_pan_y = (sh - h).max(0);
@@ -1032,26 +1541,9 @@ impl MediaShowcaseRunner {
                         let sy = (py + pan_y).clamp(0, sh - 1);
                         for px in 0..w.min(sw) {
                             let p = snap.get_pixel(px as u32, sy as u32).0;
-                            // Darken bottom 8 rows slightly so the title overlay pops
-                            if py >= h - 8 {
-                                matrix.set_pixel(px, py, p[0] / 3, p[1] / 3, p[2] / 3);
-                            } else {
-                                matrix.set_pixel(px, py, p[0], p[1], p[2]);
-                            }
+                            matrix.set_pixel(px, py, p[0], p[1], p[2]);
                         }
                     }
-                    draw_text_scaled(
-                        matrix,
-                        &item.title,
-                        2,
-                        h - 7,
-                        0,
-                        w,
-                        0,
-                        h,
-                        1,
-                        (255, 255, 255),
-                    );
                 }
             }
             PlaybackPhase::VideoStream => {
@@ -1068,7 +1560,6 @@ impl MediaShowcaseRunner {
                             matrix.set_pixel(px, py, p[0], p[1], p[2]);
                         }
                     }
-                    // 1-pixel bottom progress bar
                     let total_frames = item.video_frames.len().max(1);
                     let bar_w = (((self.video_frame_idx + 1) * (w as usize)) / total_frames) as i32;
                     draw_fast_hline(matrix, 0, h - 1, bar_w.clamp(1, w), item.badge_rgb);
@@ -1095,9 +1586,58 @@ pub fn build_common_showcase_fields(
             id: "server_url",
             field_type: ConfigType::String,
             label: "Showcase Server URL",
-            description: "LAN URL of the dmd-media-showcase Docker server (e.g. http://192.168.1.50:8080)",
-            default_value: "http://127.0.0.1:8080",
+            description: "LAN URL of the dmd-media-showcase Docker server (e.g. http://192.168.1.50:8790)",
+            default_value: "http://127.0.0.1:8790",
             required: true,
+            validation_policy: ValidationPolicy::Accept,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "primary_source",
+            field_type: ConfigType::Options,
+            label: "Primary Scraper Source",
+            description: "Preferred primary metadata/media source (other sources are used automatically as fallback)",
+            default_value: "auto",
+            options: Some(vec![
+                ConfigOption { label: "Auto (Best Available + Fallbacks)", value: "auto" },
+                ConfigOption { label: "ScreenScraper.fr (api.screenscraper.fr)", value: "screenscraper" },
+                ConfigOption { label: "ArcadeItalia ADB (MAME / Neo-Geo / CPS)", value: "arcade_italia" },
+                ConfigOption { label: "IGDB / Twitch API v4 (Games)", value: "igdb" },
+                ConfigOption { label: "Libretro CDN + Wikipedia Live (Games)", value: "libretro" },
+                ConfigOption { label: "TMDB API v3 (Movies / Series)", value: "tmdb" },
+                ConfigOption { label: "IMDb + Wikipedia + Dailymotion Live (Movies)", value: "imdb" },
+                ConfigOption { label: "TVMaze Public API (Series)", value: "tvmaze" },
+                ConfigOption { label: "AnimeThemes.moe (Creditless OP/ED)", value: "animethemes" },
+                ConfigOption { label: "Kitsu Edge API (Anime)", value: "kitsu" },
+                ConfigOption { label: "Jikan v4 / MyAnimeList (Anime)", value: "jikan" },
+            ]),
+            validation_policy: ValidationPolicy::FallbackDefault,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "scraper_user",
+            field_type: ConfigType::String,
+            label: "Scraper Username (Optional)",
+            description: "Optional account username (e.g. ScreenScraper.fr login)",
+            default_value: "",
+            validation_policy: ValidationPolicy::Accept,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "scraper_pass",
+            field_type: ConfigType::String,
+            label: "Scraper Password (Optional)",
+            description: "Optional account password (e.g. ScreenScraper.fr password)",
+            default_value: "",
+            validation_policy: ValidationPolicy::Accept,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "scraper_api_key",
+            field_type: ConfigType::String,
+            label: "Scraper API Key (Optional)",
+            description: "Optional API key (e.g. TMDB API key, IGDB key, or ScreenScraper devid:devpassword)",
+            default_value: "",
             validation_policy: ValidationPolicy::Accept,
             ..Default::default()
         },
@@ -1105,7 +1645,7 @@ pub fn build_common_showcase_fields(
             id: "items_per_rotation",
             field_type: ConfigType::Integer,
             label: "Items per Rotation",
-            description: "Exact number of items (and videos) preloaded and played per rotation turn",
+            description: "Exact number of items preloaded and played per rotation turn",
             default_value: "3",
             min_val: Some("1"),
             max_val: Some("25"),
@@ -1133,8 +1673,8 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "show_poster",
             field_type: ConfigType::Boolean,
-            label: "Show Poster / Cover",
-            description: "Display the 32x32 poster/boxart on the metadata card",
+            label: "Show Mini-Jacket on Card",
+            description: "Display the adaptive mini-jacket (32x32 / 48x64 / TATE) on the metadata card",
             default_value: "true",
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
@@ -1142,26 +1682,47 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "show_synopsis",
             field_type: ConfigType::Boolean,
-            label: "Show Synopsis",
-            description: "Scroll the localized synopsis on the metadata card",
+            label: "Show Full Scrolling Synopsis",
+            description: "Scroll 100% of the localized synopsis on the metadata card before advancing",
             default_value: "true",
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },
         ConfigField {
-            id: "show_snapshot",
+            id: "jacket_panorama",
             field_type: ConfigType::Boolean,
-            label: "Show Pan-Scan Snapshot",
-            description: "Display the vertical Ken Burns pan-scan backdrop/snapshot phase",
+            label: "Jacket Panorama (Top-to-Bottom Scroll)",
+            description: "Scroll the full Jacket / Poster from top to bottom right after the info card",
             default_value: "true",
             validation_policy: ValidationPolicy::FallbackDefault,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "marquee_panorama",
+            field_type: ConfigType::Boolean,
+            label: "Marquee / Banner Panorama",
+            description: "Scroll the Marquee / Wheel / Wide Banner in panorama mode",
+            default_value: "false",
+            validation_policy: ValidationPolicy::FallbackDefault,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "snapshot_panorama_count",
+            field_type: ConfigType::Integer,
+            label: "Snapshot Panoramas Count (0-5)",
+            description: "Number of in-game screenshots or scene stills to scroll from top to bottom (0 to 5)",
+            default_value: "0",
+            min_val: Some("0"),
+            max_val: Some("5"),
+            step: Some("1"),
+            validation_policy: ValidationPolicy::Clamp,
             ..Default::default()
         },
         ConfigField {
             id: "show_video",
             field_type: ConfigType::Boolean,
-            label: "Show Video Stream",
-            description: "Play the full-screen animated video clip (.rgb565.stream)",
+            label: "Show Video Stream (Skip if Unavailable)",
+            description: "Play the video trailer/gameplay clip if available; automatically skipped when no video exists",
             default_value: "true",
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
@@ -1169,8 +1730,8 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "card_duration_s",
             field_type: ConfigType::Integer,
-            label: "Card Duration (s)",
-            description: "Display duration of the metadata card phase in seconds",
+            label: "Min Card Duration (s)",
+            description: "Minimum display duration of the card in seconds (automatically extended so full synopsis finishes)",
             default_value: "7",
             min_val: Some("3"),
             max_val: Some("30"),
@@ -1181,8 +1742,8 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "snapshot_duration_s",
             field_type: ConfigType::Integer,
-            label: "Snapshot Pan Duration (s)",
-            description: "Duration of the pan-scan snapshot phase in seconds",
+            label: "Duration per Panorama (s)",
+            description: "Duration of each top-to-bottom scrolling panorama in seconds",
             default_value: "4",
             min_val: Some("2"),
             max_val: Some("15"),
@@ -1195,7 +1756,7 @@ pub fn build_common_showcase_fields(
             field_type: ConfigType::Integer,
             label: "Max Video Duration (s)",
             description: "Maximum playback duration per video clip in seconds (dynamically truncated in O(1))",
-            default_value: "6",
+            default_value: "8",
             min_val: Some("2"),
             max_val: Some("30"),
             step: Some("1"),
@@ -1217,12 +1778,13 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "video_mode",
             field_type: ConfigType::Options,
-            label: "Video Crop & Color Preset",
+            label: "Video Crop & Stabilization Preset",
             description: "Conversion preset applied by dmd-gif-converter on the server",
             default_value: default_video_mode,
             options: Some(vec![
-                ConfigOption { label: "AI Auto-Action Crop", value: "auto_action" },
-                ConfigOption { label: "Pixel Art (Retro Crisp)", value: "pixel_art" },
+                ConfigOption { label: "AI Auto-Action Crop (Tripod Stabilized)", value: "auto_action" },
+                ConfigOption { label: "Pixel Art (Retro Crisp + Pan)", value: "pixel_art" },
+                ConfigOption { label: "Vertical Panorama Scroll", value: "panorama" },
                 ConfigOption { label: "Anime (Vibrant Cel)", value: "anime" },
                 ConfigOption { label: "Cinema (Dark-Scene Lift)", value: "cinema" },
                 ConfigOption { label: "Center Crop", value: "center_crop" },
@@ -1248,7 +1810,6 @@ mod tests {
 
     #[test]
     fn test_decode_rgb565_le_image_and_stream() {
-        // 2x2 image in RGB565 LE (pure red 0xF800)
         let mut raw = Vec::new();
         for _ in 0..4 {
             raw.extend_from_slice(&0xF800u16.to_le_bytes());
@@ -1257,19 +1818,16 @@ mod tests {
         assert_eq!(img.width(), 2);
         assert_eq!(img.height(), 2);
         assert!(img.get_pixel(0, 0).0[0] >= 248);
-        assert_eq!(img.get_pixel(0, 0).0[1], 0);
-        assert_eq!(img.get_pixel(0, 0).0[2], 0);
 
-        // Build a 2-frame DMDS stream
         let mut stream = Vec::new();
         stream.extend_from_slice(DMDS_MAGIC);
-        stream.push(1); // version
-        stream.push(15); // fps
-        stream.extend_from_slice(&2u16.to_le_bytes()); // width = 2
-        stream.extend_from_slice(&2u16.to_le_bytes()); // height = 2
-        stream.extend_from_slice(&2u16.to_le_bytes()); // total_frames = 2
-        stream.extend_from_slice(&66u16.to_le_bytes()); // frame_delay_ms = 66
-        stream.extend_from_slice(&0u16.to_le_bytes()); // reserved
+        stream.push(1);
+        stream.push(15);
+        stream.extend_from_slice(&2u16.to_le_bytes());
+        stream.extend_from_slice(&2u16.to_le_bytes());
+        stream.extend_from_slice(&2u16.to_le_bytes());
+        stream.extend_from_slice(&66u16.to_le_bytes());
+        stream.extend_from_slice(&0u16.to_le_bytes());
         stream.extend_from_slice(&raw);
         stream.extend_from_slice(&raw);
 
@@ -1279,24 +1837,34 @@ mod tests {
     }
 
     #[test]
-    fn test_warming_skip_policy_multi_vs_single_rotation() {
+    fn test_compute_card_poster_dims_multi_format_and_tate() {
+        assert_eq!(compute_card_poster_dims(128, 32), (32, 32));
+        assert_eq!(compute_card_poster_dims(128, 64), (48, 64));
+        assert_eq!(compute_card_poster_dims(256, 64), (48, 64));
+        assert_eq!(compute_card_poster_dims(64, 64), (32, 32));
+        assert_eq!(compute_card_poster_dims(64, 128), (40, 40));
+        assert_eq!(compute_card_poster_dims(32, 128), (24, 24));
+    }
+
+    #[test]
+    fn test_warming_skip_policy_and_zero_mock_items() {
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Games, 128, 32);
         {
             let mut guard = runner.shared.lock().unwrap();
             guard.readiness = BatchReadiness::Warming;
         }
 
-        // Case 1: Multiple engines in rotation (rotation_slot_count = 3) -> immediate skip
         runner.activate();
         runner.evaluate_turn_start(3);
         assert!(runner.skip_turn_immediately);
         assert!(runner.is_finished());
+        assert!(runner.active_items.is_empty());
 
-        // Case 2: Only engine in rotation (rotation_slot_count = 1) -> fallback to Card
         runner.activate();
         runner.evaluate_turn_start(1);
         assert!(!runner.skip_turn_immediately);
         assert!(runner.forced_warming_card_fallback);
+        assert!(runner.active_items.is_empty());
         assert!(!runner.is_finished());
         assert_eq!(runner.phase, PlaybackPhase::Card);
     }

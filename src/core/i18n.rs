@@ -990,50 +990,6 @@ pub fn t(lang_code: &str, key: &str) -> &'static str {
         ("showcase_warming", Lang::Es) => "PREPARANDO VIDEO...",
         ("showcase_warming", Lang::En) => "WARMING VIDEO...",
 
-        ("showcase_offline_sub", Lang::Fr) => "SERVEUR SHOWCASE HORS-LIGNE - MODE DEMO",
-        ("showcase_offline_sub", Lang::Es) => "SERVIDOR SHOWCASE OFFLINE - MODO DEMO",
-        ("showcase_offline_sub", Lang::En) => "SHOWCASE SERVER OFFLINE - DEMO MODE",
-
-        ("showcase_demo_games_syn", Lang::Fr) => {
-            "Classique d'arcade SNK Neo-Geo aux sprites 2D explosifs."
-        }
-        ("showcase_demo_games_syn", Lang::Es) => {
-            "Clasico arcade de SNK Neo-Geo con accion 2D explosiva."
-        }
-        ("showcase_demo_games_syn", Lang::En) => {
-            "Iconic SNK Neo-Geo run-and-gun arcade masterpiece."
-        }
-
-        ("showcase_demo_movies_syn", Lang::Fr) => {
-            "Chef-d'oeuvre cyber-noir de Ridley Scott dans le Los Angeles de 2019."
-        }
-        ("showcase_demo_movies_syn", Lang::Es) => {
-            "Obra maestra ciberpunk de Ridley Scott en Los Angeles de 2019."
-        }
-        ("showcase_demo_movies_syn", Lang::En) => {
-            "Ridley Scott's neon-noir sci-fi masterpiece set in 2019 Los Angeles."
-        }
-
-        ("showcase_demo_series_syn", Lang::Fr) => {
-            "Disparitions mysterieuses et experiences secretes a Hawkins en 1983."
-        }
-        ("showcase_demo_series_syn", Lang::Es) => {
-            "Misterios sobrenaturales y experimentos secretos en Hawkins, 1983."
-        }
-        ("showcase_demo_series_syn", Lang::En) => {
-            "Supernatural mysteries and secret experiments in 1983 Hawkins."
-        }
-
-        ("showcase_demo_anime_syn", Lang::Fr) => {
-            "Les guerriers Z defendent la Terre dans des combats legengaires."
-        }
-        ("showcase_demo_anime_syn", Lang::Es) => {
-            "Los guerreros Z defienden la Tierra en batallas legendarias."
-        }
-        ("showcase_demo_anime_syn", Lang::En) => {
-            "Earth's greatest heroes clash with cosmic villains in legendary battles."
-        }
-
         _ => "",
     }
 }

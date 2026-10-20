@@ -50,6 +50,10 @@ impl EngineRegistry {
             "fighter" => 14,
             "gnews" => 15,
             "mqttdata" => 16,
+            "retro_games" => 17,
+            "movie_showcase" => 18,
+            "series_showcase" => 19,
+            "anime_showcase" => 20,
             _ => 0,
         }
     }
@@ -72,6 +76,10 @@ impl EngineRegistry {
             14 => Some("fighter"),
             15 => Some("gnews"),
             16 => Some("mqttdata"),
+            17 => Some("retro_games"),
+            18 => Some("movie_showcase"),
+            19 => Some("series_showcase"),
+            20 => Some("anime_showcase"),
             _ => None,
         }
     }

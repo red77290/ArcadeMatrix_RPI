@@ -12,6 +12,9 @@ pub struct FetchedArticle {
     pub published_epoch: u64,
 }
 
+pub const DEFAULT_CACHE_PATH: &str = "data/gnews_cache.json";
+pub const LEGACY_CACHE_PATH: &str = "gnews_cache.json";
+
 pub struct GNewsProvider;
 
 impl GNewsProvider {
@@ -270,6 +273,8 @@ impl GNewsProvider {
         key_usages: &[u32],
         status: u8,
     ) {
+        use std::io::Write;
+
         let json_data = serde_json::json!({
             "last_fetch_epoch": last_fetch_epoch,
             "last_cat_idx": last_cat_idx,
@@ -286,14 +291,57 @@ impl GNewsProvider {
             })).collect::<Vec<_>>()
         });
 
-        if let Ok(serialized) = serde_json::to_string_pretty(&json_data) {
-            let tmp_path = format!("{}.tmp", path);
-            if std::fs::write(&tmp_path, serialized).is_ok() {
-                if std::fs::rename(&tmp_path, path).is_err() {
-                    let _ = std::fs::remove_file(&tmp_path);
-                }
+        let Ok(serialized) = serde_json::to_string_pretty(&json_data) else {
+            return;
+        };
+
+        let target_path = std::path::Path::new(path);
+        if let Some(parent) = target_path.parent() {
+            if !parent.as_os_str().is_empty() {
+                let _ = std::fs::create_dir_all(parent);
             }
         }
+
+        let tmp_path = format!("{}.tmp", path);
+        let written_and_synced = match std::fs::File::create(&tmp_path) {
+            Ok(mut file) => file
+                .write_all(serialized.as_bytes())
+                .and_then(|_| file.sync_all())
+                .is_ok(),
+            Err(_) => false,
+        };
+
+        if written_and_synced {
+            if std::fs::rename(&tmp_path, path).is_ok() {
+                if path == DEFAULT_CACHE_PATH && std::path::Path::new(LEGACY_CACHE_PATH).exists() {
+                    let _ = std::fs::remove_file(LEGACY_CACHE_PATH);
+                }
+            } else {
+                let _ = std::fs::remove_file(&tmp_path);
+            }
+        } else {
+            let _ = std::fs::remove_file(&tmp_path);
+        }
+    }
+
+    pub fn load_persistent_cache() -> Option<(Vec<FetchedArticle>, u64, usize, usize, Vec<u32>, u8)>
+    {
+        if let Some(cached) = Self::load_cache_file(DEFAULT_CACHE_PATH) {
+            return Some(cached);
+        }
+        if let Some(legacy) = Self::load_cache_file(LEGACY_CACHE_PATH) {
+            Self::save_cache_file(
+                DEFAULT_CACHE_PATH,
+                &legacy.0,
+                legacy.1,
+                legacy.2,
+                legacy.3,
+                &legacy.4,
+                legacy.5,
+            );
+            return Some(legacy);
+        }
+        None
     }
 
     pub fn load_cache_file(

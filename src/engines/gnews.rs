@@ -73,6 +73,15 @@ impl GNewsArticle {
     }
 }
 
+#[derive(Clone, Debug, Default)]
+struct GNewsQuotaState {
+    active_key_idx: usize,
+    key_usages: Vec<u32>,
+    last_fetch_epoch: u64,
+    last_cat_idx: usize,
+    dirty: bool,
+}
+
 pub struct GNewsEngine {
     // Config fields
     api_key: String,
@@ -103,7 +112,7 @@ pub struct GNewsEngine {
     // Thread-safe Async Shared State
     shared_articles: Arc<Mutex<Vec<GNewsArticle>>>,
     shared_status: Arc<Mutex<GNewsStatus>>,
-    shared_quota: Arc<Mutex<(usize, Vec<u32>)>>,
+    shared_quota: Arc<Mutex<GNewsQuotaState>>,
     is_fetching: Arc<AtomicBool>,
 
     // Runtime state
@@ -159,7 +168,7 @@ impl GNewsEngine {
         let mut last_fetch_inst = None;
 
         if let Some((arts, ep, c_idx, k_idx, usages, st_num)) =
-            crate::api::gnews::GNewsProvider::load_cache_file("gnews_cache.json")
+            crate::api::gnews::GNewsProvider::load_persistent_cache()
         {
             if !arts.is_empty() {
                 for a in arts {
@@ -184,13 +193,21 @@ impl GNewsEngine {
                     4 => GNewsStatus::NetworkError,
                     _ => GNewsStatus::Ok,
                 };
-                let has_content = loaded_articles.iter().any(|a| !a.content.is_empty());
-                if has_content && now_epoch >= ep && (now_epoch - ep) < 86400 {
+                let has_body = loaded_articles
+                    .iter()
+                    .any(|a| !a.content.is_empty() || !a.description.is_empty());
+                if has_body && now_epoch >= ep && (now_epoch - ep) < 86400 {
                     let elapsed_sec = now_epoch - ep;
                     last_fetch_inst = now.checked_sub(Duration::from_secs(elapsed_sec));
                 }
             }
         }
+
+        let initial_fetch_day = if loaded_epoch > 0 {
+            (loaded_epoch / 86400) as u32
+        } else {
+            cur_day
+        };
 
         let mut engine = Self {
             api_key: String::new(),
@@ -220,7 +237,13 @@ impl GNewsEngine {
 
             shared_articles: Arc::new(Mutex::new(loaded_articles.clone())),
             shared_status: Arc::new(Mutex::new(loaded_status)),
-            shared_quota: Arc::new(Mutex::new((loaded_key_idx, loaded_usages.clone()))),
+            shared_quota: Arc::new(Mutex::new(GNewsQuotaState {
+                active_key_idx: loaded_key_idx,
+                key_usages: loaded_usages.clone(),
+                last_fetch_epoch: loaded_epoch,
+                last_cat_idx: loaded_cat_idx,
+                dirty: false,
+            })),
             is_fetching: Arc::new(AtomicBool::new(false)),
 
             articles: loaded_articles,
@@ -237,7 +260,7 @@ impl GNewsEngine {
             active_key_idx: loaded_key_idx,
             key_usages: loaded_usages,
             last_fetch_epoch: loaded_epoch,
-            last_fetch_day: cur_day,
+            last_fetch_day: initial_fetch_day,
             scroll_pixel_offset: 0,
             source_marquee_offset: 0,
             scroll_state: ScrollState::PauseStart,
@@ -627,6 +650,7 @@ impl GNewsEngine {
 
         let shared = Arc::clone(&self.shared_articles);
         let shared_st = Arc::clone(&self.shared_status);
+        let shared_quota = Arc::clone(&self.shared_quota);
         let flag = Arc::clone(&self.is_fetching);
         flag.store(true, Ordering::Relaxed);
 
@@ -656,6 +680,7 @@ impl GNewsEngine {
         let max_articles = self.max_articles;
         let req_lang = effective_lang.clone();
         let cur_cat_idx = self.cat_round_robin_idx;
+        let prev_epoch = self.last_fetch_epoch;
         let mut active_k_idx = self.active_key_idx;
         let mut usages = self.key_usages.clone();
 
@@ -711,6 +736,14 @@ impl GNewsEngine {
                     existing.truncate(10);
                     *guard = existing.clone();
 
+                    if let Ok(mut q) = shared_quota.lock() {
+                        q.active_key_idx = active_k_idx;
+                        q.key_usages = usages.clone();
+                        q.last_fetch_epoch = now_epoch;
+                        q.last_cat_idx = cur_cat_idx;
+                        q.dirty = true;
+                    }
+
                     let fetched_save: Vec<crate::api::gnews::FetchedArticle> = existing
                         .iter()
                         .map(|art| crate::api::gnews::FetchedArticle {
@@ -729,7 +762,7 @@ impl GNewsEngine {
                         _ => 0,
                     };
                     crate::api::gnews::GNewsProvider::save_cache_file(
-                        "gnews_cache.json",
+                        crate::api::gnews::DEFAULT_CACHE_PATH,
                         &fetched_save,
                         now_epoch,
                         cur_cat_idx,
@@ -739,6 +772,18 @@ impl GNewsEngine {
                     );
                 }
             } else if let Ok(guard) = shared.lock() {
+                let effective_epoch = if !guard.is_empty() && prev_epoch > 0 {
+                    prev_epoch
+                } else {
+                    now_epoch
+                };
+                if let Ok(mut q) = shared_quota.lock() {
+                    q.active_key_idx = active_k_idx;
+                    q.key_usages = usages.clone();
+                    q.last_fetch_epoch = effective_epoch;
+                    q.last_cat_idx = cur_cat_idx;
+                    q.dirty = true;
+                }
                 let fetched_save: Vec<crate::api::gnews::FetchedArticle> = guard
                     .iter()
                     .map(|art| crate::api::gnews::FetchedArticle {
@@ -750,16 +795,20 @@ impl GNewsEngine {
                         published_epoch: art.published_epoch,
                     })
                     .collect();
-                let st_num = match status {
-                    GNewsStatus::InvalidKey => 2,
-                    GNewsStatus::RateLimited => 3,
-                    GNewsStatus::NetworkError => 4,
-                    _ => 0,
+                let st_num = if !guard.is_empty() && status == GNewsStatus::NetworkError {
+                    0
+                } else {
+                    match status {
+                        GNewsStatus::InvalidKey => 2,
+                        GNewsStatus::RateLimited => 3,
+                        GNewsStatus::NetworkError => 4,
+                        _ => 0,
+                    }
                 };
                 crate::api::gnews::GNewsProvider::save_cache_file(
-                    "gnews_cache.json",
+                    crate::api::gnews::DEFAULT_CACHE_PATH,
                     &fetched_save,
-                    now_epoch,
+                    effective_epoch,
                     cur_cat_idx,
                     active_k_idx,
                     &usages,
@@ -771,6 +820,61 @@ impl GNewsEngine {
 
         self.last_fetch = Some(Instant::now());
         self.last_fetched_lang = effective_lang;
+    }
+
+    pub fn should_fetch_now(&self, now_epoch: u64, effective_lang: &str) -> bool {
+        let lang_changed =
+            !self.last_fetched_lang.is_empty() && self.last_fetched_lang != effective_lang;
+        if lang_changed {
+            return true;
+        }
+
+        let budget_interval_sec = 86400 / self.requests_per_day.clamp(1, 100) as u64;
+        let ttl_interval_sec = self.cache_ttl_min * 60;
+        let interval_sec = budget_interval_sec.max(ttl_interval_sec);
+
+        if let Some(last_inst) = self.last_fetch {
+            if last_inst.elapsed() < Duration::from_secs(interval_sec) {
+                return false;
+            }
+        }
+
+        let has_cached_articles = self
+            .articles
+            .iter()
+            .any(|a| !a.content.is_empty() || !a.description.is_empty() || !a.title.is_empty());
+
+        if has_cached_articles && self.last_fetch_epoch > 0 {
+            if now_epoch < self.last_fetch_epoch {
+                // System clock is behind cached epoch (e.g. Raspberry Pi boot prior to NTP sync).
+                // Keep serving SD cached articles without burning API requests unless uptime exceeds interval.
+                return self.activate_time.elapsed() >= Duration::from_secs(interval_sec);
+            }
+            if now_epoch - self.last_fetch_epoch < interval_sec {
+                // Persistent SD cache is still fresh across reboot/restart.
+                return false;
+            }
+        }
+
+        if has_cached_articles && !self.key_usages.is_empty() {
+            let configured_keys = self
+                .api_key
+                .split(',')
+                .filter(|s| !s.trim().is_empty())
+                .count()
+                .max(1);
+            if self.key_usages.len() >= configured_keys
+                && self
+                    .key_usages
+                    .iter()
+                    .take(configured_keys)
+                    .all(|&u| u >= self.requests_per_day)
+            {
+                return false;
+            }
+        }
+
+        true
     }
 
     fn pick_next_random_article(&mut self) {
@@ -924,6 +1028,7 @@ impl Engine for GNewsEngine {
                 g.clear();
             }
             self.last_fetch = None;
+            self.last_fetch_epoch = 0;
             self.last_fetched_lang.clear();
         }
         // If force_refresh is false, changes will automatically take effect at the next scheduled cycle
@@ -946,9 +1051,20 @@ impl Engine for GNewsEngine {
         let now = Instant::now();
         self.last_update = now;
 
-        // 1. Ingest freshly fetched background articles & status without locking main thread
+        // 1. Ingest freshly fetched background articles, status & quota without locking main thread
         if let Ok(guard) = self.shared_status.try_lock() {
             self.status = *guard;
+        }
+        if let Ok(mut q) = self.shared_quota.try_lock() {
+            if q.dirty {
+                self.active_key_idx = q.active_key_idx;
+                self.key_usages = q.key_usages.clone();
+                if q.last_fetch_epoch > 0 {
+                    self.last_fetch_epoch = q.last_fetch_epoch;
+                    self.last_fetch_day = (q.last_fetch_epoch / 86400) as u32;
+                }
+                q.dirty = false;
+            }
         }
         let fresh_articles = if let Ok(guard) = self.shared_articles.try_lock() {
             if !guard.is_empty()
@@ -985,7 +1101,7 @@ impl Engine for GNewsEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         let cur_day = (now_epoch / 86400) as u32;
-        if cur_day != self.last_fetch_day {
+        if now_epoch >= self.last_fetch_epoch && cur_day != self.last_fetch_day {
             tracing::info!(
                 "[GNewsEngine] UTC Midnight rollover detected (day {} -> {}). Resetting daily quota counters.",
                 self.last_fetch_day,
@@ -995,15 +1111,42 @@ impl Engine for GNewsEngine {
             for u in &mut self.key_usages {
                 *u = 0;
             }
+            if let Ok(mut q) = self.shared_quota.lock() {
+                q.key_usages = self.key_usages.clone();
+                q.dirty = false;
+            }
             if self.status == GNewsStatus::RateLimited {
                 self.status = GNewsStatus::Ok;
                 if let Ok(mut st) = self.shared_status.lock() {
                     *st = GNewsStatus::Ok;
                 }
             }
+            if !self.articles.is_empty() {
+                let fetched_save: Vec<crate::api::gnews::FetchedArticle> = self
+                    .articles
+                    .iter()
+                    .map(|art| crate::api::gnews::FetchedArticle {
+                        title: art.title.clone(),
+                        description: art.description.clone(),
+                        content: art.content.clone(),
+                        source: art.source.clone(),
+                        category: art.category.clone(),
+                        published_epoch: art.published_epoch,
+                    })
+                    .collect();
+                crate::api::gnews::GNewsProvider::save_cache_file(
+                    crate::api::gnews::DEFAULT_CACHE_PATH,
+                    &fetched_save,
+                    self.last_fetch_epoch,
+                    self.cat_round_robin_idx,
+                    self.active_key_idx,
+                    &self.key_usages,
+                    0,
+                );
+            }
         }
 
-        // 3. Background periodic fetch trigger based on daily request budget
+        // 3. Background periodic fetch trigger based on persistent SD cache & daily request budget
         let sys_lang = ctx.config.settings.read().system.lang.clone();
         let effective_lang = if self.lang.is_empty() || self.lang == "auto" || self.lang == "system"
         {
@@ -1016,14 +1159,11 @@ impl Engine for GNewsEngine {
             self.lang.clone()
         };
 
-        let interval_sec = 86400 / self.requests_per_day.clamp(1, 100) as u64;
-        let lang_changed =
-            !self.last_fetched_lang.is_empty() && self.last_fetched_lang != effective_lang;
-        let should_fetch = lang_changed
-            || self.last_fetch.map_or(true, |t| {
-                t.elapsed() >= std::time::Duration::from_secs(interval_sec)
-            });
-        if should_fetch {
+        if self.last_fetched_lang.is_empty() && !self.articles.is_empty() {
+            self.last_fetched_lang = effective_lang.clone();
+        }
+
+        if self.should_fetch_now(now_epoch, &effective_lang) {
             self.trigger_background_fetch(&sys_lang);
         }
 
@@ -2273,5 +2413,81 @@ mod tests {
         assert!(!engine.is_finished());
         engine.advance_to_next_article();
         assert!(engine.is_finished());
+    }
+
+    #[test]
+    fn test_gnews_persistent_cache_survives_reboot_and_respects_quota() {
+        let mut engine = GNewsEngine::new(64, 32);
+        engine.api_key = "test_key_1".to_string();
+        engine.requests_per_day = 10; // 8640s interval (2h24m)
+        engine.cache_ttl_min = 30; // 1800s TTL
+        engine.articles = vec![GNewsArticle {
+            title: "Cached Headline".to_string(),
+            description: "Cached Desc".to_string(),
+            content: "Cached Content".to_string(),
+            source: "LeMonde".to_string(),
+            category: "technology".to_string(),
+            published_epoch: 1_760_000_000,
+            badge_color: (0, 229, 255),
+        }];
+        // Simulate a Raspberry Pi reboot where CLOCK_MONOTONIC (Instant::now()) just started
+        // so `last_fetch` is None, while `last_fetch_epoch` on the SD card is 10 minutes ago.
+        engine.last_fetch = None;
+        engine.last_fetch_epoch = 1_760_000_000;
+        engine.last_fetched_lang = "fr".to_string();
+        engine.key_usages = vec![2];
+
+        // 1. Reboot 10 minutes (600s) after last fetch -> must NOT fetch!
+        assert!(!engine.should_fetch_now(1_760_000_600, "fr"));
+
+        // 2. Reboot before NTP clock sync (`now_epoch < last_fetch_epoch`) -> must NOT fetch!
+        assert!(!engine.should_fetch_now(1_759_990_000, "fr"));
+
+        // 3. After 3 hours (10800s >= 8640s) with remaining daily quota -> must fetch!
+        assert!(engine.should_fetch_now(1_760_010_800, "fr"));
+
+        // 4. If daily quota budget (`requests_per_day = 10`) is already exhausted today -> must NOT fetch!
+        engine.key_usages = vec![10];
+        assert!(!engine.should_fetch_now(1_760_010_800, "fr"));
+
+        // 5. Explicit language change overrides cache and triggers fetch
+        assert!(engine.should_fetch_now(1_760_000_600, "en"));
+    }
+
+    #[test]
+    fn test_gnews_sd_cache_file_atomic_roundtrip() {
+        let tmp_dir = tempfile::tempdir().expect("tempdir");
+        let cache_path = tmp_dir.path().join("data").join("gnews_cache.json");
+        let cache_path_str = cache_path.to_str().unwrap();
+
+        let sample_articles = vec![crate::api::gnews::FetchedArticle {
+            title: "Persistent SD Title".to_string(),
+            description: "Persistent SD Desc".to_string(),
+            content: "Persistent SD Content".to_string(),
+            source: "Reuters".to_string(),
+            category: "world".to_string(),
+            published_epoch: 1_760_000_123,
+        }];
+
+        crate::api::gnews::GNewsProvider::save_cache_file(
+            cache_path_str,
+            &sample_articles,
+            1_760_000_500,
+            2,
+            1,
+            &[4, 7],
+            0,
+        );
+
+        let loaded = crate::api::gnews::GNewsProvider::load_cache_file(cache_path_str)
+            .expect("should load persisted SD cache");
+        assert_eq!(loaded.0.len(), 1);
+        assert_eq!(loaded.0[0].title, "Persistent SD Title");
+        assert_eq!(loaded.0[0].content, "Persistent SD Content");
+        assert_eq!(loaded.1, 1_760_000_500);
+        assert_eq!(loaded.2, 2);
+        assert_eq!(loaded.3, 1);
+        assert_eq!(loaded.4, vec![4, 7]);
+        assert_eq!(loaded.5, 0);
     }
 }

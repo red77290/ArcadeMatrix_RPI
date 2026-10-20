@@ -702,9 +702,14 @@ impl MediaShowcaseRunner {
 
             let is_ready = batch_data.status.eq_ignore_ascii_case("ready");
             let pan_h = height * 2 + 8;
+            let prev_items = {
+                let guard = shared.lock().unwrap();
+                guard.items.clone()
+            };
 
             let mut prepared = Vec::with_capacity(batch_data.items.len());
             for api_item in batch_data.items {
+                let prev_match = prev_items.iter().find(|p| p.id == api_item.id);
                 let badge_rgb = parse_hex_rgb(&api_item.badge_color, domain.default_accent_rgb());
                 let item_pw = if api_item.poster_width > 0 {
                     api_item.poster_width
@@ -717,7 +722,11 @@ impl MediaShowcaseRunner {
                     default_ph
                 };
 
-                let poster = if cfg.show_poster {
+                let poster = if !cfg.show_poster {
+                    None
+                } else if let Some(existing_poster) = prev_match.and_then(|p| p.poster.clone()) {
+                    Some(existing_poster)
+                } else {
                     let url = format!("{}{}", base, api_item.assets.poster_rgb565);
                     client
                         .get(&url)
@@ -725,42 +734,47 @@ impl MediaShowcaseRunner {
                         .ok()
                         .and_then(|r| r.bytes().ok())
                         .and_then(|b| decode_rgb565_le_image(&b, item_pw, item_ph))
-                } else {
-                    None
                 };
 
                 // Download ordered panorama streams (`jacket_panorama` -> `marquee_panorama` -> `snapshot_panoramas`)
                 let mut panorama_streams = Vec::new();
                 if cfg.any_panorama_requested() {
-                    let mut ordered_paths: Vec<String> = Vec::new();
-                    if !api_item.assets.panorama_streams_rgb565.is_empty() {
-                        ordered_paths
-                            .extend(api_item.assets.panorama_streams_rgb565.iter().cloned());
+                    if let Some(prev) = prev_match.filter(|p| !p.panorama_streams.is_empty()) {
+                        panorama_streams = prev.panorama_streams.clone();
                     } else {
-                        if cfg.jacket_panorama && !api_item.assets.jacket_stream_rgb565.is_empty() {
-                            ordered_paths.push(api_item.assets.jacket_stream_rgb565.clone());
+                        let mut ordered_paths: Vec<String> = Vec::new();
+                        if !api_item.assets.panorama_streams_rgb565.is_empty() {
+                            ordered_paths
+                                .extend(api_item.assets.panorama_streams_rgb565.iter().cloned());
+                        } else {
+                            if cfg.jacket_panorama
+                                && !api_item.assets.jacket_stream_rgb565.is_empty()
+                            {
+                                ordered_paths.push(api_item.assets.jacket_stream_rgb565.clone());
+                            }
+                            if cfg.marquee_panorama
+                                && !api_item.assets.marquee_stream_rgb565.is_empty()
+                            {
+                                ordered_paths.push(api_item.assets.marquee_stream_rgb565.clone());
+                            }
+                            for s_path in api_item
+                                .assets
+                                .snapshot_streams_rgb565
+                                .iter()
+                                .take(cfg.snapshot_panorama_count as usize)
+                            {
+                                ordered_paths.push(s_path.clone());
+                            }
                         }
-                        if cfg.marquee_panorama && !api_item.assets.marquee_stream_rgb565.is_empty()
-                        {
-                            ordered_paths.push(api_item.assets.marquee_stream_rgb565.clone());
-                        }
-                        for s_path in api_item
-                            .assets
-                            .snapshot_streams_rgb565
-                            .iter()
-                            .take(cfg.snapshot_panorama_count as usize)
-                        {
-                            ordered_paths.push(s_path.clone());
-                        }
-                    }
 
-                    for pan_path in ordered_paths {
-                        let url = format!("{}{}", base, pan_path);
-                        if let Ok(r) = client.get(&url).send() {
-                            if r.status().is_success() {
-                                if let Ok(bytes) = r.bytes() {
-                                    if let Some(decoded) = decode_rgb565_stream(&bytes) {
-                                        panorama_streams.push(decoded);
+                        for pan_path in ordered_paths {
+                            let url = format!("{}{}", base, pan_path);
+                            if let Ok(r) = client.get(&url).send() {
+                                if r.status().is_success() {
+                                    if let Ok(bytes) = r.bytes() {
+                                        if let Some(decoded) = decode_rgb565_stream(&bytes) {
+                                            panorama_streams.push(decoded);
+                                        }
                                     }
                                 }
                             }
@@ -769,13 +783,17 @@ impl MediaShowcaseRunner {
                 }
 
                 let snapshot_pan = if cfg.any_panorama_requested() && panorama_streams.is_empty() {
-                    let url = format!("{}{}", base, api_item.assets.snapshot_pan_rgb565);
-                    client
-                        .get(&url)
-                        .send()
-                        .ok()
-                        .and_then(|r| r.bytes().ok())
-                        .and_then(|b| decode_rgb565_le_image(&b, width, pan_h))
+                    if let Some(existing_pan) = prev_match.and_then(|p| p.snapshot_pan.clone()) {
+                        Some(existing_pan)
+                    } else {
+                        let url = format!("{}{}", base, api_item.assets.snapshot_pan_rgb565);
+                        client
+                            .get(&url)
+                            .send()
+                            .ok()
+                            .and_then(|r| r.bytes().ok())
+                            .and_then(|b| decode_rgb565_le_image(&b, width, pan_h))
+                    }
                 } else {
                     None
                 };
@@ -784,7 +802,10 @@ impl MediaShowcaseRunner {
                 let mut video_frame_delay =
                     Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
 
-                if cfg.show_video
+                if let Some(prev) = prev_match.filter(|p| !p.video_frames.is_empty()) {
+                    video_frames = prev.video_frames.clone();
+                    video_frame_delay = prev.video_frame_delay;
+                } else if cfg.show_video
                     && api_item.has_video
                     && !api_item.assets.video_stream_rgb565.is_empty()
                     && (is_ready || api_item.video_ready)
@@ -956,6 +977,66 @@ impl MediaShowcaseRunner {
         self.phase_started_at = Instant::now();
     }
 
+    fn sync_shared_batch(&mut self, now: Instant) -> bool {
+        if self.active_items.is_empty() {
+            let (readiness, ready_items) = {
+                let guard = self.shared.lock().unwrap();
+                (guard.readiness, guard.items.clone())
+            };
+            if !ready_items.is_empty() {
+                self.active_items = ready_items
+                    .into_iter()
+                    .take(self.cfg.items_per_rotation as usize)
+                    .collect();
+                self.forced_warming_card_fallback = readiness != BatchReadiness::Ready;
+                self.phase_started_at = now;
+                self.dirty = true;
+                true
+            } else {
+                if now.saturating_duration_since(self.last_retry_poll)
+                    >= Duration::from_millis(2500)
+                {
+                    self.last_retry_poll = now;
+                    self.spawn_background_sync(false);
+                }
+                self.dirty = true;
+                false
+            }
+        } else {
+            if self.forced_warming_card_fallback {
+                // While playing Card / Panorama during server video warming, hot-upgrade video frames
+                // in-place WITHOUT resetting `phase_started_at` or interrupting the current scroll!
+                let (readiness, ready_items) = {
+                    let guard = self.shared.lock().unwrap();
+                    (guard.readiness, guard.items.clone())
+                };
+                for active in &mut self.active_items {
+                    if active.video_frames.is_empty() {
+                        if let Some(updated) = ready_items
+                            .iter()
+                            .find(|it| it.id == active.id && !it.video_frames.is_empty())
+                        {
+                            active.video_frames = updated.video_frames.clone();
+                            active.video_frame_delay = updated.video_frame_delay;
+                            active.has_video = updated.has_video;
+                            active.video_ready = updated.video_ready;
+                        }
+                    }
+                }
+                if readiness == BatchReadiness::Ready {
+                    self.forced_warming_card_fallback = false;
+                    self.spawn_background_sync(false);
+                } else if now.saturating_duration_since(self.last_retry_poll)
+                    >= Duration::from_millis(2500)
+                {
+                    self.last_retry_poll = now;
+                    self.spawn_background_sync(false);
+                }
+            }
+            true
+        }
+    }
+
     pub fn update(&mut self, context: &mut EngineContext) {
         let now = Instant::now();
         let dt = now.saturating_duration_since(self.last_tick);
@@ -980,32 +1061,8 @@ impl MediaShowcaseRunner {
             return;
         }
 
-        // If waiting for server or warming, poll shared state and re-trigger background sync every 2.5s
-        if self.forced_warming_card_fallback || self.active_items.is_empty() {
-            let (readiness, ready_items) = {
-                let guard = self.shared.lock().unwrap();
-                (guard.readiness, guard.items.clone())
-            };
-            if !ready_items.is_empty() {
-                self.active_items = ready_items
-                    .into_iter()
-                    .take(self.cfg.items_per_rotation as usize)
-                    .collect();
-                if readiness == BatchReadiness::Ready {
-                    self.forced_warming_card_fallback = false;
-                }
-                self.phase_started_at = now;
-                self.dirty = true;
-            } else {
-                if now.saturating_duration_since(self.last_retry_poll)
-                    >= Duration::from_millis(2500)
-                {
-                    self.last_retry_poll = now;
-                    self.spawn_background_sync(true);
-                }
-                self.dirty = true;
-                return;
-            }
+        if !self.sync_shared_batch(now) {
+            return;
         }
 
         if self.current_item_idx >= self.active_items.len() {
@@ -1867,5 +1924,35 @@ mod tests {
         assert!(runner.active_items.is_empty());
         assert!(!runner.is_finished());
         assert_eq!(runner.phase, PlaybackPhase::Card);
+
+        // Populate shared items while still Warming: first sync_shared_batch() must initialize
+        // active_items, and subsequent calls must NOT reset phase_started_at.
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.items.push(PreparedShowcaseItem {
+                id: "item-1".to_string(),
+                title: "Test Item".to_string(),
+                year: "2026".to_string(),
+                badge: "ARCADE".to_string(),
+                badge_rgb: (20, 60, 120),
+                subtitle: "2026".to_string(),
+                rating: "8.5".to_string(),
+                synopsis: "A long scrolling synopsis that must progress smoothly.".to_string(),
+                poster: None,
+                snapshot_pan: None,
+                panorama_streams: Vec::new(),
+                video_frames: Vec::new(),
+                video_frame_delay: Duration::from_millis(66),
+                has_video: true,
+                video_ready: false,
+            });
+        }
+        let t0 = Instant::now();
+        assert!(runner.sync_shared_batch(t0));
+        assert_eq!(runner.active_items.len(), 1);
+        assert_eq!(runner.phase_started_at, t0);
+        let t1 = t0 + Duration::from_millis(50);
+        assert!(runner.sync_shared_batch(t1));
+        assert_eq!(runner.phase_started_at, t0);
     }
 }

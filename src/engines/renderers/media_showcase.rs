@@ -1,40 +1,128 @@
-//! Shared renderer and 2-step LAN protocol runner (`MediaShowcaseRunner`) for the 4
-//! DMD Media Showcase engines (`retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`).
+//! Shared V3.0 renderer and dual-transport (`mqtt_udp` + `http_poll`) Consume-Once runner
+//! (`MediaShowcaseRunner`) for the 4 DMD Media Showcase engines:
+//! `retro_games`, `movie_showcase`, `series_showcase`, and `anime_showcase`.
 //!
-//! V2.1 Architecture:
-//! - Zero hardcoded demo/mock items: never displays fake titles (`Stranger Things`, `Metal Slug`, etc.)
-//!   when the server is unconfigured or unreachable.
-//! - Granular top-to-bottom panorama streams (`jacket_panorama`, `marquee_panorama`,
-//!   `snapshot_panorama_count`) powered by `dmd_gif_converter`.
-//! - Organic rotation timing: `PlaybackPhase::Card` dynamically computes the exact time
-//!   needed for 100% of the localized synopsis to scroll from start to finish before advancing
-//!   to `JacketPanorama -> MarqueePanorama -> SnapshotPanoramas -> VideoStream`.
-//! - Adaptive multi-resolution (`256x64`, `128x64`, `128x32`, `64x64`) & TATE vertical
-//!   (`64x128`, `64x256`, `32x128`) layouts derived automatically from `context.surface`.
+//! V3.0 Architecture:
+//! - Strict Consume-Once & Zero Media Cache on the DMD: never caches a list of items or
+//!   replays old videos when the server is stopped. If the server goes offline (MQTT LWT
+//!   `online: false`, UDP watchdog timeout, or HTTP error), active media is cleared immediately.
+//! - Dedicated MQTT Broker Config per engine: `use_showcase_broker = true` automatically
+//!   derives `<server_url_host>:1883` without manual configuration; `use_showcase_broker = false`
+//!   allows selecting either ArcadeMatrix's `global` MQTT broker or a `custom` broker URL.
+//! - Real-Time `mqtt_udp` + `http_poll`: Phase 1 (Info Card) stays in JSON so the DMD renders
+//!   the mini-jacket and scrolls 100% of the localized synopsis at `text_scroll_speed`
+//!   (`slow` = 16 px/s, `normal` = 24 px/s, `fast` = 36 px/s); Phases 2 & 3 (Panoramas + Video)
+//!   stream in real time via `DMDF` UDP packets (`ffmpeg -re`) or HTTP `.rgb565.stream`.
+//! - 4 Creative Procedural Pixel-Art "Waiting for Content" Animations (Games, Movies, Series, Anime)
+//!   adapted to all DMD panel resolutions (`128x32`, `128x64`, `256x64`, `64x64`, and TATE).
 
 use crate::core::engine_contract::{EngineConfig, EngineContext};
 use crate::core::matrix::IDrawingSurface;
 use crate::engines::dashboard::font::draw_text_scaled;
 use crate::engines::renderers::primitives::{
-    draw_fast_hline, draw_round_rect, draw_scrolling_text, fill_round_rect,
+    draw_fast_hline, draw_fast_vline, draw_round_rect, draw_scrolling_text, fill_round_rect,
 };
 use crate::engines::renderers::tiny_font::draw_tiny_text;
 use image::RgbImage;
+use rumqttc::{Client as MqttSyncClient, Event as MqttEvent, LastWill, MqttOptions, Packet, QoS};
 use serde::{Deserialize, Serialize};
+use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::{debug, warn};
+use tracing::warn;
+
+fn fill_rect(
+    matrix: &mut dyn IDrawingSurface,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    color: (u8, u8, u8),
+) {
+    fill_round_rect(matrix, x, y, w, h, 0, color);
+}
+
+fn draw_line(
+    matrix: &mut dyn IDrawingSurface,
+    mut x0: i32,
+    mut y0: i32,
+    x1: i32,
+    y1: i32,
+    color: (u8, u8, u8),
+) {
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    loop {
+        matrix.set_pixel(x0, y0, color.0, color.1, color.2);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn draw_circle(matrix: &mut dyn IDrawingSurface, cx: i32, cy: i32, r: i32, color: (u8, u8, u8)) {
+    let mut x = r;
+    let mut y = 0;
+    let mut err = 0;
+    while x >= y {
+        matrix.set_pixel(cx + x, cy + y, color.0, color.1, color.2);
+        matrix.set_pixel(cx + y, cy + x, color.0, color.1, color.2);
+        matrix.set_pixel(cx - y, cy + x, color.0, color.1, color.2);
+        matrix.set_pixel(cx - x, cy + y, color.0, color.1, color.2);
+        matrix.set_pixel(cx - x, cy - y, color.0, color.1, color.2);
+        matrix.set_pixel(cx - y, cy - x, color.0, color.1, color.2);
+        matrix.set_pixel(cx + y, cy - x, color.0, color.1, color.2);
+        matrix.set_pixel(cx + x, cy - y, color.0, color.1, color.2);
+        y += 1;
+        if err <= 0 {
+            err += 2 * y + 1;
+        }
+        if err > 0 {
+            x -= 1;
+            err -= 2 * x + 1;
+        }
+    }
+}
+
+fn fill_circle(matrix: &mut dyn IDrawingSurface, cx: i32, cy: i32, r: i32, color: (u8, u8, u8)) {
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r * r {
+                matrix.set_pixel(cx + dx, cy + dy, color.0, color.1, color.2);
+            }
+        }
+    }
+}
 
 pub const DMDS_MAGIC: &[u8; 4] = b"DMDS";
 pub const DMDS_HEADER_SIZE: usize = 16;
 
-/// Speed of the single-pass organic synopsis scroll in pixels per second.
-const SYNOPSIS_SPEED_PX_PER_SEC: u64 = 24;
+pub const DMDF_MAGIC: &[u8; 4] = b"DMDF";
+pub const DMDF_HEADER_SIZE: usize = 10;
+
 /// Initial hold before the synopsis begins scrolling (ms).
 const SYNOPSIS_START_HOLD_MS: u64 = 900;
 /// End hold once the final word of the synopsis is on screen (ms).
 const SYNOPSIS_END_HOLD_MS: u64 = 700;
+/// Minimum card visibility duration when synopsis is disabled or very short (ms).
+const MIN_CARD_DISPLAY_MS: u64 = 4500;
+/// Watchdog timeout for real-time UDP stream once packets have started arriving.
+const UDP_STREAM_WATCHDOG_MS: u64 = 1500;
+/// Initial grace period waiting for the first UDP packet after sending `start_stream`.
+const UDP_INITIAL_GRACE_MS: u64 = 3500;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShowcaseDomain {
@@ -93,20 +181,18 @@ pub fn compute_card_poster_dims(width: u32, height: u32) -> (u32, u32) {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShowcaseConfig {
     pub server_url: String,
-    pub items_per_rotation: u32,
+    pub transport_mode: String,
+    pub use_showcase_broker: bool,
+    pub mqtt_broker_source: String,
+    pub mqtt_custom_url: String,
     pub lang: String,
-    pub primary_source: String,
-    pub scraper_user: String,
-    pub scraper_pass: String,
-    pub scraper_api_key: String,
+    pub text_scroll_speed: String,
     pub show_poster: bool,
     pub show_synopsis: bool,
     pub jacket_panorama: bool,
     pub marquee_panorama: bool,
     pub snapshot_panorama_count: u32,
     pub show_video: bool,
-    pub card_duration_s: u32,
-    pub snapshot_duration_s: u32,
     pub video_max_duration_s: u32,
     pub video_fps: u32,
     pub video_mode: String,
@@ -121,21 +207,19 @@ pub struct ShowcaseConfig {
 impl Default for ShowcaseConfig {
     fn default() -> Self {
         Self {
-            server_url: "http://127.0.0.1:8790".to_string(),
-            items_per_rotation: 3,
+            server_url: "http://127.0.0.1:8080".to_string(),
+            transport_mode: "mqtt_udp".to_string(),
+            use_showcase_broker: true,
+            mqtt_broker_source: "global".to_string(),
+            mqtt_custom_url: String::new(),
             lang: "system".to_string(),
-            primary_source: "auto".to_string(),
-            scraper_user: String::new(),
-            scraper_pass: String::new(),
-            scraper_api_key: String::new(),
+            text_scroll_speed: "normal".to_string(),
             show_poster: true,
             show_synopsis: true,
             jacket_panorama: true,
             marquee_panorama: false,
             snapshot_panorama_count: 0,
             show_video: true,
-            card_duration_s: 7,
-            snapshot_duration_s: 4,
             video_max_duration_s: 8,
             video_fps: 15,
             video_mode: "auto_action".to_string(),
@@ -152,20 +236,19 @@ impl Default for ShowcaseConfig {
 impl ShowcaseConfig {
     pub fn from_engine_config(cfg: &dyn EngineConfig, domain: ShowcaseDomain) -> Self {
         let mut out = Self::default();
-        let raw_url = cfg.get_string("server_url", "http://127.0.0.1:8790");
+        let raw_url = cfg.get_string("server_url", "http://127.0.0.1:8080");
         out.server_url = raw_url.trim().trim_end_matches('/').to_string();
-        out.items_per_rotation = cfg.get_int("items_per_rotation", 3).clamp(1, 25) as u32;
+        out.transport_mode = cfg.get_string("transport_mode", "mqtt_udp");
+        out.use_showcase_broker = cfg.get_bool("use_showcase_broker", true);
+        out.mqtt_broker_source = cfg.get_string("mqtt_broker_source", "global");
+        out.mqtt_custom_url = cfg.get_string("mqtt_custom_url", "").trim().to_string();
         out.lang = cfg.get_string("lang", "system");
-        out.primary_source = cfg.get_string("primary_source", "auto");
-        out.scraper_user = cfg.get_string("scraper_user", "");
-        out.scraper_pass = cfg.get_string("scraper_pass", "");
-        out.scraper_api_key = cfg.get_string("scraper_api_key", "");
+        out.text_scroll_speed = cfg.get_string("text_scroll_speed", "normal");
         out.show_poster = cfg.get_bool("show_poster", true);
         out.show_synopsis = cfg.get_bool("show_synopsis", true);
         out.jacket_panorama = cfg.get_bool("jacket_panorama", true);
         out.marquee_panorama = cfg.get_bool("marquee_panorama", false);
 
-        // Support `snapshot_panorama_count` with backward-compatible fallback to `image_count`
         let snap_cnt = cfg.get_int("snapshot_panorama_count", -1);
         if snap_cnt >= 0 {
             out.snapshot_panorama_count = snap_cnt.clamp(0, 5) as u32;
@@ -174,8 +257,6 @@ impl ShowcaseConfig {
         }
 
         out.show_video = cfg.get_bool("show_video", true);
-        out.card_duration_s = cfg.get_int("card_duration_s", 7).clamp(3, 30) as u32;
-        out.snapshot_duration_s = cfg.get_int("snapshot_duration_s", 4).clamp(2, 15) as u32;
         out.video_max_duration_s = cfg.get_int("video_max_duration_s", 8).clamp(2, 30) as u32;
         out.video_fps = cfg.get_int("video_fps", 15).clamp(6, 30) as u32;
         out.video_mode = cfg.get_string(
@@ -214,19 +295,81 @@ impl ShowcaseConfig {
         }
     }
 
+    pub fn synopsis_px_per_sec(&self) -> u64 {
+        match self.text_scroll_speed.to_ascii_lowercase().as_str() {
+            "slow" => 16,
+            "fast" => 36,
+            _ => 24,
+        }
+    }
+
     pub fn any_panorama_requested(&self) -> bool {
         self.jacket_panorama || self.marquee_panorama || self.snapshot_panorama_count > 0
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Extract `(host, port)` from an HTTP or MQTT URL string.
+pub fn parse_host_and_port(raw_url: &str, default_port: u16) -> Option<(String, u16)> {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let without_scheme = trimmed
+        .strip_prefix("http://")
+        .or_else(|| trimmed.strip_prefix("https://"))
+        .or_else(|| trimmed.strip_prefix("mqtt://"))
+        .or_else(|| trimmed.strip_prefix("tcp://"))
+        .unwrap_or(trimmed);
+    let authority = without_scheme.split('/').next().unwrap_or(without_scheme);
+    if authority.is_empty() {
+        return None;
+    }
+    if let Some((h, p_str)) = authority.rsplit_once(':') {
+        if !h.is_empty() {
+            let port = p_str.parse::<u16>().unwrap_or(default_port);
+            return Some((h.to_string(), port));
+        }
+    }
+    Some((authority.to_string(), default_port))
+}
+
+/// Resolve the target MQTT `(host, port)` according to the engine's 3-mode broker configuration:
+/// 1. `use_showcase_broker == true` -> derive host directly from `server_url` and use port `1883`.
+/// 2. `use_showcase_broker == false && mqtt_broker_source == "custom"` -> parse `mqtt_custom_url`.
+/// 3. `use_showcase_broker == false && mqtt_broker_source == "global"` -> use ArcadeMatrix's global MQTT config.
+pub fn resolve_mqtt_broker_endpoint(
+    cfg: &ShowcaseConfig,
+    global_mqtt: Option<(&str, u16)>,
+) -> Option<(String, u16)> {
+    if cfg.use_showcase_broker {
+        let (host, _) = parse_host_and_port(&cfg.server_url, 8080)?;
+        return Some((host, 1883));
+    }
+    if cfg.mqtt_broker_source.eq_ignore_ascii_case("custom") {
+        if let Some(ep) = parse_host_and_port(&cfg.mqtt_custom_url, 1883) {
+            return Some(ep);
+        }
+    }
+    if let Some((g_host, g_port)) = global_mqtt {
+        if !g_host.trim().is_empty() {
+            return Some((
+                g_host.trim().to_string(),
+                if g_port > 0 { g_port } else { 1883 },
+            ));
+        }
+    }
+    let (host, _) = parse_host_and_port(&cfg.server_url, 8080)?;
+    Some((host, 1883))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiMediaAssets {
+    #[serde(default)]
     pub poster_png: String,
+    #[serde(default)]
     pub poster_rgb565: String,
-    pub marquee_png: String,
-    pub marquee_rgb565: String,
-    pub snapshot_pan_png: String,
-    pub snapshot_pan_rgb565: String,
+    #[serde(default)]
+    pub unified_stream_rgb565: String,
     #[serde(default)]
     pub jacket_stream_rgb565: String,
     #[serde(default)]
@@ -234,40 +377,71 @@ pub struct ApiMediaAssets {
     #[serde(default)]
     pub snapshot_streams_rgb565: Vec<String>,
     #[serde(default)]
-    pub panorama_gifs: Vec<String>,
-    #[serde(default)]
     pub panorama_streams_rgb565: Vec<String>,
-    #[serde(default)]
-    pub video_gif: String,
     #[serde(default)]
     pub video_stream_rgb565: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApiShowcaseItem {
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
+    pub item_id: String,
+    #[serde(default)]
     pub domain: String,
+    #[serde(default)]
     pub title: String,
+    #[serde(default)]
     pub year: String,
+    #[serde(default)]
     pub badge: String,
     #[serde(default = "default_badge_hex")]
     pub badge_color: String,
+    #[serde(default)]
     pub subtitle: String,
+    #[serde(default)]
     pub rating: String,
+    #[serde(default)]
     pub synopsis: String,
     #[serde(default)]
     pub poster_width: u32,
     #[serde(default)]
     pub poster_height: u32,
     #[serde(default)]
+    pub poster_rgb565_url: String,
+    #[serde(default)]
+    pub has_panoramas: bool,
+    #[serde(default)]
     pub has_video: bool,
     #[serde(default)]
     pub video_ready: bool,
     #[serde(default)]
-    pub video_duration_s: f32,
+    pub total_stream_duration_s: f32,
     #[serde(default = "default_fps_val")]
     pub video_fps: u32,
+    #[serde(default = "default_fps_val")]
+    pub fps: u32,
+    #[serde(default)]
     pub assets: ApiMediaAssets,
+}
+
+impl ApiShowcaseItem {
+    pub fn canonical_id(&self) -> &str {
+        if !self.id.is_empty() {
+            &self.id
+        } else {
+            &self.item_id
+        }
+    }
+
+    pub fn canonical_poster_path(&self) -> &str {
+        if !self.poster_rgb565_url.is_empty() {
+            &self.poster_rgb565_url
+        } else {
+            &self.assets.poster_rgb565
+        }
+    }
 }
 
 fn default_badge_hex() -> String {
@@ -279,24 +453,23 @@ fn default_fps_val() -> u32 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiSessionRegisterResponse {
-    pub session_id: String,
+pub struct ApiNextResponse {
     pub status: String,
-    pub batch_size: usize,
-    pub ready_count: usize,
-    pub queue_depth: usize,
+    #[serde(default)]
+    pub item: Option<ApiShowcaseItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiBatchStatusResponse {
-    pub session_id: String,
-    pub status: String,
-    pub ready_count: usize,
-    pub total_count: usize,
-    pub queue_position: usize,
-    pub items: Vec<ApiShowcaseItem>,
+pub struct MqttReadyPayload {
+    pub ready: bool,
+    #[serde(default)]
+    pub item_id: String,
+    #[serde(default)]
+    pub card: Option<ApiShowcaseItem>,
 }
 
+/// Single Consume-Once item held only during the current rotation turn.
+/// Never cached across turns or replayed when the server goes offline.
 #[derive(Clone)]
 pub struct PreparedShowcaseItem {
     pub id: String,
@@ -308,12 +481,12 @@ pub struct PreparedShowcaseItem {
     pub rating: String,
     pub synopsis: String,
     pub poster: Option<RgbImage>,
-    pub snapshot_pan: Option<RgbImage>,
-    pub panorama_streams: Vec<(Vec<RgbImage>, Duration)>,
-    pub video_frames: Vec<RgbImage>,
-    pub video_frame_delay: Duration,
-    pub has_video: bool,
-    pub video_ready: bool,
+    pub has_stream: bool,
+    pub stream_duration_s: f32,
+    pub stream_fps: u32,
+    /// Used only in `http_poll` mode for the single current item, then dropped immediately.
+    pub http_stream_frames: Vec<RgbImage>,
+    pub http_frame_delay: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -323,29 +496,52 @@ pub enum BatchReadiness {
     Ready,
 }
 
-pub struct SharedShowcaseBatch {
-    pub session_id: Option<String>,
+/// Shared state between the network worker thread (`mqtt_udp` or `http_poll`) and the render loop.
+/// Holds at most 1 unconsumed ready item and 1 live UDP frame (`Option<RgbImage>`).
+pub struct SharedShowcaseState {
+    pub server_online: bool,
     pub readiness: BatchReadiness,
-    pub items: Vec<PreparedShowcaseItem>,
+    pub ready_item: Option<PreparedShowcaseItem>,
+    pub live_udp_frame: Option<RgbImage>,
+    pub live_udp_seq: u16,
+    pub last_udp_packet_at: Option<Instant>,
+    pub stream_eof: bool,
+    pub requested_start_card_id: Option<String>,
+    pub requested_start_stream_id: Option<String>,
     pub generation: u64,
 }
 
-impl Default for SharedShowcaseBatch {
+impl Default for SharedShowcaseState {
     fn default() -> Self {
         Self {
-            session_id: None,
+            server_online: false,
             readiness: BatchReadiness::Offline,
-            items: Vec::new(),
+            ready_item: None,
+            live_udp_frame: None,
+            live_udp_seq: 0,
+            last_udp_packet_at: None,
+            stream_eof: false,
+            requested_start_card_id: None,
+            requested_start_stream_id: None,
             generation: 0,
         }
+    }
+}
+
+impl SharedShowcaseState {
+    /// Immediately wipe all media state when the server goes offline or a turn ends.
+    pub fn clear_media_immediately(&mut self) {
+        self.ready_item = None;
+        self.live_udp_frame = None;
+        self.last_udp_packet_at = None;
+        self.stream_eof = true;
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlaybackPhase {
     Card,
-    SnapshotPan,
-    VideoStream,
+    LiveStream,
 }
 
 /// Convert little-endian RGB565 raw bytes (`width * height * 2` bytes) into an `RgbImage`.
@@ -419,6 +615,86 @@ pub fn decode_rgb565_stream(bytes: &[u8]) -> Option<(Vec<RgbImage>, Duration)> {
     Some((frames, Duration::from_millis(delay_ms)))
 }
 
+/// Decoded header of a real-time `DMDF` UDP chunk packet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DmdfPacketHeader {
+    pub frame_seq: u16,
+    pub chunk_idx: u8,
+    pub total_chunks: u8,
+    pub byte_offset: u16,
+}
+
+/// Parse a `DMDF` UDP datagram into its header and raw RGB565LE pixel slice.
+pub fn decode_dmdf_packet(packet: &[u8]) -> Option<(DmdfPacketHeader, &[u8])> {
+    if packet.len() <= DMDF_HEADER_SIZE || &packet[0..4] != DMDF_MAGIC {
+        return None;
+    }
+    let frame_seq = u16::from_le_bytes([packet[4], packet[5]]);
+    let chunk_idx = packet[6];
+    let total_chunks = packet[7].max(1);
+    let byte_offset = u16::from_le_bytes([packet[8], packet[9]]);
+    if chunk_idx >= total_chunks {
+        return None;
+    }
+    Some((
+        DmdfPacketHeader {
+            frame_seq,
+            chunk_idx,
+            total_chunks,
+            byte_offset,
+        },
+        &packet[DMDF_HEADER_SIZE..],
+    ))
+}
+
+/// Stateful reassembler for `DMDF` UDP chunks into a single RGB565 frame buffer.
+pub struct DmdfFrameAssembler {
+    width: u32,
+    height: u32,
+    current_seq: Option<u16>,
+    received_mask: u64,
+    buf: Vec<u8>,
+}
+
+impl DmdfFrameAssembler {
+    pub fn new(width: u32, height: u32) -> Self {
+        let cap = (width as usize) * (height as usize) * 2;
+        Self {
+            width,
+            height,
+            current_seq: None,
+            received_mask: 0,
+            buf: vec![0u8; cap],
+        }
+    }
+
+    pub fn push_packet(&mut self, packet: &[u8]) -> Option<(u16, RgbImage)> {
+        let (hdr, payload) = decode_dmdf_packet(packet)?;
+        if self.current_seq != Some(hdr.frame_seq) {
+            self.current_seq = Some(hdr.frame_seq);
+            self.received_mask = 0;
+        }
+        let start = hdr.byte_offset as usize;
+        let end = start.saturating_add(payload.len());
+        if end > self.buf.len() || hdr.total_chunks > 64 {
+            return None;
+        }
+        self.buf[start..end].copy_from_slice(payload);
+        self.received_mask |= 1u64 << hdr.chunk_idx;
+        let expected_mask = if hdr.total_chunks == 64 {
+            u64::MAX
+        } else {
+            (1u64 << hdr.total_chunks) - 1
+        };
+        if self.received_mask == expected_mask {
+            self.received_mask = 0;
+            let img = decode_rgb565_le_image(&self.buf, self.width, self.height)?;
+            return Some((hdr.frame_seq, img));
+        }
+        None
+    }
+}
+
 pub fn parse_hex_rgb(hex: &str, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
     let clean = hex.trim().trim_start_matches('#');
     if clean.len() == 6 {
@@ -440,7 +716,7 @@ fn split_csv(raw: &str) -> Vec<String> {
         .collect()
 }
 
-/// Draw a single-pass organic scrolling synopsis across `[min_x, max_x)` without premature cutoffs.
+/// Draw a single-pass organic scrolling synopsis across `[min_x, max_x)` at `speed_px_per_sec`.
 fn draw_single_pass_synopsis(
     matrix: &mut dyn IDrawingSurface,
     text: &str,
@@ -449,6 +725,7 @@ fn draw_single_pass_synopsis(
     y: i32,
     color: (u8, u8, u8),
     elapsed_ms: u128,
+    speed_px_per_sec: u64,
 ) {
     let box_w = max_x - min_x;
     if box_w <= 0 || text.is_empty() {
@@ -465,7 +742,7 @@ fn draw_single_pass_synopsis(
 
     let max_scroll = (text_w - (box_w / 3)).max(0);
     let scroll_ms = (elapsed_ms as u64).saturating_sub(SYNOPSIS_START_HOLD_MS);
-    let raw_offset = ((scroll_ms * SYNOPSIS_SPEED_PX_PER_SEC) / 1000) as i32;
+    let raw_offset = ((scroll_ms * speed_px_per_sec.max(8)) / 1000) as i32;
     let dx = raw_offset.min(max_scroll);
 
     draw_text_scaled(
@@ -482,31 +759,268 @@ fn draw_single_pass_synopsis(
     );
 }
 
+/// Render one of the 4 creative Pixel-Art "Waiting for Content" scenes on the DMD surface.
+pub fn render_waiting_pixel_art(
+    domain: ShowcaseDomain,
+    matrix: &mut dyn IDrawingSurface,
+    w: i32,
+    h: i32,
+    elapsed_ms: u128,
+    server_url: &str,
+) {
+    let t_ms = elapsed_ms as u64;
+    let frame_step = (t_ms / 180) as i32;
+    let blink_on = (t_ms / 450) % 2 == 0;
+
+    match domain {
+        ShowcaseDomain::Games => {
+            // 1. Arcade Attract-Mode: Parallax Starfield + Walking 11x8 Space Invader + Pac-Ghost
+            for i in 0..14 {
+                let sx = ((i * 23 + (t_ms as i32 / (18 + (i % 3) * 10))) % w.max(1)).abs();
+                let sy = (4 + (i * 11) % (h - 8).max(1)).clamp(2, h - 3);
+                let c = if i % 2 == 0 {
+                    (90, 120, 180)
+                } else {
+                    (50, 70, 110)
+                };
+                matrix.set_pixel(sx, sy, c.0, c.1, c.2);
+            }
+
+            // Classic Space Invader 11x8 bitmap (2 animation frames)
+            const INVADER_F0: [u16; 8] = [
+                0b00100000100,
+                0b00010001000,
+                0b00111111100,
+                0b01101110110,
+                0b11111111111,
+                0b10111111101,
+                0b10100000101,
+                0b00011011000,
+            ];
+            const INVADER_F1: [u16; 8] = [
+                0b00100000100,
+                0b10010001001,
+                0b10111111101,
+                0b11101110111,
+                0b11111111111,
+                0b01111111110,
+                0b00100000100,
+                0b01000000010,
+            ];
+            let sprite = if frame_step % 2 == 0 {
+                &INVADER_F0
+            } else {
+                &INVADER_F1
+            };
+            let inv_y = if h >= 64 { (h / 2) - 12 } else { 10 };
+            let travel_w = (w - 16).max(8);
+            let inv_x = 2 + ((t_ms as i32 / 35) % travel_w);
+            for (ry, row_bits) in sprite.iter().enumerate() {
+                for rx in 0..11 {
+                    if (row_bits >> (10 - rx)) & 1 == 1 {
+                        matrix.set_pixel(inv_x + rx, inv_y + ry as i32, 0, 255, 128);
+                    }
+                }
+            }
+            // Energy pellets ahead of the invader
+            for p in 1..=3 {
+                let px = (inv_x + 14 + p * 8) % (w - 2).max(4);
+                fill_rect(matrix, px, inv_y + 3, 2, 2, (255, 215, 0));
+            }
+        }
+        ShowcaseDomain::Movies => {
+            // 2. 35mm Cinema Projector: Perforated film strips + 2 spinning reels + volumetric light beam
+            let hole_offset = ((t_ms / 60) as i32) % 6;
+            draw_fast_hline(matrix, 0, 0, w, (70, 70, 90));
+            draw_fast_hline(matrix, 0, 3, w, (70, 70, 90));
+            draw_fast_hline(matrix, 0, h - 4, w, (70, 70, 90));
+            draw_fast_hline(matrix, 0, h - 1, w, (70, 70, 90));
+            let mut hx = -hole_offset;
+            while hx < w {
+                fill_rect(matrix, hx, 1, 3, 2, (220, 190, 110));
+                fill_rect(matrix, hx, h - 3, 3, 2, (220, 190, 110));
+                hx += 6;
+            }
+
+            let cy = h / 2;
+            let r_rad = if h >= 64 { 6 } else { 4 };
+            let r1_x = 8;
+            let r2_x = 8 + r_rad * 2 + 2;
+            draw_circle(matrix, r1_x, cy - 2, r_rad, (0, 229, 255));
+            draw_circle(matrix, r2_x, cy - 2, r_rad, (0, 229, 255));
+            // Rotating spokes
+            let spoke = frame_step % 4;
+            let (dx, dy) = match spoke {
+                0 => (r_rad - 1, 0),
+                1 => (r_rad - 2, r_rad - 2),
+                2 => (0, r_rad - 1),
+                _ => (-(r_rad - 2), r_rad - 2),
+            };
+            draw_line(
+                matrix,
+                r1_x - dx,
+                cy - 2 - dy,
+                r1_x + dx,
+                cy - 2 + dy,
+                (255, 255, 255),
+            );
+            draw_line(
+                matrix,
+                r2_x - dx,
+                cy - 2 - dy,
+                r2_x + dx,
+                cy - 2 + dy,
+                (255, 255, 255),
+            );
+
+            // Projector body & flickering golden light cone
+            let lens_x = r2_x + r_rad + 2;
+            fill_rect(matrix, r1_x - 2, cy + 1, r_rad * 2 + 6, 4, (120, 140, 165));
+            let flicker = if (t_ms / 90) % 3 == 0 { 210 } else { 255 };
+            draw_line(matrix, lens_x, cy + 2, w - 4, 5, (flicker, 200, 70));
+            draw_line(matrix, lens_x, cy + 2, w - 4, h - 6, (flicker, 200, 70));
+        }
+        ShowcaseDomain::Series => {
+            // 3. Retro CRT Television + Rabbit-Ear Antennae + Expanding RF Waves + Scanline
+            let tv_w = if w >= 128 { 22 } else { 16 };
+            let tv_h = if h >= 64 { 16 } else { 12 };
+            let tv_x = 6;
+            let tv_y = (h / 2) - (tv_h / 2) + 2;
+            draw_round_rect(matrix, tv_x, tv_y, tv_w, tv_h, 2, (229, 57, 53));
+
+            // Rabbit-ear V-antennae
+            let ant_cx = tv_x + tv_w / 2;
+            draw_line(matrix, ant_cx, tv_y, ant_cx - 5, tv_y - 5, (200, 210, 230));
+            draw_line(matrix, ant_cx, tv_y, ant_cx + 5, tv_y - 5, (200, 210, 230));
+
+            // Concentric RF signal waves
+            let wave_r = 2 + ((t_ms / 140) as i32 % 6);
+            draw_circle(matrix, ant_cx, tv_y - 5, wave_r, (0, 229, 255));
+
+            // SMPTE mini color bars inside CRT + moving scanline
+            let bar_colors = [
+                (235, 235, 235),
+                (240, 220, 0),
+                (0, 220, 220),
+                (0, 210, 80),
+                (220, 0, 220),
+                (220, 30, 30),
+            ];
+            let inner_w = (tv_w - 4).max(6);
+            let inner_h = (tv_h - 4).max(4);
+            for (idx, col) in bar_colors.iter().enumerate() {
+                let bx0 = tv_x + 2 + (idx as i32 * inner_w) / 6;
+                let bx1 = tv_x + 2 + ((idx as i32 + 1) * inner_w) / 6;
+                fill_rect(matrix, bx0, tv_y + 2, (bx1 - bx0).max(1), inner_h, *col);
+            }
+            let scan_y = tv_y + 2 + ((t_ms / 70) as i32 % inner_h.max(1));
+            draw_fast_hline(matrix, tv_x + 2, scan_y, inner_w, (255, 255, 255));
+        }
+        ShowcaseDomain::Anime => {
+            // 4. Anime Shuriken / Mecha Energy Core + Speed-Lines + Floating Sakura Petals
+            for i in 0..8 {
+                let ly = 5 + (i * (h - 10).max(8)) / 8;
+                let len = 8 + (i * 5) % 14;
+                let lx = ((w - ((t_ms as i32 / 12 + i * 19) % (w + len))) - len).max(0);
+                draw_fast_hline(matrix, lx, ly, len.min(w - lx), (70, 30, 90));
+            }
+
+            // Rotating 4-point Shuriken on the left
+            let sx = 14;
+            let sy = h / 2;
+            let arm = if h >= 64 { 7 } else { 5 };
+            if frame_step % 2 == 0 {
+                draw_fast_hline(matrix, sx - arm, sy, arm * 2 + 1, (0, 229, 255));
+                draw_fast_vline(matrix, sx, sy - arm, arm * 2 + 1, (0, 229, 255));
+                draw_line(matrix, sx - 3, sy - 3, sx + 3, sy + 3, (255, 64, 129));
+                draw_line(matrix, sx - 3, sy + 3, sx + 3, sy - 3, (255, 64, 129));
+            } else {
+                draw_line(
+                    matrix,
+                    sx - arm,
+                    sy - arm,
+                    sx + arm,
+                    sy + arm,
+                    (0, 229, 255),
+                );
+                draw_line(
+                    matrix,
+                    sx - arm,
+                    sy + arm,
+                    sx + arm,
+                    sy - arm,
+                    (0, 229, 255),
+                );
+                draw_fast_hline(matrix, sx - 3, sy, 7, (255, 64, 129));
+                draw_fast_vline(matrix, sx, sy - 3, 7, (255, 64, 129));
+            }
+            fill_circle(matrix, sx, sy, 1, (255, 255, 255));
+
+            // Floating sakura petals
+            for p in 0..6 {
+                let px = (28 + p * 17 + (t_ms as i32 / 40)) % w.max(1);
+                let py = (4 + p * 9 + (t_ms as i32 / 80)) % (h - 6).max(1);
+                fill_rect(matrix, px, py, 2, 2, (255, 130, 190));
+            }
+        }
+    }
+
+    // Header badge + blinking status prompt
+    let accent = domain.default_accent_rgb();
+    let badge = domain.badge_label();
+    let badge_w = (badge.len() as i32) * 4 + 4;
+    let bx = ((w - badge_w) / 2).max(1);
+    fill_round_rect(matrix, bx, 2, badge_w, 7, 1, accent);
+    draw_tiny_text(matrix, badge, bx + 2, 3, 0, w, (255, 255, 255));
+
+    let msg = if server_url.is_empty() {
+        "SET SERVER URL"
+    } else {
+        match domain {
+            ShowcaseDomain::Games => "WAITING FOR GAME...",
+            ShowcaseDomain::Movies => "WAITING FOR MOVIE...",
+            ShowcaseDomain::Series => "TUNING SERIES...",
+            ShowcaseDomain::Anime => "WAITING FOR ANIME...",
+        }
+    };
+    let text_min_x = if w >= 128 { 30 } else { 2 };
+    let text_y = if h >= 64 { (h / 2) - 3 } else { (h / 2) + 2 };
+    if blink_on {
+        draw_tiny_text(
+            matrix,
+            msg,
+            text_min_x,
+            text_y,
+            text_min_x,
+            w - 2,
+            (235, 245, 255),
+        );
+    }
+}
+
 pub struct MediaShowcaseRunner {
     pub domain: ShowcaseDomain,
     pub cfg: ShowcaseConfig,
     pub system_lang: String,
+    pub global_mqtt_host: String,
+    pub global_mqtt_port: u16,
     pub width: u32,
     pub height: u32,
-    pub shared: Arc<Mutex<SharedShowcaseBatch>>,
+    pub shared: Arc<Mutex<SharedShowcaseState>>,
     pub worker_busy: Arc<AtomicBool>,
     pub config_gen: Arc<AtomicU64>,
 
-    // Per-turn playback state
-    pub active_items: Vec<PreparedShowcaseItem>,
-    pub current_item_idx: usize,
+    // Single-item Consume-Once playback state (never cached across turns)
+    pub active_item: Option<PreparedShowcaseItem>,
     pub phase: PlaybackPhase,
     pub phase_started_at: Instant,
     pub last_retry_poll: Instant,
-    pub pan_image_idx: usize,
-    pub pan_frame_idx: usize,
-    pub pan_frame_elapsed: Duration,
-    pub video_frame_idx: usize,
-    pub video_frame_elapsed: Duration,
+    pub http_frame_idx: usize,
+    pub http_frame_elapsed: Duration,
     pub last_tick: Instant,
     pub turn_evaluated: bool,
     pub skip_turn_immediately: bool,
-    pub forced_warming_card_fallback: bool,
+    pub turn_completed: bool,
     pub dirty: bool,
 }
 
@@ -517,33 +1031,31 @@ impl MediaShowcaseRunner {
             domain,
             cfg: ShowcaseConfig::default(),
             system_lang: "fr".to_string(),
+            global_mqtt_host: String::new(),
+            global_mqtt_port: 1883,
             width: width.max(32),
             height: height.max(32),
-            shared: Arc::new(Mutex::new(SharedShowcaseBatch::default())),
+            shared: Arc::new(Mutex::new(SharedShowcaseState::default())),
             worker_busy: Arc::new(AtomicBool::new(false)),
             config_gen: Arc::new(AtomicU64::new(1)),
-            active_items: Vec::new(),
-            current_item_idx: 0,
+            active_item: None,
             phase: PlaybackPhase::Card,
             phase_started_at: now,
             last_retry_poll: now,
-            pan_image_idx: 0,
-            pan_frame_idx: 0,
-            pan_frame_elapsed: Duration::ZERO,
-            video_frame_idx: 0,
-            video_frame_elapsed: Duration::ZERO,
+            http_frame_idx: 0,
+            http_frame_elapsed: Duration::ZERO,
             last_tick: now,
             turn_evaluated: false,
             skip_turn_immediately: false,
-            forced_warming_card_fallback: false,
+            turn_completed: false,
             dirty: true,
         }
     }
 
     /// Compute the exact organic duration of `PlaybackPhase::Card` so 100% of `item.synopsis`
-    /// scrolls across the DMD viewport before advancing to Jacket/Marquee/Snapshot panoramas.
+    /// scrolls across the DMD viewport at `cfg.synopsis_px_per_sec()` before advancing.
     pub fn organic_card_duration(&self, item: &PreparedShowcaseItem) -> Duration {
-        let base_dur = Duration::from_secs(self.cfg.card_duration_s as u64);
+        let base_dur = Duration::from_millis(MIN_CARD_DISPLAY_MS);
         if !self.cfg.show_synopsis || item.synopsis.is_empty() {
             return base_dur;
         }
@@ -564,13 +1076,22 @@ impl MediaShowcaseRunner {
             return base_dur;
         }
         let scroll_px = (text_w - (box_w / 3)).max(1) as u64;
-        let scroll_ms = (scroll_px * 1000) / SYNOPSIS_SPEED_PX_PER_SEC;
+        let scroll_ms = (scroll_px * 1000) / self.cfg.synopsis_px_per_sec().max(8);
         let total_ms = SYNOPSIS_START_HOLD_MS + scroll_ms + SYNOPSIS_END_HOLD_MS;
         Duration::from_millis(total_ms).max(base_dur)
     }
 
-    /// Spawn background session registration (`POST /api/v1/{domain}/session`) and asset pre-fetching.
-    pub fn spawn_background_sync(&self, register_new_session: bool) {
+    pub fn dmd_client_id(&self) -> String {
+        format!(
+            "rpi_{}_{}x{}",
+            self.domain.as_api_slug(),
+            self.width,
+            self.height
+        )
+    }
+
+    /// Spawn the background worker thread (`mqtt_udp` real-time client or `http_poll` fallback).
+    pub fn spawn_background_sync(&self) {
         if self.cfg.server_url.is_empty() {
             return;
         }
@@ -589,452 +1110,569 @@ impl MediaShowcaseRunner {
         let height = self.height;
         let shared = Arc::clone(&self.shared);
         let busy = Arc::clone(&self.worker_busy);
-        let gen = self.config_gen.load(Ordering::SeqCst);
+        let config_gen_arc = Arc::clone(&self.config_gen);
+        let my_gen = config_gen_arc.load(Ordering::SeqCst);
+        let global_host = self.global_mqtt_host.clone();
+        let global_port = self.global_mqtt_port;
 
         std::thread::spawn(move || {
             let _guard = BusyResetGuard(busy);
-            let client = match reqwest::blocking::Client::builder()
-                .connect_timeout(Duration::from_millis(1500))
-                .timeout(Duration::from_millis(8000))
-                .build()
-            {
-                Ok(c) => c,
-                Err(_) => return,
-            };
-
-            let base = cfg.server_url.trim_end_matches('/');
-            let slug = domain.as_api_slug();
-            let (default_pw, default_ph) = compute_card_poster_dims(width, height);
-
-            let existing_session_id = {
-                let guard = shared.lock().unwrap();
-                guard.session_id.clone()
-            };
-
-            let mut session_id = if !register_new_session {
-                existing_session_id
+            if cfg.transport_mode.eq_ignore_ascii_case("mqtt_udp") {
+                Self::run_mqtt_udp_worker(
+                    domain,
+                    cfg,
+                    lang,
+                    width,
+                    height,
+                    global_host,
+                    global_port,
+                    shared,
+                    config_gen_arc,
+                    my_gen,
+                );
             } else {
-                None
-            };
-
-            let build_reg_body = || {
-                serde_json::json!({
-                    "client_id": format!("rpi_{}_{}x{}", slug, width, height),
-                    "count": cfg.items_per_rotation,
-                    "lang": lang,
-                    "width": width,
-                    "height": height,
-                    "poster_width": default_pw,
-                    "poster_height": default_ph,
-                    "include_poster": cfg.show_poster,
-                    "include_synopsis": cfg.show_synopsis,
-                    "jacket_panorama": cfg.jacket_panorama,
-                    "marquee_panorama": cfg.marquee_panorama,
-                    "snapshot_panorama_count": cfg.snapshot_panorama_count,
-                    "include_snapshot": cfg.any_panorama_requested(),
-                    "image_count": cfg.snapshot_panorama_count,
-                    "primary_source": cfg.primary_source,
-                    "scraper_user": cfg.scraper_user,
-                    "scraper_pass": cfg.scraper_pass,
-                    "scraper_api_key": cfg.scraper_api_key,
-                    "include_video": cfg.show_video,
-                    "video_max_duration_s": cfg.video_max_duration_s as f32,
-                    "video_fps": cfg.video_fps,
-                    "video_mode": cfg.video_mode,
-                    "color_boost": cfg.color_boost,
-                    "systems": split_csv(&cfg.systems),
-                    "genres": split_csv(&cfg.genres),
-                    "decades": split_csv(&cfg.decades),
-                    "min_rating": cfg.min_rating,
-                    "video_type": cfg.video_type,
-                })
-            };
-
-            let reg_url = format!("{}/api/v1/{}/session", base, slug);
-            if session_id.is_none() {
-                match client.post(&reg_url).json(&build_reg_body()).send() {
-                    Ok(resp) if resp.status().is_success() => {
-                        if let Ok(reg_data) = resp.json::<ApiSessionRegisterResponse>() {
-                            session_id = Some(reg_data.session_id);
-                        }
-                    }
-                    Ok(resp) => {
-                        debug!("Showcase session POST returned HTTP {}", resp.status());
-                    }
-                    Err(e) => {
-                        debug!("Showcase server unreachable at {}: {}", reg_url, e);
-                    }
-                }
+                Self::run_http_poll_worker(domain, cfg, lang, width, height, shared, my_gen);
             }
-
-            let Some(mut ses_id) = session_id else {
-                return;
-            };
-
-            let mut batch_url = format!("{}/api/v1/{}/batch?session_id={}", base, slug, ses_id);
-            let mut batch_resp = client.get(&batch_url).send();
-
-            // If session expired or server restarted (404), automatically re-register once
-            if let Ok(ref r) = batch_resp {
-                if !r.status().is_success() {
-                    if let Ok(reg_r) = client.post(&reg_url).json(&build_reg_body()).send() {
-                        if reg_r.status().is_success() {
-                            if let Ok(reg_data) = reg_r.json::<ApiSessionRegisterResponse>() {
-                                ses_id = reg_data.session_id;
-                                batch_url =
-                                    format!("{}/api/v1/{}/batch?session_id={}", base, slug, ses_id);
-                                batch_resp = client.get(&batch_url).send();
-                            }
-                        }
-                    }
-                }
-            }
-
-            let Ok(resp) = batch_resp else {
-                return;
-            };
-            if !resp.status().is_success() {
-                return;
-            }
-            let Ok(batch_data) = resp.json::<ApiBatchStatusResponse>() else {
-                return;
-            };
-
-            let is_ready = batch_data.status.eq_ignore_ascii_case("ready");
-            let pan_h = height * 2 + 8;
-            let prev_items = {
-                let guard = shared.lock().unwrap();
-                guard.items.clone()
-            };
-
-            let mut prepared = Vec::with_capacity(batch_data.items.len());
-            for api_item in batch_data.items {
-                let prev_match = prev_items.iter().find(|p| p.id == api_item.id);
-                let badge_rgb = parse_hex_rgb(&api_item.badge_color, domain.default_accent_rgb());
-                let item_pw = if api_item.poster_width > 0 {
-                    api_item.poster_width
-                } else {
-                    default_pw
-                };
-                let item_ph = if api_item.poster_height > 0 {
-                    api_item.poster_height
-                } else {
-                    default_ph
-                };
-
-                let poster = if !cfg.show_poster {
-                    None
-                } else if let Some(existing_poster) = prev_match.and_then(|p| p.poster.clone()) {
-                    Some(existing_poster)
-                } else {
-                    let url = format!("{}{}", base, api_item.assets.poster_rgb565);
-                    client
-                        .get(&url)
-                        .send()
-                        .ok()
-                        .and_then(|r| r.bytes().ok())
-                        .and_then(|b| decode_rgb565_le_image(&b, item_pw, item_ph))
-                };
-
-                // Download ordered panorama streams (`jacket_panorama` -> `marquee_panorama` -> `snapshot_panoramas`)
-                let mut panorama_streams = Vec::new();
-                if cfg.any_panorama_requested() {
-                    if let Some(prev) = prev_match.filter(|p| !p.panorama_streams.is_empty()) {
-                        panorama_streams = prev.panorama_streams.clone();
-                    } else {
-                        let mut ordered_paths: Vec<String> = Vec::new();
-                        if !api_item.assets.panorama_streams_rgb565.is_empty() {
-                            ordered_paths
-                                .extend(api_item.assets.panorama_streams_rgb565.iter().cloned());
-                        } else {
-                            if cfg.jacket_panorama
-                                && !api_item.assets.jacket_stream_rgb565.is_empty()
-                            {
-                                ordered_paths.push(api_item.assets.jacket_stream_rgb565.clone());
-                            }
-                            if cfg.marquee_panorama
-                                && !api_item.assets.marquee_stream_rgb565.is_empty()
-                            {
-                                ordered_paths.push(api_item.assets.marquee_stream_rgb565.clone());
-                            }
-                            for s_path in api_item
-                                .assets
-                                .snapshot_streams_rgb565
-                                .iter()
-                                .take(cfg.snapshot_panorama_count as usize)
-                            {
-                                ordered_paths.push(s_path.clone());
-                            }
-                        }
-
-                        for pan_path in ordered_paths {
-                            let url = format!("{}{}", base, pan_path);
-                            if let Ok(r) = client.get(&url).send() {
-                                if r.status().is_success() {
-                                    if let Ok(bytes) = r.bytes() {
-                                        if let Some(decoded) = decode_rgb565_stream(&bytes) {
-                                            panorama_streams.push(decoded);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let snapshot_pan = if cfg.any_panorama_requested() && panorama_streams.is_empty() {
-                    if let Some(existing_pan) = prev_match.and_then(|p| p.snapshot_pan.clone()) {
-                        Some(existing_pan)
-                    } else {
-                        let url = format!("{}{}", base, api_item.assets.snapshot_pan_rgb565);
-                        client
-                            .get(&url)
-                            .send()
-                            .ok()
-                            .and_then(|r| r.bytes().ok())
-                            .and_then(|b| decode_rgb565_le_image(&b, width, pan_h))
-                    }
-                } else {
-                    None
-                };
-
-                let mut video_frames = Vec::new();
-                let mut video_frame_delay =
-                    Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
-
-                if let Some(prev) = prev_match.filter(|p| !p.video_frames.is_empty()) {
-                    video_frames = prev.video_frames.clone();
-                    video_frame_delay = prev.video_frame_delay;
-                } else if cfg.show_video
-                    && api_item.has_video
-                    && !api_item.assets.video_stream_rgb565.is_empty()
-                    && (is_ready || api_item.video_ready)
-                {
-                    let raw_path = api_item
-                        .assets
-                        .video_stream_rgb565
-                        .split('?')
-                        .next()
-                        .unwrap_or(&api_item.assets.video_stream_rgb565);
-                    let stream_url = format!(
-                        "{}{}?max_duration_s={}",
-                        base, raw_path, cfg.video_max_duration_s
-                    );
-                    if let Ok(r) = client.get(&stream_url).send() {
-                        if r.status().is_success() {
-                            if let Ok(bytes) = r.bytes() {
-                                if let Some((frames, delay)) = decode_rgb565_stream(&bytes) {
-                                    video_frames = frames;
-                                    video_frame_delay = delay;
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let item_has_video = api_item.has_video && !video_frames.is_empty();
-                prepared.push(PreparedShowcaseItem {
-                    id: api_item.id,
-                    title: api_item.title,
-                    year: api_item.year,
-                    badge: api_item.badge,
-                    badge_rgb,
-                    subtitle: api_item.subtitle,
-                    rating: api_item.rating,
-                    synopsis: api_item.synopsis,
-                    poster,
-                    snapshot_pan,
-                    panorama_streams,
-                    video_frames,
-                    video_frame_delay,
-                    has_video: item_has_video,
-                    video_ready: api_item.video_ready,
-                });
-            }
-
-            let mut guard = shared.lock().unwrap();
-            guard.session_id = Some(ses_id);
-            guard.readiness = if is_ready {
-                BatchReadiness::Ready
-            } else {
-                BatchReadiness::Warming
-            };
-            if !prepared.is_empty() {
-                guard.items = prepared;
-            }
-            guard.generation = gen;
         });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_mqtt_udp_worker(
+        domain: ShowcaseDomain,
+        cfg: ShowcaseConfig,
+        lang: String,
+        width: u32,
+        height: u32,
+        global_host: String,
+        global_port: u16,
+        shared: Arc<Mutex<SharedShowcaseState>>,
+        config_gen_arc: Arc<AtomicU64>,
+        my_gen: u64,
+    ) {
+        let Some((mqtt_host, mqtt_port)) = resolve_mqtt_broker_endpoint(
+            &cfg,
+            if global_host.is_empty() {
+                None
+            } else {
+                Some((global_host.as_str(), global_port))
+            },
+        ) else {
+            return;
+        };
+
+        let slug = domain.as_api_slug();
+        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let udp_socket = match UdpSocket::bind("0.0.0.0:0") {
+            Ok(s) => {
+                let _ = s.set_nonblocking(true);
+                s
+            }
+            Err(_) => return,
+        };
+        let local_udp_port = udp_socket.local_addr().map(|a| a.port()).unwrap_or(5568);
+
+        let mut mqtt_opts = MqttOptions::new(
+            format!("{}_{}", dmd_id, my_gen % 1000),
+            mqtt_host,
+            mqtt_port,
+        );
+        mqtt_opts.set_keep_alive(Duration::from_secs(15));
+        mqtt_opts.set_last_will(LastWill::new(
+            format!("dmd_showcase/clients/{}/status", dmd_id),
+            r#"{"online":false}"#,
+            QoS::AtLeastOnce,
+            false,
+        ));
+
+        let (mqtt_client, mut connection) = MqttSyncClient::new(mqtt_opts, 32);
+
+        let status_topic = "dmd_showcase/server/status".to_string();
+        let ready_topic = format!("dmd_showcase/clients/{}/{}/ready", dmd_id, slug);
+        let events_topic = format!("dmd_showcase/clients/{}/{}/events", dmd_id, slug);
+        let config_topic = format!("dmd_showcase/clients/{}/config", dmd_id);
+
+        let _ = mqtt_client.subscribe(&status_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&ready_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&events_topic, QoS::AtLeastOnce);
+
+        let mut domain_cfg = serde_json::Map::new();
+        domain_cfg.insert(
+            slug.to_string(),
+            serde_json::json!({
+                "jacket_panorama": cfg.jacket_panorama,
+                "marquee_panorama": cfg.marquee_panorama,
+                "snapshot_panorama_count": cfg.snapshot_panorama_count,
+                "show_video": cfg.show_video,
+                "video_max_duration_s": cfg.video_max_duration_s,
+                "video_fps": cfg.video_fps,
+                "video_mode": cfg.video_mode,
+                "color_boost": cfg.color_boost,
+                "systems": split_csv(&cfg.systems),
+                "genres": split_csv(&cfg.genres),
+                "decades": split_csv(&cfg.decades),
+                "min_rating": cfg.min_rating,
+                "video_type": cfg.video_type,
+            }),
+        );
+        let client_cfg_payload = serde_json::json!({
+            "dmd_id": dmd_id,
+            "width": width,
+            "height": height,
+            "udp_port": local_udp_port,
+            "lang": lang,
+            "domains": domain_cfg,
+        });
+        if let Ok(bytes) = serde_json::to_vec(&client_cfg_payload) {
+            let _ = mqtt_client.publish(&config_topic, QoS::AtLeastOnce, true, bytes);
+        }
+
+        let http_client = reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_millis(1500))
+            .timeout(Duration::from_millis(6000))
+            .build()
+            .ok();
+        let base_url = cfg.server_url.trim_end_matches('/').to_string();
+        let (default_pw, default_ph) = compute_card_poster_dims(width, height);
+        let mut assembler = DmdfFrameAssembler::new(width, height);
+        let mut udp_buf = [0u8; 1500];
+
+        let mut iter = connection.iter();
+        while config_gen_arc.load(Ordering::SeqCst) == my_gen {
+            // 1. Drain any incoming UDP `DMDF` packets non-blockingly
+            while let Ok((len, _)) = udp_socket.recv_from(&mut udp_buf) {
+                if let Some((seq, img)) = assembler.push_packet(&udp_buf[..len]) {
+                    let mut guard = shared.lock().unwrap();
+                    guard.live_udp_frame = Some(img);
+                    guard.live_udp_seq = seq;
+                    guard.last_udp_packet_at = Some(Instant::now());
+                    guard.server_online = true;
+                }
+            }
+
+            // 2. Dispatch any queued outbound MQTT events (`start_card`, `start_stream`)
+            let (start_card_id, start_stream_id) = {
+                let mut guard = shared.lock().unwrap();
+                (
+                    guard.requested_start_card_id.take(),
+                    guard.requested_start_stream_id.take(),
+                )
+            };
+            if let Some(item_id) = start_card_id {
+                let ev = serde_json::json!({
+                    "action": "start_card",
+                    "item_id": item_id,
+                });
+                if let Ok(b) = serde_json::to_vec(&ev) {
+                    let _ = mqtt_client.publish(&events_topic, QoS::AtLeastOnce, false, b);
+                }
+            }
+            if let Some(item_id) = start_stream_id {
+                let ev = serde_json::json!({
+                    "action": "start_stream",
+                    "item_id": item_id,
+                    "udp_port": local_udp_port,
+                });
+                if let Ok(b) = serde_json::to_vec(&ev) {
+                    let _ = mqtt_client.publish(&events_topic, QoS::AtLeastOnce, false, b);
+                }
+            }
+
+            // 3. Step the MQTT connection
+            match iter.next() {
+                Some(Ok(MqttEvent::Incoming(Packet::Publish(pub_pkt)))) => {
+                    let topic = pub_pkt.topic.as_str();
+                    let payload = &pub_pkt.payload;
+                    if topic == status_topic {
+                        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(payload) {
+                            let online = v.get("online").and_then(|b| b.as_bool()).unwrap_or(false);
+                            let mut guard = shared.lock().unwrap();
+                            guard.server_online = online;
+                            if !online {
+                                guard.readiness = BatchReadiness::Offline;
+                                guard.clear_media_immediately();
+                            }
+                        }
+                    } else if topic == ready_topic {
+                        if let Ok(ready_msg) = serde_json::from_slice::<MqttReadyPayload>(payload) {
+                            if ready_msg.ready {
+                                if let Some(card) = ready_msg.card {
+                                    let poster = if cfg.show_poster {
+                                        let p_path = card.canonical_poster_path();
+                                        if !p_path.is_empty() {
+                                            let url = format!("{}{}", base_url, p_path);
+                                            let pw = if card.poster_width > 0 {
+                                                card.poster_width
+                                            } else {
+                                                default_pw
+                                            };
+                                            let ph = if card.poster_height > 0 {
+                                                card.poster_height
+                                            } else {
+                                                default_ph
+                                            };
+                                            http_client
+                                                .as_ref()
+                                                .and_then(|c| c.get(&url).send().ok())
+                                                .and_then(|r| r.bytes().ok())
+                                                .and_then(|b| decode_rgb565_le_image(&b, pw, ph))
+                                        } else {
+                                            None
+                                        }
+                                    } else {
+                                        None
+                                    };
+
+                                    let item_id = if !ready_msg.item_id.is_empty() {
+                                        ready_msg.item_id.clone()
+                                    } else {
+                                        card.canonical_id().to_string()
+                                    };
+                                    let has_stream = (cfg.any_panorama_requested()
+                                        && card.has_panoramas)
+                                        || (cfg.show_video && card.has_video);
+                                    let prepared = PreparedShowcaseItem {
+                                        id: item_id,
+                                        title: card.title,
+                                        year: card.year,
+                                        badge: card.badge,
+                                        badge_rgb: parse_hex_rgb(
+                                            &card.badge_color,
+                                            domain.default_accent_rgb(),
+                                        ),
+                                        subtitle: card.subtitle,
+                                        rating: card.rating,
+                                        synopsis: card.synopsis,
+                                        poster,
+                                        has_stream,
+                                        stream_duration_s: card.total_stream_duration_s.max(2.0),
+                                        stream_fps: card.fps.max(1),
+                                        http_stream_frames: Vec::new(),
+                                        http_frame_delay: Duration::from_millis(66),
+                                    };
+                                    let mut guard = shared.lock().unwrap();
+                                    guard.server_online = true;
+                                    guard.readiness = BatchReadiness::Ready;
+                                    guard.ready_item = Some(prepared);
+                                    guard.generation = my_gen;
+                                }
+                            } else {
+                                let mut guard = shared.lock().unwrap();
+                                guard.server_online = true;
+                                if guard.ready_item.is_none() {
+                                    guard.readiness = BatchReadiness::Warming;
+                                }
+                            }
+                        }
+                    } else if topic == events_topic {
+                        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(payload) {
+                            if v.get("event").and_then(|s| s.as_str()) == Some("stream_eof") {
+                                let mut guard = shared.lock().unwrap();
+                                guard.stream_eof = true;
+                            }
+                        }
+                    }
+                }
+                Some(Ok(_)) => {}
+                Some(Err(_)) | None => {
+                    // Broker unreachable or disconnected -> fallback to a single HTTP poll attempt
+                    // before exiting so `mqtt_udp` degrades gracefully if only HTTP is reachable.
+                    {
+                        let mut guard = shared.lock().unwrap();
+                        guard.server_online = false;
+                        guard.readiness = BatchReadiness::Offline;
+                        guard.clear_media_immediately();
+                    }
+                    Self::run_http_poll_worker(domain, cfg, lang, width, height, shared, my_gen);
+                    break;
+                }
+            }
+        }
+    }
+
+    fn run_http_poll_worker(
+        domain: ShowcaseDomain,
+        cfg: ShowcaseConfig,
+        lang: String,
+        width: u32,
+        height: u32,
+        shared: Arc<Mutex<SharedShowcaseState>>,
+        my_gen: u64,
+    ) {
+        let client = match reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_millis(1500))
+            .timeout(Duration::from_millis(8000))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return,
+        };
+
+        let base = cfg.server_url.trim_end_matches('/');
+        let slug = domain.as_api_slug();
+        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let (default_pw, default_ph) = compute_card_poster_dims(width, height);
+
+        // 1. Register client config (`POST /api/v1/{domain}/config`)
+        let cfg_url = format!("{}/api/v1/{}/config", base, slug);
+        let cfg_body = serde_json::json!({
+            "client_id": dmd_id,
+            "lang": lang,
+            "width": width,
+            "height": height,
+            "poster_width": default_pw,
+            "poster_height": default_ph,
+            "include_poster": cfg.show_poster,
+            "include_synopsis": cfg.show_synopsis,
+            "jacket_panorama": cfg.jacket_panorama,
+            "marquee_panorama": cfg.marquee_panorama,
+            "snapshot_panorama_count": cfg.snapshot_panorama_count,
+            "show_video": cfg.show_video,
+            "video_max_duration_s": cfg.video_max_duration_s,
+            "video_fps": cfg.video_fps,
+            "video_mode": cfg.video_mode,
+            "color_boost": cfg.color_boost,
+            "systems": split_csv(&cfg.systems),
+            "genres": split_csv(&cfg.genres),
+            "decades": split_csv(&cfg.decades),
+            "min_rating": cfg.min_rating,
+            "video_type": cfg.video_type,
+        });
+
+        let Ok(cfg_resp) = client.post(&cfg_url).json(&cfg_body).send() else {
+            let mut guard = shared.lock().unwrap();
+            guard.server_online = false;
+            guard.readiness = BatchReadiness::Offline;
+            guard.clear_media_immediately();
+            return;
+        };
+        if !cfg_resp.status().is_success() {
+            let mut guard = shared.lock().unwrap();
+            guard.server_online = false;
+            guard.readiness = BatchReadiness::Offline;
+            guard.clear_media_immediately();
+            return;
+        }
+
+        // 2. Poll next unconsumed item (`GET /api/v1/{domain}/next?client_id=...`)
+        let next_url = format!("{}/api/v1/{}/next?client_id={}", base, slug, dmd_id);
+        let Ok(next_resp) = client.get(&next_url).send() else {
+            let mut guard = shared.lock().unwrap();
+            guard.server_online = false;
+            guard.readiness = BatchReadiness::Offline;
+            guard.clear_media_immediately();
+            return;
+        };
+        if !next_resp.status().is_success() {
+            return;
+        }
+        let Ok(next_data) = next_resp.json::<ApiNextResponse>() else {
+            return;
+        };
+
+        if !next_data.status.eq_ignore_ascii_case("ready") || next_data.item.is_none() {
+            let mut guard = shared.lock().unwrap();
+            guard.server_online = true;
+            guard.readiness = BatchReadiness::Warming;
+            return;
+        }
+
+        let api_item = next_data.item.unwrap();
+        let item_id = api_item.canonical_id().to_string();
+        let pw = if api_item.poster_width > 0 {
+            api_item.poster_width
+        } else {
+            default_pw
+        };
+        let ph = if api_item.poster_height > 0 {
+            api_item.poster_height
+        } else {
+            default_ph
+        };
+
+        let poster = if cfg.show_poster && !api_item.canonical_poster_path().is_empty() {
+            let url = format!("{}{}", base, api_item.canonical_poster_path());
+            client
+                .get(&url)
+                .send()
+                .ok()
+                .and_then(|r| r.bytes().ok())
+                .and_then(|b| decode_rgb565_le_image(&b, pw, ph))
+        } else {
+            None
+        };
+
+        // Fetch unified `.rgb565.stream` (`[Jacket Panorama -> Marquee -> Snapshots -> Video]`)
+        let mut http_stream_frames = Vec::new();
+        let mut http_frame_delay = Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
+        let stream_path = if !api_item.assets.unified_stream_rgb565.is_empty() {
+            api_item.assets.unified_stream_rgb565.clone()
+        } else {
+            format!("/api/v1/{}/stream/{}.rgb565.stream", slug, item_id)
+        };
+        if (cfg.any_panorama_requested() || cfg.show_video) && !stream_path.is_empty() {
+            let url = format!("{}{}", base, stream_path);
+            if let Ok(r) = client.get(&url).send() {
+                if r.status().is_success() {
+                    if let Ok(bytes) = r.bytes() {
+                        if let Some((frames, delay)) = decode_rgb565_stream(&bytes) {
+                            http_stream_frames = frames;
+                            http_frame_delay = delay;
+                        }
+                    }
+                }
+            }
+        }
+
+        let has_stream = !http_stream_frames.is_empty();
+        let prepared = PreparedShowcaseItem {
+            id: item_id,
+            title: api_item.title,
+            year: api_item.year,
+            badge: api_item.badge,
+            badge_rgb: parse_hex_rgb(&api_item.badge_color, domain.default_accent_rgb()),
+            subtitle: api_item.subtitle,
+            rating: api_item.rating,
+            synopsis: api_item.synopsis,
+            poster,
+            has_stream,
+            stream_duration_s: api_item.total_stream_duration_s.max(2.0),
+            stream_fps: api_item.video_fps.max(1),
+            http_stream_frames,
+            http_frame_delay,
+        };
+
+        let mut guard = shared.lock().unwrap();
+        guard.server_online = true;
+        guard.readiness = BatchReadiness::Ready;
+        guard.ready_item = Some(prepared);
+        guard.generation = my_gen;
     }
 
     pub fn initialize(&mut self, context: &mut EngineContext, config: &dyn EngineConfig) {
         self.width = context.surface.width().max(32);
         self.height = context.surface.height().max(32);
-        self.system_lang = context.config.settings.read().system.lang.clone();
+        {
+            let settings = context.config.settings.read();
+            self.system_lang = settings.system.lang.clone();
+            self.global_mqtt_host = settings.mqtt.broker.clone();
+            self.global_mqtt_port = settings.mqtt.port;
+        }
         self.cfg = ShowcaseConfig::from_engine_config(config, self.domain);
-        self.active_items.clear();
+        self.active_item = None;
         self.config_gen.fetch_add(1, Ordering::SeqCst);
-        self.spawn_background_sync(true);
+        self.spawn_background_sync();
     }
 
     pub fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         let new_cfg = ShowcaseConfig::from_engine_config(config, self.domain);
         if new_cfg != self.cfg {
             self.cfg = new_cfg;
-            self.active_items.clear();
+            self.active_item = None;
             {
                 let mut guard = self.shared.lock().unwrap();
-                guard.session_id = None;
-                guard.items.clear();
                 guard.readiness = BatchReadiness::Offline;
+                guard.clear_media_immediately();
             }
             self.config_gen.fetch_add(1, Ordering::SeqCst);
-            self.spawn_background_sync(true);
+            self.spawn_background_sync();
         }
     }
 
     pub fn activate(&mut self) {
         let now = Instant::now();
-        self.current_item_idx = 0;
-        self.pan_image_idx = 0;
-        self.pan_frame_idx = 0;
-        self.pan_frame_elapsed = Duration::ZERO;
-        self.video_frame_idx = 0;
-        self.video_frame_elapsed = Duration::ZERO;
+        self.active_item = None;
+        self.http_frame_idx = 0;
+        self.http_frame_elapsed = Duration::ZERO;
+        self.phase = PlaybackPhase::Card;
         self.phase_started_at = now;
         self.last_retry_poll = now;
         self.last_tick = now;
         self.turn_evaluated = false;
         self.skip_turn_immediately = false;
-        self.forced_warming_card_fallback = false;
+        self.turn_completed = false;
         self.dirty = true;
     }
 
     pub fn deactivate(&mut self) {
+        // Strict Consume-Once & Zero-Cache: drop any active item or frame when leaving turn
+        self.active_item = None;
+        if let Ok(mut guard) = self.shared.lock() {
+            guard.live_udp_frame = None;
+        }
         self.skip_turn_immediately = false;
         self.turn_evaluated = false;
+        self.turn_completed = false;
     }
 
-    fn item_has_images(&self, item: &PreparedShowcaseItem) -> bool {
-        self.cfg.any_panorama_requested()
-            && (!item.panorama_streams.is_empty() || item.snapshot_pan.is_some())
-    }
-
-    fn initial_phase_for_item(&self, item: &PreparedShowcaseItem) -> PlaybackPhase {
-        if self.forced_warming_card_fallback || self.cfg.show_poster || self.cfg.show_synopsis {
-            PlaybackPhase::Card
-        } else if self.item_has_images(item) {
-            PlaybackPhase::SnapshotPan
-        } else if self.cfg.show_video && item.has_video && !item.video_frames.is_empty() {
-            PlaybackPhase::VideoStream
-        } else {
-            PlaybackPhase::Card
-        }
-    }
-
-    /// Evaluate the 2-step rotation readiness policy at the start of the engine's rotation turn.
+    /// Evaluate turn start readiness: consume the prepared item (via `.take()`) so it can never be
+    /// replayed on subsequent turns without the server preparing a brand-new item.
     pub fn evaluate_turn_start(&mut self, rotation_slot_count: usize) {
         self.turn_evaluated = true;
-        let (readiness, items) = {
-            let guard = self.shared.lock().unwrap();
-            (guard.readiness, guard.items.clone())
+        let taken_item = {
+            let mut guard = self.shared.lock().unwrap();
+            let item = guard.ready_item.take();
+            if let Some(ref it) = item {
+                guard.readiness = BatchReadiness::Warming;
+                guard.requested_start_card_id = Some(it.id.clone());
+                guard.stream_eof = false;
+                guard.live_udp_frame = None;
+                guard.last_udp_packet_at = None;
+            }
+            item
         };
 
-        match readiness {
-            BatchReadiness::Ready if !items.is_empty() => {
-                self.active_items = items
-                    .into_iter()
-                    .take(self.cfg.items_per_rotation as usize)
-                    .collect();
-                self.skip_turn_immediately = false;
-                self.forced_warming_card_fallback = false;
-                if let Some(first) = self.active_items.first() {
-                    self.phase = self.initial_phase_for_item(first);
-                }
-                // Trigger background fetch of NextBatch one step ahead
-                self.spawn_background_sync(false);
-            }
-            BatchReadiness::Warming | BatchReadiness::Offline | BatchReadiness::Ready => {
-                if rotation_slot_count > 1 && items.is_empty() {
-                    warn!(
-                        "[Showcase:{}] Server offline or batch warming with {} rotation slots -> skipping turn cleanly",
-                        self.domain.as_api_slug(),
-                        rotation_slot_count
-                    );
-                    self.skip_turn_immediately = true;
-                    self.spawn_background_sync(false);
-                } else {
-                    self.skip_turn_immediately = false;
-                    self.forced_warming_card_fallback = true;
-                    self.active_items = items
-                        .into_iter()
-                        .take(self.cfg.items_per_rotation as usize)
-                        .collect();
-                    self.phase = PlaybackPhase::Card;
-                    self.spawn_background_sync(false);
-                }
-            }
+        if let Some(item) = taken_item {
+            self.active_item = Some(item);
+            self.skip_turn_immediately = false;
+            self.turn_completed = false;
+            self.phase = PlaybackPhase::Card;
+            self.phase_started_at = Instant::now();
+            self.spawn_background_sync();
+        } else if rotation_slot_count > 1 {
+            warn!(
+                "[Showcase:{}] Server offline or warming with {} rotation slots -> skipping turn cleanly",
+                self.domain.as_api_slug(),
+                rotation_slot_count
+            );
+            self.active_item = None;
+            self.skip_turn_immediately = true;
+            self.turn_completed = true;
+            self.spawn_background_sync();
+        } else {
+            self.active_item = None;
+            self.skip_turn_immediately = false;
+            self.turn_completed = false;
+            self.phase = PlaybackPhase::Card;
+            self.phase_started_at = Instant::now();
+            self.spawn_background_sync();
         }
-        self.phase_started_at = Instant::now();
     }
 
-    fn sync_shared_batch(&mut self, now: Instant) -> bool {
-        if self.active_items.is_empty() {
-            let (readiness, ready_items) = {
-                let guard = self.shared.lock().unwrap();
-                (guard.readiness, guard.items.clone())
-            };
-            if !ready_items.is_empty() {
-                self.active_items = ready_items
-                    .into_iter()
-                    .take(self.cfg.items_per_rotation as usize)
-                    .collect();
-                self.forced_warming_card_fallback = readiness != BatchReadiness::Ready;
-                self.phase_started_at = now;
-                self.dirty = true;
-                true
-            } else {
-                if now.saturating_duration_since(self.last_retry_poll)
-                    >= Duration::from_millis(2500)
-                {
-                    self.last_retry_poll = now;
-                    self.spawn_background_sync(false);
-                }
-                self.dirty = true;
-                false
-            }
-        } else {
-            if self.forced_warming_card_fallback {
-                // While playing Card / Panorama during server video warming, hot-upgrade video frames
-                // in-place WITHOUT resetting `phase_started_at` or interrupting the current scroll!
-                let (readiness, ready_items) = {
-                    let guard = self.shared.lock().unwrap();
-                    (guard.readiness, guard.items.clone())
-                };
-                for active in &mut self.active_items {
-                    if active.video_frames.is_empty() {
-                        if let Some(updated) = ready_items
-                            .iter()
-                            .find(|it| it.id == active.id && !it.video_frames.is_empty())
-                        {
-                            active.video_frames = updated.video_frames.clone();
-                            active.video_frame_delay = updated.video_frame_delay;
-                            active.has_video = updated.has_video;
-                            active.video_ready = updated.video_ready;
-                        }
-                    }
-                }
-                if readiness == BatchReadiness::Ready {
-                    self.forced_warming_card_fallback = false;
-                    self.spawn_background_sync(false);
-                } else if now.saturating_duration_since(self.last_retry_poll)
-                    >= Duration::from_millis(2500)
-                {
-                    self.last_retry_poll = now;
-                    self.spawn_background_sync(false);
-                }
-            }
-            true
+    fn start_live_stream_phase(&mut self, now: Instant, item_id: &str) {
+        self.phase = PlaybackPhase::LiveStream;
+        self.phase_started_at = now;
+        self.http_frame_idx = 0;
+        self.http_frame_elapsed = Duration::ZERO;
+        {
+            let mut guard = self.shared.lock().unwrap();
+            guard.stream_eof = false;
+            guard.live_udp_frame = None;
+            guard.last_udp_packet_at = None;
+            guard.requested_start_stream_id = Some(item_id.to_string());
         }
+        self.dirty = true;
+    }
+
+    fn finish_current_turn(&mut self) {
+        self.active_item = None;
+        {
+            let mut guard = self.shared.lock().unwrap();
+            guard.live_udp_frame = None;
+            guard.last_udp_packet_at = None;
+        }
+        self.turn_completed = true;
+        self.dirty = true;
+        self.spawn_background_sync();
     }
 
     pub fn update(&mut self, context: &mut EngineContext) {
@@ -1047,7 +1685,8 @@ impl MediaShowcaseRunner {
         if new_w != self.width || new_h != self.height {
             self.width = new_w;
             self.height = new_h;
-            self.spawn_background_sync(true);
+            self.config_gen.fetch_add(1, Ordering::SeqCst);
+            self.spawn_background_sync();
         }
 
         if !self.turn_evaluated {
@@ -1057,119 +1696,103 @@ impl MediaShowcaseRunner {
             return;
         }
 
-        if self.skip_turn_immediately {
+        if self.skip_turn_immediately || self.turn_completed {
             return;
         }
 
-        if !self.sync_shared_batch(now) {
-            return;
+        // Check if server went offline mid-turn: if so, immediately clear media
+        {
+            let mut guard = self.shared.lock().unwrap();
+            if self.active_item.is_some()
+                && !guard.server_online
+                && guard.readiness == BatchReadiness::Offline
+            {
+                self.active_item = None;
+                guard.clear_media_immediately();
+                let rot_len = context.config.settings.read().rotation.len();
+                if rot_len > 1 {
+                    self.skip_turn_immediately = true;
+                    self.turn_completed = true;
+                }
+                self.dirty = true;
+                return;
+            }
+
+            // If we were waiting for an item (single-slot rotation), consume it as soon as ready
+            if self.active_item.is_none() {
+                if let Some(item) = guard.ready_item.take() {
+                    guard.readiness = BatchReadiness::Warming;
+                    guard.requested_start_card_id = Some(item.id.clone());
+                    guard.stream_eof = false;
+                    guard.live_udp_frame = None;
+                    guard.last_udp_packet_at = None;
+                    self.active_item = Some(item);
+                    self.phase = PlaybackPhase::Card;
+                    self.phase_started_at = now;
+                    self.dirty = true;
+                }
+            }
         }
 
-        if self.current_item_idx >= self.active_items.len() {
+        let Some(item_snapshot) = self.active_item.clone() else {
+            if now.saturating_duration_since(self.last_retry_poll) >= Duration::from_millis(2500) {
+                self.last_retry_poll = now;
+                self.spawn_background_sync();
+            }
+            self.dirty = true;
             return;
-        }
+        };
 
         let phase_elapsed = now.saturating_duration_since(self.phase_started_at);
-        let item = &self.active_items[self.current_item_idx];
-        let has_images = self.item_has_images(item);
-        let has_playable_video =
-            self.cfg.show_video && item.has_video && !item.video_frames.is_empty();
-        let card_target_dur = self.organic_card_duration(item);
 
         match self.phase {
             PlaybackPhase::Card => {
                 self.dirty = true;
+                let card_target_dur = self.organic_card_duration(&item_snapshot);
                 if phase_elapsed >= card_target_dur {
-                    if has_images {
-                        self.phase = PlaybackPhase::SnapshotPan;
-                        self.phase_started_at = now;
-                        self.pan_image_idx = 0;
-                        self.pan_frame_idx = 0;
-                        self.pan_frame_elapsed = Duration::ZERO;
-                    } else if has_playable_video {
-                        self.phase = PlaybackPhase::VideoStream;
-                        self.phase_started_at = now;
-                        self.video_frame_idx = 0;
-                        self.video_frame_elapsed = Duration::ZERO;
+                    if item_snapshot.has_stream {
+                        self.start_live_stream_phase(now, &item_snapshot.id);
                     } else {
-                        self.advance_to_next_item(now);
+                        self.finish_current_turn();
                     }
                 }
             }
-            PlaybackPhase::SnapshotPan => {
-                if !item.panorama_streams.is_empty() {
-                    if let Some((frames, delay)) = item.panorama_streams.get(self.pan_image_idx) {
-                        self.pan_frame_elapsed += dt;
-                        let max_img_dur =
-                            Duration::from_secs(self.cfg.snapshot_duration_s.max(2) as u64 + 2);
-                        if self.pan_frame_elapsed >= *delay {
-                            self.pan_frame_elapsed = Duration::ZERO;
-                            self.pan_frame_idx += 1;
-                            self.dirty = true;
-                        }
-                        if self.pan_frame_idx >= frames.len() || phase_elapsed >= max_img_dur {
-                            self.pan_image_idx += 1;
-                            self.pan_frame_idx = 0;
-                            self.pan_frame_elapsed = Duration::ZERO;
-                            self.phase_started_at = now;
-                            self.dirty = true;
-                            if self.pan_image_idx >= item.panorama_streams.len() {
-                                if has_playable_video {
-                                    self.phase = PlaybackPhase::VideoStream;
-                                    self.video_frame_idx = 0;
-                                    self.video_frame_elapsed = Duration::ZERO;
-                                } else {
-                                    self.advance_to_next_item(now);
-                                }
-                            }
-                        }
-                    } else {
-                        self.advance_to_next_item(now);
-                    }
-                } else {
-                    self.dirty = true;
-                    if phase_elapsed >= Duration::from_secs(self.cfg.snapshot_duration_s as u64) {
-                        if has_playable_video {
-                            self.phase = PlaybackPhase::VideoStream;
-                            self.phase_started_at = now;
-                            self.video_frame_idx = 0;
-                            self.video_frame_elapsed = Duration::ZERO;
-                        } else {
-                            self.advance_to_next_item(now);
+            PlaybackPhase::LiveStream => {
+                self.dirty = true;
+                // 1. If playing HTTP pre-decoded stream frames for this single item
+                if !item_snapshot.http_stream_frames.is_empty() {
+                    self.http_frame_elapsed += dt;
+                    if self.http_frame_elapsed >= item_snapshot.http_frame_delay {
+                        self.http_frame_elapsed = Duration::ZERO;
+                        self.http_frame_idx += 1;
+                        if self.http_frame_idx >= item_snapshot.http_stream_frames.len() {
+                            self.finish_current_turn();
                         }
                     }
-                }
-            }
-            PlaybackPhase::VideoStream => {
-                let max_dur = Duration::from_secs(self.cfg.video_max_duration_s as u64);
-                if !item.has_video || item.video_frames.is_empty() || phase_elapsed >= max_dur {
-                    self.advance_to_next_item(now);
                     return;
                 }
-                self.video_frame_elapsed += dt;
-                if self.video_frame_elapsed >= item.video_frame_delay {
-                    self.video_frame_elapsed = Duration::ZERO;
-                    self.video_frame_idx += 1;
-                    self.dirty = true;
-                    if self.video_frame_idx >= item.video_frames.len() {
-                        self.advance_to_next_item(now);
+
+                // 2. Real-time UDP stream (`mqtt_udp`) with `stream_eof` + 1500ms packet watchdog
+                let (stream_eof, last_pkt) = {
+                    let guard = self.shared.lock().unwrap();
+                    (guard.stream_eof, guard.last_udp_packet_at)
+                };
+                let max_stream_dur =
+                    Duration::from_secs_f32((item_snapshot.stream_duration_s + 4.0).max(6.0));
+                if stream_eof || phase_elapsed >= max_stream_dur {
+                    self.finish_current_turn();
+                    return;
+                }
+                if let Some(last_at) = last_pkt {
+                    if now.saturating_duration_since(last_at)
+                        >= Duration::from_millis(UDP_STREAM_WATCHDOG_MS)
+                    {
+                        self.finish_current_turn();
                     }
+                } else if phase_elapsed >= Duration::from_millis(UDP_INITIAL_GRACE_MS) {
+                    self.finish_current_turn();
                 }
             }
-        }
-    }
-
-    fn advance_to_next_item(&mut self, now: Instant) {
-        self.current_item_idx += 1;
-        self.phase_started_at = now;
-        self.pan_image_idx = 0;
-        self.pan_frame_idx = 0;
-        self.pan_frame_elapsed = Duration::ZERO;
-        self.video_frame_idx = 0;
-        self.video_frame_elapsed = Duration::ZERO;
-        self.dirty = true;
-        if let Some(next_item) = self.active_items.get(self.current_item_idx) {
-            self.phase = self.initial_phase_for_item(next_item);
         }
     }
 
@@ -1177,51 +1800,10 @@ impl MediaShowcaseRunner {
         if !self.turn_evaluated {
             return false;
         }
-        if self.skip_turn_immediately {
+        if self.skip_turn_immediately || self.turn_completed {
             return true;
         }
-        if self.active_items.is_empty() {
-            return false;
-        }
-        self.current_item_idx >= self.active_items.len()
-    }
-
-    fn render_waiting_status(&self, matrix: &mut dyn IDrawingSurface, w: i32, h: i32) {
-        let accent = self.domain.default_accent_rgb();
-        let badge = self.domain.badge_label();
-        let badge_w = (badge.len() as i32) * 4 + 4;
-        let bx = ((w - badge_w) / 2).max(1);
-        fill_round_rect(matrix, bx, 2, badge_w, 7, 1, accent);
-        draw_tiny_text(matrix, badge, bx + 2, 3, 0, w, (255, 255, 255));
-
-        let status_msg = if self.cfg.server_url.is_empty() {
-            "SET SERVER URL IN WEBUI"
-        } else {
-            "CONNECTING TO SERVER..."
-        };
-        let elapsed_ms = self.phase_started_at.elapsed().as_millis();
-        draw_scrolling_text(
-            matrix,
-            status_msg,
-            2,
-            w - 2,
-            (h / 2) - 3,
-            1,
-            (220, 235, 255),
-            elapsed_ms,
-            true,
-        );
-        if h >= 32 && !self.cfg.server_url.is_empty() {
-            draw_tiny_text(
-                matrix,
-                &self.cfg.server_url,
-                2,
-                h - 7,
-                2,
-                w - 2,
-                (130, 150, 180),
-            );
-        }
+        false
     }
 
     fn render_card_adaptive(
@@ -1237,6 +1819,7 @@ impl MediaShowcaseRunner {
         } else {
             item.subtitle.as_str()
         };
+        let speed_px = self.cfg.synopsis_px_per_sec();
 
         // 1. TATE Vertical Portrait Mode (`h > w`, e.g. 64x128, 64x256, 32x128)
         if h > w {
@@ -1324,6 +1907,7 @@ impl MediaShowcaseRunner {
                 syn_y,
                 (190, 225, 255),
                 phase_ms,
+                speed_px,
             );
             return;
         }
@@ -1421,6 +2005,7 @@ impl MediaShowcaseRunner {
                 h - 9,
                 (190, 225, 255),
                 phase_ms,
+                speed_px,
             );
             return;
         }
@@ -1473,7 +2058,6 @@ impl MediaShowcaseRunner {
         );
 
         if h >= 64 {
-            // Tall / XL Landscape (`128x64`, `256x64`)
             draw_scrolling_text(
                 matrix,
                 &item.title,
@@ -1513,9 +2097,9 @@ impl MediaShowcaseRunner {
                 44,
                 (190, 225, 255),
                 phase_ms,
+                speed_px,
             );
         } else {
-            // Classic 128x32 Landscape
             draw_scrolling_text(
                 matrix,
                 &item.title,
@@ -1546,80 +2130,71 @@ impl MediaShowcaseRunner {
                 22,
                 (190, 225, 255),
                 phase_ms,
+                speed_px,
             );
         }
     }
 
     pub fn render(&mut self, context: &mut EngineContext) {
-        if self.skip_turn_immediately {
+        if self.skip_turn_immediately || self.turn_completed {
             return;
         }
         let matrix = &mut *context.surface;
         let w = matrix.width() as i32;
         let h = matrix.height() as i32;
+        let phase_ms = self.phase_started_at.elapsed().as_millis();
 
-        let Some(item) = self.active_items.get(self.current_item_idx) else {
-            self.render_waiting_status(matrix, w, h);
+        let Some(ref item) = self.active_item else {
+            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, &self.cfg.server_url);
             self.dirty = false;
             return;
         };
-
-        let phase_ms = self.phase_started_at.elapsed().as_millis();
 
         match self.phase {
             PlaybackPhase::Card => {
                 self.render_card_adaptive(matrix, item, w, h, phase_ms);
             }
-            PlaybackPhase::SnapshotPan => {
-                if !item.panorama_streams.is_empty() {
-                    if let Some((frames, _)) = item.panorama_streams.get(self.pan_image_idx) {
-                        if let Some(frame) =
-                            frames.get(self.pan_frame_idx).or_else(|| frames.last())
-                        {
-                            let fw = (frame.width() as i32).min(w);
-                            let fh = (frame.height() as i32).min(h);
-                            for py in 0..fh {
-                                for px in 0..fw {
-                                    let p = frame.get_pixel(px as u32, py as u32).0;
-                                    matrix.set_pixel(px, py, p[0], p[1], p[2]);
-                                }
+            PlaybackPhase::LiveStream => {
+                if !item.http_stream_frames.is_empty() {
+                    if let Some(frame) = item
+                        .http_stream_frames
+                        .get(self.http_frame_idx)
+                        .or_else(|| item.http_stream_frames.last())
+                    {
+                        let fw = (frame.width() as i32).min(w);
+                        let fh = (frame.height() as i32).min(h);
+                        for py in 0..fh {
+                            for px in 0..fw {
+                                let p = frame.get_pixel(px as u32, py as u32).0;
+                                matrix.set_pixel(px, py, p[0], p[1], p[2]);
                             }
                         }
                     }
-                } else if let Some(snap) = &item.snapshot_pan {
-                    let sw = snap.width() as i32;
-                    let sh = snap.height() as i32;
-                    let max_pan_y = (sh - h).max(0);
-                    let total_ms = (self.cfg.snapshot_duration_s.max(1) as u128) * 1000;
-                    let progress = (phase_ms as f32 / total_ms as f32).clamp(0.0, 1.0);
-                    let pan_y = ((max_pan_y as f32) * progress).round() as i32;
-
-                    for py in 0..h {
-                        let sy = (py + pan_y).clamp(0, sh - 1);
-                        for px in 0..w.min(sw) {
-                            let p = snap.get_pixel(px as u32, sy as u32).0;
-                            matrix.set_pixel(px, py, p[0], p[1], p[2]);
+                } else {
+                    let live_frame = {
+                        let guard = self.shared.lock().unwrap();
+                        guard.live_udp_frame.clone()
+                    };
+                    if let Some(frame) = live_frame {
+                        let fw = (frame.width() as i32).min(w);
+                        let fh = (frame.height() as i32).min(h);
+                        for py in 0..fh {
+                            for px in 0..fw {
+                                let p = frame.get_pixel(px as u32, py as u32).0;
+                                matrix.set_pixel(px, py, p[0], p[1], p[2]);
+                            }
                         }
+                    } else {
+                        // Stream is warming / awaiting first UDP packet -> show creative Pixel-Art scene
+                        render_waiting_pixel_art(
+                            self.domain,
+                            matrix,
+                            w,
+                            h,
+                            phase_ms,
+                            &self.cfg.server_url,
+                        );
                     }
-                }
-            }
-            PlaybackPhase::VideoStream => {
-                if let Some(frame) = item
-                    .video_frames
-                    .get(self.video_frame_idx)
-                    .or_else(|| item.video_frames.last())
-                {
-                    let fw = (frame.width() as i32).min(w);
-                    let fh = (frame.height() as i32).min(h);
-                    for py in 0..fh {
-                        for px in 0..fw {
-                            let p = frame.get_pixel(px as u32, py as u32).0;
-                            matrix.set_pixel(px, py, p[0], p[1], p[2]);
-                        }
-                    }
-                    let total_frames = item.video_frames.len().max(1);
-                    let bar_w = (((self.video_frame_idx + 1) * (w as usize)) / total_frames) as i32;
-                    draw_fast_hline(matrix, 0, h - 1, bar_w.clamp(1, w), item.badge_rgb);
                 }
             }
         }
@@ -1643,71 +2218,54 @@ pub fn build_common_showcase_fields(
             id: "server_url",
             field_type: ConfigType::String,
             label: "Showcase Server URL",
-            description: "LAN URL of the dmd-media-showcase Docker server (e.g. http://192.168.1.50:8790)",
-            default_value: "http://127.0.0.1:8790",
+            description: "LAN URL of the dmd-media-showcase server (e.g. http://192.168.1.50:8080)",
+            default_value: "http://127.0.0.1:8080",
             required: true,
             validation_policy: ValidationPolicy::Accept,
             ..Default::default()
         },
         ConfigField {
-            id: "primary_source",
+            id: "transport_mode",
             field_type: ConfigType::Options,
-            label: "Primary Scraper Source",
-            description: "Preferred primary metadata/media source (other sources are used automatically as fallback)",
-            default_value: "auto",
+            label: "Transport Protocol",
+            description: "Real-Time MQTT + UDP (ffmpeg -re) or HTTP Polling fallback",
+            default_value: "mqtt_udp",
             options: Some(vec![
-                ConfigOption { label: "Auto (Best Available + Fallbacks)", value: "auto" },
-                ConfigOption { label: "ScreenScraper.fr (api.screenscraper.fr)", value: "screenscraper" },
-                ConfigOption { label: "ArcadeItalia ADB (MAME / Neo-Geo / CPS)", value: "arcade_italia" },
-                ConfigOption { label: "IGDB / Twitch API v4 (Games)", value: "igdb" },
-                ConfigOption { label: "Libretro CDN + Wikipedia Live (Games)", value: "libretro" },
-                ConfigOption { label: "TMDB API v3 (Movies / Series)", value: "tmdb" },
-                ConfigOption { label: "IMDb + Wikipedia + Dailymotion Live (Movies)", value: "imdb" },
-                ConfigOption { label: "TVMaze Public API (Series)", value: "tvmaze" },
-                ConfigOption { label: "AnimeThemes.moe (Creditless OP/ED)", value: "animethemes" },
-                ConfigOption { label: "Kitsu Edge API (Anime)", value: "kitsu" },
-                ConfigOption { label: "Jikan v4 / MyAnimeList (Anime)", value: "jikan" },
+                ConfigOption { label: "MQTT + UDP Real-Time (Recommended)", value: "mqtt_udp" },
+                ConfigOption { label: "HTTP Polling (Fallback / Testing)", value: "http_poll" },
             ]),
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },
         ConfigField {
-            id: "scraper_user",
-            field_type: ConfigType::String,
-            label: "Scraper Username (Optional)",
-            description: "Optional account username (e.g. ScreenScraper.fr login)",
-            default_value: "",
-            validation_policy: ValidationPolicy::Accept,
+            id: "use_showcase_broker",
+            field_type: ConfigType::Boolean,
+            label: "Use Showcase Embedded MQTT Broker",
+            description: "Automatically connect to the Showcase server's MQTT broker (<server_ip>:1883) without extra setup",
+            default_value: "true",
+            validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },
         ConfigField {
-            id: "scraper_pass",
-            field_type: ConfigType::String,
-            label: "Scraper Password (Optional)",
-            description: "Optional account password (e.g. ScreenScraper.fr password)",
-            default_value: "",
-            validation_policy: ValidationPolicy::Accept,
+            id: "mqtt_broker_source",
+            field_type: ConfigType::Options,
+            label: "External MQTT Broker Source",
+            description: "When Embedded Broker is disabled, choose ArcadeMatrix Global MQTT or a Custom Broker URL",
+            default_value: "global",
+            options: Some(vec![
+                ConfigOption { label: "Global ArcadeMatrix MQTT Broker", value: "global" },
+                ConfigOption { label: "Custom Showcase MQTT Broker", value: "custom" },
+            ]),
+            validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },
         ConfigField {
-            id: "scraper_api_key",
+            id: "mqtt_custom_url",
             field_type: ConfigType::String,
-            label: "Scraper API Key (Optional)",
-            description: "Optional API key (e.g. TMDB API key, IGDB key, or ScreenScraper devid:devpassword)",
+            label: "Custom MQTT Broker URL",
+            description: "Used when External MQTT Broker Source is set to Custom (e.g. mqtt://192.168.1.200:1883)",
             default_value: "",
             validation_policy: ValidationPolicy::Accept,
-            ..Default::default()
-        },
-        ConfigField {
-            id: "items_per_rotation",
-            field_type: ConfigType::Integer,
-            label: "Items per Rotation",
-            description: "Exact number of items preloaded and played per rotation turn",
-            default_value: "3",
-            min_val: Some("1"),
-            max_val: Some("25"),
-            step: Some("1"),
-            validation_policy: ValidationPolicy::Clamp,
             ..Default::default()
         },
         ConfigField {
@@ -1723,6 +2281,20 @@ pub fn build_common_showcase_fields(
                 ConfigOption { label: "Spanish (ES)", value: "es" },
                 ConfigOption { label: "German (DE)", value: "de" },
                 ConfigOption { label: "Italian (IT)", value: "it" },
+            ]),
+            validation_policy: ValidationPolicy::FallbackDefault,
+            ..Default::default()
+        },
+        ConfigField {
+            id: "text_scroll_speed",
+            field_type: ConfigType::Options,
+            label: "Synopsis Scroll Speed",
+            description: "Reading speed for the organic full-synopsis scroll on the Info Card",
+            default_value: "normal",
+            options: Some(vec![
+                ConfigOption { label: "Slow (16 px/s)", value: "slow" },
+                ConfigOption { label: "Normal (24 px/s)", value: "normal" },
+                ConfigOption { label: "Fast (36 px/s)", value: "fast" },
             ]),
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
@@ -1785,34 +2357,10 @@ pub fn build_common_showcase_fields(
             ..Default::default()
         },
         ConfigField {
-            id: "card_duration_s",
-            field_type: ConfigType::Integer,
-            label: "Min Card Duration (s)",
-            description: "Minimum display duration of the card in seconds (automatically extended so full synopsis finishes)",
-            default_value: "7",
-            min_val: Some("3"),
-            max_val: Some("30"),
-            step: Some("1"),
-            validation_policy: ValidationPolicy::Clamp,
-            ..Default::default()
-        },
-        ConfigField {
-            id: "snapshot_duration_s",
-            field_type: ConfigType::Integer,
-            label: "Duration per Panorama (s)",
-            description: "Duration of each top-to-bottom scrolling panorama in seconds",
-            default_value: "4",
-            min_val: Some("2"),
-            max_val: Some("15"),
-            step: Some("1"),
-            validation_policy: ValidationPolicy::Clamp,
-            ..Default::default()
-        },
-        ConfigField {
             id: "video_max_duration_s",
             field_type: ConfigType::Integer,
             label: "Max Video Duration (s)",
-            description: "Maximum playback duration per video clip in seconds (dynamically truncated in O(1))",
+            description: "Maximum playback duration per video clip in seconds",
             default_value: "8",
             min_val: Some("2"),
             max_val: Some("30"),
@@ -1864,6 +2412,7 @@ pub fn build_common_showcase_fields(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::matrix::MockSurface;
 
     #[test]
     fn test_decode_rgb565_le_image_and_stream() {
@@ -1894,6 +2443,63 @@ mod tests {
     }
 
     #[test]
+    fn test_dmdf_udp_chunk_assembler() {
+        let mut assembler = DmdfFrameAssembler::new(2, 2);
+        let mut pkt0 = Vec::new();
+        pkt0.extend_from_slice(DMDF_MAGIC);
+        pkt0.extend_from_slice(&7u16.to_le_bytes());
+        pkt0.push(0); // chunk_idx = 0
+        pkt0.push(2); // total_chunks = 2
+        pkt0.extend_from_slice(&0u16.to_le_bytes()); // offset 0
+        pkt0.extend_from_slice(&0xF800u16.to_le_bytes());
+        pkt0.extend_from_slice(&0xF800u16.to_le_bytes());
+
+        assert!(assembler.push_packet(&pkt0).is_none());
+
+        let mut pkt1 = Vec::new();
+        pkt1.extend_from_slice(DMDF_MAGIC);
+        pkt1.extend_from_slice(&7u16.to_le_bytes());
+        pkt1.push(1); // chunk_idx = 1
+        pkt1.push(2); // total_chunks = 2
+        pkt1.extend_from_slice(&4u16.to_le_bytes()); // offset 4
+        pkt1.extend_from_slice(&0x07E0u16.to_le_bytes());
+        pkt1.extend_from_slice(&0x07E0u16.to_le_bytes());
+
+        let (seq, img) = assembler.push_packet(&pkt1).expect("complete 2x2 frame");
+        assert_eq!(seq, 7);
+        assert_eq!(img.width(), 2);
+        assert_eq!(img.height(), 2);
+        assert!(img.get_pixel(0, 0).0[0] >= 248);
+        assert!(img.get_pixel(0, 1).0[1] >= 250);
+    }
+
+    #[test]
+    fn test_resolve_mqtt_broker_endpoint_three_modes() {
+        let mut cfg = ShowcaseConfig::default();
+        cfg.server_url = "http://192.168.1.55:8080".to_string();
+        cfg.use_showcase_broker = true;
+
+        assert_eq!(
+            resolve_mqtt_broker_endpoint(&cfg, Some(("10.0.0.1", 1884))),
+            Some(("192.168.1.55".to_string(), 1883))
+        );
+
+        cfg.use_showcase_broker = false;
+        cfg.mqtt_broker_source = "global".to_string();
+        assert_eq!(
+            resolve_mqtt_broker_endpoint(&cfg, Some(("10.0.0.1", 1884))),
+            Some(("10.0.0.1".to_string(), 1884))
+        );
+
+        cfg.mqtt_broker_source = "custom".to_string();
+        cfg.mqtt_custom_url = "mqtt://192.168.1.200:1888".to_string();
+        assert_eq!(
+            resolve_mqtt_broker_endpoint(&cfg, Some(("10.0.0.1", 1884))),
+            Some(("192.168.1.200".to_string(), 1888))
+        );
+    }
+
+    #[test]
     fn test_compute_card_poster_dims_multi_format_and_tate() {
         assert_eq!(compute_card_poster_dims(128, 32), (32, 32));
         assert_eq!(compute_card_poster_dims(128, 64), (48, 64));
@@ -1904,55 +2510,66 @@ mod tests {
     }
 
     #[test]
-    fn test_warming_skip_policy_and_zero_mock_items() {
+    fn test_consume_once_and_zero_cache_on_offline() {
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Games, 128, 32);
         {
             let mut guard = runner.shared.lock().unwrap();
-            guard.readiness = BatchReadiness::Warming;
-        }
-
-        runner.activate();
-        runner.evaluate_turn_start(3);
-        assert!(runner.skip_turn_immediately);
-        assert!(runner.is_finished());
-        assert!(runner.active_items.is_empty());
-
-        runner.activate();
-        runner.evaluate_turn_start(1);
-        assert!(!runner.skip_turn_immediately);
-        assert!(runner.forced_warming_card_fallback);
-        assert!(runner.active_items.is_empty());
-        assert!(!runner.is_finished());
-        assert_eq!(runner.phase, PlaybackPhase::Card);
-
-        // Populate shared items while still Warming: first sync_shared_batch() must initialize
-        // active_items, and subsequent calls must NOT reset phase_started_at.
-        {
-            let mut guard = runner.shared.lock().unwrap();
-            guard.items.push(PreparedShowcaseItem {
+            guard.readiness = BatchReadiness::Ready;
+            guard.server_online = true;
+            guard.ready_item = Some(PreparedShowcaseItem {
                 id: "item-1".to_string(),
-                title: "Test Item".to_string(),
-                year: "2026".to_string(),
-                badge: "ARCADE".to_string(),
-                badge_rgb: (20, 60, 120),
-                subtitle: "2026".to_string(),
-                rating: "8.5".to_string(),
-                synopsis: "A long scrolling synopsis that must progress smoothly.".to_string(),
+                title: "Metal Slug".to_string(),
+                year: "1996".to_string(),
+                badge: "NEOGEO".to_string(),
+                badge_rgb: (255, 109, 0),
+                subtitle: "SNK".to_string(),
+                rating: "9.2".to_string(),
+                synopsis: "Classic run-and-gun action.".to_string(),
                 poster: None,
-                snapshot_pan: None,
-                panorama_streams: Vec::new(),
-                video_frames: Vec::new(),
-                video_frame_delay: Duration::from_millis(66),
-                has_video: true,
-                video_ready: false,
+                has_stream: false,
+                stream_duration_s: 6.0,
+                stream_fps: 15,
+                http_stream_frames: Vec::new(),
+                http_frame_delay: Duration::from_millis(66),
             });
         }
-        let t0 = Instant::now();
-        assert!(runner.sync_shared_batch(t0));
-        assert_eq!(runner.active_items.len(), 1);
-        assert_eq!(runner.phase_started_at, t0);
-        let t1 = t0 + Duration::from_millis(50);
-        assert!(runner.sync_shared_batch(t1));
-        assert_eq!(runner.phase_started_at, t0);
+
+        // First turn consumes the item via .take()
+        runner.activate();
+        runner.evaluate_turn_start(2);
+        assert!(!runner.skip_turn_immediately);
+        assert!(runner.active_item.is_some());
+        assert!(runner.shared.lock().unwrap().ready_item.is_none());
+
+        // Deactivating or starting a second turn without a new server item must NOT replay item-1!
+        runner.deactivate();
+        assert!(runner.active_item.is_none());
+        runner.activate();
+        runner.evaluate_turn_start(2);
+        assert!(runner.skip_turn_immediately);
+        assert!(runner.is_finished());
+        assert!(runner.active_item.is_none());
+    }
+
+    #[test]
+    fn test_waiting_pixel_art_all_domains_and_resolutions() {
+        for domain in [
+            ShowcaseDomain::Games,
+            ShowcaseDomain::Movies,
+            ShowcaseDomain::Series,
+            ShowcaseDomain::Anime,
+        ] {
+            for (w, h) in [(128, 32), (128, 64), (64, 64), (64, 128)] {
+                let mut surface = MockSurface::new(w, h);
+                render_waiting_pixel_art(
+                    domain,
+                    &mut surface,
+                    w as i32,
+                    h as i32,
+                    250,
+                    "http://127.0.0.1:8080",
+                );
+            }
+        }
     }
 }

@@ -312,9 +312,22 @@ fn build_runtime_snapshot(
     let settings = config.settings.read();
     let mut ctx = crate::core::engine_contract::EngineContext { surface, config };
 
+    let active_instance_ids: std::collections::HashSet<&str> = settings
+        .rotation
+        .iter()
+        .map(|r| r.instance_id.as_str())
+        .collect();
+
     for inst in &settings.instances {
         let handle = engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
-        engine_runtime.init_instance(handle, &mut ctx, &inst.config);
+        if active_instance_ids.contains(inst.instance_id.as_str()) {
+            engine_runtime.init_instance(handle, &mut ctx, &inst.config);
+        } else {
+            if let Some(eng) = engine_runtime.get_active_instance(handle) {
+                eng.deactivate();
+            }
+            engine_runtime.invalidate_handle(handle);
+        }
     }
     let mqtt_handle = engine_runtime.register_instance_handle("mqtt_message", "message");
     let empty_cfg = std::collections::HashMap::new();

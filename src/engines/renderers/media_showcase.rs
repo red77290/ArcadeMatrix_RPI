@@ -1184,6 +1184,7 @@ pub struct MediaShowcaseRunner {
     pub height: u32,
     pub shared: Arc<Mutex<SharedShowcaseState>>,
     pub worker_busy: Arc<AtomicBool>,
+    pub worker_gen: Arc<AtomicU64>,
     pub config_gen: Arc<AtomicU64>,
 
     // Single-item Consume-Once playback state (never cached across turns)
@@ -1200,6 +1201,12 @@ pub struct MediaShowcaseRunner {
     pub dirty: bool,
 }
 
+impl Drop for MediaShowcaseRunner {
+    fn drop(&mut self) {
+        self.config_gen.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
 impl MediaShowcaseRunner {
     pub fn new(domain: ShowcaseDomain, width: u32, height: u32) -> Self {
         let now = Instant::now();
@@ -1213,6 +1220,7 @@ impl MediaShowcaseRunner {
             height: height.max(32),
             shared: Arc::new(Mutex::new(SharedShowcaseState::default())),
             worker_busy: Arc::new(AtomicBool::new(false)),
+            worker_gen: Arc::new(AtomicU64::new(0)),
             config_gen: Arc::new(AtomicU64::new(1)),
             active_item: None,
             phase: PlaybackPhase::Card,
@@ -1271,13 +1279,19 @@ impl MediaShowcaseRunner {
         if self.cfg.server_url.is_empty() {
             return;
         }
+        let my_gen = self.config_gen.load(Ordering::SeqCst);
+        let cur_worker_gen = self.worker_gen.load(Ordering::SeqCst);
+        if cur_worker_gen == my_gen {
+            return;
+        }
         if self
-            .worker_busy
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .worker_gen
+            .compare_exchange(cur_worker_gen, my_gen, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
             return;
         }
+        self.worker_busy.store(true, Ordering::SeqCst);
 
         let domain = self.domain;
         let cfg = self.cfg.clone();
@@ -1286,13 +1300,13 @@ impl MediaShowcaseRunner {
         let height = self.height;
         let shared = Arc::clone(&self.shared);
         let busy = Arc::clone(&self.worker_busy);
+        let worker_gen_arc = Arc::clone(&self.worker_gen);
         let config_gen_arc = Arc::clone(&self.config_gen);
-        let my_gen = config_gen_arc.load(Ordering::SeqCst);
         let global_host = self.global_mqtt_host.clone();
         let global_port = self.global_mqtt_port;
 
         std::thread::spawn(move || {
-            let _guard = BusyResetGuard(busy);
+            let _guard = BusyResetGuard(busy, worker_gen_arc, my_gen);
             if cfg.transport_mode.eq_ignore_ascii_case("mqtt_udp") {
                 Self::run_mqtt_udp_worker(
                     domain,
@@ -1307,7 +1321,16 @@ impl MediaShowcaseRunner {
                     my_gen,
                 );
             } else {
-                Self::run_http_poll_worker(domain, cfg, lang, width, height, shared, my_gen);
+                Self::run_http_poll_worker(
+                    domain,
+                    cfg,
+                    lang,
+                    width,
+                    height,
+                    shared,
+                    config_gen_arc,
+                    my_gen,
+                );
             }
         });
     }
@@ -1431,12 +1454,38 @@ impl MediaShowcaseRunner {
             let pump_shared = Arc::clone(&shared);
             let pump_mqtt = mqtt_client.clone();
             let pump_events_topic = events_topic.clone();
+            let pump_will_topic = format!("dmd_showcase/clients/{}/status", dmd_id);
             let pump_local_ip = local_ip.clone();
             std::thread::spawn(move || {
                 let mut assembler = DmdfFrameAssembler::new(width, height);
                 let mut udp_buf = [0u8; 1500];
                 while pump_alive.load(Ordering::SeqCst) {
                     if pump_gen_arc.load(Ordering::SeqCst) != my_gen {
+                        if let Ok(mut guard) = pump_shared.lock() {
+                            if let Some(item_id) = guard.requested_stop_stream_id.take() {
+                                let ev = serde_json::json!({
+                                    "action": "stop_stream",
+                                    "item_id": item_id,
+                                    "client_ip": pump_local_ip,
+                                    "udp_ip": pump_local_ip,
+                                    "udp_port": local_udp_port,
+                                });
+                                if let Ok(b) = serde_json::to_vec(&ev) {
+                                    let _ = pump_mqtt.publish(
+                                        &pump_events_topic,
+                                        QoS::AtLeastOnce,
+                                        false,
+                                        b,
+                                    );
+                                }
+                            }
+                        }
+                        let _ = pump_mqtt.publish(
+                            &pump_will_topic,
+                            QoS::AtLeastOnce,
+                            false,
+                            br#"{"online":false}"#.to_vec(),
+                        );
                         let _ = pump_mqtt.disconnect();
                         break;
                     }
@@ -1724,7 +1773,16 @@ impl MediaShowcaseRunner {
                         guard.readiness = BatchReadiness::Offline;
                         guard.clear_media_immediately();
                     }
-                    Self::run_http_poll_worker(domain, cfg, lang, width, height, shared, my_gen);
+                    Self::run_http_poll_worker(
+                        domain,
+                        cfg,
+                        lang,
+                        width,
+                        height,
+                        shared,
+                        config_gen_arc,
+                        my_gen,
+                    );
                     break;
                 }
             }
@@ -1739,6 +1797,7 @@ impl MediaShowcaseRunner {
         width: u32,
         height: u32,
         shared: Arc<Mutex<SharedShowcaseState>>,
+        config_gen_arc: Arc<AtomicU64>,
         my_gen: u64,
     ) {
         let client = match reqwest::blocking::Client::builder()
@@ -1782,27 +1841,33 @@ impl MediaShowcaseRunner {
         });
 
         let Ok(cfg_resp) = client.post(&cfg_url).json(&cfg_body).send() else {
-            let mut guard = shared.lock().unwrap();
-            guard.server_online = false;
-            guard.readiness = BatchReadiness::Offline;
-            guard.clear_media_immediately();
+            if config_gen_arc.load(Ordering::SeqCst) == my_gen {
+                let mut guard = shared.lock().unwrap();
+                guard.server_online = false;
+                guard.readiness = BatchReadiness::Offline;
+                guard.clear_media_immediately();
+            }
             return;
         };
         if !cfg_resp.status().is_success() {
-            let mut guard = shared.lock().unwrap();
-            guard.server_online = false;
-            guard.readiness = BatchReadiness::Offline;
-            guard.clear_media_immediately();
+            if config_gen_arc.load(Ordering::SeqCst) == my_gen {
+                let mut guard = shared.lock().unwrap();
+                guard.server_online = false;
+                guard.readiness = BatchReadiness::Offline;
+                guard.clear_media_immediately();
+            }
             return;
         }
 
         // 2. Poll next unconsumed item (`GET /api/v1/{domain}/next?client_id=...`)
         let next_url = format!("{}/api/v1/{}/next?client_id={}", base, slug, dmd_id);
         let Ok(next_resp) = client.get(&next_url).send() else {
-            let mut guard = shared.lock().unwrap();
-            guard.server_online = false;
-            guard.readiness = BatchReadiness::Offline;
-            guard.clear_media_immediately();
+            if config_gen_arc.load(Ordering::SeqCst) == my_gen {
+                let mut guard = shared.lock().unwrap();
+                guard.server_online = false;
+                guard.readiness = BatchReadiness::Offline;
+                guard.clear_media_immediately();
+            }
             return;
         };
         if !next_resp.status().is_success() {
@@ -1870,6 +1935,9 @@ impl MediaShowcaseRunner {
             http_frame_delay,
         };
 
+        if config_gen_arc.load(Ordering::SeqCst) != my_gen {
+            return;
+        }
         let mut guard = shared.lock().unwrap();
         guard.server_online = true;
         guard.mqtt_connected_once = true;
@@ -1896,8 +1964,17 @@ impl MediaShowcaseRunner {
     pub fn on_config_changed(&mut self, config: &dyn EngineConfig) {
         let new_cfg = ShowcaseConfig::from_engine_config(config, self.domain);
         if new_cfg != self.cfg {
+            let now = Instant::now();
             self.cfg = new_cfg;
             self.active_item = None;
+            self.phase = PlaybackPhase::Card;
+            self.phase_started_at = now;
+            self.last_retry_poll = now;
+            self.http_frame_idx = 0;
+            self.http_frame_elapsed = Duration::ZERO;
+            self.skip_turn_immediately = false;
+            self.turn_completed = false;
+            self.dirty = true;
             {
                 let mut guard = self.shared.lock().unwrap();
                 guard.readiness = BatchReadiness::Offline;
@@ -2616,10 +2693,16 @@ impl MediaShowcaseRunner {
     }
 }
 
-struct BusyResetGuard(Arc<AtomicBool>);
+struct BusyResetGuard(Arc<AtomicBool>, Arc<AtomicU64>, u64);
 impl Drop for BusyResetGuard {
     fn drop(&mut self) {
-        self.0.store(false, Ordering::SeqCst);
+        if self
+            .1
+            .compare_exchange(self.2, 0, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            self.0.store(false, Ordering::SeqCst);
+        }
     }
 }
 

@@ -641,17 +641,19 @@ pub enum BatchReadiness {
 }
 
 /// Shared state between the network worker thread (`mqtt_udp` or `http_poll`) and the render loop.
-/// Holds at most 1 unconsumed ready item and 1 live UDP frame (`Option<RgbImage>`).
+/// Holds at most 1 unconsumed ready item, 1 live UDP frame, and up to 2 preloaded HTTP streams.
 pub struct SharedShowcaseState {
     pub server_online: bool,
     pub mqtt_connected_once: bool,
     pub mqtt_connected_at: Option<Instant>,
     pub readiness: BatchReadiness,
     pub ready_item: Option<PreparedShowcaseItem>,
+    pub preloaded_streams: std::collections::VecDeque<(String, Vec<RgbImage>, Duration)>,
     pub live_udp_frame: Option<RgbImage>,
     pub live_udp_seq: u16,
     pub last_udp_packet_at: Option<Instant>,
     pub stream_eof: bool,
+    pub stream_eof_item_id: Option<String>,
     pub requested_start_card_id: Option<String>,
     pub requested_start_stream_id: Option<String>,
     pub requested_stop_stream_id: Option<String>,
@@ -666,10 +668,12 @@ impl Default for SharedShowcaseState {
             mqtt_connected_at: None,
             readiness: BatchReadiness::Offline,
             ready_item: None,
+            preloaded_streams: std::collections::VecDeque::new(),
             live_udp_frame: None,
             live_udp_seq: 0,
             last_udp_packet_at: None,
             stream_eof: false,
+            stream_eof_item_id: None,
             requested_start_card_id: None,
             requested_start_stream_id: None,
             requested_stop_stream_id: None,
@@ -682,9 +686,23 @@ impl SharedShowcaseState {
     /// Immediately wipe all media state when the server goes offline or a turn ends.
     pub fn clear_media_immediately(&mut self) {
         self.ready_item = None;
+        self.preloaded_streams.clear();
         self.live_udp_frame = None;
         self.last_udp_packet_at = None;
         self.stream_eof = true;
+        self.stream_eof_item_id = None;
+    }
+
+    pub fn take_preloaded_stream(&mut self, item_id: &str) -> Option<(Vec<RgbImage>, Duration)> {
+        if let Some(pos) = self
+            .preloaded_streams
+            .iter()
+            .position(|(id, _, _)| id == item_id)
+        {
+            let (_, frames, delay) = self.preloaded_streams.remove(pos)?;
+            return Some((frames, delay));
+        }
+        None
     }
 }
 
@@ -820,14 +838,22 @@ impl DmdfFrameAssembler {
 
     pub fn push_packet(&mut self, packet: &[u8]) -> Option<(u16, RgbImage)> {
         let (hdr, payload) = decode_dmdf_packet(packet)?;
+        let mut flushed_prev: Option<(u16, RgbImage)> = None;
         if self.current_seq != Some(hdr.frame_seq) {
+            if let Some(prev_seq) = self.current_seq {
+                if self.received_mask != 0 {
+                    if let Some(img) = decode_rgb565_le_image(&self.buf, self.width, self.height) {
+                        flushed_prev = Some((prev_seq, img));
+                    }
+                }
+            }
             self.current_seq = Some(hdr.frame_seq);
             self.received_mask = 0;
         }
         let start = hdr.byte_offset as usize;
         let end = start.saturating_add(payload.len());
         if end > self.buf.len() || hdr.total_chunks > 64 {
-            return None;
+            return flushed_prev;
         }
         self.buf[start..end].copy_from_slice(payload);
         self.received_mask |= 1u64 << hdr.chunk_idx;
@@ -841,7 +867,7 @@ impl DmdfFrameAssembler {
             let img = decode_rgb565_le_image(&self.buf, self.width, self.height)?;
             return Some((hdr.frame_seq, img));
         }
-        None
+        flushed_prev
     }
 }
 
@@ -1315,7 +1341,7 @@ impl MediaShowcaseRunner {
         let local_ip = probe_local_lan_ip(&mqtt_host, mqtt_port).unwrap_or_default();
         let udp_socket = match UdpSocket::bind("0.0.0.0:0") {
             Ok(s) => {
-                let _ = s.set_read_timeout(Some(Duration::from_millis(4)));
+                let _ = s.set_nonblocking(true);
                 s
             }
             Err(_) => return,
@@ -1414,21 +1440,25 @@ impl MediaShowcaseRunner {
                         let _ = pump_mqtt.disconnect();
                         break;
                     }
-                    // 1. Drain any incoming UDP `DMDF` packets (up to 4ms read timeout on first call)
-                    let mut got_pkt = false;
+                    // 1. Drain any incoming UDP `DMDF` packets in non-blocking mode
+                    let mut got_dmdf_pkt = false;
+                    let mut latest_frame: Option<(u16, RgbImage)> = None;
                     while let Ok((len, _)) = udp_socket.recv_from(&mut udp_buf) {
-                        got_pkt = true;
-                        if let Some((seq, img)) = assembler.push_packet(&udp_buf[..len]) {
-                            let mut guard = pump_shared.lock().unwrap();
+                        if decode_dmdf_packet(&udp_buf[..len]).is_some() {
+                            got_dmdf_pkt = true;
+                        }
+                        if let Some(frame_pair) = assembler.push_packet(&udp_buf[..len]) {
+                            latest_frame = Some(frame_pair);
+                        }
+                    }
+                    if got_dmdf_pkt {
+                        let mut guard = pump_shared.lock().unwrap();
+                        guard.last_udp_packet_at = Some(Instant::now());
+                        guard.server_online = true;
+                        if let Some((seq, img)) = latest_frame {
                             guard.live_udp_frame = Some(img);
                             guard.live_udp_seq = seq;
-                            guard.last_udp_packet_at = Some(Instant::now());
-                            guard.server_online = true;
                         }
-                        let _ = udp_socket.set_nonblocking(true);
-                    }
-                    if got_pkt {
-                        let _ = udp_socket.set_read_timeout(Some(Duration::from_millis(4)));
                     }
 
                     // 2. Immediately dispatch any queued `start_card`, `start_stream`, or `stop_stream` MQTT events
@@ -1487,6 +1517,9 @@ impl MediaShowcaseRunner {
                                 pump_mqtt.publish(&pump_events_topic, QoS::AtLeastOnce, false, b);
                         }
                     }
+                    if !got_dmdf_pkt {
+                        std::thread::sleep(Duration::from_millis(3));
+                    }
                 }
             });
         }
@@ -1541,6 +1574,16 @@ impl MediaShowcaseRunner {
                                             "[Showcase:{}] <-- MQTT 'ready=true' card='{}' (id='{}', has_stream={}, dur={:.1}s, fps={})",
                                             slug, card.title, item_id, has_stream, stream_dur, stream_fps
                                         );
+                                        let stream_path =
+                                            if !card.assets.unified_stream_rgb565.is_empty() {
+                                                card.assets.unified_stream_rgb565.clone()
+                                            } else {
+                                                format!(
+                                                    "/api/v1/{}/stream/{}.rgb565.stream",
+                                                    slug, item_id
+                                                )
+                                            };
+                                        let preload_item_id = item_id.clone();
                                         let prepared = PreparedShowcaseItem {
                                             id: item_id,
                                             title: card.title,
@@ -1560,13 +1603,76 @@ impl MediaShowcaseRunner {
                                             http_stream_frames: Vec::new(),
                                             http_frame_delay: Duration::from_millis(66),
                                         };
-                                        let mut guard = shared.lock().unwrap();
-                                        guard.server_online = true;
-                                        guard.mqtt_connected_once = true;
-                                        guard.mqtt_connected_at.get_or_insert_with(Instant::now);
-                                        guard.readiness = BatchReadiness::Ready;
-                                        guard.ready_item = Some(prepared);
-                                        guard.generation = my_gen;
+                                        {
+                                            let mut guard = shared.lock().unwrap();
+                                            guard.server_online = true;
+                                            guard.mqtt_connected_once = true;
+                                            guard
+                                                .mqtt_connected_at
+                                                .get_or_insert_with(Instant::now);
+                                            guard.readiness = BatchReadiness::Ready;
+                                            guard.ready_item = Some(prepared);
+                                            guard.generation = my_gen;
+                                        }
+
+                                        // Preload the unified `.rgb565.stream` (`DMDS`) over HTTP TCP in the background
+                                        // while the Card is displaying on the DMD (or while N+1 waits in `ready_item`).
+                                        // This guarantees 0ms transition to Panorama + Video at full FPS even when
+                                        // Docker Desktop / Rancher Desktop VM NAT blocks container-to-LAN UDP packets.
+                                        if has_stream && !base_url.is_empty() {
+                                            if let Some(ref client) = http_client {
+                                                let sep = if stream_path.contains('?') {
+                                                    "&"
+                                                } else {
+                                                    "?"
+                                                };
+                                                let url = format!(
+                                                    "{}{}{}purge=false",
+                                                    base_url, stream_path, sep
+                                                );
+                                                if let Ok(resp) = client.get(&url).send() {
+                                                    if resp.status().is_success() {
+                                                        if let Ok(bytes) = resp.bytes() {
+                                                            if let Some((frames, delay)) =
+                                                                decode_rgb565_stream(&bytes)
+                                                            {
+                                                                let f_cnt = frames.len();
+                                                                let mut guard =
+                                                                    shared.lock().unwrap();
+                                                                if let Some(ref mut rdy) =
+                                                                    guard.ready_item
+                                                                {
+                                                                    if rdy.id == preload_item_id {
+                                                                        rdy.http_stream_frames =
+                                                                            frames.clone();
+                                                                        rdy.http_frame_delay =
+                                                                            delay;
+                                                                    }
+                                                                }
+                                                                while guard.preloaded_streams.len()
+                                                                    >= 2
+                                                                {
+                                                                    guard
+                                                                        .preloaded_streams
+                                                                        .pop_front();
+                                                                }
+                                                                guard.preloaded_streams.push_back(
+                                                                    (
+                                                                        preload_item_id.clone(),
+                                                                        frames,
+                                                                        delay,
+                                                                    ),
+                                                                );
+                                                                info!(
+                                                                    "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
+                                                                    slug, preload_item_id, f_cnt, delay
+                                                                );
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 } else {
                                     let mut guard = shared.lock().unwrap();
@@ -1593,8 +1699,13 @@ impl MediaShowcaseRunner {
                                 == Some("stream_eof")
                                 || v.get("state").and_then(|s| s.as_str()) == Some("stream_eof");
                             if is_eof {
+                                let eof_id = v
+                                    .get("item_id")
+                                    .and_then(|s| s.as_str())
+                                    .map(|s| s.to_string());
                                 let mut guard = shared.lock().unwrap();
                                 guard.stream_eof = true;
+                                guard.stream_eof_item_id = eof_id;
                             }
                         }
                     }
@@ -1878,19 +1989,44 @@ impl MediaShowcaseRunner {
         {
             let mut guard = self.shared.lock().unwrap();
             guard.stream_eof = false;
+            guard.stream_eof_item_id = None;
             guard.live_udp_frame = None;
             guard.last_udp_packet_at = None;
-            guard.requested_start_stream_id = Some(item_id.to_string());
+            if let Some(ref mut active) = self.active_item {
+                if active.http_stream_frames.is_empty() {
+                    if let Some((frames, delay)) = guard.take_preloaded_stream(item_id) {
+                        active.http_stream_frames = frames;
+                        active.http_frame_delay = delay;
+                    }
+                }
+            }
+            let has_preloaded = self
+                .active_item
+                .as_ref()
+                .is_some_and(|it| !it.http_stream_frames.is_empty());
+            if !has_preloaded {
+                guard.requested_start_stream_id = Some(item_id.to_string());
+            } else {
+                info!(
+                    "[Showcase:{}] Starting LiveStream phase for '{}' using preloaded stream ({} frames)",
+                    self.domain.as_api_slug(),
+                    item_id,
+                    self.active_item.as_ref().map(|it| it.http_stream_frames.len()).unwrap_or(0)
+                );
+            }
         }
         self.dirty = true;
     }
 
     fn finish_current_turn(&mut self) {
-        self.active_item = None;
+        let stopped_id = self.active_item.take().map(|it| it.id);
         {
             let mut guard = self.shared.lock().unwrap();
             guard.live_udp_frame = None;
             guard.last_udp_packet_at = None;
+            if let Some(id) = stopped_id {
+                guard.requested_stop_stream_id = Some(id);
+            }
         }
         self.turn_completed = true;
         self.dirty = true;
@@ -1977,7 +2113,24 @@ impl MediaShowcaseRunner {
             }
         }
 
-        let Some(item_snapshot) = self.active_item.clone() else {
+        let Some((
+            item_id,
+            has_stream,
+            stream_duration_s,
+            mut http_frames_len,
+            mut http_frame_delay,
+            card_target_dur,
+        )) = self.active_item.as_ref().map(|it| {
+            (
+                it.id.clone(),
+                it.has_stream,
+                it.stream_duration_s,
+                it.http_stream_frames.len(),
+                it.http_frame_delay,
+                self.organic_card_duration(it),
+            )
+        })
+        else {
             if now.saturating_duration_since(self.last_retry_poll) >= Duration::from_millis(2500) {
                 self.last_retry_poll = now;
                 self.spawn_background_sync();
@@ -1991,10 +2144,9 @@ impl MediaShowcaseRunner {
         match self.phase {
             PlaybackPhase::Card => {
                 self.dirty = true;
-                let card_target_dur = self.organic_card_duration(&item_snapshot);
                 if phase_elapsed >= card_target_dur {
-                    if item_snapshot.has_stream {
-                        self.start_live_stream_phase(now, &item_snapshot.id);
+                    if has_stream {
+                        self.start_live_stream_phase(now, &item_id);
                     } else {
                         self.finish_current_turn();
                     }
@@ -2002,13 +2154,28 @@ impl MediaShowcaseRunner {
             }
             PlaybackPhase::LiveStream => {
                 self.dirty = true;
+                // Attach background-preloaded HTTP stream if it completed right after LiveStream started
+                if http_frames_len == 0 {
+                    let mut guard = self.shared.lock().unwrap();
+                    if let Some((frames, delay)) = guard.take_preloaded_stream(&item_id) {
+                        if let Some(ref mut active) = self.active_item {
+                            http_frames_len = frames.len();
+                            http_frame_delay = delay;
+                            active.http_stream_frames = frames;
+                            active.http_frame_delay = delay;
+                            self.http_frame_idx = 0;
+                            self.http_frame_elapsed = Duration::ZERO;
+                        }
+                    }
+                }
+
                 // 1. If playing HTTP pre-decoded stream frames for this single item
-                if !item_snapshot.http_stream_frames.is_empty() {
+                if http_frames_len > 0 {
                     self.http_frame_elapsed += dt;
-                    if self.http_frame_elapsed >= item_snapshot.http_frame_delay {
+                    if self.http_frame_elapsed >= http_frame_delay {
                         self.http_frame_elapsed = Duration::ZERO;
                         self.http_frame_idx += 1;
-                        if self.http_frame_idx >= item_snapshot.http_stream_frames.len() {
+                        if self.http_frame_idx >= http_frames_len {
                             self.finish_current_turn();
                         }
                     }
@@ -2018,10 +2185,14 @@ impl MediaShowcaseRunner {
                 // 2. Real-time UDP stream (`mqtt_udp`) with `stream_eof` + 1500ms packet watchdog
                 let (stream_eof, last_pkt) = {
                     let guard = self.shared.lock().unwrap();
-                    (guard.stream_eof, guard.last_udp_packet_at)
+                    let matching_eof = guard.stream_eof
+                        && guard
+                            .stream_eof_item_id
+                            .as_deref()
+                            .is_none_or(|eof_id| eof_id == item_id);
+                    (matching_eof, guard.last_udp_packet_at)
                 };
-                let max_stream_dur =
-                    Duration::from_secs_f32((item_snapshot.stream_duration_s + 4.0).max(6.0));
+                let max_stream_dur = Duration::from_secs_f32((stream_duration_s + 4.0).max(6.0));
                 if stream_eof || phase_elapsed >= max_stream_dur {
                     self.finish_current_turn();
                     return;

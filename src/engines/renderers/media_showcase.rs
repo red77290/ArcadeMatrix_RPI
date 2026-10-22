@@ -30,7 +30,7 @@ use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tracing::warn;
+use tracing::{info, warn};
 
 fn fill_rect(
     matrix: &mut dyn IDrawingSurface,
@@ -487,11 +487,15 @@ pub struct ApiShowcaseItem {
     pub video_ready: bool,
     #[serde(default)]
     pub stream_frames: u32,
-    #[serde(default, alias = "stream_duration_s")]
+    #[serde(default)]
+    pub stream_duration_s: f32,
+    #[serde(default)]
     pub total_stream_duration_s: f32,
+    #[serde(default)]
+    pub stream_fps: u32,
     #[serde(default = "default_fps_val")]
     pub video_fps: u32,
-    #[serde(default = "default_fps_val", alias = "stream_fps")]
+    #[serde(default = "default_fps_val")]
     pub fps: u32,
     #[serde(default)]
     pub assets: ApiMediaAssets,
@@ -503,6 +507,28 @@ impl ApiShowcaseItem {
             &self.id
         } else {
             &self.item_id
+        }
+    }
+
+    pub fn effective_stream_duration_s(&self) -> f32 {
+        if self.stream_duration_s > 0.0 {
+            self.stream_duration_s
+        } else if self.total_stream_duration_s > 0.0 {
+            self.total_stream_duration_s
+        } else {
+            8.0
+        }
+    }
+
+    pub fn effective_stream_fps(&self) -> u32 {
+        if self.stream_fps > 0 {
+            self.stream_fps
+        } else if self.fps > 0 {
+            self.fps
+        } else if self.video_fps > 0 {
+            self.video_fps
+        } else {
+            15
         }
     }
 
@@ -618,6 +644,8 @@ pub enum BatchReadiness {
 /// Holds at most 1 unconsumed ready item and 1 live UDP frame (`Option<RgbImage>`).
 pub struct SharedShowcaseState {
     pub server_online: bool,
+    pub mqtt_connected_once: bool,
+    pub mqtt_connected_at: Option<Instant>,
     pub readiness: BatchReadiness,
     pub ready_item: Option<PreparedShowcaseItem>,
     pub live_udp_frame: Option<RgbImage>,
@@ -626,6 +654,7 @@ pub struct SharedShowcaseState {
     pub stream_eof: bool,
     pub requested_start_card_id: Option<String>,
     pub requested_start_stream_id: Option<String>,
+    pub requested_stop_stream_id: Option<String>,
     pub generation: u64,
 }
 
@@ -633,6 +662,8 @@ impl Default for SharedShowcaseState {
     fn default() -> Self {
         Self {
             server_online: false,
+            mqtt_connected_once: false,
+            mqtt_connected_at: None,
             readiness: BatchReadiness::Offline,
             ready_item: None,
             live_udp_frame: None,
@@ -641,6 +672,7 @@ impl Default for SharedShowcaseState {
             stream_eof: false,
             requested_start_card_id: None,
             requested_start_stream_id: None,
+            requested_stop_stream_id: None,
             generation: 0,
         }
     }
@@ -1311,11 +1343,6 @@ impl MediaShowcaseRunner {
         let stream_state_topic = format!("dmd_showcase/clients/{}/stream_state", dmd_id);
         let config_topic = format!("dmd_showcase/clients/{}/config", dmd_id);
 
-        let _ = mqtt_client.subscribe(&status_topic, QoS::AtLeastOnce);
-        let _ = mqtt_client.subscribe(&ready_topic, QoS::AtLeastOnce);
-        let _ = mqtt_client.subscribe(&events_topic, QoS::AtLeastOnce);
-        let _ = mqtt_client.subscribe(&stream_state_topic, QoS::AtLeastOnce);
-
         let mut domain_cfg = serde_json::Map::new();
         domain_cfg.insert(
             slug.to_string(),
@@ -1349,9 +1376,16 @@ impl MediaShowcaseRunner {
             "lang": lang,
             "domains": domain_cfg,
         });
+        // Publish retained client config FIRST so the Showcase orchestrator can clean up
+        // any mid-broadcast pre-reboot slot and re-publish `ready: true` immediately.
         if let Ok(bytes) = serde_json::to_vec(&client_cfg_payload) {
             let _ = mqtt_client.publish(&config_topic, QoS::AtLeastOnce, true, bytes);
         }
+
+        let _ = mqtt_client.subscribe(&status_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&ready_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&events_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&stream_state_topic, QoS::AtLeastOnce);
 
         let http_client = reqwest::blocking::Client::builder()
             .connect_timeout(Duration::from_millis(1500))
@@ -1397,15 +1431,20 @@ impl MediaShowcaseRunner {
                         let _ = udp_socket.set_read_timeout(Some(Duration::from_millis(4)));
                     }
 
-                    // 2. Immediately dispatch any queued `start_card` or `start_stream` MQTT events
-                    let (start_card_id, start_stream_id) = {
+                    // 2. Immediately dispatch any queued `start_card`, `start_stream`, or `stop_stream` MQTT events
+                    let (start_card_id, start_stream_id, stop_stream_id) = {
                         let mut guard = pump_shared.lock().unwrap();
                         (
                             guard.requested_start_card_id.take(),
                             guard.requested_start_stream_id.take(),
+                            guard.requested_stop_stream_id.take(),
                         )
                     };
                     if let Some(item_id) = start_card_id {
+                        info!(
+                            "[Showcase:{}] --> MQTT 'start_card' item_id='{}' (client_ip={}, udp_port={})",
+                            slug, item_id, pump_local_ip, local_udp_port
+                        );
                         let ev = serde_json::json!({
                             "action": "start_card",
                             "item_id": item_id,
@@ -1419,8 +1458,25 @@ impl MediaShowcaseRunner {
                         }
                     }
                     if let Some(item_id) = start_stream_id {
+                        info!(
+                            "[Showcase:{}] --> MQTT 'start_stream' item_id='{}' (UDP {}:{})",
+                            slug, item_id, pump_local_ip, local_udp_port
+                        );
                         let ev = serde_json::json!({
                             "action": "start_stream",
+                            "item_id": item_id,
+                            "client_ip": pump_local_ip,
+                            "udp_ip": pump_local_ip,
+                            "udp_port": local_udp_port,
+                        });
+                        if let Ok(b) = serde_json::to_vec(&ev) {
+                            let _ =
+                                pump_mqtt.publish(&pump_events_topic, QoS::AtLeastOnce, false, b);
+                        }
+                    }
+                    if let Some(item_id) = stop_stream_id {
+                        let ev = serde_json::json!({
+                            "action": "stop_stream",
                             "item_id": item_id,
                             "client_ip": pump_local_ip,
                             "udp_ip": pump_local_ip,
@@ -1446,66 +1502,89 @@ impl MediaShowcaseRunner {
                             let online = v.get("online").and_then(|b| b.as_bool()).unwrap_or(false);
                             let mut guard = shared.lock().unwrap();
                             guard.server_online = online;
+                            guard.mqtt_connected_once = true;
+                            guard.mqtt_connected_at.get_or_insert_with(Instant::now);
                             if !online {
                                 guard.readiness = BatchReadiness::Offline;
                                 guard.clear_media_immediately();
                             }
                         }
                     } else if topic == ready_topic {
-                        if let Ok(ready_msg) = serde_json::from_slice::<MqttReadyPayload>(payload) {
-                            if ready_msg.ready {
-                                if let Some(card) = ready_msg.card {
-                                    let poster = if cfg.show_poster {
-                                        card.resolve_poster_image(
-                                            slug,
-                                            &base_url,
-                                            http_client.as_ref(),
-                                            default_pw,
-                                            default_ph,
-                                        )
-                                    } else {
-                                        None
-                                    };
+                        match serde_json::from_slice::<MqttReadyPayload>(payload) {
+                            Ok(ready_msg) => {
+                                if ready_msg.ready {
+                                    if let Some(card) = ready_msg.card {
+                                        let poster = if cfg.show_poster {
+                                            card.resolve_poster_image(
+                                                slug,
+                                                &base_url,
+                                                http_client.as_ref(),
+                                                default_pw,
+                                                default_ph,
+                                            )
+                                        } else {
+                                            None
+                                        };
 
-                                    let item_id = if !ready_msg.item_id.is_empty() {
-                                        ready_msg.item_id.clone()
-                                    } else {
-                                        card.canonical_id().to_string()
-                                    };
-                                    let has_stream = (cfg.any_panorama_requested()
-                                        && card.has_panoramas)
-                                        || (cfg.show_video && card.has_video);
-                                    let prepared = PreparedShowcaseItem {
-                                        id: item_id,
-                                        title: card.title,
-                                        year: card.year,
-                                        badge: card.badge,
-                                        badge_rgb: parse_hex_rgb(
-                                            &card.badge_color,
-                                            domain.default_accent_rgb(),
-                                        ),
-                                        subtitle: card.subtitle,
-                                        rating: card.rating,
-                                        synopsis: card.synopsis,
-                                        poster,
-                                        has_stream,
-                                        stream_duration_s: card.total_stream_duration_s.max(2.0),
-                                        stream_fps: card.fps.max(1),
-                                        http_stream_frames: Vec::new(),
-                                        http_frame_delay: Duration::from_millis(66),
-                                    };
+                                        let item_id = if !ready_msg.item_id.is_empty() {
+                                            ready_msg.item_id.clone()
+                                        } else {
+                                            card.canonical_id().to_string()
+                                        };
+                                        let has_stream = (cfg.any_panorama_requested()
+                                            && card.has_panoramas)
+                                            || (cfg.show_video && card.has_video);
+                                        let stream_dur =
+                                            card.effective_stream_duration_s().max(2.0);
+                                        let stream_fps = card.effective_stream_fps().max(1);
+                                        info!(
+                                            "[Showcase:{}] <-- MQTT 'ready=true' card='{}' (id='{}', has_stream={}, dur={:.1}s, fps={})",
+                                            slug, card.title, item_id, has_stream, stream_dur, stream_fps
+                                        );
+                                        let prepared = PreparedShowcaseItem {
+                                            id: item_id,
+                                            title: card.title,
+                                            year: card.year,
+                                            badge: card.badge,
+                                            badge_rgb: parse_hex_rgb(
+                                                &card.badge_color,
+                                                domain.default_accent_rgb(),
+                                            ),
+                                            subtitle: card.subtitle,
+                                            rating: card.rating,
+                                            synopsis: card.synopsis,
+                                            poster,
+                                            has_stream,
+                                            stream_duration_s: stream_dur,
+                                            stream_fps,
+                                            http_stream_frames: Vec::new(),
+                                            http_frame_delay: Duration::from_millis(66),
+                                        };
+                                        let mut guard = shared.lock().unwrap();
+                                        guard.server_online = true;
+                                        guard.mqtt_connected_once = true;
+                                        guard.mqtt_connected_at.get_or_insert_with(Instant::now);
+                                        guard.readiness = BatchReadiness::Ready;
+                                        guard.ready_item = Some(prepared);
+                                        guard.generation = my_gen;
+                                    }
+                                } else {
                                     let mut guard = shared.lock().unwrap();
                                     guard.server_online = true;
-                                    guard.readiness = BatchReadiness::Ready;
-                                    guard.ready_item = Some(prepared);
-                                    guard.generation = my_gen;
+                                    guard.mqtt_connected_once = true;
+                                    guard.mqtt_connected_at.get_or_insert_with(Instant::now);
+                                    if guard.ready_item.is_none() {
+                                        guard.readiness = BatchReadiness::Warming;
+                                    }
                                 }
-                            } else {
-                                let mut guard = shared.lock().unwrap();
-                                guard.server_online = true;
-                                if guard.ready_item.is_none() {
-                                    guard.readiness = BatchReadiness::Warming;
-                                }
+                            }
+                            Err(err) => {
+                                warn!(
+                                    "[Showcase:{}] Failed to deserialize MQTT ready payload ({} bytes): {}",
+                                    slug,
+                                    payload.len(),
+                                    err
+                                );
                             }
                         }
                     } else if topic == events_topic || topic == stream_state_topic {
@@ -1661,6 +1740,8 @@ impl MediaShowcaseRunner {
         }
 
         let has_stream = !http_stream_frames.is_empty();
+        let stream_dur = api_item.effective_stream_duration_s().max(2.0);
+        let stream_fps = api_item.effective_stream_fps().max(1);
         let prepared = PreparedShowcaseItem {
             id: item_id,
             title: api_item.title,
@@ -1672,14 +1753,15 @@ impl MediaShowcaseRunner {
             synopsis: api_item.synopsis,
             poster,
             has_stream,
-            stream_duration_s: api_item.total_stream_duration_s.max(2.0),
-            stream_fps: api_item.video_fps.max(1),
+            stream_duration_s: stream_dur,
+            stream_fps,
             http_stream_frames,
             http_frame_delay,
         };
 
         let mut guard = shared.lock().unwrap();
         guard.server_online = true;
+        guard.mqtt_connected_once = true;
         guard.readiness = BatchReadiness::Ready;
         guard.ready_item = Some(prepared);
         guard.generation = my_gen;
@@ -1732,9 +1814,12 @@ impl MediaShowcaseRunner {
 
     pub fn deactivate(&mut self) {
         // Strict Consume-Once & Zero-Cache: drop any active item or frame when leaving turn
-        self.active_item = None;
+        let stopped_id = self.active_item.take().map(|it| it.id);
         if let Ok(mut guard) = self.shared.lock() {
             guard.live_udp_frame = None;
+            if let Some(id) = stopped_id {
+                guard.requested_stop_stream_id = Some(id);
+            }
         }
         self.skip_turn_immediately = false;
         self.turn_evaluated = false;
@@ -1827,6 +1912,27 @@ impl MediaShowcaseRunner {
         }
 
         if !self.turn_evaluated {
+            let (has_ready, connected_at) = {
+                let guard = self.shared.lock().unwrap();
+                (guard.ready_item.is_some(), guard.mqtt_connected_at)
+            };
+            // On initial boot or while the MQTT worker is connecting to receive the retained `ready`
+            // message (plus a 450ms settle window after first MQTT packet in case a stale `ready:false`
+            // arrived right before our `config` message triggered a `ready:true` re-publish), wait
+            // before skipping the turn so a freshly rebooted DMD never misses its initial card.
+            let in_boot_connect_grace = match connected_at {
+                None => {
+                    self.worker_busy.load(Ordering::SeqCst)
+                        && now.saturating_duration_since(self.phase_started_at)
+                            < Duration::from_millis(1800)
+                }
+                Some(t) => now.saturating_duration_since(t) < Duration::from_millis(450),
+            };
+            if !has_ready && !self.cfg.server_url.is_empty() && in_boot_connect_grace {
+                self.spawn_background_sync();
+                self.dirty = true;
+                return;
+            }
             let rot_len = context.config.settings.read().rotation.len();
             self.evaluate_turn_start(rot_len);
             self.dirty = true;
@@ -2734,5 +2840,13 @@ mod tests {
         assert_eq!(cfg.synopsis_px_per_sec(), 160);
         cfg.text_scroll_speed = "fast".to_string();
         assert_eq!(cfg.synopsis_px_per_sec(), 56);
+
+        let payload = br##"{"ready": true, "item_id": "pkg_games_f6dfa1b3_games_libretro_nes_defender_of_the_crown", "domain": "games", "card": {"id": "pkg_games_f6dfa1b3_games_libretro_nes_defender_of_the_crown", "item_id": "pkg_games_f6dfa1b3_games_libretro_nes_defender_of_the_crown", "domain": "games", "title": "Defender of the Crown", "year": "1980", "badge": "NES", "badge_color": "#D32F2F", "subtitle": "Plateforme \u2022 NES", "rating": "8.7", "synopsis": "Defender of the Crown est un jeu vid\u00e9o...", "lang": "fr", "source_used": "libretro_wikidata", "poster_width": 32, "poster_height": 32, "poster_rgb565_b64": "AAH/", "poster_rgb565_url": "/api/v1/games/poster/pkg.rgb565", "text_scroll_speed": "normal", "has_panoramas": true, "has_video": true, "stream_frames": 573, "stream_fps": 28, "fps": 28, "stream_duration_s": 20.46, "total_stream_duration_s": 20.46, "assets": {"poster_rgb565": "/api/v1/games/poster/pkg.rgb565", "unified_stream_rgb565": "/api/v1/games/stream/pkg.rgb565.stream"}}}"##;
+        let parsed: MqttReadyPayload = serde_json::from_slice(payload)
+            .expect("MQTT ready payload with both alias keys must deserialize");
+        assert!(parsed.ready);
+        let card = parsed.card.expect("card present");
+        assert_eq!(card.effective_stream_fps(), 28);
+        assert!((card.effective_stream_duration_s() - 20.46).abs() < 0.01);
     }
 }

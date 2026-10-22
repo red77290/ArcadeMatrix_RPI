@@ -213,7 +213,7 @@ impl Default for ShowcaseConfig {
             mqtt_broker_source: "global".to_string(),
             mqtt_custom_url: String::new(),
             lang: "system".to_string(),
-            text_scroll_speed: "normal".to_string(),
+            text_scroll_speed: "4".to_string(),
             show_poster: true,
             show_synopsis: true,
             jacket_panorama: true,
@@ -243,7 +243,7 @@ impl ShowcaseConfig {
         out.mqtt_broker_source = cfg.get_string("mqtt_broker_source", "global");
         out.mqtt_custom_url = cfg.get_string("mqtt_custom_url", "").trim().to_string();
         out.lang = cfg.get_string("lang", "system");
-        out.text_scroll_speed = cfg.get_string("text_scroll_speed", "normal");
+        out.text_scroll_speed = cfg.get_string("text_scroll_speed", "4");
         out.show_poster = cfg.get_bool("show_poster", true);
         out.show_synopsis = cfg.get_bool("show_synopsis", true);
         out.jacket_panorama = cfg.get_bool("jacket_panorama", true);
@@ -296,10 +296,18 @@ impl ShowcaseConfig {
     }
 
     pub fn synopsis_px_per_sec(&self) -> u64 {
-        match self.text_scroll_speed.to_ascii_lowercase().as_str() {
-            "slow" => 16,
-            "fast" => 36,
-            _ => 24,
+        match self.text_scroll_speed.trim().to_ascii_lowercase().as_str() {
+            "1" => 14,
+            "2" | "slow" => 18,
+            "3" => 24,
+            "4" | "normal" => 32,
+            "5" => 42,
+            "6" | "fast" => 56,
+            "7" => 75,
+            "8" => 100,
+            "9" => 130,
+            "10" => 160,
+            _ => 32,
         }
     }
 
@@ -362,6 +370,65 @@ pub fn resolve_mqtt_broker_endpoint(
     Some((host, 1883))
 }
 
+/// Probe the DMD's outbound LAN IPv4 address via a zero-packet UDP routing table lookup.
+/// This allows `dmd-media-showcase` running inside a bridged Docker container to stream
+/// UDP `DMDF` frames to the DMD's real LAN IP instead of the Docker gateway (`172.18.0.1`).
+pub fn probe_local_lan_ip(target_host: &str, target_port: u16) -> Option<String> {
+    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
+        if sock.connect((target_host, target_port)).is_ok() {
+            if let Ok(addr) = sock.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.is_empty() && ip != "0.0.0.0" && !ip.starts_with("127.") {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+    if let Ok(sock) = UdpSocket::bind("0.0.0.0:0") {
+        if sock.connect(("1.1.1.1", 80)).is_ok() {
+            if let Ok(addr) = sock.local_addr() {
+                let ip = addr.ip().to_string();
+                if !ip.is_empty() && ip != "0.0.0.0" && !ip.starts_with("127.") {
+                    return Some(ip);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Pure-Rust RFC 4648 Base64 decoder for inline `poster_rgb565_b64` payloads.
+pub fn decode_base64_bytes(b64: &str) -> Option<Vec<u8>> {
+    let trimmed = b64.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mut out = Vec::with_capacity((trimmed.len() * 3) / 4);
+    let mut buf: u32 = 0;
+    let mut bits: u8 = 0;
+    for b in trimmed.bytes() {
+        if b == b'=' {
+            break;
+        }
+        let val = match b {
+            b'A'..=b'Z' => b - b'A',
+            b'a'..=b'z' => b - b'a' + 26,
+            b'0'..=b'9' => b - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b' ' | b'\r' | b'\n' | b'\t' => continue,
+            _ => return None,
+        };
+        buf = (buf << 6) | (val as u32);
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push(((buf >> bits) & 0xFF) as u8);
+        }
+    }
+    Some(out)
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ApiMediaAssets {
     #[serde(default)]
@@ -411,16 +478,20 @@ pub struct ApiShowcaseItem {
     #[serde(default)]
     pub poster_rgb565_url: String,
     #[serde(default)]
+    pub poster_rgb565_b64: String,
+    #[serde(default)]
     pub has_panoramas: bool,
     #[serde(default)]
     pub has_video: bool,
     #[serde(default)]
     pub video_ready: bool,
     #[serde(default)]
+    pub stream_frames: u32,
+    #[serde(default, alias = "stream_duration_s")]
     pub total_stream_duration_s: f32,
     #[serde(default = "default_fps_val")]
     pub video_fps: u32,
-    #[serde(default = "default_fps_val")]
+    #[serde(default = "default_fps_val", alias = "stream_fps")]
     pub fps: u32,
     #[serde(default)]
     pub assets: ApiMediaAssets,
@@ -441,6 +512,53 @@ impl ApiShowcaseItem {
         } else {
             &self.assets.poster_rgb565
         }
+    }
+
+    pub fn resolve_poster_image(
+        &self,
+        domain_slug: &str,
+        base_url: &str,
+        http_client: Option<&reqwest::blocking::Client>,
+        default_pw: u32,
+        default_ph: u32,
+    ) -> Option<RgbImage> {
+        let pw = if self.poster_width > 0 {
+            self.poster_width
+        } else {
+            default_pw
+        };
+        let ph = if self.poster_height > 0 {
+            self.poster_height
+        } else {
+            default_ph
+        };
+        if !self.poster_rgb565_b64.is_empty() {
+            if let Some(raw) = decode_base64_bytes(&self.poster_rgb565_b64) {
+                if let Some(img) = decode_rgb565_le_image(&raw, pw, ph) {
+                    return Some(img);
+                }
+            }
+        }
+        let p_path = self.canonical_poster_path();
+        let fallback_path = if !p_path.is_empty() {
+            p_path.to_string()
+        } else if !self.canonical_id().is_empty() {
+            format!(
+                "/api/v1/{}/poster/{}.rgb565",
+                domain_slug,
+                self.canonical_id()
+            )
+        } else {
+            String::new()
+        };
+        if fallback_path.is_empty() {
+            return None;
+        }
+        let url = format!("{}{}", base_url, fallback_path);
+        http_client
+            .and_then(|c| c.get(&url).send().ok())
+            .and_then(|r| r.bytes().ok())
+            .and_then(|b| decode_rgb565_le_image(&b, pw, ph))
     }
 }
 
@@ -1162,9 +1280,10 @@ impl MediaShowcaseRunner {
 
         let slug = domain.as_api_slug();
         let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let local_ip = probe_local_lan_ip(&mqtt_host, mqtt_port).unwrap_or_default();
         let udp_socket = match UdpSocket::bind("0.0.0.0:0") {
             Ok(s) => {
-                let _ = s.set_nonblocking(true);
+                let _ = s.set_read_timeout(Some(Duration::from_millis(4)));
                 s
             }
             Err(_) => return,
@@ -1184,21 +1303,27 @@ impl MediaShowcaseRunner {
             false,
         ));
 
-        let (mqtt_client, mut connection) = MqttSyncClient::new(mqtt_opts, 32);
+        let (mqtt_client, mut connection) = MqttSyncClient::new(mqtt_opts, 64);
 
         let status_topic = "dmd_showcase/server/status".to_string();
         let ready_topic = format!("dmd_showcase/clients/{}/{}/ready", dmd_id, slug);
         let events_topic = format!("dmd_showcase/clients/{}/{}/events", dmd_id, slug);
+        let stream_state_topic = format!("dmd_showcase/clients/{}/stream_state", dmd_id);
         let config_topic = format!("dmd_showcase/clients/{}/config", dmd_id);
 
         let _ = mqtt_client.subscribe(&status_topic, QoS::AtLeastOnce);
         let _ = mqtt_client.subscribe(&ready_topic, QoS::AtLeastOnce);
         let _ = mqtt_client.subscribe(&events_topic, QoS::AtLeastOnce);
+        let _ = mqtt_client.subscribe(&stream_state_topic, QoS::AtLeastOnce);
 
         let mut domain_cfg = serde_json::Map::new();
         domain_cfg.insert(
             slug.to_string(),
             serde_json::json!({
+                "lang": lang,
+                "show_poster": cfg.show_poster,
+                "show_synopsis": cfg.show_synopsis,
+                "text_scroll_speed": cfg.text_scroll_speed,
                 "jacket_panorama": cfg.jacket_panorama,
                 "marquee_panorama": cfg.marquee_panorama,
                 "snapshot_panorama_count": cfg.snapshot_panorama_count,
@@ -1216,6 +1341,8 @@ impl MediaShowcaseRunner {
         );
         let client_cfg_payload = serde_json::json!({
             "dmd_id": dmd_id,
+            "client_ip": local_ip,
+            "udp_ip": local_ip,
             "width": width,
             "height": height,
             "udp_port": local_udp_port,
@@ -1233,51 +1360,83 @@ impl MediaShowcaseRunner {
             .ok();
         let base_url = cfg.server_url.trim_end_matches('/').to_string();
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
-        let mut assembler = DmdfFrameAssembler::new(width, height);
-        let mut udp_buf = [0u8; 1500];
+
+        // Spawn a dedicated fast 4ms I/O pump thread for UDP `DMDF` packet reception and
+        // immediate (< 4ms) outbound `start_card` / `start_stream` MQTT event dispatching.
+        // This guarantees `connection.iter().next()` never blocks `start_stream` or UDP frames.
+        let worker_alive = Arc::new(AtomicBool::new(true));
+        {
+            let pump_alive = Arc::clone(&worker_alive);
+            let pump_gen_arc = Arc::clone(&config_gen_arc);
+            let pump_shared = Arc::clone(&shared);
+            let pump_mqtt = mqtt_client.clone();
+            let pump_events_topic = events_topic.clone();
+            let pump_local_ip = local_ip.clone();
+            std::thread::spawn(move || {
+                let mut assembler = DmdfFrameAssembler::new(width, height);
+                let mut udp_buf = [0u8; 1500];
+                while pump_alive.load(Ordering::SeqCst) {
+                    if pump_gen_arc.load(Ordering::SeqCst) != my_gen {
+                        let _ = pump_mqtt.disconnect();
+                        break;
+                    }
+                    // 1. Drain any incoming UDP `DMDF` packets (up to 4ms read timeout on first call)
+                    let mut got_pkt = false;
+                    while let Ok((len, _)) = udp_socket.recv_from(&mut udp_buf) {
+                        got_pkt = true;
+                        if let Some((seq, img)) = assembler.push_packet(&udp_buf[..len]) {
+                            let mut guard = pump_shared.lock().unwrap();
+                            guard.live_udp_frame = Some(img);
+                            guard.live_udp_seq = seq;
+                            guard.last_udp_packet_at = Some(Instant::now());
+                            guard.server_online = true;
+                        }
+                        let _ = udp_socket.set_nonblocking(true);
+                    }
+                    if got_pkt {
+                        let _ = udp_socket.set_read_timeout(Some(Duration::from_millis(4)));
+                    }
+
+                    // 2. Immediately dispatch any queued `start_card` or `start_stream` MQTT events
+                    let (start_card_id, start_stream_id) = {
+                        let mut guard = pump_shared.lock().unwrap();
+                        (
+                            guard.requested_start_card_id.take(),
+                            guard.requested_start_stream_id.take(),
+                        )
+                    };
+                    if let Some(item_id) = start_card_id {
+                        let ev = serde_json::json!({
+                            "action": "start_card",
+                            "item_id": item_id,
+                            "client_ip": pump_local_ip,
+                            "udp_ip": pump_local_ip,
+                            "udp_port": local_udp_port,
+                        });
+                        if let Ok(b) = serde_json::to_vec(&ev) {
+                            let _ =
+                                pump_mqtt.publish(&pump_events_topic, QoS::AtLeastOnce, false, b);
+                        }
+                    }
+                    if let Some(item_id) = start_stream_id {
+                        let ev = serde_json::json!({
+                            "action": "start_stream",
+                            "item_id": item_id,
+                            "client_ip": pump_local_ip,
+                            "udp_ip": pump_local_ip,
+                            "udp_port": local_udp_port,
+                        });
+                        if let Ok(b) = serde_json::to_vec(&ev) {
+                            let _ =
+                                pump_mqtt.publish(&pump_events_topic, QoS::AtLeastOnce, false, b);
+                        }
+                    }
+                }
+            });
+        }
 
         let mut iter = connection.iter();
         while config_gen_arc.load(Ordering::SeqCst) == my_gen {
-            // 1. Drain any incoming UDP `DMDF` packets non-blockingly
-            while let Ok((len, _)) = udp_socket.recv_from(&mut udp_buf) {
-                if let Some((seq, img)) = assembler.push_packet(&udp_buf[..len]) {
-                    let mut guard = shared.lock().unwrap();
-                    guard.live_udp_frame = Some(img);
-                    guard.live_udp_seq = seq;
-                    guard.last_udp_packet_at = Some(Instant::now());
-                    guard.server_online = true;
-                }
-            }
-
-            // 2. Dispatch any queued outbound MQTT events (`start_card`, `start_stream`)
-            let (start_card_id, start_stream_id) = {
-                let mut guard = shared.lock().unwrap();
-                (
-                    guard.requested_start_card_id.take(),
-                    guard.requested_start_stream_id.take(),
-                )
-            };
-            if let Some(item_id) = start_card_id {
-                let ev = serde_json::json!({
-                    "action": "start_card",
-                    "item_id": item_id,
-                });
-                if let Ok(b) = serde_json::to_vec(&ev) {
-                    let _ = mqtt_client.publish(&events_topic, QoS::AtLeastOnce, false, b);
-                }
-            }
-            if let Some(item_id) = start_stream_id {
-                let ev = serde_json::json!({
-                    "action": "start_stream",
-                    "item_id": item_id,
-                    "udp_port": local_udp_port,
-                });
-                if let Ok(b) = serde_json::to_vec(&ev) {
-                    let _ = mqtt_client.publish(&events_topic, QoS::AtLeastOnce, false, b);
-                }
-            }
-
-            // 3. Step the MQTT connection
             match iter.next() {
                 Some(Ok(MqttEvent::Incoming(Packet::Publish(pub_pkt)))) => {
                     let topic = pub_pkt.topic.as_str();
@@ -1297,27 +1456,13 @@ impl MediaShowcaseRunner {
                             if ready_msg.ready {
                                 if let Some(card) = ready_msg.card {
                                     let poster = if cfg.show_poster {
-                                        let p_path = card.canonical_poster_path();
-                                        if !p_path.is_empty() {
-                                            let url = format!("{}{}", base_url, p_path);
-                                            let pw = if card.poster_width > 0 {
-                                                card.poster_width
-                                            } else {
-                                                default_pw
-                                            };
-                                            let ph = if card.poster_height > 0 {
-                                                card.poster_height
-                                            } else {
-                                                default_ph
-                                            };
-                                            http_client
-                                                .as_ref()
-                                                .and_then(|c| c.get(&url).send().ok())
-                                                .and_then(|r| r.bytes().ok())
-                                                .and_then(|b| decode_rgb565_le_image(&b, pw, ph))
-                                        } else {
-                                            None
-                                        }
+                                        card.resolve_poster_image(
+                                            slug,
+                                            &base_url,
+                                            http_client.as_ref(),
+                                            default_pw,
+                                            default_ph,
+                                        )
                                     } else {
                                         None
                                     };
@@ -1363,9 +1508,12 @@ impl MediaShowcaseRunner {
                                 }
                             }
                         }
-                    } else if topic == events_topic {
+                    } else if topic == events_topic || topic == stream_state_topic {
                         if let Ok(v) = serde_json::from_slice::<serde_json::Value>(payload) {
-                            if v.get("event").and_then(|s| s.as_str()) == Some("stream_eof") {
+                            let is_eof = v.get("event").and_then(|s| s.as_str())
+                                == Some("stream_eof")
+                                || v.get("state").and_then(|s| s.as_str()) == Some("stream_eof");
+                            if is_eof {
                                 let mut guard = shared.lock().unwrap();
                                 guard.stream_eof = true;
                             }
@@ -1374,6 +1522,10 @@ impl MediaShowcaseRunner {
                 }
                 Some(Ok(_)) => {}
                 Some(Err(_)) | None => {
+                    worker_alive.store(false, Ordering::SeqCst);
+                    if config_gen_arc.load(Ordering::SeqCst) != my_gen {
+                        break;
+                    }
                     // Broker unreachable or disconnected -> fallback to a single HTTP poll attempt
                     // before exiting so `mqtt_udp` degrades gracefully if only HTTP is reachable.
                     {
@@ -1387,6 +1539,7 @@ impl MediaShowcaseRunner {
                 }
             }
         }
+        worker_alive.store(false, Ordering::SeqCst);
     }
 
     fn run_http_poll_worker(
@@ -1478,25 +1631,9 @@ impl MediaShowcaseRunner {
 
         let api_item = next_data.item.unwrap();
         let item_id = api_item.canonical_id().to_string();
-        let pw = if api_item.poster_width > 0 {
-            api_item.poster_width
-        } else {
-            default_pw
-        };
-        let ph = if api_item.poster_height > 0 {
-            api_item.poster_height
-        } else {
-            default_ph
-        };
 
-        let poster = if cfg.show_poster && !api_item.canonical_poster_path().is_empty() {
-            let url = format!("{}{}", base, api_item.canonical_poster_path());
-            client
-                .get(&url)
-                .send()
-                .ok()
-                .and_then(|r| r.bytes().ok())
-                .and_then(|b| decode_rgb565_le_image(&b, pw, ph))
+        let poster = if cfg.show_poster {
+            api_item.resolve_poster_image(slug, base, Some(&client), default_pw, default_ph)
         } else {
             None
         };
@@ -2289,12 +2426,22 @@ pub fn build_common_showcase_fields(
             id: "text_scroll_speed",
             field_type: ConfigType::Options,
             label: "Synopsis Scroll Speed",
-            description: "Reading speed for the organic full-synopsis scroll on the Info Card",
-            default_value: "normal",
+            description: "Reading speed for the organic full-synopsis scroll on the Info Card (1 = Very Slow to 10 = Turbo)",
+            default_value: "4",
             options: Some(vec![
-                ConfigOption { label: "Slow (16 px/s)", value: "slow" },
-                ConfigOption { label: "Normal (24 px/s)", value: "normal" },
-                ConfigOption { label: "Fast (36 px/s)", value: "fast" },
+                ConfigOption { label: "1 - Very Slow (14 px/s)", value: "1" },
+                ConfigOption { label: "2 - Slow (18 px/s)", value: "2" },
+                ConfigOption { label: "3 - Relaxed (24 px/s)", value: "3" },
+                ConfigOption { label: "4 - Normal (32 px/s)", value: "4" },
+                ConfigOption { label: "5 - Medium-Fast (42 px/s)", value: "5" },
+                ConfigOption { label: "6 - Fast (56 px/s)", value: "6" },
+                ConfigOption { label: "7 - Very Fast (75 px/s)", value: "7" },
+                ConfigOption { label: "8 - Ultra Fast (100 px/s)", value: "8" },
+                ConfigOption { label: "9 - Hyper (130 px/s)", value: "9" },
+                ConfigOption { label: "10 - Turbo (160 px/s)", value: "10" },
+                ConfigOption { label: "Legacy: Slow (18 px/s)", value: "slow" },
+                ConfigOption { label: "Legacy: Normal (32 px/s)", value: "normal" },
+                ConfigOption { label: "Legacy: Fast (56 px/s)", value: "fast" },
             ]),
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
@@ -2571,5 +2718,21 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_base64_poster_and_scroll_speed_1_to_10() {
+        let decoded = decode_base64_bytes("AAH/").expect("valid base64");
+        assert_eq!(decoded, vec![0x00, 0x01, 0xFF]);
+
+        let mut cfg = ShowcaseConfig::default();
+        cfg.text_scroll_speed = "1".to_string();
+        assert_eq!(cfg.synopsis_px_per_sec(), 14);
+        cfg.text_scroll_speed = "4".to_string();
+        assert_eq!(cfg.synopsis_px_per_sec(), 32);
+        cfg.text_scroll_speed = "10".to_string();
+        assert_eq!(cfg.synopsis_px_per_sec(), 160);
+        cfg.text_scroll_speed = "fast".to_string();
+        assert_eq!(cfg.synopsis_px_per_sec(), 56);
     }
 }

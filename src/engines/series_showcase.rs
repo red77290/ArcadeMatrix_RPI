@@ -5,8 +5,8 @@
 //! and language-agnostic opening/trailer clips prepared live by `dmd-media-showcase`.
 
 use crate::core::engine_contract::{
-    Capabilities, ConfigField, ConfigOption, ConfigSchema, ConfigType, Engine, EngineConfig,
-    EngineContext, EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
+    Capabilities, ConfigField, ConfigSchema, ConfigType, Engine, EngineConfig, EngineContext,
+    EngineDescriptor, EngineError, EngineMetadata, Requirements, ValidationPolicy,
 };
 use crate::engines::renderers::media_showcase::{
     build_common_showcase_fields, MediaShowcaseRunner, ShowcaseDomain,
@@ -84,145 +84,27 @@ fn register_series_showcase_engine() -> EngineDescriptor {
     fields.push(ConfigField {
         id: "genres",
         field_type: ConfigType::Options,
-        label: "TV Series Genres (24 Categories)",
-        description: "Filter live TV series discovery by genre (aligned with TVMaze & TMDB)",
+        label: "TV Series Genres (Dynamic Referential)",
+        description:
+            "Filter live TV series discovery by genre fetched dynamically from dmd-media-showcase",
         default_value: "scifi,drama,crime,mystery,thriller,action,fantasy",
         multiple: true,
-        options: Some(vec![
-            ConfigOption {
-                label: "Science-Fiction",
-                value: "scifi",
-            },
-            ConfigOption {
-                label: "Cyberpunk",
-                value: "cyberpunk",
-            },
-            ConfigOption {
-                label: "Action",
-                value: "action",
-            },
-            ConfigOption {
-                label: "Adventure",
-                value: "adventure",
-            },
-            ConfigOption {
-                label: "Drama",
-                value: "drama",
-            },
-            ConfigOption {
-                label: "Crime",
-                value: "crime",
-            },
-            ConfigOption {
-                label: "Thriller",
-                value: "thriller",
-            },
-            ConfigOption {
-                label: "Mystery",
-                value: "mystery",
-            },
-            ConfigOption {
-                label: "Supernatural",
-                value: "supernatural",
-            },
-            ConfigOption {
-                label: "Fantasy",
-                value: "fantasy",
-            },
-            ConfigOption {
-                label: "Horror",
-                value: "horror",
-            },
-            ConfigOption {
-                label: "Comedy",
-                value: "comedy",
-            },
-            ConfigOption {
-                label: "Espionage",
-                value: "espionage",
-            },
-            ConfigOption {
-                label: "Animation / Anime",
-                value: "anime",
-            },
-            ConfigOption {
-                label: "History",
-                value: "history",
-            },
-            ConfigOption {
-                label: "War",
-                value: "war",
-            },
-            ConfigOption {
-                label: "Western",
-                value: "western",
-            },
-            ConfigOption {
-                label: "Medical",
-                value: "medical",
-            },
-            ConfigOption {
-                label: "Legal",
-                value: "legal",
-            },
-            ConfigOption {
-                label: "Romance",
-                value: "romance",
-            },
-            ConfigOption {
-                label: "Family",
-                value: "family",
-            },
-            ConfigOption {
-                label: "Music",
-                value: "music",
-            },
-            ConfigOption {
-                label: "Sports",
-                value: "sports",
-            },
-            ConfigOption {
-                label: "Nature / Documentary",
-                value: "nature",
-            },
-        ]),
-        validation_policy: ValidationPolicy::FallbackDefault,
+        options: None,
+        options_endpoint: Some("/api/v1/series/filters"),
+        validation_policy: ValidationPolicy::Accept,
         ..Default::default()
     });
     fields.push(ConfigField {
         id: "decades",
         field_type: ConfigType::Options,
-        label: "Decades",
-        description: "Filter TV series by premiere decade",
+        label: "Decades (Dynamic Referential)",
+        description:
+            "Filter TV series by premiere decade fetched dynamically from dmd-media-showcase",
         default_value: "1990s,2000s,2010s,2020s",
         multiple: true,
-        options: Some(vec![
-            ConfigOption {
-                label: "1970s",
-                value: "1970s",
-            },
-            ConfigOption {
-                label: "1980s",
-                value: "1980s",
-            },
-            ConfigOption {
-                label: "1990s",
-                value: "1990s",
-            },
-            ConfigOption {
-                label: "2000s",
-                value: "2000s",
-            },
-            ConfigOption {
-                label: "2010s",
-                value: "2010s",
-            },
-            ConfigOption {
-                label: "2020s",
-                value: "2020s",
-            },
-        ]),
-        validation_policy: ValidationPolicy::FallbackDefault,
+        options: None,
+        options_endpoint: Some("/api/v1/series/filters"),
+        validation_policy: ValidationPolicy::Accept,
         ..Default::default()
     });
 

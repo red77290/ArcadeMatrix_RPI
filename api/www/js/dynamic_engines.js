@@ -162,6 +162,51 @@ async function fetchCachedEndpoint(url) {
   return promise;
 }
 
+// Fetch consolidated Showcase referential ({ systems, genres, decades }) from dmd-media-showcase
+async function fetchShowcaseReferential(serverUrl, endpointPath, lang, forceRefresh = false) {
+  const sysShowcase = (typeof window !== 'undefined' && window.__sysConfig && window.__sysConfig.showcase) ? window.__sysConfig.showcase : null;
+  if (!forceRefresh && sysShowcase && sysShowcase.enabled === false) {
+    return null;
+  }
+  let rawCandidate = (typeof window !== 'undefined' && window.__showcaseResolvedUrl)
+    ? window.__showcaseResolvedUrl
+    : (serverUrl || (sysShowcase && sysShowcase.server_url) || 'http://dmdmediashowcase.local:8890');
+  if (typeof window !== 'undefined' && (!window.__showcaseResolvedUrl || forceRefresh) && String(rawCandidate).toLowerCase().includes('.local')) {
+    try {
+      const st = await API.get(`/api/showcase/status?url=${encodeURIComponent(rawCandidate)}&enabled=true${forceRefresh ? '&force=true' : ''}`);
+      if (st && st.resolved_url && !String(st.resolved_url).toLowerCase().includes('.local')) {
+        window.__showcaseResolvedUrl = st.resolved_url;
+        rawCandidate = st.resolved_url;
+      }
+    } catch (_) {}
+  }
+  const preferredUrl = rawCandidate;
+  const base = String(preferredUrl).trim().replace(/\/+$/, '');
+  const effLang = (!lang || lang === 'system') ? (localStorage.getItem('lang') || 'fr') : lang;
+  const fullUrl = `${base}${endpointPath}?lang=${encodeURIComponent(effLang)}`;
+  if (forceRefresh) {
+    endpointCache.delete(fullUrl);
+  }
+  if (endpointCache.has(fullUrl)) {
+    return endpointCache.get(fullUrl);
+  }
+  const promise = (async () => {
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 3500) : null;
+    try {
+      const res = await fetch(fullUrl, { signal: ctrl ? ctrl.signal : undefined });
+      if (timer) clearTimeout(timer);
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (_) {
+      if (timer) clearTimeout(timer);
+      return null;
+    }
+  })();
+  endpointCache.set(fullUrl, promise);
+  return promise;
+}
+
 // Robust helper to extract schema fields on both ESP32 and RPi
 export function getSchemaFields(engineDesc) {
   if (!engineDesc || !engineDesc.schema) return [];
@@ -949,7 +994,7 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
   const isCountBased = (instId) => {
     const inst = instancesList.find(i => i.instance_id === instId);
     const eng = inst ? enginesMap[inst.engine_id] : null;
-    return Boolean((eng && eng.capabilities && eng.capabilities.selfPaced) || (inst && inst.engine_id === 'gifs'));
+    return Boolean((eng && eng.capabilities && (eng.capabilities.selfPaced || eng.capabilities.self_paced)) || (inst && (inst.engine_id === 'gifs' || inst.engine_id === 'retro_games' || inst.engine_id === 'movie_showcase' || inst.engine_id === 'series_showcase' || inst.engine_id === 'anime_showcase')));
   };
 
   const allowsOverlay = (instId) => {
@@ -1004,10 +1049,12 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       settingsBar.className = 'rotation-settings-bar';
 
       const countBased = isCountBased(entry.instance_id);
+      const rowInst = instancesList.find(i => i.instance_id === entry.instance_id);
+      const isShowcase = rowInst && (rowInst.engine_id === 'retro_games' || rowInst.engine_id === 'movie_showcase' || rowInst.engine_id === 'series_showcase' || rowInst.engine_id === 'anime_showcase');
 
       const durGroup = document.createElement('div');
       durGroup.className = 'rotation-dur-group';
-      durGroup.title = countBased ? t('dur_tooltip_gifs', 'Number of GIFs to play before rotating') : t('dur_tooltip_sec', 'Duration in seconds');
+      durGroup.title = isShowcase ? t('dur_tooltip_media', 'Number of media cards/videos to play before rotating') : (countBased ? t('dur_tooltip_gifs', 'Number of GIFs to play before rotating') : t('dur_tooltip_sec', 'Duration in seconds'));
 
       const durLbl = document.createElement('span');
       durLbl.style = "font-size: 0.8rem; color: var(--text-secondary);";
@@ -1024,7 +1071,7 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
 
       const unit = document.createElement('span');
       unit.style = "font-size: 0.8rem; color: var(--text-muted);";
-      unit.innerText = countBased ? 'GIFs' : 'sec';
+      unit.innerText = isShowcase ? t('unit_media', 'Media') : (countBased ? t('unit_gifs', 'GIFs') : t('unit_sec', 'sec'));
       durGroup.appendChild(unit);
       settingsBar.appendChild(durGroup);
 
@@ -1173,8 +1220,8 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       entries.push({
         instance_id: instId,
         duration_sec: 30,
-        overlays: { fighter: allowOverlay },
-        fighter_overlay: allowOverlay
+        overlays: { fighter: false },
+        fighter_overlay: false
       });
       renderRows();
       updateInstanceRotationState(instId, true, 30);
@@ -1497,6 +1544,185 @@ function buildMultiSelectGroup(opts, targetFieldId, instId, initVal) {
 
   textInput.addEventListener('input', syncTagsFromInput);
   container.appendChild(textInput);
+  return container;
+}
+
+// Helper: Build Dynamic Showcase Referential Tag Selector (Zero Free-Text Guessing + Relational System->Genre/Decade Filtering)
+function buildShowcaseReferentialWidget(field, instance, configMap, initialReferential) {
+  const instId = instance.instance_id;
+  const targetFieldId = field.id; // 'systems', 'genres', or 'decades'
+  const initVal = configMap[targetFieldId] !== undefined ? configMap[targetFieldId] : (field.default_value || '');
+
+  const container = document.createElement('div');
+  container.className = `showcase-ref-widget showcase-ref-${instId}-${targetFieldId}`;
+  container.style = 'display: flex; flex-direction: column; gap: 0.45rem; width: 100%;';
+
+  // Hidden canonical CSV input consumed by saveConfig() — no manual free-text box required
+  const hiddenInput = document.createElement('input');
+  hiddenInput.type = 'hidden';
+  hiddenInput.id = `cfg-dyn-${instId}-${targetFieldId}`;
+  hiddenInput.value = initVal || '';
+  container.appendChild(hiddenInput);
+
+  const toolbar = document.createElement('div');
+  toolbar.style = 'display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.35rem;';
+
+  const statusSpan = document.createElement('span');
+  statusSpan.style = 'font-size: 0.76rem; color: var(--text-muted);';
+  toolbar.appendChild(statusSpan);
+
+  const actionsDiv = document.createElement('div');
+  actionsDiv.style = 'display: flex; gap: 0.35rem; align-items: center;';
+  const btnAll = document.createElement('button');
+  btnAll.type = 'button';
+  btnAll.className = 'btn btn-sm';
+  btnAll.style = 'font-size: 0.72rem; padding: 0.18rem 0.48rem;';
+  btnAll.innerText = `✅ ${t('select_all_btn', 'Select All')}`;
+
+  const btnClear = document.createElement('button');
+  btnClear.type = 'button';
+  btnClear.className = 'btn btn-sm';
+  btnClear.style = 'font-size: 0.72rem; padding: 0.18rem 0.48rem;';
+  btnClear.innerText = `✖️ ${t('clear_btn', 'Clear')}`;
+
+  const btnSync = document.createElement('button');
+  btnSync.type = 'button';
+  btnSync.className = 'btn btn-sm';
+  btnSync.style = 'font-size: 0.72rem; padding: 0.18rem 0.48rem; background: rgba(0,229,255,0.12); border: 1px solid rgba(0,229,255,0.3);';
+  btnSync.innerText = '🔄 Sync';
+
+  actionsDiv.appendChild(btnAll);
+  actionsDiv.appendChild(btnClear);
+  actionsDiv.appendChild(btnSync);
+  toolbar.appendChild(actionsDiv);
+  container.appendChild(toolbar);
+
+  const tagBox = document.createElement('div');
+  tagBox.className = 'rotation-toggles';
+  tagBox.style = 'display: flex; gap: 0.4rem; flex-wrap: wrap; max-height: 195px; overflow-y: auto; padding: 0.35rem; background: rgba(0,0,0,0.18); border-radius: var(--radius-sm); border: 1px solid var(--glass-border);';
+  container.appendChild(tagBox);
+
+  let currentRefData = initialReferential;
+
+  function syncHiddenFromCheckboxes() {
+    const checked = Array.from(
+      tagBox.querySelectorAll(`input[type="checkbox"].multi-cb-${instId}-${targetFieldId}:checked`)
+    ).filter(cb => !cb.disabled).map(cb => cb.value);
+    hiddenInput.value = checked.join(',');
+    hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+    if (targetFieldId === 'systems') {
+      document.dispatchEvent(new CustomEvent(`showcase-systems-changed-${instId}`, {
+        detail: { selectedSystems: checked, refData: currentRefData }
+      }));
+    }
+  }
+
+  function renderChips(refPayload, allowedSet = null) {
+    currentRefData = refPayload;
+    tagBox.innerHTML = '';
+    const activeTokens = String(hiddenInput.value || '')
+      .split(',')
+      .map(s => s.trim().toLowerCase())
+      .filter(s => s.length > 0 && s !== 'all');
+    const isAll = String(hiddenInput.value || '').trim().toLowerCase() === 'all';
+
+    let rawList = (refPayload && Array.isArray(refPayload[targetFieldId])) ? refPayload[targetFieldId] : [];
+    const isOnline = Boolean(refPayload && Array.isArray(refPayload[targetFieldId]) && rawList.length > 0);
+
+    if (!isOnline) {
+      // Fallback: build chips from current/default values so user never faces a free-text input
+      const fallbackTokens = Array.from(new Set(
+        `${hiddenInput.value},${field.default_value || ''}`
+          .split(',')
+          .map(s => s.trim())
+          .filter(s => s.length > 0 && s.toLowerCase() !== 'all')
+      ));
+      rawList = fallbackTokens.map(tok => ({ value: tok, label: tok }));
+      statusSpan.innerHTML = '⚠️ Showcase offline (showing saved tags)';
+    } else {
+      statusSpan.innerHTML = `🟢 ${rawList.length} ${targetFieldId}`;
+    }
+
+    rawList.forEach(item => {
+      const val = String(item.value !== undefined ? item.value : (item.id || '')).trim();
+      if (!val) return;
+      const lblText = String(item.label || item.name || val);
+      const isSupported = !allowedSet || allowedSet.size === 0 || allowedSet.has(val.toLowerCase());
+      const isChecked = isSupported && (isAll || activeTokens.includes(val.toLowerCase()));
+
+      const lbl = document.createElement('label');
+      lbl.className = 'toggle-btn';
+      if (!isSupported) {
+        lbl.style = 'opacity: 0.32; pointer-events: none; filter: grayscale(1);';
+        lbl.title = 'Not applicable to currently selected systems';
+      }
+      const cntStr = (typeof item.count === 'number' && item.count > 0)
+        ? ` <span style="opacity:0.65; font-size:0.72rem;">(${item.count})</span>`
+        : '';
+      lbl.innerHTML = `<input type="checkbox" value="${escHtml(val)}" class="multi-cb-${escHtml(instId)}-${escHtml(targetFieldId)}" style="display:none;" ${isChecked ? 'checked' : ''} ${!isSupported ? 'disabled' : ''}> <span class="toggle-label">${escHtml(lblText)}${cntStr}</span>`;
+      lbl.querySelector('input[type="checkbox"]').addEventListener('change', syncHiddenFromCheckboxes);
+      tagBox.appendChild(lbl);
+    });
+  }
+
+  function computeRelationalAllowedSet(refPayload, selectedSystems) {
+    if (!refPayload || !Array.isArray(refPayload.systems) || targetFieldId === 'systems') {
+      return null;
+    }
+    const selLower = (selectedSystems || []).map(s => String(s).trim().toLowerCase()).filter(Boolean);
+    if (selLower.length === 0) return null;
+    const unionSet = new Set();
+    const key = targetFieldId === 'genres' ? 'supported_genres' : 'supported_decades';
+    refPayload.systems.forEach(sys => {
+      const sysVal = String(sys.value || sys.id || '').toLowerCase();
+      if (selLower.includes(sysVal) && Array.isArray(sys[key])) {
+        sys[key].forEach(g => unionSet.add(String(g).toLowerCase()));
+      }
+    });
+    return unionSet.size > 0 ? unionSet : null;
+  }
+
+  btnAll.onclick = () => {
+    tagBox.querySelectorAll(`input[type="checkbox"].multi-cb-${instId}-${targetFieldId}`).forEach(cb => {
+      if (!cb.disabled) cb.checked = true;
+    });
+    syncHiddenFromCheckboxes();
+  };
+
+  btnClear.onclick = () => {
+    tagBox.querySelectorAll(`input[type="checkbox"].multi-cb-${instId}-${targetFieldId}`).forEach(cb => {
+      cb.checked = false;
+    });
+    syncHiddenFromCheckboxes();
+  };
+
+  async function refreshFromShowcase(force = false) {
+    const srvEl = document.getElementById(`cfg-dyn-${instId}-server_url`);
+    const langEl = document.getElementById(`cfg-dyn-${instId}-lang`);
+    const srvUrl = srvEl ? srvEl.value : (configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890');
+    const langVal = langEl ? langEl.value : (configMap.lang || 'system');
+    statusSpan.innerHTML = '⏳ Syncing...';
+    const fresh = await fetchShowcaseReferential(srvUrl, field.options_endpoint, langVal, force);
+    const sysInput = document.getElementById(`cfg-dyn-${instId}-systems`);
+    const selSys = sysInput ? sysInput.value.split(',') : [];
+    const allowed = computeRelationalAllowedSet(fresh, selSys);
+    renderChips(fresh, allowed);
+  }
+
+  btnSync.onclick = () => refreshFromShowcase(true);
+
+  if (targetFieldId !== 'systems') {
+    document.addEventListener(`showcase-systems-changed-${instId}`, (ev) => {
+      const refData = (ev.detail && ev.detail.refData) || currentRefData;
+      const selSys = (ev.detail && ev.detail.selectedSystems) || [];
+      const allowed = computeRelationalAllowedSet(refData, selSys);
+      renderChips(refData, allowed);
+    });
+  }
+
+  const initSelectedSystems = String(configMap.systems || '').split(',');
+  renderChips(initialReferential, computeRelationalAllowedSet(initialReferential, initSelectedSystems));
+  container._refreshShowcaseRef = refreshFromShowcase;
   return container;
 }
 
@@ -1950,8 +2176,8 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             newRot.push({
               instance_id: instance.instance_id,
               duration_sec: 30,
-              overlays: { fighter: allowOverlay },
-              fighter_overlay: allowOverlay
+              overlays: { fighter: false },
+              fighter_overlay: false
             });
             window.showToast(`Added '${info.title}' to rotation`, 'success');
           }
@@ -2069,6 +2295,14 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
                   if (String(opt.value) === String(currentVal)) option.selected = true;
                   input.appendChild(option);
               });
+          } else if (field.options_endpoint && field.options_endpoint.startsWith('/api/v1/')) {
+              const refData = await fetchShowcaseReferential(
+                  configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890',
+                  field.options_endpoint,
+                  configMap.lang || 'system',
+                  false
+              );
+              input = buildShowcaseReferentialWidget(field, instance, configMap, refData);
           } else if (field.options_endpoint) {
              const data = await fetchCachedEndpoint(field.options_endpoint);
              const normalizedOpts = parseOptions(data);
@@ -2192,7 +2426,14 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
         });
       }
       formGrid.addEventListener('input', updateVisibility);
-      formGrid.addEventListener('change', updateVisibility);
+      formGrid.addEventListener('change', (ev) => {
+        updateVisibility();
+        if (ev.target && (ev.target.id === `cfg-dyn-${instance.instance_id}-server_url` || ev.target.id === `cfg-dyn-${instance.instance_id}-lang`)) {
+          formGrid.querySelectorAll('.showcase-ref-widget').forEach(w => {
+            if (typeof w._refreshShowcaseRef === 'function') w._refreshShowcaseRef(true);
+          });
+        }
+      });
       updateVisibility();
       
       // Save Action Bar
@@ -2230,10 +2471,12 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
                     }
                     payload.config[field.id] = cleanVal;
                 } else if (field.multiple || field.options_endpoint) {
-                    const checkboxes = document.querySelectorAll(`.multi-cb-${instance.instance_id}-${field.id}:checked`);
+                    const checkboxes = Array.from(document.querySelectorAll(`.multi-cb-${instance.instance_id}-${field.id}:checked`)).filter(cb => !cb.disabled);
                     if (checkboxes.length > 0) {
-                        const vals = Array.from(checkboxes).map(cb => cb.value);
+                        const vals = checkboxes.map(cb => cb.value);
                         payload.config[field.id] = vals.join(',');
+                    } else if (field.options_endpoint && field.options_endpoint.startsWith('/api/v1/')) {
+                        payload.config[field.id] = '';
                     } else {
                         payload.config[field.id] = 'all';
                     }

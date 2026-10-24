@@ -365,7 +365,7 @@
                 <label><span data-i18n="gen_idle_fighter_enable">Enable Idle Fighter Overlay</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
-                    <input type="checkbox" id="sys-idle-fighter-enabled" checked>
+                    <input type="checkbox" id="sys-idle-fighter-enabled">
                     <span class="slider"></span>
                   </label>
                 </div>
@@ -557,131 +557,209 @@
 
         <!-- MQTT & API -->
         <div id="sys-tab-mqtt" class="tab-pane">
-          <div class="card glass shadow" style="margin-bottom: 2rem;">
-            <h3 data-i18n="mqtt_title">MQTT Integration</h3>
-            <div class="form-grid">
-              <div class="form-group">
-                <label data-i18n="mqtt_enable">Enable MQTT</label>
-                <select id="hw-mqtt-enable" class="input">
-                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
-                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label data-i18n="mqtt_overlay">Fighter Overlay</label>
-                <select id="hw-mqtt-overlay" class="input">
-                  <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
-                  <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
-                </select>
-              </div>
-            </div>
-            <div class="form-grid">
-              <div class="form-group">
-                <label data-i18n="mqtt_broker">Broker IP</label>
-                <input type="text" id="hw-mqtt-broker" class="input" placeholder="127.0.0.1">
-              </div>
-              <div class="form-group">
-                <label data-i18n="mqtt_port">Port</label>
-                <input type="number" id="hw-mqtt-port" class="input" value="1883">
-              </div>
-            </div>
-            <div class="form-grid" style="margin-top: 1rem;">
-              <div class="form-group">
-                <label data-i18n="mqtt_user">Username</label>
-                <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional">
-              </div>
-              <div class="form-group">
-                <label data-i18n="mqtt_pass">Password</label>
-                <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
-              </div>
-            </div>
-            <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="mqtt_save_btn">Save MQTT Settings</button>
-            
-            <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
-            
-            <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera / RetroPie Sync</h4>
-            <p class="text-muted" style="font-size: 0.9em;" data-i18n="recalbox_desc">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
-            <div class="form-group" style="margin-top: 1rem;">
-              <label style="display:block; margin-bottom:0.35rem;">Target Gaming OS</label>
-              <select id="hw-mqtt-target-os" class="input" style="font-weight: 600;">
-                <option value="auto">Auto-Detect (Remote Scan)</option>
-                <option value="recalbox">Recalbox (/recalbox/share)</option>
-                <option value="batocera">Batocera (/userdata/system)</option>
-                <option value="retropie">RetroPie (/opt/retropie)</option>
-              </select>
-            </div>
-            <div class="form-group" style="margin-top: 1rem;">
-              <label class="toggle-btn" style="display:inline-flex; align-items:center; cursor:pointer;">
-                <input type="checkbox" id="hw-mqtt-custom-auth" style="margin-right:0.5rem; accent-color:var(--primary);">
-                <span data-i18n="recalbox_custom_auth">Use custom SSH credentials</span>
-              </label>
-            </div>
-            <div id="mqtt-custom-auth-fields" class="form-grid" style="display: none; margin-top: 0.5rem; margin-bottom: 1rem;">
-              <div class="form-group">
-                <label data-i18n="recalbox_ssh_user">SSH Username</label>
-                <input type="text" id="hw-mqtt-ssh-user" class="input" placeholder="root" value="root">
-              </div>
-              <div class="form-group">
-                <label data-i18n="recalbox_ssh_pass">SSH Password</label>
-                <input type="password" id="hw-mqtt-ssh-pass" class="input" placeholder="recalboxroot">
-              </div>
-            </div>
-            <div class="form-grid" style="align-items: end;">
-              <div class="form-group">
-                <label data-i18n="recalbox_console_ip">Console IP Address</label>
-                <input type="text" id="hw-mqtt-ip" class="input" placeholder="192.168.1.100">
-              </div>
-              <div class="form-group" style="display: flex; gap: 0.5rem;">
-                <button id="btn-install-mqtt" class="btn btn-warning" style="flex: 1;" data-i18n="recalbox_install_btn">Install via SSH</button>
-                <button id="btn-check-logs" class="btn btn-primary" style="flex: 1;" data-i18n="recalbox_logs_btn">Check Logs</button>
-              </div>
-            </div>
-            <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
-          </div>
-          
-          <!-- MQTT Data: broker credentials for MQTT Data screens (they connect only while on screen) -->
-          <div class="card glass shadow" style="margin-bottom: 2rem;">
-            <h3 data-i18n="data_mqtt_title">MQTT Data</h3>
-            <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">Broker used by MQTT Data screens. They connect only while they are on screen. Separate from the marquee MQTT above.</p>
-            <div class="form-grid">
-              <div class="form-group">
-                <label data-i18n="mqtt_broker">Broker IP</label>
-                <input type="text" id="hw-data-mqtt-broker" class="input" placeholder="192.168.1.10">
-              </div>
-              <div class="form-group">
-                <label data-i18n="mqtt_port">Port</label>
-                <input type="number" id="hw-data-mqtt-port" class="input" value="1883">
-              </div>
-            </div>
-            <div class="form-grid" style="margin-top: 1rem;">
-              <div class="form-group">
-                <label data-i18n="mqtt_user">Username</label>
-                <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional">
-              </div>
-              <div class="form-group">
-                <label data-i18n="mqtt_pass">Password</label>
-                <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional">
-              </div>
-            </div>
-            <button id="btn-save-data-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="data_mqtt_save_btn">Save MQTT Data</button>
+          <div class="tabs" style="margin-bottom: 1.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <button type="button" class="tab-btn active" onclick="switchMqttSubTab('frontendsync')"><span data-i18n="mqtt_subtab_frontend">🎮 FrontendSync (Recalbox)</span></button>
+            <button type="button" class="tab-btn" onclick="switchMqttSubTab('data')"><span data-i18n="mqtt_subtab_data">🏠 MQTT Data (Home Automation)</span></button>
+            <button type="button" class="tab-btn" onclick="switchMqttSubTab('showcase')"><span data-i18n="mqtt_subtab_showcase">🎬 DMD Media Showcase</span></button>
+            <button type="button" class="tab-btn" onclick="switchMqttSubTab('auth')"><span data-i18n="mqtt_subtab_auth">🔒 API Authentication</span></button>
           </div>
 
-          <div class="card glass shadow">
-            <h3 data-i18n="api_auth_title">API Authentication</h3>
-            <div class="form-grid">
-              <div class="form-group">
-                <label data-i18n="api_auth_enable">Require Auth for API</label>
-                <select id="hw-api-auth" class="input">
-                  <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
-                  <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+          <!-- Sub-Tab 1: FrontendSync (Recalbox / Batocera / RetroPie Sync) -->
+          <div id="mqtt-subtab-frontendsync" class="mqtt-subtab-pane">
+            <div class="card glass shadow" style="margin-bottom: 2rem;">
+              <h3 data-i18n="mqtt_title">🎮 Intégration MQTT (FrontendSync)</h3>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="mqtt_desc">Synchronisation en direct des métadonnées et marquees de vos jeux depuis votre console retro-gaming (Recalbox, Batocera, RetroPie).</p>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="mqtt_enable">Enable MQTT</label>
+                  <select id="hw-mqtt-enable" class="input">
+                    <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_overlay">Fighter Overlay</label>
+                  <select id="hw-mqtt-overlay" class="input">
+                    <option value="0" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    <option value="1" data-i18n="mqtt_opt_enabled">Enabled</option>
+                  </select>
+                </div>
+              </div>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="mqtt_broker">Broker IP</label>
+                  <input type="text" id="hw-mqtt-broker" class="input" placeholder="127.0.0.1">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_port">Port</label>
+                  <input type="number" id="hw-mqtt-port" class="input" value="1883">
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="mqtt_user">Username</label>
+                  <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_pass">Password</label>
+                  <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
+                </div>
+              </div>
+              <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="mqtt_save_btn">Save MQTT Settings</button>
+              
+              <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
+              
+              <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera / RetroPie Sync</h4>
+              <p class="text-muted" style="font-size: 0.9em;" data-i18n="recalbox_desc">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
+              <div class="form-group" style="margin-top: 1rem;">
+                <label style="display:block; margin-bottom:0.35rem;">Target Gaming OS</label>
+                <select id="hw-mqtt-target-os" class="input" style="font-weight: 600;">
+                  <option value="auto">Auto-Detect (Remote Scan)</option>
+                  <option value="recalbox">Recalbox (/recalbox/share)</option>
+                  <option value="batocera">Batocera (/userdata/system)</option>
+                  <option value="retropie">RetroPie (/opt/retropie)</option>
                 </select>
               </div>
-              <div class="form-group">
-                <label data-i18n="api_token">API Token</label>
-                <input type="text" id="hw-api-token" class="input" placeholder="Token for clients">
+              <div class="form-group" style="margin-top: 1rem;">
+                <label class="toggle-btn" style="display:inline-flex; align-items:center; cursor:pointer;">
+                  <input type="checkbox" id="hw-mqtt-custom-auth" style="margin-right:0.5rem; accent-color:var(--primary);">
+                  <span data-i18n="recalbox_custom_auth">Use custom SSH credentials</span>
+                </label>
               </div>
+              <div id="mqtt-custom-auth-fields" class="form-grid" style="display: none; margin-top: 0.5rem; margin-bottom: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="recalbox_ssh_user">SSH Username</label>
+                  <input type="text" id="hw-mqtt-ssh-user" class="input" placeholder="root" value="root">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="recalbox_ssh_pass">SSH Password</label>
+                  <input type="password" id="hw-mqtt-ssh-pass" class="input" placeholder="recalboxroot">
+                </div>
+              </div>
+              <div class="form-grid" style="align-items: end;">
+                <div class="form-group">
+                  <label data-i18n="recalbox_console_ip">Console IP Address</label>
+                  <input type="text" id="hw-mqtt-ip" class="input" placeholder="192.168.1.100">
+                </div>
+                <div class="form-group" style="display: flex; gap: 0.5rem;">
+                  <button id="btn-install-mqtt" class="btn btn-warning" style="flex: 1;" data-i18n="recalbox_install_btn">Install via SSH</button>
+                  <button id="btn-check-logs" class="btn btn-primary" style="flex: 1;" data-i18n="recalbox_logs_btn">Check Logs</button>
+                </div>
+              </div>
+              <pre id="ssh-log-output" class="input" style="display: none; max-height: 200px; overflow-y: auto; font-size: 12px; background: rgba(0,0,0,0.2); margin-top: 1rem; color: #fff; white-space: pre-wrap;"></pre>
             </div>
-            <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="api_save_btn">Save API Auth</button>
+          </div>
+
+          <!-- Sub-Tab 2: MQTT Data (Home Automation) -->
+          <div id="mqtt-subtab-data" class="mqtt-subtab-pane" style="display: none;">
+            <div class="card glass shadow" style="margin-bottom: 2rem;">
+              <h3 data-i18n="data_mqtt_title">🏠 MQTT Data (Domotique)</h3>
+              <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">Broker MQTT dédié aux écrans de données domotiques (Home Assistant, Jeedom). Connexion active uniquement lors de l'affichage.</p>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="mqtt_broker">Broker IP</label>
+                  <input type="text" id="hw-data-mqtt-broker" class="input" placeholder="192.168.1.10">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_port">Port</label>
+                  <input type="number" id="hw-data-mqtt-port" class="input" value="1883">
+                </div>
+              </div>
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="mqtt_user">Username</label>
+                  <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional">
+                </div>
+                <div class="form-group">
+                  <label data-i18n="mqtt_pass">Password</label>
+                  <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional">
+                </div>
+              </div>
+              <button id="btn-save-data-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="data_mqtt_save_btn">Save MQTT Data</button>
+            </div>
+          </div>
+
+          <!-- Sub-Tab 3: DMD Media Showcase (Unified Network & MQTT Settings) -->
+          <div id="mqtt-subtab-showcase" class="mqtt-subtab-pane" style="display: none;">
+            <div class="card glass shadow" style="margin-bottom: 2rem;">
+              <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 0.5rem;">
+                <h3 data-i18n="showcase_title" style="margin: 0;">🎬 DMD Media Showcase</h3>
+                <div style="display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                  <span id="showcase-comm-badge" class="badge" style="font-size: 0.85rem; padding: 0.35rem 0.75rem; border-radius: 999px; background: rgba(255,255,255,0.08); color: #b0bec5; border: 1px solid rgba(255,255,255,0.15);" data-i18n="showcase_status_disabled">⚪ Disabled</span>
+                  <button type="button" id="btn-test-showcase-conn" class="btn btn-sm" style="padding: 0.3rem 0.65rem; font-size: 0.8rem;" data-i18n="showcase_test_btn">🔄 Test</button>
+                </div>
+              </div>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="showcase_desc">Configuration réseau et transport unifiée pour l'ensemble des moteurs Media Showcase (Jeux, Films, Séries, Anime).</p>
+              
+              <div class="form-grid" style="margin-bottom: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="showcase_enable">Activer DMD Media Showcase ℹ️</label>
+                  <select id="hw-showcase-enabled" class="input">
+                    <option value="false" data-i18n="mqtt_opt_disabled" selected>Désactivé (Par défaut)</option>
+                    <option value="true" data-i18n="mqtt_opt_enabled">Activé</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="showcase_server_url">URL Serveur Showcase (Auto-découverte mDNS) ℹ️</label>
+                  <input type="text" id="hw-showcase-server-url" class="input" value="http://dmdmediashowcase.local:8890" placeholder="http://dmdmediashowcase.local:8890">
+                </div>
+              </div>
+
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="showcase_transport_mode">Protocole de Transport ℹ️</label>
+                  <select id="hw-showcase-transport-mode" class="input">
+                    <option value="mqtt_udp" data-i18n="showcase_opt_mqtt_udp">MQTT + UDP Real-Time (Recommended)</option>
+                    <option value="http_poll" data-i18n="showcase_opt_http_poll">HTTP Polling (Fallback)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="showcase_use_broker">Utiliser le Broker MQTT Showcase Intégré ℹ️</label>
+                  <select id="hw-showcase-use-broker" class="input">
+                    <option value="true" data-i18n="mqtt_opt_enabled">Activé</option>
+                    <option value="false" data-i18n="mqtt_opt_disabled">Désactivé</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-grid" id="group-showcase-external-broker" style="margin-top: 1rem; display: none;">
+                <div class="form-group" id="group-showcase-broker-source">
+                  <label data-i18n="showcase_broker_source">Source Broker MQTT Externe ℹ️</label>
+                  <select id="hw-showcase-broker-source" class="input">
+                    <option value="global" data-i18n="showcase_opt_broker_global">Global ArcadeMatrix MQTT Broker</option>
+                    <option value="custom" data-i18n="showcase_opt_broker_custom">URL Broker MQTT Personnalisé</option>
+                  </select>
+                </div>
+                <div class="form-group" id="group-showcase-custom-url" style="display: none;">
+                  <label data-i18n="showcase_custom_url">URL Broker MQTT Personnalisé ℹ️</label>
+                  <input type="text" id="hw-showcase-custom-url" class="input" placeholder="mqtt://192.168.1.200:1883">
+                </div>
+              </div>
+
+              <button id="btn-save-showcase" class="btn btn-primary" style="margin-top: 1.25rem; width: 100%;" data-i18n="showcase_save_btn">Enregistrer les paramètres Showcase</button>
+            </div>
+          </div>
+
+          <!-- Sub-Tab 4: API Authentication (Security) -->
+          <div id="mqtt-subtab-auth" class="mqtt-subtab-pane" style="display: none;">
+            <div class="card glass shadow">
+              <h3 data-i18n="api_auth_title">🔒 Authentification API (Sécurité)</h3>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="api_auth_desc">Protégez l'accès aux endpoints de contrôle et d'administration REST API ArcadeMatrix.</p>
+              <div class="form-grid">
+                <div class="form-group">
+                  <label data-i18n="api_auth_enable">Require Auth for API</label>
+                  <select id="hw-api-auth" class="input">
+                    <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="api_token">API Token</label>
+                  <input type="text" id="hw-api-token" class="input" placeholder="Token for clients">
+                </div>
+              </div>
+              <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="api_save_btn">Save API Auth</button>
+            </div>
           </div>
         </div>
 

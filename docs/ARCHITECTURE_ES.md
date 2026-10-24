@@ -235,9 +235,9 @@ flowchart LR
 
 ---
 
-## 5. El ciclo de vida «Lazy-Once»
+## 5. El ciclo de vida «Lazy-Once» y Gobernanza de Memoria Transparente
 
-El `EngineRuntime` posee un vector indexado de instancias registradas (mapeando handles `instance_id` de 16 bits compactos en $O(1)$) junto con el snapshot de la última configuración aplicada a cada instancia:
+El `EngineRuntime` posee un vector indexado de instancias registradas (mapeando handles `instance_id` de 16 bits compactos en $O(1)$) envueltas en un `ManagedEngineWrapper` transparente:
 
 ```rust
 pub struct EngineRuntime {
@@ -246,6 +246,14 @@ pub struct EngineRuntime {
     next_instance_id: u16,
 }
 ```
+
+### Gobernanza de Memoria Transparente (`ManagedEngineWrapper` y `MemoryPolicy`)
+Para garantizar que el uso de RAM permanezca estrictamente acotado (~120–180 MB RSS) independientemente de cómo esté escrito cada motor:
+1. **`ManagedEngineWrapper`**: Envuelve automáticamente cada motor registrado en `EngineRuntime`.
+   - **`MemoryPolicy::KeepWarm`** (motores ligeros como `clock`, `date`, `weather`, `crypto`): Se instancian bajo demanda en la primera visualización y se mantienen en memoria; `deactivate()` ejecuta `core::memory::trim_heap()`.
+   - **`MemoryPolicy::EvictOnDeactivate`** (motores pesados de streaming/medios como `retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`, `gifs`, `marquee`): Al salir de pantalla (`deactivate()`), el wrapper **destruye por completo el `Box<dyn Engine>` interno** (`Drop`), garantizando mediante el sistema de tipos de Rust la liberación del 100 % de sus búferes de fotogramas, cachés y canales de hilos, y llama a `libc::malloc_trim(0)` (`core::memory::trim_heap()`) para devolver las páginas libres a Linux de inmediato. En la siguiente activación de rotación, el wrapper reinstancia y reinicializa el motor de forma transparente a partir de su snapshot de configuración.
+2. **Watchdog Periódico del Runtime**: Cada 60 segundos durante sesiones activas prolongadas, y cada vez que se eliminan instancias de la rotación (`sync_instances`), `EngineRuntime` invoca `core::memory::trim_heap()` para evitar la retención de arenas glibc multihilo.
+3. **Pool de Clientes HTTP Compartido y Acotado**: Los motores de red comparten singletons `reqwest::blocking::Client` (`core::memory::shared_http_client()` y `shared_showcase_http_client()`) con `pool_max_idle_per_host(2)`, eliminando la acumulación de sesiones TLS y búferes de socket.
 
 `get_instance()` es el corazón del Lazy-Once y del hot-reload:
 
@@ -712,6 +720,8 @@ Todos los endpoints son handlers actix en `src/api/server.rs`; los assets web es
 | DELETE | `/api/gifs/reindex` | Cancela un reescaneo en curso (el escaneo del Pi es síncrono: siempre responde `409`) |
 | DELETE | `/api/gifs/file?folder=&name=` | Elimina un archivo |
 | DELETE | `/api/gifs/folder?folder=` | Elimina recursivamente una carpeta de playlist |
+| GET | `/api/showcase/status` | Verifica en directo el estado de conexión y versión del servidor complementario `dmd_media_showcase` (`enabled`, `reachable`, `version`, `resolved_url`) |
+| GET | `/api/showcase/filters/{domain}` | Proxy de filtros dinámicos (`systems`, `genres`, `decades`) desde `dmd_media_showcase` |
 
 Cada handler mutador pasa por `check_auth` cuando `api_auth_enabled` está activo.
 

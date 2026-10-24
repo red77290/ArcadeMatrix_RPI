@@ -986,6 +986,10 @@ pub fn t(lang_code: &str, key: &str) -> &'static str {
         ("waiting_for_marquee", Lang::Es) => "ESPERANDO MARQUESINA",
         ("waiting_for_marquee", Lang::En) => "WAITING FOR MARQUEE",
 
+        ("showcase_warming", Lang::Fr) => "PREPARATION VIDEO...",
+        ("showcase_warming", Lang::Es) => "PREPARANDO VIDEO...",
+        ("showcase_warming", Lang::En) => "WARMING VIDEO...",
+
         _ => "",
     }
 }

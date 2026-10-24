@@ -163,9 +163,6 @@ impl Engine for MarqueeEngine {
             .unwrap_or(1.0)
             .clamp(0.25, 3.0);
         self.fit_mode = config.get_string("fit_mode", "fit");
-        if let Some(path) = self.resolve_file() {
-            self.load_file(path);
-        }
         Ok(())
     }
 
@@ -200,7 +197,12 @@ impl Engine for MarqueeEngine {
         }
     }
 
-    fn deactivate(&mut self) {}
+    fn deactivate(&mut self) {
+        self.frames = Vec::new();
+        self.frame_index = 0;
+        self.last_drawn_frame = None;
+        crate::core::memory::trim_heap();
+    }
 
     fn wants_clear(&self) -> bool {
         self.fit_mode != "fill"

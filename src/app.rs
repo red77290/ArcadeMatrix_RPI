@@ -312,9 +312,18 @@ fn build_runtime_snapshot(
     let settings = config.settings.read();
     let mut ctx = crate::core::engine_contract::EngineContext { surface, config };
 
+    let active_instance_ids: std::collections::HashSet<&str> = settings
+        .rotation
+        .iter()
+        .map(|r| r.instance_id.as_str())
+        .collect();
+
     for inst in &settings.instances {
-        let handle = engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
-        engine_runtime.init_instance(handle, &mut ctx, &inst.config);
+        if active_instance_ids.contains(inst.instance_id.as_str()) {
+            let handle =
+                engine_runtime.register_instance_handle(&inst.instance_id, &inst.engine_id);
+            engine_runtime.init_instance(handle, &mut ctx, &inst.config);
+        }
     }
     let mqtt_handle = engine_runtime.register_instance_handle("mqtt_message", "message");
     let empty_cfg = std::collections::HashMap::new();
@@ -322,6 +331,8 @@ fn build_runtime_snapshot(
 
     let marquee_handle = engine_runtime.register_instance_handle("marquee", "marquee");
     engine_runtime.init_instance(marquee_handle, &mut ctx, &empty_cfg);
+
+    engine_runtime.prune_inactive_instances(&active_instance_ids, &[mqtt_handle, marquee_handle]);
 
     let mut rotation = Vec::with_capacity(settings.rotation.len());
     for entry in &settings.rotation {
@@ -464,6 +475,7 @@ impl ArcadeMatrixApp {
             &snapshot.system.wake_up_at,
         );
         let mut last_night_check = std::time::Instant::now();
+        let mut last_memory_watchdog = std::time::Instant::now();
         let mut was_composited = false;
 
         while running.load(Ordering::SeqCst) {
@@ -658,14 +670,30 @@ impl ArcadeMatrixApp {
                 {
                     let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
                     let rot_entry = &snapshot.rotation[curr_idx];
-                    if let Some(engine) =
-                        engine_runtime.get_active_instance(runtime.active_session().engine_handle)
-                    {
-                        engine.set_rotation_budget(rot_entry.duration_sec);
-                        if rotation_entry_changed && transition_mode == TransitionMode::None {
-                            engine.activate();
-                        }
+                    let active_handle = runtime.active_session().engine_handle;
+                    engine_runtime
+                        .set_instance_rotation_budget(active_handle, rot_entry.duration_sec);
+                    if rotation_entry_changed && transition_mode == TransitionMode::None {
+                        // Single-engine rotation turn boundary: release previous turn's pages,
+                        // evaluate RSS watchdog, and activate the new turn cleanly.
+                        crate::core::memory::trim_heap();
+                        engine_runtime.enforce_memory_watchdog(
+                            active_handle,
+                            &[snapshot.mqtt_handle, snapshot.marquee_handle],
+                            None,
+                        );
+                        engine_runtime.activate_instance(active_handle);
                     }
+                }
+
+                // Periodic RSS watchdog (every 15s) to protect long/infinite single-engine sessions
+                if last_memory_watchdog.elapsed() >= std::time::Duration::from_secs(15) {
+                    last_memory_watchdog = std::time::Instant::now();
+                    engine_runtime.enforce_memory_watchdog(
+                        runtime.active_session().engine_handle,
+                        &[snapshot.mqtt_handle, snapshot.marquee_handle],
+                        None,
+                    );
                 }
 
                 // Always advance engine state/timers BEFORE querying has_new_frame()

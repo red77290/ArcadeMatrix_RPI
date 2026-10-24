@@ -1,3 +1,4 @@
+pub mod anime_showcase;
 pub mod clock;
 pub mod clocks;
 pub mod crypto;
@@ -11,8 +12,11 @@ pub mod google_cast;
 pub mod icons;
 pub mod marquee;
 pub mod message;
+pub mod movie_showcase;
 pub mod mqtt_data;
 pub mod renderers;
+pub mod retro_games;
+pub mod series_showcase;
 pub mod spotify;
 pub mod stock;
 pub mod sysinfo;

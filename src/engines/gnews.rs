@@ -1907,7 +1907,14 @@ impl Engine for GNewsEngine {
         }
     }
 
-    fn deactivate(&mut self) {}
+    fn deactivate(&mut self) {
+        self.is_fetching.store(false, Ordering::SeqCst);
+        self.cached_display_lines = Vec::new();
+        self.cached_title_chars = Vec::new();
+        self.cached_article_title = String::new();
+        self.cached_article_index = usize::MAX;
+        crate::core::memory::trim_heap();
+    }
 }
 
 #[distributed_slice(crate::core::registry::ENGINES)]

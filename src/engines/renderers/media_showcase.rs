@@ -1158,6 +1158,7 @@ pub struct SharedShowcaseState {
     pub server_online: bool,
     pub mqtt_connected_once: bool,
     pub mqtt_connected_at: Option<Instant>,
+    pub ready_state_received: bool,
     pub readiness: BatchReadiness,
     pub ready_item: Option<PreparedShowcaseItem>,
     pub preloaded_streams: std::collections::VecDeque<(String, Arc<PreloadedRgb565Stream>)>,
@@ -1178,6 +1179,7 @@ impl Default for SharedShowcaseState {
             server_online: false,
             mqtt_connected_once: false,
             mqtt_connected_at: None,
+            ready_state_received: false,
             readiness: BatchReadiness::Offline,
             ready_item: None,
             preloaded_streams: std::collections::VecDeque::new(),
@@ -1198,6 +1200,7 @@ impl SharedShowcaseState {
     /// Immediately wipe all media state when the server goes offline or a turn ends.
     pub fn clear_media_immediately(&mut self) {
         self.ready_item = None;
+        self.ready_state_received = false;
         self.preloaded_streams.clear();
         self.preloaded_streams.shrink_to_fit();
         self.live_udp_frame = None;
@@ -1280,7 +1283,7 @@ pub fn parse_rgb565_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedRgb565St
         return None;
     }
     let payload_len = bytes.len().saturating_sub(DMDS_HEADER_SIZE);
-    let available_frames = (payload_len / frame_bytes).min(total_frames).min(3600);
+    let available_frames = (payload_len / frame_bytes).min(total_frames).min(7600);
     if available_frames == 0 {
         return None;
     }
@@ -1816,7 +1819,25 @@ impl MediaShowcaseRunner {
 
     pub fn set_rotation_budget(&mut self, budget: u32) {
         self.rotation_budget = budget.max(1);
-        self.items_played_in_turn = 0;
+    }
+
+    /// Strict DMD-side upper bound on `LiveStream` duration: configured `video_max_duration_s`
+    /// (clamped to `2..=120s`) plus `4s` per enabled scrolling panorama.
+    pub fn configured_max_stream_duration(&self) -> Duration {
+        let mut pan_s = 0u64;
+        if self.cfg.jacket_panorama {
+            pan_s += 4;
+        }
+        if self.cfg.marquee_panorama {
+            pan_s += 4;
+        }
+        pan_s += (self.cfg.snapshot_panorama_count.min(5) as u64) * 4;
+        let vid_s = if self.cfg.show_video {
+            (self.cfg.video_max_duration_s.clamp(2, 120)) as u64
+        } else {
+            0
+        };
+        Duration::from_secs((pan_s + vid_s).max(2))
     }
 
     /// Compute the exact organic duration of `PlaybackPhase::Card` so 100% of `item.synopsis`
@@ -2177,6 +2198,7 @@ impl MediaShowcaseRunner {
                             if !online {
                                 guard.readiness = BatchReadiness::Offline;
                                 guard.clear_media_immediately();
+                                guard.ready_state_received = true;
                             }
                         }
                     } else if topic == ready_topic {
@@ -2248,6 +2270,7 @@ impl MediaShowcaseRunner {
                                                 .mqtt_connected_at
                                                 .get_or_insert_with(Instant::now);
                                             guard.readiness = BatchReadiness::Ready;
+                                            guard.ready_state_received = true;
                                             guard.ready_item = Some(prepared);
                                             guard.generation = my_gen;
                                         }
@@ -2383,12 +2406,22 @@ impl MediaShowcaseRunner {
                                                 });
                                             }
                                         }
+                                    } else {
+                                        let mut guard = shared.lock().unwrap();
+                                        guard.server_online = true;
+                                        guard.mqtt_connected_once = true;
+                                        guard.mqtt_connected_at.get_or_insert_with(Instant::now);
+                                        guard.ready_state_received = true;
+                                        if guard.ready_item.is_none() {
+                                            guard.readiness = BatchReadiness::Warming;
+                                        }
                                     }
                                 } else {
                                     let mut guard = shared.lock().unwrap();
                                     guard.server_online = true;
                                     guard.mqtt_connected_once = true;
                                     guard.mqtt_connected_at.get_or_insert_with(Instant::now);
+                                    guard.ready_state_received = true;
                                     if guard.ready_item.is_none() {
                                         guard.readiness = BatchReadiness::Warming;
                                     }
@@ -2501,6 +2534,7 @@ impl MediaShowcaseRunner {
                 guard.server_online = false;
                 guard.readiness = BatchReadiness::Offline;
                 guard.clear_media_immediately();
+                guard.ready_state_received = true;
             }
             return;
         };
@@ -2510,6 +2544,7 @@ impl MediaShowcaseRunner {
                 guard.server_online = false;
                 guard.readiness = BatchReadiness::Offline;
                 guard.clear_media_immediately();
+                guard.ready_state_received = true;
             }
             return;
         }
@@ -2522,13 +2557,22 @@ impl MediaShowcaseRunner {
                 guard.server_online = false;
                 guard.readiness = BatchReadiness::Offline;
                 guard.clear_media_immediately();
+                guard.ready_state_received = true;
             }
             return;
         };
         if !next_resp.status().is_success() {
+            if config_gen_arc.load(Ordering::SeqCst) == my_gen {
+                let mut guard = shared.lock().unwrap();
+                guard.ready_state_received = true;
+            }
             return;
         }
         let Ok(next_data) = next_resp.json::<ApiNextResponse>() else {
+            if config_gen_arc.load(Ordering::SeqCst) == my_gen {
+                let mut guard = shared.lock().unwrap();
+                guard.ready_state_received = true;
+            }
             return;
         };
 
@@ -2536,6 +2580,7 @@ impl MediaShowcaseRunner {
             let mut guard = shared.lock().unwrap();
             guard.server_online = true;
             guard.readiness = BatchReadiness::Warming;
+            guard.ready_state_received = true;
             return;
         }
 
@@ -2598,6 +2643,7 @@ impl MediaShowcaseRunner {
         guard.server_online = true;
         guard.mqtt_connected_once = true;
         guard.readiness = BatchReadiness::Ready;
+        guard.ready_state_received = true;
         guard.ready_item = Some(prepared);
         guard.generation = my_gen;
         drop(guard);
@@ -2730,7 +2776,11 @@ impl MediaShowcaseRunner {
                 rotation_slot_count
             );
             self.active_item = None;
-            self.consecutive_warm_skips = self.consecutive_warm_skips.saturating_add(1);
+            if self.items_played_in_turn == 0 {
+                self.consecutive_warm_skips = self.consecutive_warm_skips.saturating_add(1);
+            } else {
+                self.consecutive_warm_skips = 0;
+            }
             self.skip_turn_immediately = true;
             self.turn_completed = true;
             self.spawn_background_sync();
@@ -2801,23 +2851,18 @@ impl MediaShowcaseRunner {
             self.turn_completed = true;
             self.dirty = true;
         } else {
-            let has_ready = {
-                let guard = self.shared.lock().unwrap();
-                guard.ready_item.is_some()
-            };
-            if has_ready {
-                self.evaluate_turn_start(self.rotation_slot_count);
-            } else {
-                self.phase = PlaybackPhase::Card;
-                self.phase_started_at = Instant::now();
-            }
+            // Strict rule: if `items_played_in_turn < rotation_budget` (or solo mode), check if the
+            // next item (`Slot N+1`) is ALREADY ready; if NOT ready and `rotation_slot_count > 1`,
+            // `evaluate_turn_start` immediately yields the turn (`skip_turn_immediately = true`)
+            // without ever waiting on "WAITING FOR ...".
+            self.evaluate_turn_start(self.rotation_slot_count);
             self.dirty = true;
         }
     }
 
     pub fn update(&mut self, context: &mut EngineContext) {
         let now = Instant::now();
-        let dt = now.saturating_duration_since(self.last_tick);
+        let _dt = now.saturating_duration_since(self.last_tick);
         self.last_tick = now;
 
         let (unified_showcase, rot_len) = {
@@ -2842,36 +2887,43 @@ impl MediaShowcaseRunner {
         }
 
         if !self.turn_evaluated {
-            let (has_ready, connected_at) = {
+            let (has_ready, ready_state_received, connected_at) = {
                 let guard = self.shared.lock().unwrap();
-                (guard.ready_item.is_some(), guard.mqtt_connected_at)
+                (
+                    guard.ready_item.is_some(),
+                    guard.ready_state_received,
+                    guard.mqtt_connected_at,
+                )
             };
-            // On initial boot or while the MQTT worker is connecting to receive the retained `ready`
-            // message:
-            // - First pass (`consecutive_warm_skips == 0`): 450ms settle window so all Showcase slots
-            //   register their retained `config` quickly (and yield fast to Clock/GIF if mixed).
-            // - Subsequent warm passes (`consecutive_warm_skips >= 1`, e.g. 4 Showcase slots all
-            //   warming up at cold boot): stay calmly subscribed for up to 2500ms so the engine
-            //   catches live `ready:true` immediately without rapid TCP reconnect churn.
-            let settle_ms = if self.consecutive_warm_skips == 0 {
-                450
+            // Turn-start readiness gate:
+            // - Once `ready_state_received` is true and `!has_ready` (server answered `ready: false`
+            //   or `Offline`), NEVER linger on "WAITING FOR ...": yield immediately (`0ms`) during
+            //   normal rotation, or show a brief `350ms` visual step only when all Showcase slots
+            //   in rotation are still warming up at cold boot (`consecutive_warm_skips > 0`).
+            // - While `!ready_state_received` (awaiting LAN TCP + retained MQTT `ready` packet),
+            //   allow at most `250ms` after MQTT connect (or `800ms` TCP connect timeout).
+            let in_boot_connect_grace = if has_ready {
+                false
+            } else if ready_state_received {
+                rot_len > 1
+                    && self.consecutive_warm_skips > 0
+                    && now.saturating_duration_since(self.phase_started_at)
+                        < Duration::from_millis(350)
             } else {
-                2500
-            };
-            let in_boot_connect_grace = match connected_at {
-                None => {
-                    self.worker_busy.load(Ordering::SeqCst)
-                        && now.saturating_duration_since(self.phase_started_at)
-                            < Duration::from_millis(1800)
+                match connected_at {
+                    None => {
+                        self.worker_busy.load(Ordering::SeqCst)
+                            && now.saturating_duration_since(self.phase_started_at)
+                                < Duration::from_millis(800)
+                    }
+                    Some(t) => now.saturating_duration_since(t) < Duration::from_millis(250),
                 }
-                Some(t) => now.saturating_duration_since(t) < Duration::from_millis(settle_ms),
             };
             if !has_ready && !self.cfg.server_url.is_empty() && in_boot_connect_grace {
                 self.spawn_background_sync();
                 self.dirty = true;
                 return;
             }
-            let rot_len = context.config.settings.read().rotation.len();
             self.evaluate_turn_start(rot_len);
             self.dirty = true;
             return;
@@ -2890,7 +2942,6 @@ impl MediaShowcaseRunner {
             {
                 self.active_item = None;
                 guard.clear_media_immediately();
-                let rot_len = context.config.settings.read().rotation.len();
                 if rot_len > 1 {
                     self.skip_turn_immediately = true;
                     self.turn_completed = true;
@@ -2899,7 +2950,9 @@ impl MediaShowcaseRunner {
                 return;
             }
 
-            // If we were waiting for an item (single-slot rotation), consume it as soon as ready
+            // If we have no active item after `turn_evaluated`:
+            // - Consume `ready_item` immediately if ready.
+            // - Otherwise, if `rot_len > 1`, NEVER wait on "WAITING FOR ..." — yield immediately!
             if self.active_item.is_none() {
                 if let Some(item) = guard.ready_item.take() {
                     guard.readiness = BatchReadiness::Warming;
@@ -2912,6 +2965,12 @@ impl MediaShowcaseRunner {
                     self.phase = PlaybackPhase::Card;
                     self.phase_started_at = now;
                     self.dirty = true;
+                } else if rot_len > 1 {
+                    drop(guard);
+                    self.skip_turn_immediately = true;
+                    self.turn_completed = true;
+                    self.dirty = true;
+                    return;
                 }
             }
         }
@@ -2942,7 +3001,7 @@ impl MediaShowcaseRunner {
             return;
         };
 
-        let phase_elapsed = now.saturating_duration_since(self.phase_started_at);
+        let mut phase_elapsed = now.saturating_duration_since(self.phase_started_at);
 
         match self.phase {
             PlaybackPhase::Card => {
@@ -2968,19 +3027,23 @@ impl MediaShowcaseRunner {
                             active.http_stream = Some(stream_arc);
                             self.http_frame_idx = 0;
                             self.http_frame_elapsed = Duration::ZERO;
+                            self.phase_started_at = now;
+                            phase_elapsed = Duration::ZERO;
                         }
                     }
                 }
 
-                // 1. If playing HTTP pre-decoded stream frames for this single item
+                let max_cfg_dur = self.configured_max_stream_duration();
+
+                // 1. If playing HTTP pre-decoded stream frames for this single item:
+                //    Index frames strictly by monotonic wall-clock `phase_elapsed` (never by
+                //    drifting `Duration::ZERO` resets where `2 * 16ms = 32ms < 33ms` slowed 30 FPS
+                //    video by 1.5x–2x!) AND enforce the DMD's configured `video_max_duration_s` cap.
                 if http_frames_len > 0 {
-                    self.http_frame_elapsed += dt;
-                    if self.http_frame_elapsed >= http_frame_delay {
-                        self.http_frame_elapsed = Duration::ZERO;
-                        self.http_frame_idx += 1;
-                        if self.http_frame_idx >= http_frames_len {
-                            self.finish_current_turn();
-                        }
+                    let frame_us = http_frame_delay.as_micros().max(1_000);
+                    self.http_frame_idx = (phase_elapsed.as_micros() / frame_us) as usize;
+                    if self.http_frame_idx >= http_frames_len || phase_elapsed >= max_cfg_dur {
+                        self.finish_current_turn();
                     }
                     return;
                 }
@@ -2995,7 +3058,8 @@ impl MediaShowcaseRunner {
                             .is_none_or(|eof_id| eof_id == item_id);
                     (matching_eof, guard.last_udp_packet_at)
                 };
-                let max_stream_dur = Duration::from_secs_f32((stream_duration_s + 4.0).max(6.0));
+                let max_stream_dur = Duration::from_secs_f32((stream_duration_s + 2.0).max(4.0))
+                    .min(max_cfg_dur + Duration::from_secs(2));
                 if stream_eof || phase_elapsed >= max_stream_dur {
                     self.finish_current_turn();
                     return;
@@ -3857,5 +3921,218 @@ mod tests {
         let unrelated =
             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"status\":\"ok\"}";
         assert!(parse_showcase_health_http_response(unrelated).is_none());
+    }
+
+    #[test]
+    fn test_multi_item_budget_immediately_yields_when_next_item_not_ready() {
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 32);
+        runner.cfg.server_url.clear();
+        runner.rotation_slot_count = 4;
+        runner.set_rotation_budget(30);
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.readiness = BatchReadiness::Ready;
+            guard.ready_state_received = true;
+            guard.server_online = true;
+            guard.ready_item = Some(PreparedShowcaseItem {
+                id: "m1".to_string(),
+                title: "The Matrix".to_string(),
+                year: "1999".to_string(),
+                badge: "SCIFI".to_string(),
+                badge_rgb: (0, 229, 255),
+                subtitle: "Sci-Fi".to_string(),
+                rating: "8.7".to_string(),
+                synopsis: "Short.".to_string(),
+                poster: None,
+                has_stream: false,
+                stream_duration_s: 4.0,
+                stream_fps: 30,
+                http_stream: None,
+                http_frame_delay: Duration::from_millis(33),
+            });
+        }
+
+        runner.activate();
+        runner.evaluate_turn_start(4);
+        assert!(runner.active_item.is_some());
+        assert!(!runner.is_finished());
+
+        // Movie #1 finishes, Movie #2 is NOT ready (`ready_item == None`):
+        // MUST immediately yield the turn to the next rotation slot without waiting!
+        runner.finish_current_turn();
+        assert_eq!(runner.items_played_in_turn, 1);
+        assert!(runner.skip_turn_immediately);
+        assert!(runner.turn_completed);
+        assert!(runner.is_finished());
+        assert_eq!(runner.consecutive_warm_skips, 0);
+    }
+
+    #[test]
+    fn test_live_rotation_budget_update_to_1_stops_after_current_item() {
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 32);
+        runner.cfg.server_url.clear();
+        runner.rotation_slot_count = 4;
+        runner.set_rotation_budget(30);
+        let mk_item = |id: &str| PreparedShowcaseItem {
+            id: id.to_string(),
+            title: id.to_string(),
+            year: "1999".to_string(),
+            badge: "SCIFI".to_string(),
+            badge_rgb: (0, 229, 255),
+            subtitle: "Sci-Fi".to_string(),
+            rating: "8.7".to_string(),
+            synopsis: "Short.".to_string(),
+            poster: None,
+            has_stream: false,
+            stream_duration_s: 4.0,
+            stream_fps: 30,
+            http_stream: None,
+            http_frame_delay: Duration::from_millis(33),
+        };
+        runner.shared.lock().unwrap().ready_item = Some(mk_item("m1"));
+        runner.activate();
+        runner.evaluate_turn_start(4);
+
+        // Standby N+1 (`m2`) arrives while `m1` is playing, AND user saves Count=1 in WebUI:
+        runner.shared.lock().unwrap().ready_item = Some(mk_item("m2"));
+        runner.set_rotation_budget(1);
+
+        // Finishing `m1` must immediately complete the turn (1/1) without starting `m2`!
+        runner.finish_current_turn();
+        assert!(runner.turn_completed);
+        assert!(runner.is_finished());
+        assert!(runner.shared.lock().unwrap().ready_item.is_some());
+    }
+
+    #[test]
+    fn test_wall_clock_30fps_stream_timing_and_60s_cap() {
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 32);
+        runner.cfg.server_url.clear();
+        runner.cfg.jacket_panorama = false;
+        runner.cfg.marquee_panorama = false;
+        runner.cfg.snapshot_panorama_count = 0;
+        runner.cfg.show_video = true;
+        runner.cfg.video_max_duration_s = 60;
+        assert_eq!(
+            runner.configured_max_stream_duration(),
+            Duration::from_secs(60)
+        );
+
+        // 2400 frames @ 33ms (~79.2s) > 60s DMD cap
+        let stream = Arc::new(PreloadedRgb565Stream {
+            width: 2,
+            height: 2,
+            frame_count: 2400,
+            frame_delay: Duration::from_millis(33),
+            raw_rgb565_le: vec![0u8; 2 * 2 * 2 * 2400],
+        });
+        let config = crate::core::config::Config::new("/tmp/nonexistent_showcase_test_cfg.json");
+        {
+            let mut s = config.settings.write();
+            s.rotation = vec![
+                crate::core::config::RotationEntry::new("retro_games_1", 1),
+                crate::core::config::RotationEntry::new("movie_showcase_1", 1),
+            ];
+            s.showcase.enabled = true;
+            s.showcase.server_url.clear();
+        }
+        runner.unified_showcase = config.settings.read().showcase.clone();
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.server_online = true;
+            guard.readiness = BatchReadiness::Ready;
+        }
+        let mut surface = MockSurface::new(128, 32);
+
+        runner.activate();
+        runner.turn_evaluated = true;
+        runner.rotation_slot_count = 2;
+        runner.set_rotation_budget(1);
+        runner.active_item = Some(PreparedShowcaseItem {
+            id: "m60".to_string(),
+            title: "Heat".to_string(),
+            year: "1995".to_string(),
+            badge: "ACTION".to_string(),
+            badge_rgb: (255, 80, 0),
+            subtitle: "Crime".to_string(),
+            rating: "8.3".to_string(),
+            synopsis: "Short.".to_string(),
+            poster: None,
+            has_stream: true,
+            stream_duration_s: 79.2,
+            stream_fps: 30,
+            http_stream: Some(stream),
+            http_frame_delay: Duration::from_millis(33),
+        });
+        runner.phase = PlaybackPhase::LiveStream;
+
+        // At wall-clock 30.0s, frame index must be ~909 (30s / 33ms), NOT ~600!
+        runner.phase_started_at = Instant::now() - Duration::from_secs(30);
+        {
+            let mut ctx = crate::core::engine_contract::EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            runner.update(&mut ctx);
+        }
+        assert!(
+            runner.http_frame_idx >= 905 && runner.http_frame_idx <= 915,
+            "expected ~909 frames at 30.0s, got {}",
+            runner.http_frame_idx
+        );
+        assert!(!runner.is_finished());
+
+        // At wall-clock 60.1s, DMD's 60s `video_max_duration_s` cap must immediately end the turn!
+        runner.phase_started_at = Instant::now() - Duration::from_millis(60_100);
+        {
+            let mut ctx = crate::core::engine_contract::EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            runner.update(&mut ctx);
+        }
+        assert!(runner.is_finished());
+    }
+
+    #[test]
+    fn test_turn_start_skips_immediately_when_ready_false_received() {
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 32);
+        runner.cfg.server_url = "http://127.0.0.1:8890".to_string();
+        let config = crate::core::config::Config::new("/tmp/nonexistent_showcase_test_cfg.json");
+        {
+            let mut s = config.settings.write();
+            s.rotation = vec![
+                crate::core::config::RotationEntry::new("retro_games_1", 1),
+                crate::core::config::RotationEntry::new("movie_showcase_1", 1),
+            ];
+            s.showcase = crate::core::config::ShowcaseConfig {
+                enabled: true,
+                server_url: "http://127.0.0.1:8890".to_string(),
+                ..Default::default()
+            };
+        }
+        runner.unified_showcase = config.settings.read().showcase.clone();
+        // Prevent spawning a real network thread during unit test
+        let cur_gen = runner.config_gen.load(Ordering::SeqCst);
+        runner.worker_gen.store(cur_gen, Ordering::SeqCst);
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.server_online = true;
+            guard.mqtt_connected_once = true;
+            guard.mqtt_connected_at = Some(Instant::now());
+            guard.ready_state_received = true;
+            guard.readiness = BatchReadiness::Warming;
+            guard.ready_item = None;
+        }
+        runner.turn_evaluated = false;
+        let mut surface = MockSurface::new(128, 32);
+        let mut ctx = crate::core::engine_contract::EngineContext {
+            surface: &mut surface,
+            config: &config,
+        };
+        runner.update(&mut ctx);
+        assert!(runner.turn_evaluated);
+        assert!(runner.skip_turn_immediately);
+        assert!(runner.is_finished());
     }
 }

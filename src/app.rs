@@ -506,6 +506,10 @@ impl ArcadeMatrixApp {
                 } else {
                     rotation_manager.reset();
                 }
+                for rot_entry in &snapshot.rotation {
+                    engine_runtime
+                        .set_instance_rotation_budget(rot_entry.handle, rot_entry.duration_sec);
+                }
                 surface.set_rotation(snapshot.display_rotation);
                 if orientation_manager.set_rotation(snapshot.display_rotation) {
                     runtime.on_display_geometry_changed(

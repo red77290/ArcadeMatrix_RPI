@@ -424,11 +424,11 @@ Everything else comes from each retained payload: its `type` (`value`, `table`, 
 | `snapshot_panorama_count` | `int` | `0` | `0` to `5` | Additional gameplay snapshots or stills to scroll from top to bottom (`0`..`5`). |
 | `video_max_duration_s` | `int` | `8` | `2` to `120` | Maximum seconds for the streamed RGB565 video clip. |
 | `video_fps` | `int` | `15` | `8` to `60` | Target frame rate for streamed RGB565 video clips. |
-| `video_mode` | `Options` | `pixel_art` / `auto_action` / `anime` | `auto_action`, `pixel_art`, `cinema`, `anime`, `panorama`, `center_crop` | Smart framing mode powered by `dmd_gif_converter`. |
+| `video_mode` | `Options` | `auto_action` | `auto_action`, `panorama`, `center_crop` | Video framing strategy powered by `dmd_gif_converter` (`auto_action` Let Me Handle It AI, `panorama` top-to-bottom scan, `center_crop`). |
 | `show_poster` | `bool` | `true` | `true`, `false` | Display the fitted mini-jacket artwork on the card. |
 | `show_synopsis` | `bool` | `true` | `true`, `false` | Scroll the complete localized plot summary on the card. |
 | `show_video` | `bool` | `true` | `true`, `false` | Stream the RGB565 video clip if available (skipped if unavailable). |
-| `color_boost` | `bool` | `true` | `true`, `false` | Boost contrast and saturation for HUB75 LED panels. |
+| `color_boost` | `Options` | `auto` | `auto`, `pixel_art`, `anime`, `cinema` | HUB75 LED colorimetry profile (`auto` Let Me Handle It AI Smart Color Boost, or fixed domain preset `pixel_art`, `anime`, `cinema`). |
 | `lang` | `Options` | `system` | `system,en,fr,es,de,it` | Metadata language for titles and synopses (`system` syncs with the DMD's configured UI language). |
 | `systems` | `List` | `""` | Dynamic (`/api/v1/games/filters`) | (`retro_games` only) Filter by arcade/console systems (leave empty for all). |
 | `genres` | `List` | `""` | Dynamic (`/api/v1/{domain}/filters`) | Filter by genres dynamically retrieved from the Showcase server referential. |

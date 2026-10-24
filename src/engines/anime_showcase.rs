@@ -84,7 +84,7 @@ impl Engine for AnimeShowcaseEngine {
 
 #[distributed_slice(crate::core::registry::ENGINES)]
 fn register_anime_showcase_engine() -> EngineDescriptor {
-    let mut fields = build_common_showcase_fields("anime");
+    let mut fields = build_common_showcase_fields("auto_action");
     fields.push(ConfigField {
         id: "genres",
         field_type: ConfigType::Options,

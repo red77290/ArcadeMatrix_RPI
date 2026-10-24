@@ -424,11 +424,11 @@ Tout le reste vient de chaque message retained : son `type` (`value`, `table`, `
 | `snapshot_panorama_count` | `int` | `0` | `0` à `5` | Nombre de captures d'écran additionnelles à faire défiler verticalement (`0`..`5`). |
 | `video_max_duration_s` | `int` | `8` | `2` à `120` | Durée maximale en secondes de l'extrait vidéo RGB565. |
 | `video_fps` | `int` | `15` | `8` à `60` | Cadence d'images cible pour les extraits vidéo RGB565 diffusés. |
-| `video_mode` | `Options` | `pixel_art` / `auto_action` / `anime` | `auto_action`, `pixel_art`, `cinema`, `anime`, `panorama`, `center_crop` | Mode de cadrage intelligent propulsé par `dmd_gif_converter`. |
+| `video_mode` | `Options` | `auto_action` | `auto_action`, `panorama`, `center_crop` | Mode de cadrage vidéo propulsé par `dmd_gif_converter` (`auto_action` IA Let Me Handle It, `panorama` balayage haut-bas, `center_crop`). |
 | `show_poster` | `bool` | `true` | `true`, `false` | Affiche la mini-jaquette sur la fiche info. |
 | `show_synopsis` | `bool` | `true` | `true`, `false` | Fait défiler le synopsis traduit complet sur la fiche info. |
 | `show_video` | `bool` | `true` | `true`, `false` | Diffuse l'extrait vidéo RGB565 s'il est disponible. |
-| `color_boost` | `bool` | `true` | `true`, `false` | Accentue le contraste et la saturation pour les dalles LED HUB75. |
+| `color_boost` | `Options` | `auto` | `auto`, `pixel_art`, `anime`, `cinema` | Profil colorimétrique LED HUB75 (`auto` IA Let Me Handle It Smart Color Boost, ou profil fixe `pixel_art`, `anime`, `cinema`). |
 | `lang` | `Options` | `system` | `system,en,fr,es,de,it` | Langue des titres et synopsis (`system` se synchronise sur la langue configurée du DMD). |
 | `systems` | `List` | `""` | Dynamique (`/api/v1/games/filters`) | (`retro_games` uniquement) Filtrer par systèmes arcade/consoles (laisser vide pour tous). |
 | `genres` | `List` | `""` | Dynamique (`/api/v1/{domain}/filters`) | Filtrer par genres récupérés dynamiquement depuis le serveur Showcase. |

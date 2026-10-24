@@ -426,6 +426,15 @@ export function formatOptLabel(fieldId, val, raw) {
     const dmKey = `opt_display_mode_${lower}`;
     if (dict[dmKey]) return dict[dmKey];
   }
+  // 12. Showcase Video Framing & LED Color Boost modes
+  if (fieldId === 'video_mode') {
+    const vmKey = `opt_video_mode_${lower}`;
+    if (dict[vmKey]) return dict[vmKey];
+  }
+  if (fieldId === 'color_boost') {
+    const cbKey = `opt_color_boost_${lower}`;
+    if (dict[cbKey]) return dict[cbKey];
+  }
   return raw || val;
 }
 

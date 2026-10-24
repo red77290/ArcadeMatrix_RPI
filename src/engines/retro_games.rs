@@ -85,7 +85,7 @@ impl Engine for RetroGamesEngine {
 
 #[distributed_slice(crate::core::registry::ENGINES)]
 fn register_retro_games_engine() -> EngineDescriptor {
-    let mut fields = build_common_showcase_fields("pixel_art");
+    let mut fields = build_common_showcase_fields("auto_action");
     fields.push(ConfigField {
         id: "systems",
         field_type: ConfigType::Options,

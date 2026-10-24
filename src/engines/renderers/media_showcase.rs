@@ -197,7 +197,7 @@ pub struct ShowcaseConfig {
     pub video_max_duration_s: u32,
     pub video_fps: u32,
     pub video_mode: String,
-    pub color_boost: bool,
+    pub color_boost: String,
     pub systems: String,
     pub genres: String,
     pub decades: String,
@@ -225,7 +225,7 @@ impl Default for ShowcaseConfig {
             video_max_duration_s: 8,
             video_fps: 15,
             video_mode: "auto_action".to_string(),
-            color_boost: true,
+            color_boost: "auto".to_string(),
             systems: "arcade,neogeo,cps1,cps2,snes,megadrive,psx,dreamcast".to_string(),
             genres: String::new(),
             decades: String::new(),
@@ -262,15 +262,20 @@ impl ShowcaseConfig {
         out.show_video = cfg.get_bool("show_video", true);
         out.video_max_duration_s = cfg.get_int("video_max_duration_s", 8).clamp(2, 120) as u32;
         out.video_fps = cfg.get_int("video_fps", 15).clamp(6, 60) as u32;
-        out.video_mode = cfg.get_string(
-            "video_mode",
-            match domain {
-                ShowcaseDomain::Games => "pixel_art",
-                ShowcaseDomain::Anime => "anime",
-                _ => "auto_action",
-            },
-        );
-        out.color_boost = cfg.get_bool("color_boost", true);
+        let _ = domain;
+        let raw_vm = cfg.get_string("video_mode", "auto_action");
+        out.video_mode = match raw_vm.trim().to_ascii_lowercase().as_str() {
+            "panorama" => "panorama".to_string(),
+            "center_crop" => "center_crop".to_string(),
+            _ => "auto_action".to_string(),
+        };
+        let raw_cb = cfg.get_string("color_boost", "auto");
+        out.color_boost = match raw_cb.trim().to_ascii_lowercase().as_str() {
+            "pixel_art" => "pixel_art".to_string(),
+            "anime" => "anime".to_string(),
+            "cinema" | "false" | "0" | "off" | "no" => "cinema".to_string(),
+            _ => "auto".to_string(),
+        };
         out.systems = cfg.get_string(
             "systems",
             "arcade,neogeo,cps1,cps2,snes,megadrive,psx,dreamcast",
@@ -3489,26 +3494,29 @@ pub fn build_common_showcase_fields(
         ConfigField {
             id: "video_mode",
             field_type: ConfigType::Options,
-            label: "Video Crop & Stabilization Preset",
-            description: "Conversion preset applied by dmd-gif-converter on the server",
+            label: "Video Framing Mode",
+            description: "Video framing strategy applied by dmd-gif-converter on the server",
             default_value: default_video_mode,
             options: Some(vec![
-                ConfigOption { label: "AI Auto-Action Crop (Tripod Stabilized)", value: "auto_action" },
-                ConfigOption { label: "Pixel Art (Retro Crisp + Pan)", value: "pixel_art" },
-                ConfigOption { label: "Vertical Panorama Scroll", value: "panorama" },
-                ConfigOption { label: "Anime (Vibrant Cel)", value: "anime" },
-                ConfigOption { label: "Cinema (Dark-Scene Lift)", value: "cinema" },
-                ConfigOption { label: "Center Crop", value: "center_crop" },
+                ConfigOption { label: "Auto (Let Me Handle It AI)", value: "auto_action" },
+                ConfigOption { label: "Panorama (Top-Bottom Scan)", value: "panorama" },
+                ConfigOption { label: "Static Center Crop", value: "center_crop" },
             ]),
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },
         ConfigField {
             id: "color_boost",
-            field_type: ConfigType::Boolean,
-            label: "Smart LED Color Boost",
-            description: "Apply automatic gamma, contrast, and saturation boost for HUB75 LEDs",
-            default_value: "true",
+            field_type: ConfigType::Options,
+            label: "LED Color Boost",
+            description: "Colorimetry profile for HUB75 LED panels (Auto AI or fixed domain preset)",
+            default_value: "auto",
+            options: Some(vec![
+                ConfigOption { label: "Auto (Let Me Handle It AI)", value: "auto" },
+                ConfigOption { label: "Pixel Art (Crisp Retro)", value: "pixel_art" },
+                ConfigOption { label: "Anime (Vibrant Cel-Shaded)", value: "anime" },
+                ConfigOption { label: "Cinema (Balanced Contrast & Shadows)", value: "cinema" },
+            ]),
             validation_policy: ValidationPolicy::FallbackDefault,
             ..Default::default()
         },

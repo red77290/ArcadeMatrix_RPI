@@ -62,6 +62,11 @@ impl Engine for RetroGamesEngine {
         self.runner.on_config_changed(config);
     }
 
+    fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
+        self.runner
+            .on_display_geometry_changed(geometry.width(), geometry.height());
+    }
+
     fn has_new_frame(&self) -> bool {
         self.runner.dirty
     }

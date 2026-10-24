@@ -1981,6 +1981,10 @@ impl MediaShowcaseRunner {
             mqtt_port,
         );
         mqtt_opts.set_keep_alive(Duration::from_secs(15));
+        // Raise rumqttc's default 10 KB incoming packet limit to 64 KB so 256x64 / 128x64
+        // `ready` payloads (`48x64` Base64 poster = 8,192 chars + full localized synopsis)
+        // never trigger `IncomingPacketTooLarge` disconnects.
+        mqtt_opts.set_max_packet_size(64 * 1024, 64 * 1024);
         mqtt_opts.set_last_will(LastWill::new(
             format!("dmd_showcase/clients/{}/status", dmd_id),
             r#"{"online":false}"#,
@@ -2696,6 +2700,35 @@ impl MediaShowcaseRunner {
         }
     }
 
+    pub fn on_display_geometry_changed(&mut self, width: u32, height: u32) {
+        let new_w = width.max(32);
+        let new_h = height.max(32);
+        if new_w != self.width || new_h != self.height {
+            let now = Instant::now();
+            self.width = new_w;
+            self.height = new_h;
+            let stopped_id = self.active_item.take().map(|it| it.id);
+            self.phase = PlaybackPhase::Card;
+            self.phase_started_at = now;
+            self.last_retry_poll = now;
+            self.http_frame_idx = 0;
+            self.http_frame_elapsed = Duration::ZERO;
+            self.turn_evaluated = false;
+            self.skip_turn_immediately = false;
+            self.turn_completed = false;
+            self.dirty = true;
+            if let Ok(mut guard) = self.shared.lock() {
+                if let Some(id) = stopped_id {
+                    guard.requested_stop_stream_id = Some(id);
+                }
+                guard.readiness = BatchReadiness::Offline;
+                guard.clear_media_immediately();
+            }
+            self.config_gen.fetch_add(1, Ordering::SeqCst);
+            self.spawn_background_sync();
+        }
+    }
+
     pub fn activate(&mut self) {
         let now = Instant::now();
         self.active_item = None;
@@ -2880,10 +2913,7 @@ impl MediaShowcaseRunner {
         let new_w = context.surface.width().max(32);
         let new_h = context.surface.height().max(32);
         if new_w != self.width || new_h != self.height {
-            self.width = new_w;
-            self.height = new_h;
-            self.config_gen.fetch_add(1, Ordering::SeqCst);
-            self.spawn_background_sync();
+            self.on_display_geometry_changed(new_w, new_h);
         }
 
         if !self.turn_evaluated {
@@ -4134,5 +4164,72 @@ mod tests {
         assert!(runner.turn_evaluated);
         assert!(runner.skip_turn_immediately);
         assert!(runner.is_finished());
+    }
+
+    #[test]
+    fn test_256x64_geometry_poster_dmdf_32_chunks_and_live_resolution_switch() {
+        // 1. Adaptive poster size on 256x64 must be 48x64 (6,144 bytes = 8,192 B64 chars)
+        assert_eq!(compute_card_poster_dims(256, 64), (48, 64));
+        assert_eq!(compute_card_poster_dims(64, 256), (40, 40));
+
+        // 2. 256x64 DMDF UDP frame reassembly (32,768 bytes = 32 chunks of 1,024 bytes)
+        let mut assembler = DmdfFrameAssembler::new(256, 64);
+        let frame_bytes = 256usize * 64usize * 2usize;
+        let total_chunks = 32u8;
+        let mut raw_frame = vec![0u8; frame_bytes];
+        // Set last pixel (255, 63) to pure green RGB565 (0x07E0 -> LE [0xE0, 0x07])
+        raw_frame[frame_bytes - 2] = 0xE0;
+        raw_frame[frame_bytes - 1] = 0x07;
+
+        let mut assembled = None;
+        for chunk_idx in 0..total_chunks {
+            let byte_offset = (chunk_idx as usize) * 1024;
+            let mut pkt = Vec::with_capacity(10 + 1024);
+            pkt.extend_from_slice(DMDF_MAGIC);
+            pkt.extend_from_slice(&42u16.to_le_bytes());
+            pkt.push(chunk_idx);
+            pkt.push(total_chunks);
+            pkt.extend_from_slice(&(byte_offset as u16).to_le_bytes());
+            pkt.extend_from_slice(&raw_frame[byte_offset..byte_offset + 1024]);
+            let out = assembler.push_packet(&pkt);
+            if chunk_idx < total_chunks - 1 {
+                assert!(out.is_none());
+            } else {
+                assembled = out;
+            }
+        }
+        let (seq, img) = assembled.expect("32-chunk 256x64 DMDF frame must assemble");
+        assert_eq!(seq, 42);
+        assert_eq!((img.width(), img.height()), (256, 64));
+        let last_px = img.get_pixel(255, 63).0;
+        assert_eq!(last_px, [0, 255, 0]);
+
+        // 3. Live hardware geometry transition (128x32 -> 256x64) clears stale 128x32 media
+        //    and updates client ID to `rpi_games_256x64`
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Games, 128, 32);
+        runner.cfg.enabled = false; // prevent spawning live network thread in unit test
+        assert_eq!(runner.dmd_client_id(), "rpi_games_128x32");
+        let gen_before = runner.config_gen.load(Ordering::SeqCst);
+        runner.active_item = Some(PreparedShowcaseItem {
+            id: "old_128x32".to_string(),
+            title: "Metal Slug".to_string(),
+            year: "1996".to_string(),
+            badge: "NEOGEO".to_string(),
+            badge_rgb: (255, 109, 0),
+            subtitle: "Run & Gun".to_string(),
+            rating: "9.0".to_string(),
+            synopsis: "Test".to_string(),
+            poster: None,
+            has_stream: false,
+            stream_duration_s: 8.0,
+            stream_fps: 15,
+            http_stream: None,
+            http_frame_delay: Duration::from_millis(66),
+        });
+        runner.on_display_geometry_changed(256, 64);
+        assert_eq!((runner.width, runner.height), (256, 64));
+        assert_eq!(runner.dmd_client_id(), "rpi_games_256x64");
+        assert!(runner.active_item.is_none());
+        assert!(runner.config_gen.load(Ordering::SeqCst) > gen_before);
     }
 }

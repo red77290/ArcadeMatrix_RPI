@@ -24,7 +24,9 @@ use crate::engines::renderers::primitives::{
 };
 use crate::engines::renderers::tiny_font::draw_tiny_text;
 use image::RgbImage;
-use rumqttc::{Client as MqttSyncClient, Event as MqttEvent, LastWill, MqttOptions, Packet, QoS};
+use rumqttc::{
+    Client as MqttSyncClient, Event as MqttEvent, LastWill, MqttOptions, Outgoing, Packet, QoS,
+};
 use serde::{Deserialize, Serialize};
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -1760,6 +1762,7 @@ pub struct MediaShowcaseRunner {
     pub rotation_budget: u32,
     pub items_played_in_turn: u32,
     pub rotation_slot_count: usize,
+    pub consecutive_warm_skips: u32,
     pub unified_showcase: crate::core::config::ShowcaseConfig,
 }
 
@@ -1806,6 +1809,7 @@ impl MediaShowcaseRunner {
             rotation_budget: 1,
             items_played_in_turn: 0,
             rotation_slot_count: 1,
+            consecutive_warm_skips: 0,
             unified_showcase: crate::core::config::ShowcaseConfig::default(),
         }
     }
@@ -2030,7 +2034,6 @@ impl MediaShowcaseRunner {
             let pump_shared = Arc::clone(&shared);
             let pump_mqtt = mqtt_client.clone();
             let pump_events_topic = events_topic.clone();
-            let pump_will_topic = format!("dmd_showcase/clients/{}/status", dmd_id);
             let pump_local_ip = local_ip.clone();
             std::thread::spawn(move || {
                 let mut assembler = DmdfFrameAssembler::new(width, height);
@@ -2056,12 +2059,8 @@ impl MediaShowcaseRunner {
                                 }
                             }
                         }
-                        let _ = pump_mqtt.publish(
-                            &pump_will_topic,
-                            QoS::AtLeastOnce,
-                            false,
-                            br#"{"online":false}"#.to_vec(),
-                        );
+                        // Send a clean MQTT 3.1.1 DISCONNECT (`0xE0 0x00`) without firing
+                        // false LWT `online:false` on normal rotation switches.
                         let _ = pump_mqtt.disconnect();
                         break;
                     }
@@ -2150,8 +2149,20 @@ impl MediaShowcaseRunner {
         }
 
         let mut iter = connection.iter();
-        while config_gen_arc.load(Ordering::SeqCst) == my_gen {
+        let mut disconnect_drain_since: Option<Instant> = None;
+        loop {
+            if config_gen_arc.load(Ordering::SeqCst) != my_gen {
+                let t0 = *disconnect_drain_since.get_or_insert_with(Instant::now);
+                if t0.elapsed() > Duration::from_millis(350) {
+                    break;
+                }
+            }
             match iter.next() {
+                Some(Ok(MqttEvent::Outgoing(Outgoing::Disconnect))) => {
+                    break;
+                }
+                Some(Ok(MqttEvent::Incoming(_)))
+                    if config_gen_arc.load(Ordering::SeqCst) != my_gen => {}
                 Some(Ok(MqttEvent::Incoming(Packet::Publish(pub_pkt)))) => {
                     let topic = pub_pkt.topic.as_str();
                     let payload = &pub_pkt.payload;
@@ -2588,6 +2599,7 @@ impl MediaShowcaseRunner {
             self.http_frame_elapsed = Duration::ZERO;
             self.skip_turn_immediately = false;
             self.turn_completed = false;
+            self.consecutive_warm_skips = 0;
             self.dirty = true;
             {
                 let mut guard = self.shared.lock().unwrap();
@@ -2666,6 +2678,7 @@ impl MediaShowcaseRunner {
 
         if let Some(item) = taken_item {
             self.active_item = Some(item);
+            self.consecutive_warm_skips = 0;
             self.skip_turn_immediately = false;
             self.turn_completed = false;
             self.phase = PlaybackPhase::Card;
@@ -2678,6 +2691,7 @@ impl MediaShowcaseRunner {
                 rotation_slot_count
             );
             self.active_item = None;
+            self.consecutive_warm_skips = self.consecutive_warm_skips.saturating_add(1);
             self.skip_turn_immediately = true;
             self.turn_completed = true;
             self.spawn_background_sync();
@@ -2794,16 +2808,24 @@ impl MediaShowcaseRunner {
                 (guard.ready_item.is_some(), guard.mqtt_connected_at)
             };
             // On initial boot or while the MQTT worker is connecting to receive the retained `ready`
-            // message (plus a 450ms settle window after first MQTT packet in case a stale `ready:false`
-            // arrived right before our `config` message triggered a `ready:true` re-publish), wait
-            // before skipping the turn so a freshly rebooted DMD never misses its initial card.
+            // message:
+            // - First pass (`consecutive_warm_skips == 0`): 450ms settle window so all Showcase slots
+            //   register their retained `config` quickly (and yield fast to Clock/GIF if mixed).
+            // - Subsequent warm passes (`consecutive_warm_skips >= 1`, e.g. 4 Showcase slots all
+            //   warming up at cold boot): stay calmly subscribed for up to 2500ms so the engine
+            //   catches live `ready:true` immediately without rapid TCP reconnect churn.
+            let settle_ms = if self.consecutive_warm_skips == 0 {
+                450
+            } else {
+                2500
+            };
             let in_boot_connect_grace = match connected_at {
                 None => {
                     self.worker_busy.load(Ordering::SeqCst)
                         && now.saturating_duration_since(self.phase_started_at)
                             < Duration::from_millis(1800)
                 }
-                Some(t) => now.saturating_duration_since(t) < Duration::from_millis(450),
+                Some(t) => now.saturating_duration_since(t) < Duration::from_millis(settle_ms),
             };
             if !has_ready && !self.cfg.server_url.is_empty() && in_boot_connect_grace {
                 self.spawn_background_sync();
@@ -2846,6 +2868,7 @@ impl MediaShowcaseRunner {
                     guard.stream_eof = false;
                     guard.live_udp_frame = None;
                     guard.last_udp_packet_at = None;
+                    self.consecutive_warm_skips = 0;
                     self.active_item = Some(item);
                     self.phase = PlaybackPhase::Card;
                     self.phase_started_at = now;

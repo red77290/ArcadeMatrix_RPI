@@ -2021,6 +2021,7 @@ impl MediaShowcaseRunner {
 
         let http_client = crate::core::memory::stream_http_client();
         let preload_in_flight = Arc::new(AtomicBool::new(false));
+        let pending_preload: Arc<Mutex<Option<(String, String)>>> = Arc::new(Mutex::new(None));
         let base_url = resolve_showcase_server_url(&cfg.server_url);
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
@@ -2253,10 +2254,19 @@ impl MediaShowcaseRunner {
 
                                         // Preload the unified `.rgb565.stream` (`DMDS`) over HTTP TCP in a background thread
                                         // while the Card is displaying on the DMD (or while N+1 waits in `ready_item`).
-                                        // Stores a single contiguous `Arc<PreloadedRgb565Stream>` (zero `.clone()` duplication).
-                                        if has_stream
-                                            && !base_url.is_empty()
-                                            && preload_in_flight
+                                        // Queues `pending_preload` so if N+1 `ready: true` arrives while N is still
+                                        // downloading, N+1 is automatically preloaded immediately after N completes.
+                                        if has_stream && !base_url.is_empty() {
+                                            let sep =
+                                                if stream_path.contains('?') { "&" } else { "?" };
+                                            let next_url = format!(
+                                                "{}{}{}purge=false",
+                                                base_url, stream_path, sep
+                                            );
+                                            if let Ok(mut q) = pending_preload.lock() {
+                                                *q = Some((preload_item_id.clone(), next_url));
+                                            }
+                                            if preload_in_flight
                                                 .compare_exchange(
                                                     false,
                                                     true,
@@ -2264,85 +2274,114 @@ impl MediaShowcaseRunner {
                                                     Ordering::Acquire,
                                                 )
                                                 .is_ok()
-                                        {
-                                            let sep =
-                                                if stream_path.contains('?') { "&" } else { "?" };
-                                            let url = format!(
-                                                "{}{}{}purge=false",
-                                                base_url, stream_path, sep
-                                            );
-                                            let preload_shared = Arc::clone(&shared);
-                                            let preload_gen_arc = Arc::clone(&config_gen_arc);
-                                            let in_flight_arc = Arc::clone(&preload_in_flight);
-                                            let p_item_id = preload_item_id.clone();
-                                            let p_slug = slug.to_string();
-                                            std::thread::spawn(move || {
-                                                let client =
-                                                    crate::core::memory::stream_http_client();
-                                                if preload_gen_arc.load(Ordering::SeqCst) == my_gen
-                                                {
-                                                    if let Ok(resp) = client.get(&url).send() {
-                                                        if resp.status().is_success() {
-                                                            if let Ok(bytes) = resp.bytes() {
-                                                                if let Some(stream_arc) =
-                                                                    parse_rgb565_stream_compact(
-                                                                        &bytes,
+                                            {
+                                                let preload_shared = Arc::clone(&shared);
+                                                let preload_gen_arc = Arc::clone(&config_gen_arc);
+                                                let in_flight_arc = Arc::clone(&preload_in_flight);
+                                                let pending_arc = Arc::clone(&pending_preload);
+                                                let p_slug = slug.to_string();
+                                                std::thread::spawn(move || {
+                                                    let client =
+                                                        crate::core::memory::stream_http_client();
+                                                    loop {
+                                                        let next_job = pending_arc
+                                                            .lock()
+                                                            .ok()
+                                                            .and_then(|mut q| q.take());
+                                                        let Some((p_item_id, url)) = next_job
+                                                        else {
+                                                            in_flight_arc
+                                                                .store(false, Ordering::Release);
+                                                            let has_late_job = pending_arc
+                                                                .lock()
+                                                                .ok()
+                                                                .is_some_and(|q| q.is_some());
+                                                            if has_late_job
+                                                                && in_flight_arc
+                                                                    .compare_exchange(
+                                                                        false,
+                                                                        true,
+                                                                        Ordering::AcqRel,
+                                                                        Ordering::Acquire,
                                                                     )
-                                                                {
-                                                                    let f_cnt =
-                                                                        stream_arc.frame_count;
-                                                                    let delay =
-                                                                        stream_arc.frame_delay;
-                                                                    if preload_gen_arc
-                                                                        .load(Ordering::SeqCst)
-                                                                        == my_gen
+                                                                    .is_ok()
+                                                            {
+                                                                continue;
+                                                            }
+                                                            break;
+                                                        };
+                                                        if preload_gen_arc.load(Ordering::SeqCst)
+                                                            != my_gen
+                                                        {
+                                                            in_flight_arc
+                                                                .store(false, Ordering::Release);
+                                                            break;
+                                                        }
+                                                        if let Ok(resp) = client.get(&url).send() {
+                                                            if resp.status().is_success() {
+                                                                if let Ok(bytes) = resp.bytes() {
+                                                                    if let Some(stream_arc) =
+                                                                        parse_rgb565_stream_compact(
+                                                                            &bytes,
+                                                                        )
                                                                     {
-                                                                        let mut guard =
-                                                                            preload_shared
-                                                                                .lock()
-                                                                                .unwrap();
-                                                                        let mut attached_to_ready =
-                                                                            false;
-                                                                        if let Some(ref mut rdy) =
-                                                                            guard.ready_item
+                                                                        let f_cnt =
+                                                                            stream_arc.frame_count;
+                                                                        let delay =
+                                                                            stream_arc.frame_delay;
+                                                                        if preload_gen_arc
+                                                                            .load(Ordering::SeqCst)
+                                                                            == my_gen
                                                                         {
-                                                                            if rdy.id == p_item_id {
-                                                                                rdy.http_stream = Some(
-                                                                                    Arc::clone(
-                                                                                        &stream_arc,
-                                                                                    ),
-                                                                                );
-                                                                                rdy.http_frame_delay =
-                                                                                    delay;
-                                                                                attached_to_ready =
-                                                                                    true;
+                                                                            let mut guard =
+                                                                                preload_shared
+                                                                                    .lock()
+                                                                                    .unwrap();
+                                                                            let mut
+                                                                            attached_to_ready =
+                                                                                false;
+                                                                            if let Some(
+                                                                                ref mut rdy,
+                                                                            ) = guard.ready_item
+                                                                            {
+                                                                                if rdy.id
+                                                                                    == p_item_id
+                                                                                {
+                                                                                    rdy.http_stream =
+                                                                                        Some(Arc::clone(
+                                                                                            &stream_arc,
+                                                                                        ));
+                                                                                    rdy.http_frame_delay =
+                                                                                        delay;
+                                                                                    attached_to_ready =
+                                                                                        true;
+                                                                                }
                                                                             }
+                                                                            if !attached_to_ready {
+                                                                                guard
+                                                                                    .preloaded_streams
+                                                                                    .clear();
+                                                                                guard
+                                                                                    .preloaded_streams
+                                                                                    .push_back((
+                                                                                        p_item_id
+                                                                                            .clone(),
+                                                                                        stream_arc,
+                                                                                    ));
+                                                                            }
+                                                                            info!(
+                                                                                "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
+                                                                                p_slug, p_item_id, f_cnt, delay
+                                                                            );
                                                                         }
-                                                                        if !attached_to_ready {
-                                                                            guard
-                                                                                .preloaded_streams
-                                                                                .clear();
-                                                                            guard
-                                                                                .preloaded_streams
-                                                                                .push_back((
-                                                                                    p_item_id
-                                                                                        .clone(),
-                                                                                    stream_arc,
-                                                                                ));
-                                                                        }
-                                                                        info!(
-                                                                            "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
-                                                                            p_slug, p_item_id, f_cnt, delay
-                                                                        );
                                                                     }
                                                                 }
                                                             }
                                                         }
                                                     }
-                                                }
-                                                in_flight_arc.store(false, Ordering::Release);
-                                                crate::core::memory::trim_heap();
-                                            });
+                                                    crate::core::memory::trim_heap();
+                                                });
+                                            }
                                         }
                                     }
                                 } else {

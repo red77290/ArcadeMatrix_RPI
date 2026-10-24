@@ -86,6 +86,7 @@ async fn get_system(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
         "matrix": s.matrix,
         "mqtt": s.mqtt,
         "data_mqtt": s.data_mqtt,
+        "showcase": s.showcase,
         "wifi": s.wifi,
         "api_auth_enabled": s.api_auth_enabled,
         "api_token": s.api_token
@@ -143,6 +144,13 @@ async fn post_system(
                 dm_val.pass = prev_data_mqtt_pass;
             }
             s.data_mqtt = dm_val;
+        }
+    }
+    if let Some(sc) = body.get("showcase") {
+        if let Ok(sc_val) =
+            serde_json::from_value::<crate::core::config::ShowcaseConfig>(sc.clone())
+        {
+            s.showcase = sc_val;
         }
     }
     if let Some(wf) = body.get("wifi") {
@@ -572,8 +580,14 @@ async fn get_stats(req: HttpRequest, data: web::Data<AppState>) -> impl Responde
     }
 
     // Gather CPU/memory/disk/temperature off the async reactor thread.
+    // Avoid `System::new_all()` which enumerates every process, thread, user, and network
+    // interface in `/proc` on every poll; only refresh CPU and memory specifics.
     let stats = web::block(|| {
-        let mut sys = System::new_all();
+        let mut sys = System::new_with_specifics(
+            sysinfo::RefreshKind::new()
+                .with_cpu(sysinfo::CpuRefreshKind::everything())
+                .with_memory(sysinfo::MemoryRefreshKind::everything()),
+        );
         // Two samples spaced by the minimum interval for a meaningful CPU load.
         sys.refresh_cpu_all();
         std::thread::sleep(sysinfo::MINIMUM_CPU_UPDATE_INTERVAL);
@@ -1469,6 +1483,148 @@ async fn post_gyro_calibrate_compat() -> impl Responder {
     HttpResponse::Ok().json(json!({"status": "ok"}))
 }
 
+#[derive(serde::Deserialize, Default)]
+struct ShowcaseStatusQuery {
+    url: Option<String>,
+    enabled: Option<bool>,
+    force: Option<bool>,
+    hint_ip: Option<String>,
+}
+
+#[get("/api/showcase/status")]
+async fn get_showcase_status(
+    req: HttpRequest,
+    data: web::Data<AppState>,
+    query: web::Query<ShowcaseStatusQuery>,
+) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    if let Some(peer) = req.peer_addr() {
+        let ip_str = match peer.ip() {
+            std::net::IpAddr::V4(v4) => v4.to_string(),
+            std::net::IpAddr::V6(v6) => v6
+                .to_ipv4_mapped()
+                .map(|v4| v4.to_string())
+                .unwrap_or_default(),
+        };
+        if !ip_str.is_empty() {
+            crate::engines::renderers::media_showcase::register_showcase_candidate_ip(&ip_str);
+        }
+    }
+    if let Some(ref hint) = query.hint_ip {
+        crate::engines::renderers::media_showcase::register_showcase_candidate_ip(hint);
+    }
+    let (cfg_enabled, cfg_url, mqtt_broker, data_mqtt_broker) = {
+        let s = data.config.settings.read();
+        (
+            s.showcase.enabled,
+            s.showcase.server_url.clone(),
+            s.mqtt.broker.clone(),
+            s.data_mqtt.broker.clone(),
+        )
+    };
+    if !mqtt_broker.is_empty() {
+        crate::engines::renderers::media_showcase::register_showcase_candidate_ip(&mqtt_broker);
+    }
+    if !data_mqtt_broker.is_empty() {
+        crate::engines::renderers::media_showcase::register_showcase_candidate_ip(
+            &data_mqtt_broker,
+        );
+    }
+    let enabled = query.enabled.unwrap_or(cfg_enabled);
+    let raw_url = query
+        .url
+        .as_deref()
+        .map(str::trim)
+        .filter(|u| !u.is_empty())
+        .unwrap_or(cfg_url.as_str())
+        .trim_end_matches('/')
+        .to_string();
+    let force_probe = query.force.unwrap_or(false);
+
+    if (!enabled && !force_probe) || raw_url.is_empty() {
+        return HttpResponse::Ok().json(json!({
+            "enabled": enabled,
+            "online": false,
+            "server_url": raw_url,
+            "resolved_url": "",
+            "version": "",
+            "mqtt_port": 1883
+        }));
+    }
+
+    let probe_res = web::block(move || {
+        if force_probe {
+            crate::engines::renderers::media_showcase::invalidate_showcase_host_cache();
+        }
+        let mut resolved =
+            crate::engines::renderers::media_showcase::resolve_showcase_server_url(&raw_url);
+        let probe_once = |target_url: &str| -> Option<(String, u64)> {
+            if let Some((h, p)) =
+                crate::engines::renderers::media_showcase::parse_host_and_port(target_url, 8890)
+            {
+                if let Some(res) =
+                    crate::engines::renderers::media_showcase::probe_showcase_health(&h, p)
+                {
+                    return Some(res);
+                }
+            }
+            let health_url = format!("{}/api/v1/health", target_url.trim_end_matches('/'));
+            let client = crate::core::memory::stream_http_client();
+            let resp = client
+                .get(&health_url)
+                .timeout(std::time::Duration::from_millis(1200))
+                .send()
+                .ok()?;
+            if !resp.status().is_success() {
+                return None;
+            }
+            let v = resp.json::<serde_json::Value>().ok()?;
+            let version = v
+                .get("version")
+                .and_then(|s| s.as_str())
+                .unwrap_or("3.0.0")
+                .to_string();
+            let mqtt_port = v.get("mqtt_port").and_then(|p| p.as_u64()).unwrap_or(1883);
+            Some((version, mqtt_port))
+        };
+
+        if let Some((version, mqtt_port)) = probe_once(&resolved) {
+            return (true, resolved, version, mqtt_port);
+        }
+        if !force_probe && raw_url.to_ascii_lowercase().contains(".local") {
+            crate::engines::renderers::media_showcase::invalidate_showcase_host_cache();
+            resolved =
+                crate::engines::renderers::media_showcase::resolve_showcase_server_url(&raw_url);
+            if let Some((version, mqtt_port)) = probe_once(&resolved) {
+                return (true, resolved, version, mqtt_port);
+            }
+        }
+        (false, resolved, String::new(), 1883)
+    })
+    .await;
+
+    match probe_res {
+        Ok((online, resolved_url, version, mqtt_port)) => HttpResponse::Ok().json(json!({
+            "enabled": enabled,
+            "online": online,
+            "server_url": query.url.as_deref().unwrap_or(cfg_url.as_str()),
+            "resolved_url": resolved_url,
+            "version": version,
+            "mqtt_port": mqtt_port
+        })),
+        Err(_) => HttpResponse::Ok().json(json!({
+            "enabled": enabled,
+            "online": false,
+            "server_url": query.url.as_deref().unwrap_or(cfg_url.as_str()),
+            "resolved_url": "",
+            "version": "",
+            "mqtt_port": 1883
+        })),
+    }
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -1569,6 +1725,7 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(crate::api::gifs::get_gifs_file)
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
+            .service(get_showcase_status)
             .service(crate::api::ota::get_version)
             .service(crate::api::ota::check_update)
             .service(crate::api::ota::auto_update)

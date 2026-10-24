@@ -124,6 +124,7 @@ stateDiagram-v2
   ```
 - **Regla de oro n.º 2 — hot-reload in situ.** En `on_config_changed()` releer los valores en los campos existentes. La instancia **no** se recrea (Lazy-Once), así que conserva tus asignaciones.
 - **Regla de oro n.º 3 — sin E/S bloqueante en el bucle caliente.** El trabajo de red/disco pertenece a un hilo de fondo; entrega los resultados a `update()` vía un canal o estado compartido.
+- **Regla de oro n.º 4 — usar el pool HTTP compartido y la gobernanza de memoria transparente.** Para cualquier llamada HTTP saliente desde un hilo de fondo, usa siempre `crate::core::memory::shared_http_client()` en lugar de `reqwest::blocking::Client::builder().build()`. Además, `EngineRuntime` envuelve automáticamente cada motor en `ManagedEngineWrapper`: los motores pesados de medios/streaming (`EvictOnDeactivate`) se destruyen automáticamente (`Drop`) y devuelven la memoria al sistema (`libc::malloc_trim(0)`) en `deactivate()`, y se reinicializan de forma transparente en el siguiente `activate()`, por lo que nunca necesitas escribir código manual de limpieza de memoria en tu motor.
 
 ---
 

@@ -382,11 +382,15 @@ impl FighterEngine {
     }
 
     pub fn stop(&mut self) {
+        let had_fighters = self.p1.is_some() || self.p2.is_some();
         self.active = false;
         self.p1 = None;
         self.p2 = None;
         self.rx = None;
         self.loading = false;
+        if had_fighters {
+            crate::core::memory::trim_heap();
+        }
     }
 
     pub fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
@@ -935,6 +939,7 @@ impl FighterEngine {
                 self.p2 = None;
                 self.faceoff_start = 0;
                 self.next_fight_time = now + (self.interval_sec as u128 * 1000);
+                crate::core::memory::trim_heap();
             }
         }
 

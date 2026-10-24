@@ -178,6 +178,26 @@ pub struct EngineContext<'a> {
     pub config: &'a crate::core::config::Config,
 }
 
+impl<'a> EngineContext<'a> {
+    /// Returns the shared process-wide blocking HTTP client for fast JSON/icon queries.
+    #[inline]
+    pub fn fast_http_client(&self) -> &'static reqwest::blocking::Client {
+        crate::core::memory::fast_http_client()
+    }
+
+    /// Returns the shared process-wide blocking HTTP client for external REST APIs.
+    #[inline]
+    pub fn api_http_client(&self) -> &'static reqwest::blocking::Client {
+        crate::core::memory::api_http_client()
+    }
+
+    /// Returns the shared process-wide blocking HTTP client for binary media stream downloads.
+    #[inline]
+    pub fn stream_http_client(&self) -> &'static reqwest::blocking::Client {
+        crate::core::memory::stream_http_client()
+    }
+}
+
 // =======================================================
 // 5. Engine Trait
 // =======================================================
@@ -261,6 +281,11 @@ pub trait Engine: Send + Sync {
 
     /// Invoked when the matrix physical or logical geometry changes (e.g. Tate mode rotation).
     fn on_display_geometry_changed(&mut self, _geometry: &crate::core::types::DisplayGeometry) {}
+
+    /// Optional runtime hook invoked when system RSS memory pressure rises.
+    /// Engines do not need to implement this: if an engine retains excessive memory,
+    /// `EngineRuntime` automatically recycles (`Drop`s and re-initializes) the instance.
+    fn on_memory_pressure(&mut self, _level: crate::core::memory::MemoryPressureLevel) {}
 }
 
 // =======================================================

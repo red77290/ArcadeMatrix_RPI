@@ -101,10 +101,7 @@ impl GoogleCastEngine {
             let mut last_attempted_url = String::new();
             let mut last_resized_dim = 0u32;
             let mut raw_cover: Option<RgbImage> = None;
-            let http_client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_millis(2000))
-                .build()
-                .unwrap_or_else(|_| reqwest::blocking::Client::new());
+            let http_client = crate::core::memory::fast_http_client();
 
             while !stop_token.load(Ordering::SeqCst) {
                 let (ip_configured, name_filter) = {
@@ -798,6 +795,11 @@ impl Engine for GoogleCastEngine {
 
     fn deactivate(&mut self) {
         self.stop_background_worker();
+        self.cached_cover = None;
+        if let Ok(mut guard) = self.shared_cover.lock() {
+            *guard = None;
+        }
+        crate::core::memory::trim_heap();
     }
 
     fn is_realtime(&self) -> bool {

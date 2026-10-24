@@ -169,6 +169,8 @@ paths:
                     $ref: '#/components/schemas/MqttConfig'
                   data_mqtt:
                     $ref: '#/components/schemas/DataMqttConfig'
+                  showcase:
+                    $ref: '#/components/schemas/ShowcaseConfig'
                   wifi:
                     $ref: '#/components/schemas/WifiConfig'
                   api_auth_enabled:
@@ -201,6 +203,8 @@ paths:
                   $ref: '#/components/schemas/MqttConfig'
                 data_mqtt:
                   $ref: '#/components/schemas/DataMqttConfig'
+                showcase:
+                  $ref: '#/components/schemas/ShowcaseConfig'
                 wifi:
                   $ref: '#/components/schemas/WifiConfig'
                 api_auth_enabled:
@@ -1374,6 +1378,51 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/showcase/status:
+    get:
+      tags: [Integrations]
+      summary: Probe live connection status to companion dmd_media_showcase server
+      description: >
+        Verifies whether the companion `dmd_media_showcase` server (default
+        `http://dmdmediashowcase.local:8890`) is enabled and reachable via `/api/v1/health`.
+      responses:
+        '200':
+          description: Showcase connection status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  server_url:
+                    type: string
+                  resolved_url:
+                    type: string
+                  reachable:
+                    type: boolean
+                  version:
+                    type: string
+                    nullable: true
+                  error:
+                    type: string
+                    nullable: true
+
+  /api/showcase/filters/{domain}:
+    get:
+      tags: [Integrations]
+      summary: Proxy dynamic filter referential from dmd_media_showcase
+      parameters:
+        - in: path
+          name: domain
+          required: true
+          schema:
+            type: string
+            enum: [games, movies, series, anime]
+      responses:
+        '200':
+          description: Dynamic filter lists (systems, genres, decades)
+
 components:
   securitySchemes:
     ApiToken:
@@ -1785,3 +1834,27 @@ components:
           type: string
         pass:
           type: string
+    ShowcaseConfig:
+      type: object
+      description: Global connection settings for the companion dmd_media_showcase server.
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        server_url:
+          type: string
+          default: "http://dmdmediashowcase.local:8890"
+        transport_mode:
+          type: string
+          enum: [mqtt_udp, http_poll]
+          default: mqtt_udp
+        use_showcase_broker:
+          type: boolean
+          default: true
+        mqtt_broker_source:
+          type: string
+          enum: [global, custom]
+          default: global
+        mqtt_custom_url:
+          type: string
+          default: ""

@@ -74,6 +74,10 @@ impl Engine for RetroGamesEngine {
         true
     }
 
+    fn set_rotation_budget(&mut self, budget: u32) {
+        self.runner.set_rotation_budget(budget);
+    }
+
     fn is_finished(&self) -> bool {
         self.runner.is_finished()
     }

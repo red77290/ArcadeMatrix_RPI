@@ -16,6 +16,7 @@ Le système de configuration repose exclusivement sur un unique fichier `config.
   "wifi": { ... },
   "mqtt": { ... },
   "data_mqtt": { ... },
+  "showcase": { ... },
   "system": { ... },
   "instances": [ ... ],
   "rotation": [ ... ],
@@ -401,6 +402,38 @@ OpenWeatherMap utilise le code pays ISO 3166 (et le code d'état à 2 lettres po
 | `topics` | `String` | `""` | Jusqu'à 6 topics MQTT complets, séparés par des virgules. Chaque topic est une page. |
 
 Tout le reste vient de chaque message retained : son `type` (`value`, `table`, `graph`, `weather`), sa durée d'affichage (`seconds`) et son contenu. L'écran reste affiché le temps d'un cycle complet de ses pages. Formats, limites et messages : [MQTT_DATA_CONTRACT_FR.md](MQTT_DATA_CONTRACT_FR.md) ; blueprints Home Assistant : [HOME_ASSISTANT_FR.md](HOME_ASSISTANT_FR.md).
+
+### Moteurs : `retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase` (DMD Media Showcase)
+> [!IMPORTANT]
+> Ces 4 moteurs Showcase **fonctionnent exclusivement avec l'application compagnon [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase) installée sur une autre machine du même réseau local** (Raspberry Pi, NAS, serveur Docker ou PC). La connexion au serveur se configure une seule fois globalement dans le bloc racine `showcase` de `config.json` (ou via la carte unifiée **Showcase Server** dans l'onglet Settings de la Web UI).
+
+| Champ Racine `showcase` | Type | Défaut | Description |
+| :--- | :--- | :--- | :--- |
+| `showcase.enabled` | `bool` | `false` | Interrupteur d'activation global (désactivé par défaut afin d'éviter tout accès réseau inutile si `dmd_media_showcase` n'est pas installé). |
+| `showcase.server_url` | `String` | `"http://dmdmediashowcase.local:8890"` | URL HTTP pré-remplie (auto-découverte mDNS) de votre serveur **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** sur le réseau local (confirmée par le témoin **`🟢 Communication OK`** dans la Web UI). |
+| `showcase.transport_mode` | `Options` | `mqtt_udp` | Protocole de transport (`mqtt_udp` pour notifications MQTT + streaming UDP, ou `http_poll` pour polling HTTP direct). |
+| `showcase.use_showcase_broker` | `bool` | `true` | Se connecte automatiquement au broker MQTT hébergé sur la machine Showcase (`<server_ip>:1883`). |
+| `showcase.mqtt_broker_source` | `Options` | `global` | Source du broker MQTT lorsque `use_showcase_broker` vaut `false` (`global` utilise `mqtt.broker`, `custom` utilise `mqtt_custom_url`). |
+| `showcase.mqtt_custom_url` | `String` | `""` | URL personnalisée du broker MQTT (ex. `mqtt://192.168.1.200:1883`) lorsque `mqtt_broker_source` vaut `custom`. |
+
+| Champ d'Instance (`retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`) | Type | Défaut | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `text_scroll_speed` | `Options` | `4` | `1` à `10` (`slow`, `normal`, `fast`) | Vitesse de lecture du défilement intégral du synopsis sur la fiche info (`1` = Lent .. `10` = Turbo). |
+| `jacket_panorama` | `bool` | `true` | `true`, `false` | Défilement vertical panoramique de la jaquette/affiche pleine largeur après la fiche info. |
+| `marquee_panorama` | `bool` | `false` | `true`, `false` | Défilement vertical du marquee d'arcade ou de la bannière après l'affiche. |
+| `snapshot_panorama_count` | `int` | `0` | `0` à `5` | Nombre de captures d'écran additionnelles à faire défiler verticalement (`0`..`5`). |
+| `video_max_duration_s` | `int` | `8` | `2` à `120` | Durée maximale en secondes de l'extrait vidéo RGB565. |
+| `video_fps` | `int` | `15` | `8` à `60` | Cadence d'images cible pour les extraits vidéo RGB565 diffusés. |
+| `video_mode` | `Options` | `pixel_art` / `auto_action` / `anime` | `auto_action`, `pixel_art`, `cinema`, `anime`, `panorama`, `center_crop` | Mode de cadrage intelligent propulsé par `dmd_gif_converter`. |
+| `show_poster` | `bool` | `true` | `true`, `false` | Affiche la mini-jaquette sur la fiche info. |
+| `show_synopsis` | `bool` | `true` | `true`, `false` | Fait défiler le synopsis traduit complet sur la fiche info. |
+| `show_video` | `bool` | `true` | `true`, `false` | Diffuse l'extrait vidéo RGB565 s'il est disponible. |
+| `color_boost` | `bool` | `true` | `true`, `false` | Accentue le contraste et la saturation pour les dalles LED HUB75. |
+| `lang` | `Options` | `system` | `system,en,fr,es,de,it` | Langue des titres et synopsis (`system` se synchronise sur la langue configurée du DMD). |
+| `systems` | `List` | `""` | Dynamique (`/api/v1/games/filters`) | (`retro_games` uniquement) Filtrer par systèmes arcade/consoles (laisser vide pour tous). |
+| `genres` | `List` | `""` | Dynamique (`/api/v1/{domain}/filters`) | Filtrer par genres récupérés dynamiquement depuis le serveur Showcase. |
+| `decades` | `List` | `""` | Dynamique (`/api/v1/{domain}/filters`) | Filtrer par décennies récupérées dynamiquement depuis le serveur Showcase. |
+| `video_type` | `Options` | `any` / `opening` | `any`, `trailer`, `scene`, `opening`, `ending` | (`movie_showcase`, `series_showcase`, `anime_showcase`) Type d'extrait vidéo privilégié. |
 
 ---
 

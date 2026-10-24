@@ -270,9 +270,7 @@ impl DisplayRuntime {
                 }
             }
             // If top was expired/orphan, clean it up and continue unwinding
-            if let Some(engine) = engine_runtime.get_active_instance(top.engine_handle) {
-                engine.deactivate();
-            }
+            engine_runtime.deactivate_and_audit(top.engine_handle);
         }
 
         self.active_session = DisplaySession::empty();
@@ -324,9 +322,7 @@ impl DisplayRuntime {
                     }
                 }
                 // Clean up expired/orphan intermediate session
-                if let Some(engine) = engine_runtime.get_active_instance(top.engine_handle) {
-                    engine.deactivate();
-                }
+                engine_runtime.deactivate_and_audit(top.engine_handle);
             }
         }
 
@@ -336,9 +332,7 @@ impl DisplayRuntime {
     }
 
     fn activate_new(&mut self, decision: DisplayDecision, engine_runtime: &mut EngineRuntime) {
-        if let Some(engine) = engine_runtime.get_instance_by_handle(decision.engine_handle) {
-            engine.activate();
-        }
+        engine_runtime.activate_instance(decision.engine_handle);
 
         let session_id = self.next_session_id;
         self.next_session_id += 1;
@@ -356,11 +350,7 @@ impl DisplayRuntime {
 
     fn deactivate_current(&mut self, engine_runtime: &mut EngineRuntime) {
         if self.active_session.is_active {
-            if let Some(engine) =
-                engine_runtime.get_active_instance(self.active_session.engine_handle)
-            {
-                engine.deactivate();
-            }
+            engine_runtime.deactivate_and_audit(self.active_session.engine_handle);
             self.active_session.is_active = false;
         }
     }
@@ -370,11 +360,12 @@ impl DisplayRuntime {
         self.active_session.priority
     }
 
-    /// Ticking update method called on the active engine every frame
+    /// Ticking update method called on the active engine every frame.
+    /// Automatically re-initializes any instance that was recycled via `Drop` by the runtime memory guard.
     pub fn update(&mut self, engine_runtime: &mut EngineRuntime, context: &mut EngineContext) {
         if self.active_session.is_active {
-            if let Some(engine) =
-                engine_runtime.get_active_instance(self.active_session.engine_handle)
+            if let Some(engine) = engine_runtime
+                .ensure_ready_and_get_active(self.active_session.engine_handle, context)
             {
                 engine.update(context);
             }

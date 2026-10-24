@@ -16,10 +16,7 @@ impl DmdCache {
     pub fn new<P: AsRef<Path>>(cache_dir: P) -> Self {
         let path = cache_dir.as_ref().to_path_buf();
         let _ = fs::create_dir_all(&path);
-        let http_client = reqwest::blocking::Client::builder()
-            .timeout(std::time::Duration::from_secs(5))
-            .build()
-            .unwrap_or_else(|_| reqwest::blocking::Client::new());
+        let http_client = crate::core::memory::fast_http_client().clone();
 
         let mut system_mappings: HashMap<String, Vec<String>> = HashMap::new();
 

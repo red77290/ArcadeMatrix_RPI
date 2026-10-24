@@ -1,5 +1,4 @@
 use crate::api::{CryptoProvider, PriceHistory, Timeframe};
-use std::time::Duration;
 use tracing::info;
 
 pub struct CoinGeckoProvider;
@@ -14,11 +13,7 @@ impl CryptoProvider for CoinGeckoProvider {
         symbol: &str,
         currency: &str,
     ) -> Option<(f64, f64, Option<String>)> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let lower_symbol = symbol.to_lowercase();
         let vs_curr = currency.to_lowercase();
@@ -93,11 +88,7 @@ impl CryptoProvider for CoinGeckoProvider {
         tf: Timeframe,
         currency: &str,
     ) -> Option<PriceHistory> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let lower = symbol.to_lowercase();
         let vs_curr = currency.to_lowercase();

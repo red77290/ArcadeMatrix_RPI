@@ -124,6 +124,7 @@ stateDiagram-v2
   ```
 - **Règle d'or n°2 — hot-reload sur place.** Dans `on_config_changed()`, relire les valeurs dans les champs existants. L'instance n'est **pas** recréée (Lazy-Once), conserve donc tes allocations.
 - **Règle d'or n°3 — pas d'E/S bloquantes dans la boucle chaude.** Le travail réseau/disque appartient à un thread de fond ; transmets les résultats à `update()` via un canal ou un état partagé.
+- **Règle d'or n°4 — utiliser le pool HTTP partagé & la gouvernance mémoire transparente.** Pour tout appel HTTP sortant depuis un thread de fond, utilise systématiquement `crate::core::memory::shared_http_client()` au lieu de `reqwest::blocking::Client::builder().build()`. De plus, `EngineRuntime` encapsule automatiquement chaque moteur dans `ManagedEngineWrapper` : les moteurs multimédias/streaming lourds (`EvictOnDeactivate`) sont automatiquement détruits (`Drop`) avec restitution mémoire (`libc::malloc_trim(0)`) lors de `deactivate()`, puis ré-initialisés de façon transparente au prochain `activate()`. Tu n'as donc jamais besoin d'écrire de code manuel de purge mémoire dans ton moteur.
 
 ---
 

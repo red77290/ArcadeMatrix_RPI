@@ -413,6 +413,7 @@ impl GifEngine {
             self.frame_elapsed = Duration::ZERO;
             self.loop_count = 0;
             self.last_drawn_index = None;
+            crate::core::memory::trim_heap();
             self.spawn_preload(selected_playlists);
             return true;
         }
@@ -622,13 +623,12 @@ impl Engine for GifEngine {
     }
 
     fn deactivate(&mut self) {
-        self.frames.clear();
+        self.frames = Vec::new();
         self.current_gif_path = None;
-        let has_preloaded = self.preloaded.lock().map(|g| g.is_some()).unwrap_or(false);
-        if !has_preloaded {
-            let playlists = self.playlists.clone();
-            self.spawn_preload(&playlists);
+        if let Ok(mut guard) = self.preloaded.lock() {
+            *guard = None;
         }
+        crate::core::memory::trim_heap();
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {

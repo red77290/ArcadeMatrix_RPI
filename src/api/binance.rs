@@ -1,5 +1,4 @@
 use crate::api::{CryptoProvider, PriceHistory, Timeframe};
-use std::time::Duration;
 use tracing::info;
 
 pub struct BinanceProvider;
@@ -14,11 +13,7 @@ impl CryptoProvider for BinanceProvider {
         symbol: &str,
         currency: &str,
     ) -> Option<(f64, f64, Option<String>)> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let upper_sym = symbol.to_uppercase();
         let pair_suffix = match currency.to_uppercase().as_str() {
@@ -75,11 +70,7 @@ impl CryptoProvider for BinanceProvider {
         tf: Timeframe,
         currency: &str,
     ) -> Option<PriceHistory> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let upper_sym = symbol.to_uppercase();
         let pair_suffix = match currency.to_uppercase().as_str() {

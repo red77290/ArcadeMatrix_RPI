@@ -377,6 +377,8 @@ impl Engine for WeatherEngine {
 
     fn deactivate(&mut self) {
         self.is_fetching.store(false, Ordering::SeqCst);
+        self.panorama = None;
+        crate::core::memory::trim_heap();
     }
 }
 

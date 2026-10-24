@@ -201,7 +201,7 @@ pub struct SystemConfig {
 }
 
 fn default_fighter_enabled() -> bool {
-    true
+    false
 }
 
 fn default_fighter_interval() -> u32 {
@@ -212,6 +212,30 @@ fn default_fighter_speed() -> u32 {
     100
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ShowcaseConfig {
+    pub enabled: bool,
+    pub server_url: String,
+    pub transport_mode: String,
+    pub use_showcase_broker: bool,
+    pub mqtt_broker_source: String,
+    pub mqtt_custom_url: String,
+}
+
+impl Default for ShowcaseConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            server_url: "http://dmdmediashowcase.local:8890".to_string(),
+            transport_mode: "mqtt_udp".to_string(),
+            use_showcase_broker: true,
+            mqtt_broker_source: "global".to_string(),
+            mqtt_custom_url: String::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ConfigSettings {
@@ -219,6 +243,7 @@ pub struct ConfigSettings {
     pub wifi: WifiConfig,
     pub mqtt: MqttConfig,
     pub data_mqtt: DataMqttConfig,
+    pub showcase: ShowcaseConfig,
     pub system: SystemConfig,
 
     #[serde(default)]
@@ -353,6 +378,7 @@ impl Default for ConfigSettings {
             wifi: WifiConfig::default(),
             mqtt: MqttConfig::default(),
             data_mqtt: DataMqttConfig::default(),
+            showcase: ShowcaseConfig::default(),
             system: SystemConfig::default(),
             api_auth_enabled: false,
             api_token: generate_random_token(),
@@ -480,17 +506,68 @@ impl Config {
                 RotationEntry {
                     instance_id: "default_clock".to_string(),
                     duration_sec: 60,
-                    overlays: OverlayConfig { fighter: true },
+                    overlays: OverlayConfig { fighter: false },
                     fighter_overlay: None,
                 },
                 RotationEntry {
                     instance_id: "default_weather".to_string(),
                     duration_sec: 15,
-                    overlays: OverlayConfig { fighter: true },
+                    overlays: OverlayConfig { fighter: false },
                     fighter_overlay: None,
                 },
             ];
             needs_save = true;
+        }
+
+        // Auto-migrate legacy per-engine showcase settings if system showcase settings are still default
+        if settings.showcase.server_url == "http://192.168.1.50:8000"
+            || settings.showcase.server_url == "http://127.0.0.1:8080"
+            || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
+            || settings.showcase.server_url == "http://dmdmediashowcase.local:8890"
+        {
+            if settings.showcase.server_url == "http://192.168.1.50:8000"
+                || settings.showcase.server_url == "http://127.0.0.1:8080"
+                || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
+            {
+                settings.showcase.server_url = "http://dmdmediashowcase.local:8890".to_string();
+                needs_save = true;
+            }
+            for inst in &settings.instances {
+                if [
+                    "retro_games",
+                    "movie_showcase",
+                    "series_showcase",
+                    "anime_showcase",
+                ]
+                .contains(&inst.engine_id.as_str())
+                {
+                    if let Some(url) = inst.config.get("server_url") {
+                        if !url.trim().is_empty()
+                            && url != "http://192.168.1.50:8000"
+                            && url != "http://127.0.0.1:8080"
+                            && url != "http://dmdmediashowcase.local:8080"
+                            && url != "http://dmdmediashowcase.local:8890"
+                        {
+                            settings.showcase.server_url = url.clone();
+                            settings.showcase.enabled = true;
+                            if let Some(tm) = inst.config.get("transport_mode") {
+                                settings.showcase.transport_mode = tm.clone();
+                            }
+                            if let Some(ub) = inst.config.get("use_showcase_broker") {
+                                settings.showcase.use_showcase_broker = ub != "false";
+                            }
+                            if let Some(bs) = inst.config.get("mqtt_broker_source") {
+                                settings.showcase.mqtt_broker_source = bs.clone();
+                            }
+                            if let Some(cu) = inst.config.get("mqtt_custom_url") {
+                                settings.showcase.mqtt_custom_url = cu.clone();
+                            }
+                            needs_save = true;
+                            break;
+                        }
+                    }
+                }
+            }
         }
 
         if settings.api_token.trim().is_empty() {

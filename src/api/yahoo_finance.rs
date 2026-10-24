@@ -1,16 +1,11 @@
 use crate::api::{PriceHistory, StockProvider, Timeframe};
-use std::time::Duration;
 use tracing::info;
 
 pub struct YahooFinanceProvider;
 
 impl StockProvider for YahooFinanceProvider {
     fn fetch_quote(&self, symbol: &str) -> Option<(f64, f64, Option<String>)> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let urls = [
             format!(
@@ -52,11 +47,7 @@ impl StockProvider for YahooFinanceProvider {
     }
 
     fn fetch_history(&self, symbol: &str, tf: Timeframe) -> Option<PriceHistory> {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(3))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-            .ok()?;
+        let client = crate::core::memory::fast_http_client();
 
         let (range, interval) = match tf {
             Timeframe::Hourly => ("1d", "2m"),

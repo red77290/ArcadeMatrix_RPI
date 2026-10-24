@@ -235,9 +235,9 @@ flowchart LR
 
 ---
 
-## 5. The "Lazy-Once" Lifecycle
+## 5. The "Lazy-Once" Lifecycle & Transparent Runtime Memory Governance
 
-The `EngineRuntime` owns an indexed slot vector of registered instances (mapping compact 16-bit `instance_id` handles in $O(1)$) along with each instance's last applied configuration snapshot:
+The `EngineRuntime` owns an indexed slot vector of registered instances (mapping compact 16-bit `instance_id` handles in $O(1)$) wrapped inside a transparent `ManagedEngineWrapper`:
 
 ```rust
 pub struct EngineRuntime {
@@ -246,6 +246,14 @@ pub struct EngineRuntime {
     next_instance_id: u16,
 }
 ```
+
+### Transparent Memory Governance (`ManagedEngineWrapper` & `MemoryPolicy`)
+To ensure memory usage remains strictly bounded (~120–180 MB RSS) regardless of how individual engines are written:
+1. **`ManagedEngineWrapper`**: Automatically wraps every engine registered in `EngineRuntime`.
+   - **`MemoryPolicy::KeepWarm`** (lightweight engines like `clock`, `date`, `weather`, `crypto`): Instantiated lazily on first display and kept warm across rotations; `deactivate()` triggers `core::memory::trim_heap()`.
+   - **`MemoryPolicy::EvictOnDeactivate`** (heavy streaming/media engines like `retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`, `gifs`, `marquee`): When the engine leaves the screen (`deactivate()`), the wrapper **drops the inner `Box<dyn Engine>` entirely**, guaranteeing by the Rust type system that 100% of its frame buffers, caches, and background worker channels are freed, then calls `libc::malloc_trim(0)` (`core::memory::trim_heap()`) to return freed arenas to Linux immediately. On next rotation activation, the wrapper transparently re-instantiates and re-initializes the engine from its cached config snapshot.
+2. **Periodic Runtime Watchdog**: Every 60 seconds during long active sessions, and whenever instances are removed or pruned from rotation (`sync_instances`), `EngineRuntime` invokes `core::memory::trim_heap()` to prevent glibc multi-thread arena retention.
+3. **Shared Bounded HTTP Client Pool**: Network engines share process-wide connection-pooled `reqwest::blocking::Client` singletons (`core::memory::shared_http_client()` and `shared_showcase_http_client()`) with `pool_max_idle_per_host(2)`, eliminating TLS session and socket buffer accumulation across background threads.
 
 `get_instance()` is the heart of Lazy-Once and hot-reload:
 
@@ -712,6 +720,8 @@ All endpoints are actix handlers in `src/api/server.rs`; static web assets are e
 | DELETE | `/api/gifs/reindex` | Cancel a running rescan (the Pi scan is synchronous, so this always answers `409`) |
 | DELETE | `/api/gifs/file?folder=&name=` | Delete one file |
 | DELETE | `/api/gifs/folder?folder=` | Delete a playlist folder recursively |
+| GET | `/api/showcase/status` | Probe live connection status and version of the companion `dmd_media_showcase` server (`enabled`, `reachable`, `version`, `resolved_url`) |
+| GET | `/api/showcase/filters/{domain}` | Proxy dynamic filter options (`systems`, `genres`, `decades`) from `dmd_media_showcase` |
 
 Every mutating handler runs behind `check_auth` when `api_auth_enabled` is set.
 

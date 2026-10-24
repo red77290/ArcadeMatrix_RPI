@@ -33,18 +33,34 @@ window.switchDisplayTab = window.switchTab;
 window.switchSystemTab = function(tabId) {
   // Update buttons
   if (window.event && window.event.currentTarget) {
-    document.querySelectorAll('#page-system .tab-btn').forEach(btn => {
+    document.querySelectorAll('#page-system > .tabs > .tab-btn').forEach(btn => {
       btn.classList.remove('active');
     });
     window.event.currentTarget.classList.add('active');
   }
 
   // Update panes
-  document.querySelectorAll('#page-system .tab-pane').forEach(pane => {
+  document.querySelectorAll('#page-system > .tab-pane').forEach(pane => {
     pane.classList.remove('active');
   });
   const pane = document.getElementById('sys-tab-' + tabId);
   if (pane) pane.classList.add('active');
+};
+
+window.switchMqttSubTab = function(sub) {
+  const container = document.getElementById('sys-tab-mqtt');
+  if (!container) return;
+  const buttons = container.querySelectorAll('.tabs .tab-btn');
+  const panes = container.querySelectorAll('.mqtt-subtab-pane');
+  panes.forEach(p => p.style.display = 'none');
+  buttons.forEach(b => b.classList.remove('active'));
+  const targetPane = document.getElementById('mqtt-subtab-' + sub);
+  if (targetPane) targetPane.style.display = 'block';
+  buttons.forEach(b => {
+    if (b.getAttribute('onclick') && b.getAttribute('onclick').includes("'" + sub + "'")) {
+      b.classList.add('active');
+    }
+  });
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -678,6 +694,108 @@ function initNetworkSettings() {
     });
   }
 
+  const updateShowcaseBrokerVisibility = () => {
+    const useBrokerEl = document.getElementById('hw-showcase-use-broker');
+    const sourceEl = document.getElementById('hw-showcase-broker-source');
+    const extGroup = document.getElementById('group-showcase-external-broker');
+    const customGroup = document.getElementById('group-showcase-custom-url');
+    const useEmbedded = !useBrokerEl || useBrokerEl.value === 'true';
+    if (extGroup) extGroup.style.display = useEmbedded ? 'none' : 'grid';
+    if (customGroup) {
+      customGroup.style.display = (!useEmbedded && sourceEl && sourceEl.value === 'custom') ? 'block' : 'none';
+    }
+  };
+  window.updateShowcaseBrokerVisibility = updateShowcaseBrokerVisibility;
+
+  const selUseBroker = document.getElementById('hw-showcase-use-broker');
+  const selBrokerSource = document.getElementById('hw-showcase-broker-source');
+  if (selUseBroker) selUseBroker.addEventListener('change', updateShowcaseBrokerVisibility);
+  if (selBrokerSource) selBrokerSource.addEventListener('change', updateShowcaseBrokerVisibility);
+
+  const checkShowcaseStatus = async (forceProbe = false) => {
+    const badge = document.getElementById('showcase-comm-badge');
+    const enEl = document.getElementById('hw-showcase-enabled');
+    const urlEl = document.getElementById('hw-showcase-server-url');
+    if (!badge) return;
+    const enabled = enEl ? enEl.value === 'true' : !!(window.__sysConfig?.showcase?.enabled);
+    const url = (urlEl ? urlEl.value : (window.__sysConfig?.showcase?.server_url || 'http://dmdmediashowcase.local:8890')).trim() || 'http://dmdmediashowcase.local:8890';
+    if (!enabled && !forceProbe) {
+      badge.textContent = t('showcase_status_disabled', '⚪ Disabled');
+      badge.style.background = 'rgba(255,255,255,0.08)';
+      badge.style.color = '#b0bec5';
+      badge.style.borderColor = 'rgba(255,255,255,0.15)';
+      return;
+    }
+    badge.textContent = t('showcase_status_checking', '⏳ Checking...');
+    badge.style.background = 'rgba(255, 193, 7, 0.15)';
+    badge.style.color = '#ffd54f';
+    badge.style.borderColor = 'rgba(255, 193, 7, 0.35)';
+    try {
+      const qs = `?url=${encodeURIComponent(url)}&enabled=${enabled ? 'true' : 'false'}${forceProbe ? '&force=true' : ''}`;
+      const res = await API.get(`/api/showcase/status${qs}`);
+      if (res && res.online) {
+        if (res.resolved_url) {
+          window.__showcaseResolvedUrl = res.resolved_url;
+        }
+        const ver = res.version ? `v${res.version}` : '';
+        const resolvedHost = (res.resolved_url && res.resolved_url !== url)
+          ? res.resolved_url.replace(/^https?:\/\//i, '')
+          : '';
+        const meta = [ver, resolvedHost].filter(Boolean).join(' • ');
+        badge.textContent = `${t('showcase_status_ok', '🟢 Communication OK')}${meta ? ` (${meta})` : ''}`;
+        badge.style.background = 'rgba(0, 230, 118, 0.15)';
+        badge.style.color = '#00e676';
+        badge.style.borderColor = 'rgba(0, 230, 118, 0.4)';
+      } else {
+        badge.textContent = t('showcase_status_offline', '🔴 Unreachable');
+        badge.style.background = 'rgba(255, 82, 82, 0.15)';
+        badge.style.color = '#ff5252';
+        badge.style.borderColor = 'rgba(255, 82, 82, 0.4)';
+      }
+    } catch (_) {
+      badge.textContent = t('showcase_status_offline', '🔴 Unreachable');
+      badge.style.background = 'rgba(255, 82, 82, 0.15)';
+      badge.style.color = '#ff5252';
+      badge.style.borderColor = 'rgba(255, 82, 82, 0.4)';
+    }
+  };
+  window.checkShowcaseStatus = checkShowcaseStatus;
+
+  const selShowcaseEnabled = document.getElementById('hw-showcase-enabled');
+  if (selShowcaseEnabled) {
+    selShowcaseEnabled.addEventListener('change', () => {
+      checkShowcaseStatus(selShowcaseEnabled.value === 'true');
+    });
+  }
+  const btnTestShowcase = document.getElementById('btn-test-showcase-conn');
+  if (btnTestShowcase) {
+    btnTestShowcase.addEventListener('click', () => checkShowcaseStatus(true));
+  }
+
+  const btnSaveShowcase = document.getElementById('btn-save-showcase');
+  if (btnSaveShowcase) {
+    btnSaveShowcase.addEventListener('click', async () => {
+      const enabled = document.getElementById('hw-showcase-enabled')?.value === 'true';
+      const server_url = (document.getElementById('hw-showcase-server-url').value || '').trim() || 'http://dmdmediashowcase.local:8890';
+      const showcase = {
+        enabled,
+        server_url,
+        transport_mode: document.getElementById('hw-showcase-transport-mode').value,
+        use_showcase_broker: document.getElementById('hw-showcase-use-broker').value === 'true',
+        mqtt_broker_source: document.getElementById('hw-showcase-broker-source').value,
+        mqtt_custom_url: (document.getElementById('hw-showcase-custom-url').value || '').trim(),
+      };
+      try {
+        await API.post('/api/system', { showcase });
+        if (window.__sysConfig) window.__sysConfig.showcase = showcase;
+        window.showToast('Showcase Settings Saved!', 'success');
+        await checkShowcaseStatus(false);
+      } catch (e) {
+        window.showToast('Failed to save Showcase Settings', 'error');
+      }
+    });
+  }
+
   const btnSaveApi = document.getElementById('btn-save-api');
   if (btnSaveApi) {
     btnSaveApi.addEventListener('click', async () => {
@@ -763,7 +881,7 @@ async function initSettings() {
     setVal('sys-lang', sys.lang || 'en');
     setVal('sys-format-24h', sys.format_24h !== undefined ? String(sys.format_24h) : 'true');
     setVal('sys-unit', sys.temp_unit || 'C');
-    setChk('sys-idle-fighter-enabled', sys.idle_fighter_enabled ?? true);
+    setChk('sys-idle-fighter-enabled', sys.idle_fighter_enabled ?? false);
     setVal('sys-idle-fighter-interval', sys.idle_fighter_interval || 10);
     setVal('sys-idle-fighter-speed', sys.idle_fighter_speed || 100);
 
@@ -824,6 +942,21 @@ async function initSettings() {
     setVal('hw-data-mqtt-user', dataMqtt.user || '');
     setVal('hw-data-mqtt-pass', dataMqtt.pass || '');
 
+    // DMD Media Showcase (nested showcase.*)
+    const showcase = cfg.showcase || {};
+    setVal('hw-showcase-enabled', showcase.enabled ? 'true' : 'false');
+    setVal('hw-showcase-server-url', showcase.server_url || 'http://dmdmediashowcase.local:8890');
+    setVal('hw-showcase-transport-mode', showcase.transport_mode || 'mqtt_udp');
+    setVal('hw-showcase-use-broker', showcase.use_showcase_broker !== undefined ? (showcase.use_showcase_broker ? 'true' : 'false') : 'true');
+    setVal('hw-showcase-broker-source', showcase.mqtt_broker_source || 'global');
+    setVal('hw-showcase-custom-url', showcase.mqtt_custom_url || '');
+    if (typeof window.updateShowcaseBrokerVisibility === 'function') {
+      window.updateShowcaseBrokerVisibility();
+    }
+    if (typeof window.checkShowcaseStatus === 'function') {
+      window.checkShowcaseStatus(false);
+    }
+
     // API auth (top-level)
     setVal('hw-api-auth', cfg.api_auth_enabled ? 'true' : 'false');
     setVal('hw-api-token', cfg.api_token || '');
@@ -843,7 +976,7 @@ async function initSettings() {
       const lang = document.getElementById('sys-lang')?.value || 'en';
       const format24h = document.getElementById('sys-format-24h')?.value === 'true';
       const tempUnit = document.getElementById('sys-unit')?.value || 'C';
-      const idleFighterEnabled = document.getElementById('sys-idle-fighter-enabled')?.checked ?? true;
+      const idleFighterEnabled = document.getElementById('sys-idle-fighter-enabled')?.checked ?? false;
       const idleFighterInterval = parseInt(document.getElementById('sys-idle-fighter-interval')?.value) || 10;
       const idleFighterSpeed = parseInt(document.getElementById('sys-idle-fighter-speed')?.value) || 100;
       const rotation = parseInt(document.getElementById('sys-screen-rotation')?.value) || 0;

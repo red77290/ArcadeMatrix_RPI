@@ -29,7 +29,11 @@ pub struct SysInfoEngine {
 
 impl SysInfoEngine {
     pub fn new(_w: u32, _h: u32) -> Self {
-        let mut sys = System::new_all();
+        let mut sys = System::new_with_specifics(
+            sysinfo::RefreshKind::new()
+                .with_cpu(sysinfo::CpuRefreshKind::everything())
+                .with_memory(sysinfo::MemoryRefreshKind::everything()),
+        );
         sys.refresh_cpu_all();
         sys.refresh_memory();
 

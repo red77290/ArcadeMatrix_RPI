@@ -410,16 +410,12 @@ impl StockEngine {
                 if (needs_icon || !Path::new(&icon_path).exists()) && fetched_img_url.is_some() {
                     if let Some(u) = fetched_img_url {
                         let proxy_url = format!("https://wsrv.nl/?url={}&w=16&h=16&output=png", u);
-                        if let Ok(client) = reqwest::blocking::Client::builder()
-                            .timeout(Duration::from_secs(3))
-                            .build()
-                        {
-                            if let Ok(resp) = client.get(&proxy_url).send() {
-                                if resp.status().is_success() {
-                                    if let Ok(bytes) = resp.bytes() {
-                                        let _ = std::fs::create_dir_all("data/stock_icons");
-                                        let _ = std::fs::write(&icon_path, &bytes);
-                                    }
+                        let client = crate::core::memory::fast_http_client();
+                        if let Ok(resp) = client.get(&proxy_url).send() {
+                            if resp.status().is_success() {
+                                if let Ok(bytes) = resp.bytes() {
+                                    let _ = std::fs::create_dir_all("data/stock_icons");
+                                    let _ = std::fs::write(&icon_path, &bytes);
                                 }
                             }
                         }

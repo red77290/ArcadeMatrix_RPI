@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Default)]
 pub struct MarketQuote {
@@ -79,11 +79,7 @@ pub fn fetch_live_weather(city: &str, api_key: &str) -> Option<(f32, i32, String
     if trimmed_city.is_empty() {
         return None;
     }
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(4))
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-        .build()
-        .ok()?;
+    let client = crate::core::memory::fast_http_client();
 
     // 1. Try OpenWeatherMap if an API key is provided (either directly or inherited from Weather engine)
     let clean_key = api_key.trim();

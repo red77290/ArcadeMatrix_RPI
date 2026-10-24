@@ -55,6 +55,10 @@ Every engine in ArcadeMatrix RPi is engineered in pure, multi-threaded Rust with
 | **Animated GIF Player**<br>`gifs` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="GIF Engine"> | Smooth 60 FPS playback of retro animations, folders, and network playlists with zero-copy row span presentation. |
 | **Scrolling Text Banner**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Message Engine"> | Customizable dot-matrix marquee signs with glowing amber typography, multiple scroll directions, and REST API triggers. |
 | **Arcade Cabinet Marquee**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Marquee Engine"> | Displays official illuminated arcade marquees via Pixelcade integration for Batocera, Recalbox, and RetroPie gaming setups. |
+| **Retro Games Showcase**<br>`retro_games` | <img src="docs/assets/engines/engine_retrogames.png" width="240" alt="Retro Games Showcase Engine"> | Streams authentic retro console & arcade box art, metadata badges, localized synopses, and 30 FPS RGB565 gameplay videos.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
+| **Movie Showcase**<br>`movie_showcase` | <img src="docs/assets/engines/engine_movieshowcase.png" width="240" alt="Movie Showcase Engine"> | Cinema poster & trailer showcase streaming TMDB/TVDB movie posters, ratings, localized synopses, and 30 FPS RGB565 trailers.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
+| **Series Showcase**<br>`series_showcase` | <img src="docs/assets/engines/engine_seriesshowcase.png" width="240" alt="Series Showcase Engine"> | TV series showcase displaying show posters, release year, star ratings, localized synopses, and 30 FPS RGB565 trailer streams.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
+| **Anime Showcase**<br>`anime_showcase` | <img src="docs/assets/engines/engine_animeshowcase.png" width="240" alt="Anime Showcase Engine"> | Anime & manga showcase powered by AniList/Jikan/Kitsu metadata with cover art, localized synopses, and 30 FPS RGB565 video previews.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
 | **Calendar & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Date Engine"> | Large arcade-styled date with 3D Capcom/Nintendo drop shadows, multi-language support (EN, FR, ES), and NTP synchronization. |
 
 > [!NOTE]
@@ -64,6 +68,7 @@ Every engine in ArcadeMatrix RPi is engineered in pure, multi-threaded Rust with
 
 * 🎯 **Canonical Display Arbiter & Preemption Engine**: Bounded $O(1)$ zero-allocation decision pipeline with multi-source priority arbitration (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, exact intent matching, and resilient orphan cleanup.
 * 🧭 **Dynamic Orientation & Tate Mode (`OrientationManager`)**: Multi-angle manual and responsive rotation (0°, 90°, 180°, 270°) with automatic layout classification (`LayoutClass`) and reactive versioning.
+* 🛡️ **Transparent Runtime Memory Governance (`core::memory`)**: Modeled on the ESP32 lifecycle philosophy and tailored for Raspberry Pi's 1 GB RAM — automatic `glibc` arena tuning (`M_ARENA_MAX = 2` + `malloc_trim`), shared HTTP connection pools on `EngineContext`, post-`deactivate()` retention auditing (`> 15 MB` triggers automatic `Drop` instance recycling), and a two-tier RSS watchdog (`200 MB` dormant eviction / `260 MB` active recycle) so memory stays bounded regardless of individual engine implementations.
 * 🔄 **Over-The-Air (OTA) Firmware Update**: Update the single standalone Rust binary directly from the Web UI without re-flashing your SD Card image! *(Failsafe Recovery: If an OTA update ever breaks your system, plug your SD card into a PC and drop a valid firmware named `arcadematrix_recovery.bin` at the root of either the `bootfs` partition or the `DATA` partition. It will automatically install on the next boot!)*
 * 🚀 **Rust Native Multi-Threaded Engine**: High-performance multi-threaded engine using Actix-web and image processing in pure compiled Rust with 0% idle CPU overhead.
 * ⚡ **Zero-Copy DirtyBounds Canvas Pipeline (`canvas_single`)**: Single off-screen canvas with zero-copy row span presentation and `DirtyBounds` dirty line tracking. On static clock frames and slow-moving animations, `present()` immediately detects clean state and never touches the Broadcom memory bus or DMA engine, completely eliminating SDIO Wi-Fi drops!
@@ -121,7 +126,7 @@ ArcadeMatrix RPi includes a signature collection of handcrafted, hardware-synchr
 
 ## 🚀 Hardware Requirements & Compatibility
 
-Thanks to the ultra-lightweight native Rust implementation (~5 MB binary, ~10 MB RAM, 0% idle CPU overhead), **ArcadeMatrix now fully supports older legacy Raspberry Pi hardware without stutter or dropped frames**:
+Thanks to the native Rust implementation (~5 MB binary, bounded ~80–150 MB RSS runtime footprint with automatic 200/260 MB watchdog recycling, and 0% idle CPU overhead), **ArcadeMatrix fully supports Raspberry Pi hardware without stutter or dropped frames**:
 
 1. **Raspberry Pi**: 
    - **Legacy / Single-Core**: Pi 1 (B, B+, A+), Pi Zero, Pi Zero W *(Fully supported with zero lag thanks to Rust!)*
@@ -224,7 +229,16 @@ By default, the project ships with `PressStart2P.ttf`, `VT323.ttf`, and `DotGoth
 ## 🕸️ Web UI
 Navigate to `http://<YOUR_PI_IP>:8080/` to access the Control Panel.
 
-The interface is exactly the same as the ESP32 version, offering Dashboard controls, Playlist selection, Clock configuration, and MQTT settings, with added controls for **Gradients** and **Unlimited Sizes**.
+The interface is aligned with the ESP32 version, offering Dashboard controls, Playlist selection, Clock configuration, Showcase Server settings, and MQTT settings, with added controls for **Gradients** and **Unlimited Sizes**.
+
+---
+
+## 🎬 DMD Media Showcase Server ([dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)) Integration
+
+The 4 Showcase engines (`retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`) **only work with the companion [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase) application installed on another machine on the same local network** (NAS, Docker server, PC, or another Raspberry Pi) to stream pre-rendered RGB565 posters, panoramas, multilingual synopses (automatically matching your DMD's configured UI language: `en`, `fr`, `es`, `de`, `it`), and 30 FPS RGB565 video trailers/gameplay clips:
+1. Install and start **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** on another machine on your local network (it automatically advertises itself on your LAN as `http://dmdmediashowcase.local:8890`).
+2. In the ArcadeMatrix Web UI **Settings** tab (`MQTT & API` -> **🎬 DMD Media Showcase**), the Server URL is **already pre-filled** as `http://dmdmediashowcase.local:8890` and **Disabled by default** (`showcase.enabled = false`) so zero network requests are made if you haven't installed Showcase. Simply toggle **Enable DMD Media Showcase** ON, click **Save Showcase Settings**, and verify that the live status badge turns **`🟢 Communication OK (v3.0.0)`**.
+3. Add `retro_games`, `movie_showcase`, `series_showcase`, or `anime_showcase` to your rotation (`display_duration_sec` from `15` to `120` seconds). Each Showcase engine automatically honors its configured `display_duration_sec` budget so Poster + Synopsis + Video sequences never cut off prematurely.
 
 ---
 
@@ -300,6 +314,8 @@ If you prefer to edit settings manually instead of using the Web UI, you can dir
   "wifi":   { "ssid": "YourNetwork", "password": "YourPassword", "configured": false,
               "disable_internal": false },
   "mqtt":   { "enabled": false, "broker": "192.168.1.50", "port": 1883 },
+  "showcase": { "server_url": "http://192.168.1.50:8080", "transport_mode": "mqtt_udp",
+                "use_showcase_broker": true, "mqtt_broker_source": "global", "mqtt_custom_url": "" },
   "system": { "format_24h": true, "lang": "en", "night_mode_enabled": false,
               "turn_off_at": "23:00", "wake_up_at": "07:00", "night_brightness": 20 },
   "instances": [
@@ -315,7 +331,8 @@ If you prefer to edit settings manually instead of using the Web UI, you can dir
 Key points:
 * **`matrix`** — hardware driver (panel size, `mapping`, `rgb_sequence`, `slowdown`, `disable_hardware_pulsing`, ...). Editing it triggers an automatic restart.
 * **`wifi`** — set `configured: false` to force a (re)connection attempt on the next boot (auto-set back to `true` on success). Use `disable_internal: true` with an external USB dongle.
-* **`mqtt`** — Recalbox/Batocera marquee sync (see below).
+* **`mqtt`** — Recalbox/Batocera marquee sync (see above).
+* **`showcase`** — unified **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** server connection shared by `retro_games`, `movie_showcase`, `series_showcase`, and `anime_showcase`.
 * **`system`** — timezone, language, 24h format, and the Night/Standby schedule (`night_brightness: 0` fully turns the panel off).
 * **`instances` / `rotation`** — each engine is a self-contained *instance*; `rotation` decides the display order and per-slot `duration_sec`. Editing an instance from the Web UI applies **live, without a restart**.
 * **`api_auth_enabled` / `api_token`** — when enabled, sensitive endpoints require the `X-API-Token` header (see the API note below).

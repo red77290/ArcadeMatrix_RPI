@@ -11,6 +11,8 @@ use tracing_subscriber::FmtSubscriber;
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> std::io::Result<()> {
+    core::memory::configure_allocator();
+
     // 1. Agressively hunt for the asset directory
     // Since the user might have named their folder anything (ArcadeMatrix_RPI, arcade, etc.)
     // we scan /home/*/* to find the folder containing "gifs" and "fonts".

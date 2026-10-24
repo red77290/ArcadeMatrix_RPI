@@ -1,6 +1,5 @@
 use crate::api::{DayForecast, WeatherProvider};
 use serde::Deserialize;
-use std::time::Duration;
 use tracing::info;
 
 pub struct OpenWeatherMapProvider;
@@ -57,10 +56,7 @@ impl WeatherProvider for OpenWeatherMapProvider {
             return None;
         }
 
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .build()
-            .ok()?;
+        let client = crate::core::memory::api_http_client();
 
         let req_lang = if lang.is_empty() { "fr" } else { lang };
         let req_units = if units.eq_ignore_ascii_case("imperial")

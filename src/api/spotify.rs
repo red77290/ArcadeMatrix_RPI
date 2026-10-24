@@ -26,10 +26,7 @@ pub struct SpotifyClient {
 
 impl SpotifyClient {
     pub fn new(client_id: &str, client_secret: &str, refresh_token: &str) -> Self {
-        let http_client = Client::builder()
-            .timeout(Duration::from_millis(2500))
-            .build()
-            .unwrap_or_else(|_| Client::new());
+        let http_client = crate::core::memory::fast_http_client().clone();
 
         Self {
             client_id: client_id.to_string(),

@@ -164,7 +164,24 @@ async function fetchCachedEndpoint(url) {
 
 // Fetch consolidated Showcase referential ({ systems, genres, decades }) from dmd-media-showcase
 async function fetchShowcaseReferential(serverUrl, endpointPath, lang, forceRefresh = false) {
-  const base = String(serverUrl || 'http://127.0.0.1:8080').trim().replace(/\/+$/, '');
+  const sysShowcase = (typeof window !== 'undefined' && window.__sysConfig && window.__sysConfig.showcase) ? window.__sysConfig.showcase : null;
+  if (!forceRefresh && sysShowcase && sysShowcase.enabled === false) {
+    return null;
+  }
+  let rawCandidate = (typeof window !== 'undefined' && window.__showcaseResolvedUrl)
+    ? window.__showcaseResolvedUrl
+    : (serverUrl || (sysShowcase && sysShowcase.server_url) || 'http://dmdmediashowcase.local:8890');
+  if (typeof window !== 'undefined' && (!window.__showcaseResolvedUrl || forceRefresh) && String(rawCandidate).toLowerCase().includes('.local')) {
+    try {
+      const st = await API.get(`/api/showcase/status?url=${encodeURIComponent(rawCandidate)}&enabled=true${forceRefresh ? '&force=true' : ''}`);
+      if (st && st.resolved_url && !String(st.resolved_url).toLowerCase().includes('.local')) {
+        window.__showcaseResolvedUrl = st.resolved_url;
+        rawCandidate = st.resolved_url;
+      }
+    } catch (_) {}
+  }
+  const preferredUrl = rawCandidate;
+  const base = String(preferredUrl).trim().replace(/\/+$/, '');
   const effLang = (!lang || lang === 'system') ? (localStorage.getItem('lang') || 'fr') : lang;
   const fullUrl = `${base}${endpointPath}?lang=${encodeURIComponent(effLang)}`;
   if (forceRefresh) {
@@ -977,7 +994,7 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
   const isCountBased = (instId) => {
     const inst = instancesList.find(i => i.instance_id === instId);
     const eng = inst ? enginesMap[inst.engine_id] : null;
-    return Boolean((eng && eng.capabilities && eng.capabilities.selfPaced) || (inst && inst.engine_id === 'gifs'));
+    return Boolean((eng && eng.capabilities && (eng.capabilities.selfPaced || eng.capabilities.self_paced)) || (inst && (inst.engine_id === 'gifs' || inst.engine_id === 'retro_games' || inst.engine_id === 'movie_showcase' || inst.engine_id === 'series_showcase' || inst.engine_id === 'anime_showcase')));
   };
 
   const allowsOverlay = (instId) => {
@@ -1032,10 +1049,12 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       settingsBar.className = 'rotation-settings-bar';
 
       const countBased = isCountBased(entry.instance_id);
+      const rowInst = instancesList.find(i => i.instance_id === entry.instance_id);
+      const isShowcase = rowInst && (rowInst.engine_id === 'retro_games' || rowInst.engine_id === 'movie_showcase' || rowInst.engine_id === 'series_showcase' || rowInst.engine_id === 'anime_showcase');
 
       const durGroup = document.createElement('div');
       durGroup.className = 'rotation-dur-group';
-      durGroup.title = countBased ? t('dur_tooltip_gifs', 'Number of GIFs to play before rotating') : t('dur_tooltip_sec', 'Duration in seconds');
+      durGroup.title = isShowcase ? t('dur_tooltip_media', 'Number of media cards/videos to play before rotating') : (countBased ? t('dur_tooltip_gifs', 'Number of GIFs to play before rotating') : t('dur_tooltip_sec', 'Duration in seconds'));
 
       const durLbl = document.createElement('span');
       durLbl.style = "font-size: 0.8rem; color: var(--text-secondary);";
@@ -1052,7 +1071,7 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
 
       const unit = document.createElement('span');
       unit.style = "font-size: 0.8rem; color: var(--text-muted);";
-      unit.innerText = countBased ? 'GIFs' : 'sec';
+      unit.innerText = isShowcase ? t('unit_media', 'Media') : (countBased ? t('unit_gifs', 'GIFs') : t('unit_sec', 'sec'));
       durGroup.appendChild(unit);
       settingsBar.appendChild(durGroup);
 
@@ -1201,8 +1220,8 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
       entries.push({
         instance_id: instId,
         duration_sec: 30,
-        overlays: { fighter: allowOverlay },
-        fighter_overlay: allowOverlay
+        overlays: { fighter: false },
+        fighter_overlay: false
       });
       renderRows();
       updateInstanceRotationState(instId, true, 30);
@@ -1680,7 +1699,7 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
   async function refreshFromShowcase(force = false) {
     const srvEl = document.getElementById(`cfg-dyn-${instId}-server_url`);
     const langEl = document.getElementById(`cfg-dyn-${instId}-lang`);
-    const srvUrl = srvEl ? srvEl.value : (configMap.server_url || 'http://127.0.0.1:8080');
+    const srvUrl = srvEl ? srvEl.value : (configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890');
     const langVal = langEl ? langEl.value : (configMap.lang || 'system');
     statusSpan.innerHTML = '⏳ Syncing...';
     const fresh = await fetchShowcaseReferential(srvUrl, field.options_endpoint, langVal, force);
@@ -2157,8 +2176,8 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             newRot.push({
               instance_id: instance.instance_id,
               duration_sec: 30,
-              overlays: { fighter: allowOverlay },
-              fighter_overlay: allowOverlay
+              overlays: { fighter: false },
+              fighter_overlay: false
             });
             window.showToast(`Added '${info.title}' to rotation`, 'success');
           }
@@ -2278,7 +2297,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
               });
           } else if (field.options_endpoint && field.options_endpoint.startsWith('/api/v1/')) {
               const refData = await fetchShowcaseReferential(
-                  configMap.server_url || 'http://127.0.0.1:8080',
+                  configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890',
                   field.options_endpoint,
                   configMap.lang || 'system',
                   false

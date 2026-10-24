@@ -124,6 +124,7 @@ stateDiagram-v2
   ```
 - **Golden rule #2 — hot-reload in place.** In `on_config_changed()` re-read values into existing fields. The instance is **not** recreated (Lazy-Once), so keep your allocations.
 - **Golden rule #3 — no blocking I/O in the hot loop.** Network/disk work belongs in a background thread; hand results to `update()` via a channel or shared state.
+- **Golden rule #4 — use the shared HTTP client pool & rely on runtime memory governance.** When making outbound HTTP calls from a background thread, always use `crate::core::memory::shared_http_client()` instead of `reqwest::blocking::Client::builder().build()`. Furthermore, `EngineRuntime` automatically wraps every engine in `ManagedEngineWrapper`: heavy media/streaming engines (`EvictOnDeactivate`) are automatically dropped and heap-trimmed (`libc::malloc_trim(0)`) on `deactivate()`, and transparently re-initialized on next `activate()`, so you never need to write manual memory-shrinking boilerplate in your engine.
 
 ---
 

@@ -52,6 +52,10 @@ Cada motor en ArcadeMatrix RPi está diseñado en Rust multiproceso con **cero a
 | **HUD de Telemetría del Sistema**<br>`system_info` | <img src="docs/assets/engines/engine_sysinfo.png" width="240" alt="Motor SysInfo"> | Monitor de doble columna en tiempo real de uso de CPU (%), RAM (%), temperatura del hardware SoC Raspberry Pi (°C/°F) y tiempo de actividad con barras de colores. |
 | **Ticker de Noticias en Vivo**<br>`gnews` | <img src="docs/assets/engines/engine_gnews.png" width="240" alt="Motor GNews"> | Titulares de última hora en tiempo real con etiquetas temáticas (`[TECH]`, `[MUNDO]`, `[ECON]`), baliza luminosa parpadeante de emisión en directo y teletipo fluido a 60 FPS. |
 | **Home Assistant y MQTT**<br>`mqttdata` | <img src="docs/assets/engines/engine_mqttdata.png" width="240" alt="Motor MQTT Data"> | Paneles de Home Assistant, valores de sensores, gráficos históricos de 24h y pronósticos locales emitidos por MQTT con blueprints listos para usar. |
+| **Retro Games Showcase**<br>`retro_games` | <img src="docs/assets/engines/engine_retrogames.png" width="240" alt="Motor Retro Games Showcase"> | Transmite portadas de consolas y recreativas retro, insignias de sistemas, sinopsis traducidas y vídeos de gameplay RGB565 a 30 FPS.<br>⚠️ **Funciona únicamente con [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** instalado en otra máquina de la misma red local. |
+| **Movie Showcase**<br>`movie_showcase` | <img src="docs/assets/engines/engine_movieshowcase.png" width="240" alt="Motor Movie Showcase"> | Vitrina de cine que transmite pósters de películas TMDB/TVDB, calificaciones, sinopsis traducidas y tráilers de vídeo RGB565 a 30 FPS.<br>⚠️ **Funciona únicamente con [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** instalado en otra máquina de la misma red local. |
+| **Series Showcase**<br>`series_showcase` | <img src="docs/assets/engines/engine_seriesshowcase.png" width="240" alt="Motor Series Showcase"> | Vitrina de series de TV que muestra pósters de series, año de estreno, calificaciones por estrellas, sinopsis traducidas y tráilers RGB565 a 30 FPS.<br>⚠️ **Funciona únicamente con [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** instalado en otra máquina de la misma red local. |
+| **Anime Showcase**<br>`anime_showcase` | <img src="docs/assets/engines/engine_animeshowcase.png" width="240" alt="Motor Anime Showcase"> | Vitrina de anime y manga impulsada por AniList/Jikan/Kitsu con portadas, sinopsis traducidas y avances de vídeo RGB565 a 30 FPS.<br>⚠️ **Funciona únicamente con [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** instalado en otra máquina de la misma red local. |
 | **Reproductor de GIFs Animados**<br>`gifs` | <img src="docs/assets/engines/engine_gif.png" width="240" alt="Motor GIF"> | Reproducción fluida a 60 FPS de animaciones retro y listas de reproducción con aceleración de presentación de líneas de copia cero. |
 | **Pancarta de Texto Desplazable**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Motor Mensaje"> | Letreros de matriz de puntos personalizables con tipografía ámbar brillante, múltiples direcciones de desplazamiento y activadores de API REST. |
 | **Marquesina de Recreativa Arcade**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Motor Marquesina"> | Muestra marquesinas oficiales de juegos arcade iluminadas mediante integración Pixelcade para sistemas Batocera, Recalbox y RetroPie. |
@@ -221,10 +225,21 @@ De forma predeterminada, el proyecto incluye `PressStart2P.ttf`, `VT323.ttf` y `
 
 ---
 
+* 🚀 **Rendimiento Nativo en Rust Multiproceso y Gobernanza de Memoria Transparente (`core::memory`)** : motor multiproceso de alto rendimiento basado en Actix-web, reclamación automática de memoria transitoria en cada transición de motor (`ManagedEngineWrapper` + `malloc_trim(0)`), guardián RSS periódico y grupos compartidos acotados de clientes HTTP.
+
 ## 🕸️ Interfaz Web
 Ve a `http://<YOUR_PI_IP>:8080/` para acceder al panel de control.
 
-La interfaz es exactamente la misma que en la versión ESP32, y ofrece controles del Dashboard, selección de Playlist, configuración del reloj y ajustes MQTT, con controles adicionales para **Gradients** y **Unlimited Sizes**.
+La interfaz está alineada con la versión ESP32, y ofrece controles del Dashboard, selección de Playlist, configuración del reloj, ajustes de Showcase Server y MQTT, con controles adicionales para **Gradients** y **Unlimited Sizes**.
+
+---
+
+## 🎬 Integración del Servidor Media Showcase ([dmd_media_showcase](https://github.com/red77290/dmd_media_showcase))
+
+Los 4 motores Showcase (`retro_games`, `movie_showcase`, `series_showcase`, `anime_showcase`) **funcionan exclusivamente con la aplicación complementaria [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase) instalada en otra máquina de la misma red local** (NAS, servidor Docker, PC u otra Raspberry Pi) para transmitir pósters pre-renderizados en RGB565, panoramas, sinopsis multilingües (sincronizadas automáticamente con el idioma configurado en el DMD: `es`, `en`, `fr`, `de`, `it`) y tráilers/vídeos de gameplay RGB565 a 30 FPS:
+1. Instala e inicia **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** en una máquina de tu red local (se anuncia automáticamente en la red local como `http://dmdmediashowcase.local:8890`).
+2. En la pestaña **Settings** de la Web UI de ArcadeMatrix (`MQTT & API` -> **🎬 DMD Media Showcase**), la URL del servidor **ya viene pre-rellenada** con `http://dmdmediashowcase.local:8890` y **Desactivada por defecto** (`showcase.enabled = false`) para evitar accesos de red innecesarios si la aplicación no está instalada. Simplemente activa **Activar DMD Media Showcase**, guarda los ajustes y comprueba que el indicador muestre **`🟢 Comunicación OK (v3.0.0)`**.
+3. Añade `retro_games`, `movie_showcase`, `series_showcase` o `anime_showcase` a tu rotación (`display_duration_sec` de `15` a `120` segundos). Cada motor Showcase respeta automáticamente su presupuesto de duración configurado para que las secuencias de Póster + Sinopsis + Vídeo nunca se corten prematuramente.
 
 ---
 

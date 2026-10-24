@@ -1,5 +1,4 @@
 use crate::core::i18n::GNewsStatus;
-use std::time::Duration;
 use tracing::{info, warn};
 
 #[derive(Clone, Debug)]
@@ -36,14 +35,7 @@ impl GNewsProvider {
             key_usages.push(0);
         }
 
-        let client = match reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(6))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            .build()
-        {
-            Ok(c) => c,
-            Err(_) => return (GNewsStatus::NetworkError, None),
-        };
+        let client = crate::core::memory::api_http_client();
 
         let start_idx = *active_key_idx % keys.len();
         let mut last_status = GNewsStatus::EmptyKey;

@@ -83,13 +83,7 @@ pub fn prefetch_market_icon_8x8(symbol: &str) {
         format!("https://assets.coincap.io/assets/icons/{}@2x.png", lower),
     ];
 
-    let Ok(client) = reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(2))
-        .user_agent("Mozilla/5.0")
-        .build()
-    else {
-        return;
-    };
+    let client = crate::core::memory::fast_http_client();
 
     for u in &urls {
         let proxy_url = format!("https://wsrv.nl/?url={}&w=8&h=8&output=png", u);

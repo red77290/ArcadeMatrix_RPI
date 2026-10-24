@@ -744,8 +744,8 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
             <div id="modal-rotation-options" style="margin-top: 0.75rem; display: ${defaultAddToRotation ? 'flex' : 'none'}; gap: 1rem; align-items: center; flex-wrap: wrap;">
               <div style="display: flex; align-items: center; gap: 0.5rem;">
                 <span style="font-size: 0.85rem; color: var(--text-secondary);" data-i18n="modal_duration_label">${t('modal_duration_label', 'Display Duration (seconds / count):')}</span>
-                <input type="number" id="modal-input-duration" class="input" style="width: 70px; padding: 0.35rem 0.5rem; text-align: center;" value="30" min="1">
-                <span style="font-size: 0.85rem; color: var(--text-muted);">${(engId === 'gifs' || engId === 'gif') ? 'GIFs' : 'sec'}</span>
+                <input type="number" id="modal-input-duration" class="input" style="width: 70px; padding: 0.35rem 0.5rem; text-align: center;" value="${(engId === 'retro_games' || engId === 'movie_showcase' || engId === 'series_showcase' || engId === 'anime_showcase') ? 1 : ((engId === 'gifs' || engId === 'gif') ? 3 : 30)}" min="1">
+                <span style="font-size: 0.85rem; color: var(--text-muted);">${(engId === 'retro_games' || engId === 'movie_showcase' || engId === 'series_showcase' || engId === 'anime_showcase') ? t('unit_media', 'Media') : ((engId === 'gifs' || engId === 'gif') ? t('unit_gifs', 'GIFs') : t('unit_sec', 'sec'))}</span>
               </div>
               ${(currentDesc.capabilities && currentDesc.capabilities.allows_overlay !== false) ? `
                 <label style="display: flex; align-items: center; gap: 0.35rem; font-size: 0.85rem; cursor: pointer;">
@@ -923,7 +923,8 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         if (rotCheck.checked) {
           const curRot = await API.get('/api/rotation').catch(() => []);
           const newRot = Array.isArray(curRot) ? curRot.slice() : [];
-          const dur = parseInt(overlay.querySelector('#modal-input-duration')?.value) || 30;
+          const fallbackDur = (currentEngineId === 'retro_games' || currentEngineId === 'movie_showcase' || currentEngineId === 'series_showcase' || currentEngineId === 'anime_showcase') ? 1 : ((currentEngineId === 'gifs' || currentEngineId === 'gif') ? 3 : 30);
+          const dur = parseInt(overlay.querySelector('#modal-input-duration')?.value) || fallbackDur;
           const fighter = overlay.querySelector('#modal-check-fighter')?.checked ?? false;
           
           newRot.push({
@@ -1226,14 +1227,17 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
     if (val.startsWith('inst:')) {
       const instId = val.replace('inst:', '');
       const allowOverlay = allowsOverlay(instId);
+      const addInst = instancesList.find(i => i.instance_id === instId);
+      const isAddShowcase = addInst && (addInst.engine_id === 'retro_games' || addInst.engine_id === 'movie_showcase' || addInst.engine_id === 'series_showcase' || addInst.engine_id === 'anime_showcase');
+      const defaultDur = isAddShowcase ? 1 : (isCountBased(instId) ? 3 : 30);
       entries.push({
         instance_id: instId,
-        duration_sec: 30,
+        duration_sec: defaultDur,
         overlays: { fighter: false },
         fighter_overlay: false
       });
       renderRows();
-      updateInstanceRotationState(instId, true, 30);
+      updateInstanceRotationState(instId, true, defaultDur);
       const payload = entries.map(e => {
         const active = (e.overlays && typeof e.overlays.fighter === 'boolean')
           ? e.overlays.fighter
@@ -2148,8 +2152,11 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       const cardHeader = document.createElement('div');
       cardHeader.style = "display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--glass-border);";
       
+      const isCardShowcase = (instance.engine_id === 'retro_games' || instance.engine_id === 'movie_showcase' || instance.engine_id === 'series_showcase' || instance.engine_id === 'anime_showcase');
+      const isCardGifs = (instance.engine_id === 'gifs' || instance.engine_id === 'gif');
+      const badgeUnit = isCardShowcase ? ` ${t('unit_media', 'Media')}` : (isCardGifs ? ` ${t('unit_gifs', 'GIFs')}` : 's');
       const statusBadgeHtml = rotEntry ? 
-        `<span class="badge" style="background: rgba(16,185,129,0.2); color:#34d399; font-weight:600; font-size:0.82rem;">🟢 ${t('in_rotation_badge', 'In Rotation')} (${rotEntry.duration_sec}s)</span>` : 
+        `<span class="badge" style="background: rgba(16,185,129,0.2); color:#34d399; font-weight:600; font-size:0.82rem;">🟢 ${t('in_rotation_badge', 'In Rotation')} (${rotEntry.duration_sec}${badgeUnit})</span>` : 
         `<span class="badge" style="background: rgba(255,255,255,0.08); color:var(--text-muted); font-size:0.82rem;">⚪ ${t('not_in_rotation_badge', 'Off Loop (Standby)')}</span>`;
 
       cardHeader.innerHTML = `
@@ -2182,9 +2189,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
             window.showToast(`Removed '${info.title}' from rotation`, 'info');
           } else {
             const allowOverlay = !engineDesc.capabilities || engineDesc.capabilities.allows_overlay !== false;
+            const defaultCardDur = isCardShowcase ? 1 : (isCardGifs ? 3 : 30);
             newRot.push({
               instance_id: instance.instance_id,
-              duration_sec: 30,
+              duration_sec: defaultCardDur,
               overlays: { fighter: false },
               fighter_overlay: false
             });

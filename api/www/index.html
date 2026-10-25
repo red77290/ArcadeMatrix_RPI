@@ -567,8 +567,8 @@
           <!-- Sub-Tab 1: FrontendSync (Recalbox / Batocera / RetroPie Sync) -->
           <div id="mqtt-subtab-frontendsync" class="mqtt-subtab-pane">
             <div class="card glass shadow" style="margin-bottom: 2rem;">
-              <h3 data-i18n="mqtt_title">🎮 Intégration MQTT (FrontendSync)</h3>
-              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="mqtt_desc">Synchronisation en direct des métadonnées et marquees de vos jeux depuis votre console retro-gaming (Recalbox, Batocera, RetroPie).</p>
+              <h3 data-i18n="mqtt_title">🎮 MQTT Integration (FrontendSync)</h3>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="mqtt_desc">Real-time gaming metadata and marquee synchronization from your retro-gaming console (Recalbox, Batocera, RetroPie).</p>
               <div class="form-grid">
                 <div class="form-group">
                   <label data-i18n="mqtt_enable">Enable MQTT</label>
@@ -653,8 +653,8 @@
           <!-- Sub-Tab 2: MQTT Data (Home Automation) -->
           <div id="mqtt-subtab-data" class="mqtt-subtab-pane" style="display: none;">
             <div class="card glass shadow" style="margin-bottom: 2rem;">
-              <h3 data-i18n="data_mqtt_title">🏠 MQTT Data (Domotique)</h3>
-              <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">Broker MQTT dédié aux écrans de données domotiques (Home Assistant, Jeedom). Connexion active uniquement lors de l'affichage.</p>
+              <h3 data-i18n="data_mqtt_title">🏠 MQTT Data (Home Automation)</h3>
+              <p class="text-muted" style="font-size: 0.9em;" data-i18n="data_mqtt_desc">Broker used by MQTT Data screens (Home Assistant, Jeedom). Connects only while displayed on screen.</p>
               <div class="form-grid">
                 <div class="form-group">
                   <label data-i18n="mqtt_broker">Broker IP</label>
@@ -689,62 +689,62 @@
                   <button type="button" id="btn-test-showcase-conn" class="btn btn-sm" style="padding: 0.3rem 0.65rem; font-size: 0.8rem;" data-i18n="showcase_test_btn">🔄 Test</button>
                 </div>
               </div>
-              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="showcase_desc">Configuration réseau et transport unifiée pour l'ensemble des moteurs Media Showcase (Jeux, Films, Séries, Anime).</p>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="showcase_desc">Central network and broker configuration for the 4 DMD Media Showcase engines (Games, Movies, Series, Anime).</p>
               
               <div class="form-grid" style="margin-bottom: 1rem;">
                 <div class="form-group">
-                  <label data-i18n="showcase_enable">Activer DMD Media Showcase ℹ️</label>
+                  <label><span data-i18n="showcase_enable">Enable DMD Media Showcase</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_enable">?</span></label>
                   <select id="hw-showcase-enabled" class="input">
-                    <option value="false" data-i18n="mqtt_opt_disabled" selected>Désactivé (Par défaut)</option>
-                    <option value="true" data-i18n="mqtt_opt_enabled">Activé</option>
+                    <option value="false" data-i18n="mqtt_opt_disabled" selected>Disabled</option>
+                    <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
                   </select>
                 </div>
                 <div class="form-group">
-                  <label data-i18n="showcase_server_url">URL Serveur Showcase (Auto-découverte mDNS) ℹ️</label>
+                  <label><span data-i18n="showcase_server_url">Showcase Server URL (mDNS Auto-Discovery)</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_server_url">?</span></label>
                   <input type="text" id="hw-showcase-server-url" class="input" value="http://dmdmediashowcase.local:8890" placeholder="http://dmdmediashowcase.local:8890">
                 </div>
               </div>
 
               <div class="form-grid">
                 <div class="form-group">
-                  <label data-i18n="showcase_transport_mode">Protocole de Transport ℹ️</label>
+                  <label><span data-i18n="showcase_transport_mode">Transport Protocol</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_transport_mode">?</span></label>
                   <select id="hw-showcase-transport-mode" class="input">
                     <option value="mqtt_udp" data-i18n="showcase_opt_mqtt_udp">MQTT + UDP Real-Time (Recommended)</option>
                     <option value="http_poll" data-i18n="showcase_opt_http_poll">HTTP Polling (Fallback)</option>
                   </select>
                 </div>
                 <div class="form-group">
-                  <label data-i18n="showcase_use_broker">Utiliser le Broker MQTT Showcase Intégré ℹ️</label>
+                  <label><span data-i18n="showcase_use_broker">Use Showcase Embedded MQTT Broker</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_use_broker">?</span></label>
                   <select id="hw-showcase-use-broker" class="input">
-                    <option value="true" data-i18n="mqtt_opt_enabled">Activé</option>
-                    <option value="false" data-i18n="mqtt_opt_disabled">Désactivé</option>
+                    <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                    <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
                   </select>
                 </div>
               </div>
 
               <div class="form-grid" id="group-showcase-external-broker" style="margin-top: 1rem; display: none;">
                 <div class="form-group" id="group-showcase-broker-source">
-                  <label data-i18n="showcase_broker_source">Source Broker MQTT Externe ℹ️</label>
+                  <label><span data-i18n="showcase_broker_source">External MQTT Broker Source</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_broker_source">?</span></label>
                   <select id="hw-showcase-broker-source" class="input">
                     <option value="global" data-i18n="showcase_opt_broker_global">Global ArcadeMatrix MQTT Broker</option>
-                    <option value="custom" data-i18n="showcase_opt_broker_custom">URL Broker MQTT Personnalisé</option>
+                    <option value="custom" data-i18n="showcase_opt_broker_custom">Custom Showcase MQTT Broker URL</option>
                   </select>
                 </div>
                 <div class="form-group" id="group-showcase-custom-url" style="display: none;">
-                  <label data-i18n="showcase_custom_url">URL Broker MQTT Personnalisé ℹ️</label>
+                  <label><span data-i18n="showcase_custom_url">Custom MQTT Broker URL</span> <span class="tooltip-icon" data-i18n-tooltip="tt_showcase_custom_url">?</span></label>
                   <input type="text" id="hw-showcase-custom-url" class="input" placeholder="mqtt://192.168.1.200:1883">
                 </div>
               </div>
 
-              <button id="btn-save-showcase" class="btn btn-primary" style="margin-top: 1.25rem; width: 100%;" data-i18n="showcase_save_btn">Enregistrer les paramètres Showcase</button>
+              <button id="btn-save-showcase" class="btn btn-primary" style="margin-top: 1.25rem; width: 100%;" data-i18n="showcase_save_btn">Save Showcase Settings</button>
             </div>
           </div>
 
           <!-- Sub-Tab 4: API Authentication (Security) -->
           <div id="mqtt-subtab-auth" class="mqtt-subtab-pane" style="display: none;">
             <div class="card glass shadow">
-              <h3 data-i18n="api_auth_title">🔒 Authentification API (Sécurité)</h3>
-              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="api_auth_desc">Protégez l'accès aux endpoints de contrôle et d'administration REST API ArcadeMatrix.</p>
+              <h3 data-i18n="api_auth_title">🔒 API Authentication (Security)</h3>
+              <p class="text-muted" style="font-size: 0.9em; margin-bottom: 1.25rem;" data-i18n="api_auth_desc">Protect access to ArcadeMatrix REST API administration and control endpoints.</p>
               <div class="form-grid">
                 <div class="form-group">
                   <label data-i18n="api_auth_enable">Require Auth for API</label>

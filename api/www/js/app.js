@@ -126,7 +126,7 @@ function initNavigation() {
 
     const savedLang = localStorage.getItem('lang');
     const defaultLang = navigator.language.split('-')[0];
-    const initialLang = savedLang || (SUPPORTED_LANGUAGES.some(l => l.code === defaultLang) ? defaultLang : 'fr');
+    const initialLang = savedLang || (SUPPORTED_LANGUAGES.some(l => l.code === defaultLang) ? defaultLang : 'en');
     langSelect.value = initialLang;
     setLanguage(initialLang);
 
@@ -788,10 +788,10 @@ function initNetworkSettings() {
       try {
         await API.post('/api/system', { showcase });
         if (window.__sysConfig) window.__sysConfig.showcase = showcase;
-        window.showToast('Showcase Settings Saved!', 'success');
+        window.showToast(t('showcase_saved', 'Showcase settings saved successfully!'), 'success');
         await checkShowcaseStatus(false);
       } catch (e) {
-        window.showToast('Failed to save Showcase Settings', 'error');
+        window.showToast(t('showcase_save_failed', 'Failed to save Showcase settings'), 'error');
       }
     });
   }

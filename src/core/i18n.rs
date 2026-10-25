@@ -994,6 +994,47 @@ pub fn t(lang_code: &str, key: &str) -> &'static str {
     }
 }
 
+/// Localized status prompt for Media Showcase pixel-art waiting scenes.
+pub fn showcase_waiting_label(
+    lang_code: &str,
+    domain_slug: &str,
+    unconfigured: bool,
+) -> &'static str {
+    let lang = match lang_code.trim().to_lowercase().as_str() {
+        "fr" => Lang::Fr,
+        "es" => Lang::Es,
+        _ => Lang::En,
+    };
+    if unconfigured {
+        return match lang {
+            Lang::Fr => "CONFIGURER URL SERVEUR",
+            Lang::Es => "CONFIGURAR URL SERVIDOR",
+            Lang::En => "CONFIGURE SERVER URL",
+        };
+    }
+    match (domain_slug, lang) {
+        ("games", Lang::Fr) => "ATTENTE JEU RETRO...",
+        ("games", Lang::Es) => "ESPERANDO JUEGO...",
+        ("games", Lang::En) => "WAITING FOR GAME...",
+
+        ("movies", Lang::Fr) => "ATTENTE FILM...",
+        ("movies", Lang::Es) => "ESPERANDO PELICULA...",
+        ("movies", Lang::En) => "WAITING FOR MOVIE...",
+
+        ("series", Lang::Fr) => "SYNCHRO SERIE...",
+        ("series", Lang::Es) => "SINTONIZANDO SERIE...",
+        ("series", Lang::En) => "TUNING SERIES...",
+
+        ("anime", Lang::Fr) => "ATTENTE ANIME...",
+        ("anime", Lang::Es) => "ESPERANDO ANIME...",
+        ("anime", Lang::En) => "WAITING FOR ANIME...",
+
+        (_, Lang::Fr) => "PREPARATION MEDIA...",
+        (_, Lang::Es) => "PREPARANDO MEDIA...",
+        (_, Lang::En) => "PREPARING MEDIA...",
+    }
+}
+
 // ============================================================================
 // Unit Tests
 // ============================================================================

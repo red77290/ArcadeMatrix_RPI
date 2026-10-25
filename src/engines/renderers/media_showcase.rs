@@ -307,7 +307,7 @@ impl ShowcaseConfig {
     pub fn effective_lang<'a>(&'a self, system_lang: &'a str) -> &'a str {
         if self.lang.is_empty() || self.lang.eq_ignore_ascii_case("system") {
             if system_lang.is_empty() {
-                "fr"
+                "en"
             } else {
                 system_lang
             }
@@ -1506,6 +1506,7 @@ pub fn render_waiting_pixel_art(
     h: i32,
     elapsed_ms: u128,
     server_url: &str,
+    lang_code: &str,
 ) {
     let t_ms = elapsed_ms as u64;
     let frame_step = (t_ms / 180) as i32;
@@ -1712,16 +1713,11 @@ pub fn render_waiting_pixel_art(
     fill_round_rect(matrix, bx, 2, badge_w, 7, 1, accent);
     draw_tiny_text(matrix, badge, bx + 2, 3, 0, w, (255, 255, 255));
 
-    let msg = if server_url.is_empty() {
-        "SET SERVER URL"
-    } else {
-        match domain {
-            ShowcaseDomain::Games => "WAITING FOR GAME...",
-            ShowcaseDomain::Movies => "WAITING FOR MOVIE...",
-            ShowcaseDomain::Series => "TUNING SERIES...",
-            ShowcaseDomain::Anime => "WAITING FOR ANIME...",
-        }
-    };
+    let msg = crate::core::i18n::showcase_waiting_label(
+        lang_code,
+        domain.as_api_slug(),
+        server_url.is_empty(),
+    );
     let text_min_x = if w >= 128 { 30 } else { 2 };
     let text_y = if h >= 64 { (h / 2) - 3 } else { (h / 2) + 2 };
     if blink_on {
@@ -3455,13 +3451,14 @@ impl MediaShowcaseRunner {
         let h = matrix.height() as i32;
         let phase_ms = self.phase_started_at.elapsed().as_millis();
 
+        let eff_lang = self.cfg.effective_lang(&self.system_lang);
         let Some(ref item) = self.active_item else {
             let effective_url = if self.cfg.enabled {
                 self.cfg.server_url.as_str()
             } else {
                 ""
             };
-            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, effective_url);
+            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, effective_url, eff_lang);
             self.dirty = false;
             return;
         };
@@ -3498,6 +3495,7 @@ impl MediaShowcaseRunner {
                             h,
                             phase_ms,
                             &self.cfg.server_url,
+                            eff_lang,
                         );
                     }
                 }
@@ -3848,6 +3846,7 @@ mod tests {
                     h as i32,
                     250,
                     "http://127.0.0.1:8080",
+                    "en",
                 );
             }
         }

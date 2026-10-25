@@ -132,6 +132,10 @@ export function getEngineMeta(descOrMeta) {
     else if (id.includes('cast') || id.includes('music') || cat.includes('audio')) icon = '🎵';
     else if (id.includes('marquee')) icon = '📜';
     else if (id.includes('msg') || id.includes('message') || cat.includes('text')) icon = '💬';
+    else if (id === 'retro_games') icon = '🕹️';
+    else if (id === 'movie_showcase') icon = '🎬';
+    else if (id === 'series_showcase') icon = '📺';
+    else if (id === 'anime_showcase') icon = '⛩️';
     else if (cat.includes('game') || cat.includes('retro')) icon = '🕹️';
     else if (cat.includes('sensor')) icon = '🌡️';
     else icon = '🧩';
@@ -182,7 +186,7 @@ async function fetchShowcaseReferential(serverUrl, endpointPath, lang, forceRefr
   }
   const preferredUrl = rawCandidate;
   const base = String(preferredUrl).trim().replace(/\/+$/, '');
-  const effLang = (!lang || lang === 'system') ? (localStorage.getItem('lang') || 'fr') : lang;
+  const effLang = (!lang || lang === 'system') ? (localStorage.getItem('lang') || 'en') : lang;
   const fullUrl = `${base}${endpointPath}?lang=${encodeURIComponent(effLang)}`;
   if (forceRefresh) {
     endpointCache.delete(fullUrl);
@@ -434,6 +438,14 @@ export function formatOptLabel(fieldId, val, raw) {
   if (fieldId === 'color_boost') {
     const cbKey = `opt_color_boost_${lower}`;
     if (dict[cbKey]) return dict[cbKey];
+  }
+  if (fieldId === 'text_scroll_speed') {
+    const ssKey = `opt_scroll_speed_${lower}`;
+    if (dict[ssKey]) return dict[ssKey];
+  }
+  if (fieldId === 'video_type') {
+    const vtKey = `opt_video_type_${lower}`;
+    if (dict[vtKey]) return dict[vtKey];
   }
   return raw || val;
 }
@@ -1068,7 +1080,7 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
 
       const durLbl = document.createElement('span');
       durLbl.style = "font-size: 0.8rem; color: var(--text-secondary);";
-      durLbl.innerText = countBased ? 'Count:' : 'Duration:';
+      durLbl.innerText = countBased ? t('lbl_count', 'Count:') : t('lbl_duration', 'Duration:');
       durGroup.appendChild(durLbl);
 
       const dur = document.createElement('input');
@@ -1207,8 +1219,9 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
   const grpLibrary = document.createElement('optgroup');
   grpLibrary.label = t('optgroup_library', '🌟 Engine Library (Auto-Create & Add)');
   descriptors.forEach(d => {
-    const icon = (d.metadata && d.metadata.icon) ? d.metadata.icon : '🧩';
-    const name = (d.metadata && d.metadata.name) ? d.metadata.name : d.metadata.id;
+    const dMeta = getEngineMeta(d);
+    const icon = dMeta.icon || '🧩';
+    const name = dMeta.name || d.metadata.id;
     const opt = document.createElement('option');
     opt.value = `new:${d.metadata.id}`;
     opt.innerText = `${icon} ${name} (${t('modal_add_title', 'New Screen')})`;
@@ -1602,7 +1615,7 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
   btnSync.type = 'button';
   btnSync.className = 'btn btn-sm';
   btnSync.style = 'font-size: 0.72rem; padding: 0.18rem 0.48rem; background: rgba(0,229,255,0.12); border: 1px solid rgba(0,229,255,0.3);';
-  btnSync.innerText = '🔄 Sync';
+  btnSync.innerText = t('showcase_ref_sync', '🔄 Sync');
 
   actionsDiv.appendChild(btnAll);
   actionsDiv.appendChild(btnClear);
@@ -1651,9 +1664,9 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
           .filter(s => s.length > 0 && s.toLowerCase() !== 'all')
       ));
       rawList = fallbackTokens.map(tok => ({ value: tok, label: tok }));
-      statusSpan.innerHTML = '⚠️ Showcase offline (showing saved tags)';
+      statusSpan.innerHTML = t('showcase_ref_offline_saved', '⚠️ Showcase offline (showing saved tags)');
     } else {
-      statusSpan.innerHTML = `🟢 ${rawList.length} ${targetFieldId}`;
+      statusSpan.innerHTML = t('showcase_ref_count', '🟢 {n} available').replace('{n}', String(rawList.length));
     }
 
     rawList.forEach(item => {
@@ -1667,7 +1680,7 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
       lbl.className = 'toggle-btn';
       if (!isSupported) {
         lbl.style = 'opacity: 0.32; pointer-events: none; filter: grayscale(1);';
-        lbl.title = 'Not applicable to currently selected systems';
+        lbl.title = t('showcase_ref_unsupported_sys', 'Not applicable to currently selected systems');
       }
       const cntStr = (typeof item.count === 'number' && item.count > 0)
         ? ` <span style="opacity:0.65; font-size:0.72rem;">(${item.count})</span>`
@@ -1714,7 +1727,7 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
     const langEl = document.getElementById(`cfg-dyn-${instId}-lang`);
     const srvUrl = srvEl ? srvEl.value : (configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890');
     const langVal = langEl ? langEl.value : (configMap.lang || 'system');
-    statusSpan.innerHTML = '⏳ Syncing...';
+    statusSpan.innerHTML = t('showcase_ref_syncing', '⏳ Syncing...');
     const fresh = await fetchShowcaseReferential(srvUrl, field.options_endpoint, langVal, force);
     const sysInput = document.getElementById(`cfg-dyn-${instId}-systems`);
     const selSys = sysInput ? sysInput.value.split(',') : [];

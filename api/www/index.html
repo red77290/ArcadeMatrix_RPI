@@ -605,6 +605,174 @@
                   <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
                 </div>
               </div>
+
+              <div class="form-grid" style="margin-top: 1rem;">
+                <div class="form-group">
+                  <label data-i18n="fsync_use_showcase_broker">Share Showcase MQTT Broker (Free Local RAM)</label>
+                  <select id="hw-mqtt-use-showcase-broker" class="input">
+                    <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                    <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label data-i18n="fsync_ingame_showcase">In-Game Showcase (Card + Gameplay Video)</label>
+                  <select id="hw-mqtt-ingame-showcase" class="input">
+                    <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                    <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                  </select>
+                </div>
+              </div>
+
+              <div id="group-fsync-ingame-options" style="margin-top: 1rem; padding: 1rem; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+                <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+                  <strong style="font-size: 0.95rem;" data-i18n="fsync_pres_title">🎬 In-Game Showcase & Card Presentation</strong>
+                  <button type="button" id="btn-evict-showcase-cache" class="btn btn-sm" style="padding: 0.3rem 0.7rem; font-size: 0.8rem;" data-i18n="fsync_evict_cache_btn">🗑️ Evict Showcase Cache</button>
+                </div>
+                <div class="form-grid">
+                  <div class="form-group">
+                    <label data-i18n="fsync_cycle_mode">In-Game Playback Cycle</label>
+                    <select id="hw-mqtt-cycle-mode" class="input">
+                      <option value="alternating" data-i18n="fsync_cycle_alternating">Alternate Marquee & Showcase</option>
+                      <option value="loop" data-i18n="fsync_cycle_loop">Loop Showcase Continuously</option>
+                      <option value="once" data-i18n="fsync_cycle_once">Play Once then Keep Marquee</option>
+                    </select>
+                  </div>
+                  <div class="form-group" id="group-fsync-marquee-interval">
+                    <label data-i18n="fsync_marquee_interval">Marquee Pause Interval (sec)</label>
+                    <input type="number" id="hw-mqtt-marquee-interval" class="input" min="5" max="3600" value="45">
+                  </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 0.85rem;">
+                  <label data-i18n="fsync_card_source">Card & Video Style Source</label>
+                  <select id="hw-mqtt-card-source" class="input">
+                    <option value="showcase_profile" data-i18n="fsync_card_source_profile">Inherit DMD Profile from Showcase Studio</option>
+                    <option value="custom" data-i18n="fsync_card_source_custom">Custom Presentation Override on DMD</option>
+                  </select>
+                </div>
+
+                <div id="group-fsync-custom-card" style="display: none; margin-top: 1rem;">
+                  <div class="form-grid">
+                    <div class="form-group">
+                      <label data-i18n="fsync_card_intro">Show Game Info Card</label>
+                      <select id="hw-mqtt-card-intro" class="input">
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_card_layout">Card Layout</label>
+                      <select id="hw-mqtt-card-layout" class="input">
+                        <option value="classic_split">Classic Split (Poster Left)</option>
+                        <option value="poster_right">Poster Right</option>
+                        <option value="badge_header">Badge Header</option>
+                        <option value="hero_banner">Hero Banner</option>
+                        <option value="minimal_arcade">Minimal Arcade</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_card_theme">Card Visual Theme</label>
+                      <select id="hw-mqtt-card-theme" class="input">
+                        <option value="tinted">Tinted Accent</option>
+                        <option value="poster_wash">Poster Color Wash</option>
+                        <option value="neon_border">Neon Arcade Border</option>
+                        <option value="crt_amber">CRT Amber</option>
+                        <option value="pure_black">Pure Black OLED/DMD</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_scroll_speed">Synopsis Scroll Speed</label>
+                      <select id="hw-mqtt-scroll-speed" class="input">
+                        <option value="slow">Slow</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="fast">Fast</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_include_poster">Mini-Jacket Poster</label>
+                      <select id="hw-mqtt-include-poster" class="input">
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_include_synopsis">Scrolling Synopsis</label>
+                      <select id="hw-mqtt-include-synopsis" class="input">
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_jacket_pano">Jacket Panorama</label>
+                      <select id="hw-mqtt-jacket-pano" class="input">
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_marquee_pano">Marquee Panorama</label>
+                      <select id="hw-mqtt-marquee-pano" class="input">
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_snap_pano">Snapshot Panoramas (0-5)</label>
+                      <input type="number" id="hw-mqtt-snap-pano" class="input" min="0" max="5" value="0">
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_include_video">Gameplay Video</label>
+                      <select id="hw-mqtt-include-video" class="input">
+                        <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                        <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_video_duration">Max Video Duration (s)</label>
+                      <input type="number" id="hw-mqtt-video-duration" class="input" min="2" max="120" value="12">
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_video_fps">Video FPS</label>
+                      <select id="hw-mqtt-video-fps" class="input">
+                        <option value="10">10 FPS</option>
+                        <option value="15" selected>15 FPS</option>
+                        <option value="20">20 FPS</option>
+                        <option value="25">25 FPS</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-grid" style="margin-top: 0.75rem;">
+                    <div class="form-group">
+                      <label data-i18n="fsync_video_mode">Video Framing Mode</label>
+                      <select id="hw-mqtt-video-mode" class="input">
+                        <option value="auto_action">Auto Action Tracking</option>
+                        <option value="panorama">Smooth Panorama</option>
+                        <option value="center_crop">Center Crop</option>
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label data-i18n="fsync_color_boost">DMD Color Boost</label>
+                      <select id="hw-mqtt-color-boost" class="input">
+                        <option value="auto">Auto</option>
+                        <option value="pixel_art">Pixel Art Crisp</option>
+                        <option value="anime">Vibrant</option>
+                        <option value="cinema">Natural Cinema</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="mqtt_save_btn">Save MQTT Settings</button>
               
               <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">

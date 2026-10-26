@@ -98,20 +98,42 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 
 ---
 
-## 5. El Bloque `"mqtt"` (Marquees Recalbox / Batocera / RetroPie)
+## 5. El Bloque `"mqtt"` (Marquees Recalbox / Batocera / RetroPie y Showcase en Juego)
 
-| Clave | Tipo | Descripción |
-| :--- | :--- | :--- |
-| `enabled` | `bool` | Activa el listener MQTT para marquees estilo Pixelcade. |
-| `broker` | `String` | IP/host del broker (normalmente la propia Pi). |
-| `port` | `int` | Puerto del broker (por defecto `1883`). |
-| `user` | `String` | Usuario del broker (opcional). |
-| `pass` | `String` | Contraseña del broker (opcional). |
-| `device_name` | `String` | Identificador publicado por este dispositivo. |
-| `allow_overlay` | `bool` | Permite overlays decorativos (ej. Street Fighter) sobre las pantallas MQTT/marquee (por defecto `false`). |
-| *(auto-suscripción)* | `system/playing/#` | Se suscribe automáticamente a todos los sistemas retro compatibles: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
+| Clave | Tipo | Por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `enabled` | `bool` | `false` | Activa el listener MQTT (`FrontendSync`) para marquees estilo Pixelcade y eventos de consola. |
+| `broker` | `String` | `"127.0.0.1"` | IP/host del broker MQTT local o de respaldo (`127.0.0.1` utiliza el broker Mosquitto local de la Raspberry Pi en modo autónomo). |
+| `port` | `int` | `1883` | Puerto del broker. |
+| `user` | `String` | `""` | Usuario del broker (opcional). |
+| `pass` | `String` | `""` | Contraseña del broker (opcional). |
+| `device_name` | `String` | `"arcadematrix"` | Identificador publicado por este dispositivo. |
+| `allow_overlay` | `bool` | `false` | Permite overlays decorativos (ej. Street Fighter) sobre las pantallas MQTT/marquee. |
+| `use_showcase_broker` | `bool` | `true` | Cuando `showcase.enabled` es `true` y Showcase está accesible, comparte automáticamente el broker MQTT de Showcase y detiene el servicio `mosquitto.service` local para liberar RAM (reiniciándolo automáticamente si Showcase se apaga). |
+| `ingame_showcase_enabled` | `bool` | `true` | Al lanzar un juego (`playing`) con Showcase activo, muestra al instante la marquesina local (`0 ms`), prepara en segundo plano la Ficha Informativa + Panoramas + Vídeo Gameplay y realiza la transición suavemente cuando está lista. |
+| `ingame_cycle_mode` | `String` | `"alternating"` | Ciclo durante la partida: `"alternating"` (alterna Showcase y pausa en marquesina), `"once"` (reproduce Showcase una vez y mantiene la marquesina) o `"loop"` (repite Showcase continuamente). |
+| `ingame_marquee_interval_sec` | `int` | `45` | Segundos que permanece visible la marquesina fija entre ciclos Showcase cuando `ingame_cycle_mode` es `"alternating"` (`5`–`600`). |
+| `card_style_source` | `String` | `"showcase_profile"` | `"showcase_profile"` hereda el perfil visual configurado en Showcase Studio; `"custom"` aplica las opciones personalizadas de Tarjeta y Vídeo de abajo directamente desde el DMD. |
+| `include_card_intro` | `bool` | `true` | (Modo `custom`) Incluye la introducción de Ficha Informativa animada antes de panoramas y vídeo. |
+| `card_layout` | `String` | `"classic_split"` | (Modo `custom`) Diseño de tarjeta: `"classic_split"`, `"badge_header"`, `"full_art"` o `"minimal"`. |
+| `card_theme` | `String` | `"tinted"` | (Modo `custom`) Tema visual de tarjeta: `"tinted"`, `"neon_border"` o `"poster_wash"`. |
+| `include_poster` | `bool` | `true` | (Modo `custom`) Muestra la minicarátula en la Ficha Informativa. |
+| `include_synopsis` | `bool` | `true` | (Modo `custom`) Desplaza la sinopsis localizada del juego en la Ficha Informativa. |
+| `text_scroll_speed` | `String` | `"normal"` | (Modo `custom`) Velocidad de desplazamiento de la sinopsis (`"slow"`, `"normal"`, `"fast"` o `"1"` a `"10"`). |
+| `jacket_panorama` | `bool` | `true` | (Modo `custom`) Panorama vertical de la carátula completa tras la Ficha Informativa. |
+| `marquee_panorama` | `bool` | `false` | (Modo `custom`) Panorama vertical del banner marquee arcade. |
+| `snapshot_panorama_count` | `int` | `0` | (Modo `custom`) Número de capturas de pantalla en panorama (`0`–`5`). |
+| `include_video` | `bool` | `true` | (Modo `custom`) Transmite el clip de vídeo de gameplay tras la ficha y los panoramas. |
+| `video_max_duration_s` | `int` | `12` | (Modo `custom`) Duración máxima del vídeo de gameplay en segundos (`2`–`120`). |
+| `video_fps` | `int` | `15` | (Modo `custom`) Cuadros por segundo objetivo del vídeo (`8`–`60`). |
+| `video_mode` | `String` | `"auto_action"` | (Modo `custom`) Modo de encuadre de vídeo: `"auto_action"`, `"panorama"` o `"center_crop"`. |
+| `color_boost` | `String` | `"auto"` | (Modo `custom`) Perfil de color LED HUB75: `"auto"`, `"pixel_art"`, `"anime"` o `"cinema"`. |
+| *(auto-suscripción)* | `system/playing/#` | — | Se suscribe automáticamente a todos los sistemas retro compatibles: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
 
-El daemon de sincronización puede instalarse en la consola (Recalbox, Batocera, RetroPie) por SSH desde la interfaz Web (`POST /api/mqtt/install`) con selección o autodetección del sistema operativo, y sus logs pueden obtenerse con `POST /api/mqtt/logs`.
+### Descubrimiento Dinámico del Broker, Instalación SSH en 1 Clic y Vaciado de Caché
+- **Instalación en Consola en 1 Clic (`POST /api/mqtt/install`)**: Instala el daemon de sincronización en Recalbox, Batocera o RetroPie por SSH directamente desde la interfaz Web (guardando únicamente `DMD_HOST`), y obtiene sus logs en vivo mediante `POST /api/mqtt/logs`.
+- **Cero Reinstalación de Scripts (`GET /api/mqtt/broker-target`)**: Los scripts de consola consultan dinámicamente `GET /api/mqtt/broker-target` (con respaldo automático a `<DMD_HOST>:1883`), por lo que encender o apagar Showcase nunca requiere reinstalar los scripts en la consola.
+- **Vaciado de Caché en 1 Clic (`POST /api/showcase/cache/evict`)**: En **Sistema → MQTT & API → 🎮 FrontendSync** (y **🎬 DMD Media Showcase**), el botón **🗑️ Vaciar Caché de Showcase** limpia al instante la caché persistente de conversiones On-Demand de Showcase cuando cambias el estilo de las tarjetas.
 
 > [!NOTE]
 > Para Batocera, se requiere la versión **v33 o superior** para el cambio dinámico de marquesinas durante la navegación (hooks `game-selected` y `system-selected`). Batocera v32 y versiones anteriores solo activan eventos de inicio/parada de juego. Recalbox es compatible en todas sus versiones.

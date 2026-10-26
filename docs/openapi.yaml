@@ -691,13 +691,42 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
 
+  /api/mqtt/broker-target:
+    get:
+      tags: [Integrations]
+      summary: Resolve the active MQTT broker host and port for console sync scripts
+      description: >
+        Public discovery endpoint queried dynamically by Recalbox, Batocera, and RetroPie
+        sync daemons so console scripts only store `DMD_HOST` and never need reinstallation
+        when switching between the local Mosquitto broker and Showcase's embedded broker.
+      responses:
+        '200':
+          description: Active MQTT broker target
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  enabled:
+                    type: boolean
+                  source:
+                    type: string
+                    enum: [showcase, local]
+                  host:
+                    type: string
+                  port:
+                    type: integer
+                  user:
+                    type: string
+
   /api/mqtt/install:
     post:
       tags: [Integrations]
       summary: Install the game-sync script on a console over SSH
       description: >
         SSHes into a Recalbox, Batocera, or RetroPie console at `ip` and installs the script
-        that publishes the running game to this matrix on topic `system/playing/<os>`. Returns the install log.
+        that stores `DMD_HOST` and dynamically resolves `/api/mqtt/broker-target` before
+        publishing menu/game events on `system/playing/<os>`. Returns the install log.
       requestBody:
         required: true
         content:
@@ -1423,6 +1452,20 @@ paths:
         '200':
           description: Dynamic filter lists (systems, genres, decades)
 
+  /api/showcase/cache/evict:
+    post:
+      tags: [Integrations]
+      summary: Evict persistent On-Demand conversion cache on dmd_media_showcase
+      security:
+        - ApiToken: []
+      responses:
+        '200':
+          description: Cache eviction summary
+        '502':
+          description: Showcase unreachable or disabled
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
 components:
   securitySchemes:
     ApiToken:
@@ -1821,6 +1864,69 @@ components:
           type: string
         allow_overlay:
           type: boolean
+        use_showcase_broker:
+          type: boolean
+          default: true
+        ingame_showcase_enabled:
+          type: boolean
+          default: true
+        ingame_cycle_mode:
+          type: string
+          enum: [once, alternating, loop]
+          default: alternating
+        ingame_marquee_interval_sec:
+          type: integer
+          default: 45
+        card_style_source:
+          type: string
+          enum: [showcase_profile, custom]
+          default: showcase_profile
+        include_card_intro:
+          type: boolean
+          default: true
+        card_layout:
+          type: string
+          enum: [classic_split, badge_header, full_art, minimal]
+          default: classic_split
+        card_theme:
+          type: string
+          enum: [tinted, neon_border, poster_wash]
+          default: tinted
+        include_poster:
+          type: boolean
+          default: true
+        include_synopsis:
+          type: boolean
+          default: true
+        text_scroll_speed:
+          type: string
+          default: normal
+        jacket_panorama:
+          type: boolean
+          default: true
+        marquee_panorama:
+          type: boolean
+          default: false
+        snapshot_panorama_count:
+          type: integer
+          default: 0
+        include_video:
+          type: boolean
+          default: true
+        video_max_duration_s:
+          type: integer
+          default: 12
+        video_fps:
+          type: integer
+          default: 15
+        video_mode:
+          type: string
+          enum: [auto_action, panorama, center_crop]
+          default: auto_action
+        color_boost:
+          type: string
+          enum: [auto, pixel_art, anime, cinema]
+          default: auto
     DataMqttConfig:
       type: object
       description: Broker credentials for the mqttdata engine (it connects only while its screen is active).

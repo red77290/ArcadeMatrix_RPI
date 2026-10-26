@@ -243,24 +243,44 @@ Los 4 motores Showcase (`retro_games`, `movie_showcase`, `series_showcase`, `ani
 
 ---
 
-## 🕹️ Integración con Recalbox & Batocera (Pixelcade Marquees)
+## 🕹️ Integración con Recalbox, Batocera y RetroPie (Pixelcade Marquees + Showcase en Juego)
 
-ArcadeMatrix es compatible con marquees dinámicos **estilo Pixelcade** cuando seleccionas o juegas un juego en tu consola Recalbox, Batocera o RetroPie.
+ArcadeMatrix es compatible con marquees instantáneos **estilo Pixelcade** al navegar por los menús Y presentaciones automáticas **Showcase en Juego** (Ficha Informativa Animada + Panoramas + Vídeo de Gameplay) al lanzar un juego en tu consola Recalbox, Batocera o RetroPie.
 
 > [!IMPORTANT]
 > **Requisito de versión de Batocera:** La sincronización dinámica de marquesinas durante la navegación por los juegos y sistemas requiere **Batocera v33 o superior** (Batocera introdujo los hooks de script de EmulationStation `game-selected` y `system-selected` en la versión 33). En Batocera v32 y versiones anteriores, solo se admiten los eventos de inicio y parada del juego (`game-start`, `game-end`). Recalbox es totalmente compatible en todas sus versiones a través de su daemon de monitorización de estado nativo.
 
-Mientras navegas por tus listas de juegos, la Raspberry Pi descargará las marquees oficiales de Pixelcade desde GitHub **en segundo plano y en tiempo real**, las almacenará en caché en tu tarjeta SD y las mostrará en tu matriz LED. Si un juego no tiene imagen, mostrará un elegante texto animado de respaldo.
+### ✨ Cómo Funciona en la Práctica
+1. **Navegación por Menús (`0 ms` — Marquesina Instantánea)**: Mientras navegas por tus listas de juegos, la Raspberry Pi descarga las marquees oficiales de Pixelcade en segundo plano, las almacena en caché en la tarjeta SD y las muestra al instante en tu matriz LED.
+2. **Al Iniciar un Juego (Showcase en Juego Fluido)**:
+   - En cuanto lanzas un juego, la **marquesina clásica aparece de inmediato** (sin pantalla negra ni mensaje de espera).
+   - Si **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** está activo en tu red local y **Showcase en Juego** está habilitado, Showcase prepara en segundo plano la presentación del juego (**Ficha Informativa Animada** + **Panoramas de Carátula/Marquee/Capturas** + **Vídeo de Gameplay**) y toma el relevo suavemente en cuanto el primer fotograma está listo.
+   - **Ciclo de Reproducción** configurable durante la partida:
+     - **Alternar Marquesina y Showcase** *(por defecto)*: alterna entre la secuencia Showcase y una pausa configurable en la marquesina clásica (ej. `45s`).
+     - **Reproducir una vez y mantener Marquesina**: reproduce Showcase una vez y mantiene la marquesina fija del juego.
+     - **Bucle continuo de Showcase**: repite la presentación Showcase mientras dure la partida.
+3. **Al Salir del Juego**: Volver al menú de la consola detiene al instante el vídeo en curso y restaura las marquesinas del menú (o la rotación habitual).
+4. **Broker MQTT Compartido Automático (Cero Reinstalación y Más RAM Libre)**:
+   - Los scripts de consola guardan **únicamente la IP de tu DMD** (`DMD_HOST`) y consultan dinámicamente al DMD qué broker MQTT utilizar.
+   - Cuando **Usar Broker MQTT de Showcase si está activo** está habilitado y Showcase está accesible, ArcadeMatrix usa automáticamente el broker MQTT de Showcase y detiene su servicio `mosquitto` local para liberar RAM — volviendo solo al broker local si Showcase se apaga. **¡Nunca tendrás que reinstalar los scripts en Recalbox o Batocera!**
+5. **Caché Persistente Instantánea y Vaciado en 1 Clic**:
+   - Activando la **Caché Persistente de Conversiones On-Demand** en Showcase, los juegos ya convertidos se guardan por `(Sistema + Juego + Resolución + Estilo de Tarjeta)` para arrancar **al instante** en futuras partidas.
+   - Pulsa **🗑️ Vaciar Caché de Showcase** directamente desde **Sistema -> MQTT & API -> 🎮 FrontendSync** para limpiar la caché en un clic tras cambiar el diseño de tus tarjetas.
 
-### Instalación automática (recomendada)
-Ve a la pestaña **MQTT** en la interfaz Web de ArcadeMatrix, selecciona el SO de tu consola (`Detección auto`, `Recalbox`, `Batocera` o `RetroPie`), introduce la IP de la consola junto con sus credenciales y haz clic en **Install Sync Script**. Esto inyectará automáticamente el daemon a través de SSH.
+### 🚀 Tutorial de Activación Paso a Paso
 
-### Instalación manual (Recalbox / Batocera / RetroPie)
-Si prefieres la instalación manual, o si falla la instalación por red (consulta [tools/README_ES.md](tools/README_ES.md)):
-1. Abre o copia `tools/rpi_emulationstation_base_os_setup.sh` (o `tools/recalbox_setup_mqtt.sh`).
-2. Copia el archivo a tu consola (por ejemplo, mediante `scp`).
-3. Conéctate por SSH a tu consola y ejecuta: `sh /tmp/rpi_emulationstation_base_os_setup.sh`.
-4. Introduce la IP de tu ArcadeMatrix y selecciona tu sistema objetivo en el menú interactivo.
+#### 1. Instalación Automática en 1 Clic en la Consola (Recomendado)
+Ve a **Sistema -> MQTT & API -> 🎮 FrontendSync** en la interfaz Web de ArcadeMatrix, selecciona el SO de tu consola (`Detección auto`, `Recalbox`, `Batocera` o `RetroPie`), introduce la IP y credenciales SSH de la consola y haz clic en **Install Sync Script**.
+
+*(Alternativa manual — consulta [tools/README_ES.md](tools/README_ES.md): copia `tools/rpi_emulationstation_base_os_setup.sh` o `tools/recalbox_setup_mqtt.sh` a tu consola mediante `scp`, ejecuta `sh /tmp/rpi_emulationstation_base_os_setup.sh` e introduce la IP de tu ArcadeMatrix).*
+
+#### 2. Activar Showcase en Juego y Personalizar la Tarjeta
+1. En **Sistema -> MQTT & API -> 🎬 DMD Media Showcase**, activa el servidor Showcase y comprueba el indicador **`🟢 Comunicación OK`**.
+2. En **🎮 FrontendSync**, pon **Activar MQTT** en **Activado** y habilita **Usar Broker MQTT de Showcase si está activo (libera RAM)** y **Showcase en Juego (Tarjeta + Vídeo Gameplay)**.
+3. Elige tu **Ciclo en Juego** (`Alternar Marquesina y Showcase`, `Una vez` o `Bucle continuo`) y el **Estilo de Tarjeta**:
+   - **Heredar perfil DMD desde Showcase Studio**: usa el diseño configurado en el Studio de Showcase.
+   - **Personalizado en el DMD**: configura el diseño (`Classic Split`, `Badge Header`, `Full Art`, `Minimal`), el tema (`Tinted`, `Neon Border`, `Poster Wash`), la velocidad de sinopsis, panoramas, duración/FPS/encuadre de vídeo y realce de color directamente desde el DMD.
+4. Haz clic en **Guardar ajustes MQTT**, ¡lanza cualquier juego en tu consola y disfruta!
 
 ### ¿Cómo funciona la arquitectura del daemon?
 A diferencia de los scripts nativos de Recalbox que se ejecutan (y congelan el sistema) con cada movimiento del joystick, ArcadeMatrix instala **un daemon Python/Shell ultraligero (`arcadematrix_daemon.py`) en segundo plano**.

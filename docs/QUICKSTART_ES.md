@@ -37,3 +37,11 @@ La unidad **DATA** aparecerá como una memoria USB estándar (formato exFAT):
 ## 4. Conexión de hardware
 
 Recomendamos usar un Adafruit RGB Matrix HAT o Bonnet conectado a una Raspberry Pi Zero 2 W o Pi 4. Asegúrate de que el conector HUB75 esté correctamente enchufado a tu panel LED.
+
+## 5. Opcional: Conectar Recalbox / Batocera / RetroPie y Showcase en Juego
+
+1. **Instalación en Consola en 1 Clic**: Abre **Sistema → MQTT & API → 🎮 FrontendSync**, introduce la IP y credenciales SSH de tu consola Recalbox, Batocera o RetroPie y pulsa **Install Sync Script** (la consola solo guarda la IP del DMD y descubre automáticamente el broker MQTT activo — nunca tendrás que reinstalar el script).
+2. **Marquesinas Instantáneas**: Pon **Activar MQTT** en **Activado**. Al navegar por los menús de tu consola se mostrarán las marquesinas Pixelcade al instante (`0 ms`).
+3. **Fichas y Vídeos de Gameplay en Juego** (con **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** en tu red local):
+   - En **🎬 DMD Media Showcase**, activa el servidor Showcase (`🟢 Comunicación OK`).
+   - En **🎮 FrontendSync**, activa **Usar Broker MQTT de Showcase si está activo** (libera RAM local) y **Showcase en Juego (Tarjeta + Vídeo Gameplay)**, elige tu **Ciclo** (`Alternar Marquesina y Showcase`, `Una vez` o `Bucle`) y el **Estilo de Tarjeta** (`Heredar de Showcase Studio` o `Personalizado en el DMD`), y guarda los ajustes.

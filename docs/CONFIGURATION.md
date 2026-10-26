@@ -98,20 +98,42 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 
 ---
 
-## 5. The `"mqtt"` Block (Recalbox / Batocera Marquees)
+## 5. The `"mqtt"` Block (Recalbox / Batocera / RetroPie Marquees & In-Game Showcase)
 
-| Key | Type | Description |
-| :--- | :--- | :--- |
-| `enabled` | `bool` | Enable the MQTT listener for Pixelcade-style marquees. |
-| `broker` | `String` | Broker IP/host (usually the Pi itself). |
-| `port` | `int` | Broker port (default `1883`). |
-| `user` | `String` | Broker username (optional). |
-| `pass` | `String` | Broker password (optional). |
-| `device_name` | `String` | Identifier published by this device. |
-| `allow_overlay` | `bool` | Allow decorative overlays (e.g. Street Fighter) on top of MQTT/marquee screens (default `false`). |
-| *(auto-subscription)* | `system/playing/#` | Subscribes automatically to all supported retro gaming systems: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
+| Key | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `enabled` | `bool` | `false` | Enable the MQTT listener (`FrontendSync`) for Pixelcade-style marquees and console events. |
+| `broker` | `String` | `"127.0.0.1"` | Fallback/local MQTT broker IP or host (`127.0.0.1` uses the Raspberry Pi's local Mosquitto broker when standalone). |
+| `port` | `int` | `1883` | Broker port. |
+| `user` | `String` | `""` | Broker username (optional). |
+| `pass` | `String` | `""` | Broker password (optional). |
+| `device_name` | `String` | `"arcadematrix"` | Identifier published by this device. |
+| `allow_overlay` | `bool` | `false` | Allow decorative overlays (e.g. Street Fighter) on top of MQTT/marquee screens. |
+| `use_showcase_broker` | `bool` | `true` | When `showcase.enabled` is `true` and Showcase is reachable, automatically share Showcase's MQTT broker and stop the local `mosquitto.service` to free system RAM (restarting it automatically if Showcase goes offline). |
+| `ingame_showcase_enabled` | `bool` | `true` | When a game is launched (`playing`) and Showcase is active, display the classic marquee immediately (`0 ms`), prepare the game's Info Card + Panoramas + Gameplay Video in the background, and smoothly switch once ready. |
+| `ingame_cycle_mode` | `String` | `"alternating"` | Playback behavior while the game stays running: `"alternating"` (alternate Showcase and marquee pause), `"once"` (play Showcase once then keep marquee), or `"loop"` (repeat Showcase continuously). |
+| `ingame_marquee_interval_sec` | `int` | `45` | Seconds to keep the static marquee on screen between Showcase cycles when `ingame_cycle_mode` is `"alternating"` (`5`–`600`). |
+| `card_style_source` | `String` | `"showcase_profile"` | `"showcase_profile"` inherits the DMD's visual profile configured in Showcase Studio; `"custom"` applies the custom Card & Video fields below directly from the DMD. |
+| `include_card_intro` | `bool` | `true` | (`custom` mode) Include the animated Info Card intro before panoramas and gameplay video. |
+| `card_layout` | `String` | `"classic_split"` | (`custom` mode) Card layout: `"classic_split"`, `"badge_header"`, `"full_art"`, or `"minimal"`. |
+| `card_theme` | `String` | `"tinted"` | (`custom` mode) Card visual theme: `"tinted"`, `"neon_border"`, or `"poster_wash"`. |
+| `include_poster` | `bool` | `true` | (`custom` mode) Display the mini boxart/poster on the Info Card. |
+| `include_synopsis` | `bool` | `true` | (`custom` mode) Scroll the localized game synopsis on the Info Card. |
+| `text_scroll_speed` | `String` | `"normal"` | (`custom` mode) Synopsis scroll speed (`"slow"`, `"normal"`, `"fast"`, or `"1"` to `"10"`). |
+| `jacket_panorama` | `bool` | `true` | (`custom` mode) Vertical top-to-bottom boxart panorama after the Info Card. |
+| `marquee_panorama` | `bool` | `false` | (`custom` mode) Vertical arcade marquee banner panorama. |
+| `snapshot_panorama_count` | `int` | `0` | (`custom` mode) Number of in-game screenshot panoramas (`0`–`5`). |
+| `include_video` | `bool` | `true` | (`custom` mode) Stream the gameplay video clip after the card/panoramas. |
+| `video_max_duration_s` | `int` | `12` | (`custom` mode) Maximum gameplay video duration in seconds (`2`–`120`). |
+| `video_fps` | `int` | `15` | (`custom` mode) Target video stream frame rate (`8`–`60`). |
+| `video_mode` | `String` | `"auto_action"` | (`custom` mode) Video framing mode: `"auto_action"`, `"panorama"`, or `"center_crop"`. |
+| `color_boost` | `String` | `"auto"` | (`custom` mode) HUB75 LED color profile: `"auto"`, `"pixel_art"`, `"anime"`, or `"cinema"`. |
+| *(auto-subscription)* | `system/playing/#` | — | Subscribes automatically to all supported retro gaming systems: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
 
-The sync daemon can be installed on the console (Recalbox, Batocera, RetroPie) over SSH from the Web UI (`POST /api/mqtt/install`) with target OS selection or auto-detection, and its logs fetched with `POST /api/mqtt/logs`.
+### Dynamic Broker Discovery, 1-Click SSH Install & Cache Eviction
+- **1-Click SSH Console Install (`POST /api/mqtt/install`)**: Installs the sync daemon on Recalbox, Batocera, or RetroPie over SSH directly from the Web UI (storing only `DMD_HOST`), and fetches live console logs via `POST /api/mqtt/logs`.
+- **Zero Script Re-installation (`GET /api/mqtt/broker-target`)**: Console scripts query `GET /api/mqtt/broker-target` dynamically (with automatic fallback to `<DMD_HOST>:1883`), so enabling or disabling Showcase never requires reinstalling console scripts.
+- **1-Click Showcase Cache Eviction (`POST /api/showcase/cache/evict`)**: In **System → MQTT & API → 🎮 FrontendSync** (and **🎬 DMD Media Showcase**), the **🗑️ Evict Showcase Cache** button clears Showcase's persistent On-Demand conversion cache immediately whenever you change card styles.
 
 > [!NOTE]
 > For Batocera, version **v33 or newer** is required for dynamic marquee browsing (`game-selected` and `system-selected` hooks). Batocera v32 and earlier only trigger game launch/stop events. Recalbox is supported on all versions.

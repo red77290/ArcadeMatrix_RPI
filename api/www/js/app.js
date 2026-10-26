@@ -648,6 +648,52 @@ function initNetworkSettings() {
     }
   }
 
+  const updateFrontendSyncShowcaseVisibility = () => {
+    const igEnEl = document.getElementById('hw-mqtt-ingame-showcase');
+    const cycleEl = document.getElementById('hw-mqtt-cycle-mode');
+    const cardSrcEl = document.getElementById('hw-mqtt-card-source');
+    const igBox = document.getElementById('group-fsync-ingame-options');
+    const intervalBox = document.getElementById('group-fsync-marquee-interval');
+    const customCardBox = document.getElementById('group-fsync-custom-card');
+
+    const igEnabled = !igEnEl || igEnEl.value === 'true';
+    if (igBox) igBox.style.display = igEnabled ? 'block' : 'none';
+    if (intervalBox) {
+      intervalBox.style.display = (!cycleEl || cycleEl.value === 'alternating') ? 'block' : 'none';
+    }
+    if (customCardBox) {
+      customCardBox.style.display = (cardSrcEl && cardSrcEl.value === 'custom') ? 'block' : 'none';
+    }
+  };
+  window.updateFrontendSyncShowcaseVisibility = updateFrontendSyncShowcaseVisibility;
+
+  ['hw-mqtt-ingame-showcase', 'hw-mqtt-cycle-mode', 'hw-mqtt-card-source'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', updateFrontendSyncShowcaseVisibility);
+  });
+
+  const btnEvictShowcaseCache = document.getElementById('btn-evict-showcase-cache');
+  if (btnEvictShowcaseCache) {
+    btnEvictShowcaseCache.addEventListener('click', async () => {
+      btnEvictShowcaseCache.disabled = true;
+      try {
+        const res = await API.postAuth('/api/showcase/cache/evict', {});
+        const cnt = res && typeof res.evicted_entries === 'number' ? res.evicted_entries : 0;
+        window.showToast(
+          `${t('fsync_cache_evicted', 'Showcase conversion cache evicted')} (${cnt})`,
+          'success'
+        );
+      } catch (e) {
+        window.showToast(
+          t('fsync_cache_evict_failed', 'Failed to evict Showcase cache (verify Showcase is reachable)'),
+          'error'
+        );
+      } finally {
+        btnEvictShowcaseCache.disabled = false;
+      }
+    });
+  }
+
   const btnSaveMqtt = document.getElementById('btn-save-mqtt');
   if (btnSaveMqtt) {
     btnSaveMqtt.addEventListener('click', async () => {
@@ -660,6 +706,25 @@ function initNetworkSettings() {
         port: parseInt(document.getElementById('hw-mqtt-port').value, 10) || 1883,
         user: document.getElementById('hw-mqtt-user').value,
         pass: document.getElementById('hw-mqtt-pass').value,
+        use_showcase_broker: document.getElementById('hw-mqtt-use-showcase-broker')?.value !== 'false',
+        ingame_showcase_enabled: document.getElementById('hw-mqtt-ingame-showcase')?.value !== 'false',
+        ingame_cycle_mode: document.getElementById('hw-mqtt-cycle-mode')?.value || 'alternating',
+        ingame_marquee_interval_sec: Math.max(5, parseInt(document.getElementById('hw-mqtt-marquee-interval')?.value, 10) || 45),
+        card_style_source: document.getElementById('hw-mqtt-card-source')?.value || 'showcase_profile',
+        include_card_intro: document.getElementById('hw-mqtt-card-intro')?.value !== 'false',
+        card_layout: document.getElementById('hw-mqtt-card-layout')?.value || 'classic_split',
+        card_theme: document.getElementById('hw-mqtt-card-theme')?.value || 'tinted',
+        include_poster: document.getElementById('hw-mqtt-include-poster')?.value !== 'false',
+        include_synopsis: document.getElementById('hw-mqtt-include-synopsis')?.value !== 'false',
+        text_scroll_speed: document.getElementById('hw-mqtt-scroll-speed')?.value || 'normal',
+        jacket_panorama: document.getElementById('hw-mqtt-jacket-pano')?.value !== 'false',
+        marquee_panorama: document.getElementById('hw-mqtt-marquee-pano')?.value === 'true',
+        snapshot_panorama_count: Math.max(0, Math.min(5, parseInt(document.getElementById('hw-mqtt-snap-pano')?.value, 10) || 0)),
+        include_video: document.getElementById('hw-mqtt-include-video')?.value !== 'false',
+        video_max_duration_s: Math.max(2, Math.min(120, parseInt(document.getElementById('hw-mqtt-video-duration')?.value, 10) || 12)),
+        video_fps: parseInt(document.getElementById('hw-mqtt-video-fps')?.value, 10) || 15,
+        video_mode: document.getElementById('hw-mqtt-video-mode')?.value || 'auto_action',
+        color_boost: document.getElementById('hw-mqtt-color-boost')?.value || 'auto',
       };
       try {
         const res = await API.post('/api/system', { mqtt });
@@ -934,6 +999,28 @@ async function initSettings() {
     setVal('hw-mqtt-port', mqtt.port);
     setVal('hw-mqtt-user', mqtt.user || '');
     setVal('hw-mqtt-pass', mqtt.pass || '');
+    setVal('hw-mqtt-use-showcase-broker', mqtt.use_showcase_broker !== false ? 'true' : 'false');
+    setVal('hw-mqtt-ingame-showcase', mqtt.ingame_showcase_enabled !== false ? 'true' : 'false');
+    setVal('hw-mqtt-cycle-mode', mqtt.ingame_cycle_mode || 'alternating');
+    setVal('hw-mqtt-marquee-interval', mqtt.ingame_marquee_interval_sec ?? 45);
+    setVal('hw-mqtt-card-source', mqtt.card_style_source || 'showcase_profile');
+    setVal('hw-mqtt-card-intro', mqtt.include_card_intro !== false ? 'true' : 'false');
+    setVal('hw-mqtt-card-layout', mqtt.card_layout || 'classic_split');
+    setVal('hw-mqtt-card-theme', mqtt.card_theme || 'tinted');
+    setVal('hw-mqtt-include-poster', mqtt.include_poster !== false ? 'true' : 'false');
+    setVal('hw-mqtt-include-synopsis', mqtt.include_synopsis !== false ? 'true' : 'false');
+    setVal('hw-mqtt-scroll-speed', mqtt.text_scroll_speed || 'normal');
+    setVal('hw-mqtt-jacket-pano', mqtt.jacket_panorama !== false ? 'true' : 'false');
+    setVal('hw-mqtt-marquee-pano', mqtt.marquee_panorama ? 'true' : 'false');
+    setVal('hw-mqtt-snap-pano', mqtt.snapshot_panorama_count ?? 0);
+    setVal('hw-mqtt-include-video', mqtt.include_video !== false ? 'true' : 'false');
+    setVal('hw-mqtt-video-duration', mqtt.video_max_duration_s ?? 12);
+    setVal('hw-mqtt-video-fps', String(mqtt.video_fps ?? 15));
+    setVal('hw-mqtt-video-mode', mqtt.video_mode || 'auto_action');
+    setVal('hw-mqtt-color-boost', mqtt.color_boost || 'auto');
+    if (typeof window.updateFrontendSyncShowcaseVisibility === 'function') {
+      window.updateFrontendSyncShowcaseVisibility();
+    }
 
     // Data MQTT (nested data_mqtt.*)
     const dataMqtt = cfg.data_mqtt || {};

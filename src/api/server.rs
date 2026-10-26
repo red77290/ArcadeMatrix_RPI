@@ -107,6 +107,7 @@ async fn post_system(
     // and preserve existing secrets when a client submits masked placeholders.
     let prev_matrix = serde_json::to_value(&s.matrix).ok();
     let prev_mqtt = serde_json::to_value(&s.mqtt).ok();
+    let prev_showcase = serde_json::to_value(&s.showcase).ok();
     let prev_disable_wifi = s.wifi.disable_internal;
     let prev_mqtt_pass = s.mqtt.pass.clone();
     let prev_data_mqtt_pass = s.data_mqtt.pass.clone();
@@ -270,14 +271,18 @@ async fn post_system(
         false
     };
     let new_mqtt = serde_json::to_value(&s.mqtt).ok();
-    let needs_reload =
-        hw_matrix_changed || prev_mqtt != new_mqtt || prev_disable_wifi != s.wifi.disable_internal;
+    let new_showcase = serde_json::to_value(&s.showcase).ok();
+    let mqtt_or_showcase_changed = prev_mqtt != new_mqtt || prev_showcase != new_showcase;
+    let needs_reload = hw_matrix_changed || prev_disable_wifi != s.wifi.disable_internal;
     drop(s);
     if !data.config.save() {
         return HttpResponse::InternalServerError().json(json!({
             "status": "error",
             "message": "Failed to persist configuration to disk"
         }));
+    }
+    if mqtt_or_showcase_changed {
+        crate::engines::frontend_sync::notify_mqtt_config_changed();
     }
     // Always notify the render loop to refresh its runtime snapshot (night mode,
     // language, units, fighter overlay, slot transition, display orientation).
@@ -869,7 +874,7 @@ async fn handle_file_upload(
             }
         }
         // Clear stale static image buffer if marquee
-        *data.config.image_obj.lock() = None;
+        data.config.set_marquee_image(None);
         // Do NOT set ForcedEngineMode::Marquee: Marquee runs normally in the rotation loop
     }
 
@@ -1625,6 +1630,76 @@ async fn get_showcase_status(
     }
 }
 
+#[get("/api/mqtt/broker-target")]
+async fn get_mqtt_broker_target(data: web::Data<AppState>) -> impl Responder {
+    let cfg = Arc::clone(&data.config);
+    let res =
+        web::block(move || crate::engines::frontend_sync::resolve_broker_target(&cfg, false)).await;
+    match res {
+        Ok(target) => HttpResponse::Ok().json(json!({
+            "host": target.lan_host,
+            "port": target.port,
+            "source": target.source,
+            "mqtt_enabled": target.mqtt_enabled,
+        })),
+        Err(_) => {
+            let fallback_ip = get_local_ip();
+            HttpResponse::Ok().json(json!({
+                "host": fallback_ip,
+                "port": 1883,
+                "source": "local",
+                "mqtt_enabled": true,
+            }))
+        }
+    }
+}
+
+#[post("/api/showcase/cache/evict")]
+async fn post_showcase_cache_evict(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    if let Err(e) = check_auth(&req, &data.config) {
+        return e;
+    }
+    let raw_url = data.config.settings.read().showcase.server_url.clone();
+    if raw_url.trim().is_empty() {
+        return HttpResponse::BadRequest().json(json!({
+            "status": "error",
+            "message": "Showcase server URL is empty"
+        }));
+    }
+    let res = web::block(move || -> Result<serde_json::Value, String> {
+        let resolved =
+            crate::engines::renderers::media_showcase::resolve_showcase_server_url(&raw_url);
+        let evict_url = format!(
+            "{}/api/v1/cache/on-demand/evict",
+            resolved.trim_end_matches('/')
+        );
+        let client = crate::core::memory::api_http_client();
+        let resp = client
+            .post(&evict_url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .map_err(|e| format!("Showcase unreachable: {}", e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Showcase returned HTTP {}", resp.status()));
+        }
+        resp.json::<serde_json::Value>()
+            .map_err(|e| format!("Invalid response from Showcase: {}", e))
+    })
+    .await;
+
+    match res {
+        Ok(Ok(payload)) => HttpResponse::Ok().json(payload),
+        Ok(Err(msg)) => HttpResponse::BadGateway().json(json!({
+            "status": "error",
+            "message": msg,
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(json!({
+            "status": "error",
+            "message": e.to_string(),
+        })),
+    }
+}
+
 #[derive(RustEmbed)]
 #[folder = "api/www/"]
 struct WebAssets;
@@ -1725,7 +1800,9 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(crate::api::gifs::get_gifs_file)
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
+            .service(get_mqtt_broker_target)
             .service(get_showcase_status)
+            .service(post_showcase_cache_evict)
             .service(crate::api::ota::get_version)
             .service(crate::api::ota::check_update)
             .service(crate::api::ota::auto_update)

@@ -419,8 +419,17 @@ pub fn invalidate_showcase_host_cache() {
     }
 }
 
-/// Parse a raw HTTP response from `GET /api/v1/health` and verify Showcase signature fields.
-pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> {
+/// Detailed health and broker metadata returned by `GET /api/v1/health` on `dmd-media-showcase`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShowcaseHealthDetails {
+    pub version: String,
+    pub mqtt_mode: String,
+    pub mqtt_host: String,
+    pub mqtt_port: u16,
+}
+
+/// Parse a raw HTTP response from `GET /api/v1/health` and extract full Showcase health details.
+pub fn parse_showcase_health_details_http_response(raw: &[u8]) -> Option<ShowcaseHealthDetails> {
     let text = String::from_utf8_lossy(raw);
     let (headers, body) = text.split_once("\r\n\r\n")?;
     let status_line = headers.lines().next().unwrap_or("");
@@ -443,13 +452,38 @@ pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> 
         .and_then(|s| s.as_str())
         .unwrap_or("3.0.0")
         .to_string();
-    let mqtt_port = v.get("mqtt_port").and_then(|p| p.as_u64()).unwrap_or(1883);
-    Some((version, mqtt_port))
+    let mqtt_mode = v
+        .get("mqtt_mode")
+        .and_then(|s| s.as_str())
+        .unwrap_or("embedded")
+        .to_string();
+    let mqtt_host = v
+        .get("mqtt_host")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mqtt_port = v
+        .get("mqtt_port")
+        .and_then(|p| p.as_u64())
+        .unwrap_or(1883)
+        .clamp(1, 65535) as u16;
+    Some(ShowcaseHealthDetails {
+        version,
+        mqtt_mode,
+        mqtt_host,
+        mqtt_port,
+    })
 }
 
-/// Fast single-socket TCP + HTTP `/api/v1/health` verification confirming a `dmd-media-showcase`
-/// instance is reachable at `(ip, port)`. Returns `Some((version, mqtt_port))` on success.
-pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
+/// Parse a raw HTTP response from `GET /api/v1/health` and verify Showcase signature fields.
+pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> {
+    let details = parse_showcase_health_details_http_response(raw)?;
+    Some((details.version, details.mqtt_port as u64))
+}
+
+/// Fast single-socket TCP + HTTP `/api/v1/health` verification returning full broker metadata.
+pub fn probe_showcase_health_details(ip: &str, port: u16) -> Option<ShowcaseHealthDetails> {
     use std::io::{Read, Write};
     let clean_ip = ip.trim().trim_start_matches("::ffff:");
     let ip_addr: std::net::IpAddr = clean_ip.parse().ok()?;
@@ -468,7 +502,14 @@ pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
 
     let mut raw = Vec::with_capacity(1024);
     let _ = stream.take(8192).read_to_end(&mut raw);
-    parse_showcase_health_http_response(&raw)
+    parse_showcase_health_details_http_response(&raw)
+}
+
+/// Fast single-socket TCP + HTTP `/api/v1/health` verification confirming a `dmd-media-showcase`
+/// instance is reachable at `(ip, port)`. Returns `Some((version, mqtt_port))` on success.
+pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
+    let details = probe_showcase_health_details(ip, port)?;
+    Some((details.version, details.mqtt_port as u64))
 }
 
 fn read_linux_arp_neighbors() -> Vec<String> {

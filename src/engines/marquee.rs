@@ -19,6 +19,8 @@ pub struct MarqueeEngine {
     pub frame_elapsed: Duration,
     pub last_update: Option<Instant>,
     pub last_drawn_frame: Option<usize>,
+    pub observed_image_gen: u64,
+    pub last_drawn_image_gen: Option<u64>,
 }
 
 impl MarqueeEngine {
@@ -32,6 +34,8 @@ impl MarqueeEngine {
             frame_elapsed: Duration::ZERO,
             last_update: None,
             last_drawn_frame: None,
+            observed_image_gen: 0,
+            last_drawn_image_gen: None,
         }
     }
 
@@ -172,9 +176,14 @@ impl Engine for MarqueeEngine {
         }
         self.last_update = Some(Instant::now());
         self.last_drawn_frame = None;
+        self.last_drawn_image_gen = None;
     }
 
-    fn update(&mut self, _context: &mut EngineContext) {
+    fn update(&mut self, context: &mut EngineContext) {
+        self.observed_image_gen = context
+            .config
+            .image_generation
+            .load(std::sync::atomic::Ordering::Acquire);
         if self.frames.len() <= 1 {
             return;
         }
@@ -201,6 +210,7 @@ impl Engine for MarqueeEngine {
         self.frames = Vec::new();
         self.frame_index = 0;
         self.last_drawn_frame = None;
+        self.last_drawn_image_gen = None;
         crate::core::memory::trim_heap();
     }
 
@@ -213,6 +223,9 @@ impl Engine for MarqueeEngine {
     }
 
     fn has_new_frame(&self) -> bool {
+        if self.last_drawn_image_gen != Some(self.observed_image_gen) {
+            return true;
+        }
         if self.frames.len() > 1 {
             self.last_drawn_frame != Some(self.frame_index)
         } else {
@@ -221,14 +234,20 @@ impl Engine for MarqueeEngine {
     }
 
     fn render(&mut self, context: &mut EngineContext) {
+        let gen = context
+            .config
+            .image_generation
+            .load(std::sync::atomic::Ordering::Acquire);
         let lock = context.config.image_obj.lock();
         if let Some(img) = lock.as_ref() {
             self.render_image(&mut *context.surface, img);
             self.last_drawn_frame = Some(0);
+            self.last_drawn_image_gen = Some(gen);
         } else if !self.frames.is_empty() {
             let img = &self.frames[self.frame_index].0;
             self.render_image(&mut *context.surface, img);
             self.last_drawn_frame = Some(self.frame_index);
+            self.last_drawn_image_gen = Some(gen);
         }
     }
 

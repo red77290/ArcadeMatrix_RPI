@@ -1701,8 +1701,9 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
     const key = targetFieldId === 'genres' ? 'supported_genres' : 'supported_decades';
     refPayload.systems.forEach(sys => {
       const sysVal = String(sys.value || sys.id || '').toLowerCase();
-      if (selLower.includes(sysVal) && Array.isArray(sys[key])) {
-        sys[key].forEach(g => unionSet.add(String(g).toLowerCase()));
+      const relList = Array.isArray(sys[key]) ? sys[key] : sys[targetFieldId];
+      if (selLower.includes(sysVal) && Array.isArray(relList)) {
+        relList.forEach(g => unionSet.add(String(g).toLowerCase()));
       }
     });
     return unionSet.size > 0 ? unionSet : null;

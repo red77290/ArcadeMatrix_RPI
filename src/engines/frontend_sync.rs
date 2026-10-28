@@ -6,6 +6,7 @@ use crate::core::types::{
 use crate::engines::renderers::media_showcase::{
     parse_host_and_port, parse_rgb565_stream_compact, probe_local_lan_ip,
     probe_showcase_health_details, resolve_showcase_host, resolve_showcase_server_url,
+    rpi_hardware_short_id,
 };
 use parking_lot::Mutex;
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
@@ -392,7 +393,8 @@ fn record_showcase_command_event(topic: &str, payload: &str) {
         return;
     }
     let sync_client_id = parts[2];
-    if !sync_client_id.ends_with("_sync") {
+    let local_prefix = format!("rpi_{}_", rpi_hardware_short_id());
+    if !sync_client_id.starts_with(&local_prefix) || !sync_client_id.ends_with("_sync") {
         return;
     }
     let Ok(v) = serde_json::from_str::<serde_json::Value>(payload) else {
@@ -477,7 +479,12 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
         if resolved_url.is_empty() {
             return;
         }
-        let sync_client_id = format!("rpi_games_{}x{}_sync", width, height);
+        let sync_client_id = format!(
+            "rpi_{}_games_{}x{}_sync",
+            rpi_hardware_short_id(),
+            width,
+            height
+        );
         let enqueue_url = format!(
             "{}/api/v1/clients/{}/queue/async",
             resolved_url.trim_end_matches('/'),
@@ -863,7 +870,11 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 }
 
                 conn_seq = conn_seq.wrapping_add(1);
-                let client_id = format!("arcadematrix_rpi_{}", conn_seq % 1000);
+                let client_id = format!(
+                    "arcadematrix_rpi_{}_{}",
+                    rpi_hardware_short_id(),
+                    conn_seq % 10_000
+                );
                 info!(
                     "[FrontendSync] Connecting to MQTT broker {}:{} (source: {})",
                     target.connect_host, target.port, target.source

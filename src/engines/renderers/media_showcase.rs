@@ -388,6 +388,120 @@ static CANDIDATE_SHOWCASE_IPS: std::sync::OnceLock<Mutex<Vec<String>>> = std::sy
 static MDNS_CACHE: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, (String, Instant)>>,
 > = std::sync::OnceLock::new();
+static RPI_HW_SHORT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static MQTT_CONN_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Extract the Broadcom SoC hardware serial from `/proc/cpuinfo` content if present.
+/// Prioritizing silicon OTP serial over `/etc/machine-id` guarantees distinct `<hwid>` tags
+/// even when multiple Raspberry Pi boards boot from cloned SD card images.
+pub fn extract_cpuinfo_serial(cpuinfo: &str) -> Option<String> {
+    for line in cpuinfo.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        if k.trim().eq_ignore_ascii_case("Serial") {
+            let clean = v.trim().trim_matches('\0');
+            if !clean.is_empty() && clean.chars().any(|c| c != '0') {
+                return Some(clean.to_ascii_lowercase());
+            }
+        }
+    }
+    None
+}
+
+/// Deterministically fold an arbitrary hardware identity seed into a 6-lowercase-hex short ID.
+pub fn derive_rpi_short_id_from_seed(seed: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in seed.trim().as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let mut folded = (((hash >> 40) ^ (hash >> 20) ^ hash) as u32) & 0x00FF_FFFF;
+    if folded == 0 {
+        folded = 0x0052_5049;
+    }
+    format!("{:06x}", folded)
+}
+
+fn detect_rpi_hardware_seed() -> String {
+    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+        if let Some(serial) = extract_cpuinfo_serial(&cpuinfo) {
+            return format!("cpu-serial:{}", serial);
+        }
+    }
+    if let Ok(dt_serial) = std::fs::read_to_string("/sys/firmware/devicetree/base/serial-number") {
+        let clean = dt_serial.trim().trim_matches('\0');
+        if !clean.is_empty() && clean.chars().any(|c| c != '0') {
+            return format!("dt-serial:{}", clean);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+        let mut macs = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "lo"
+                || name.starts_with("docker")
+                || name.starts_with("veth")
+                || name.starts_with("br-")
+                || name.starts_with("virbr")
+            {
+                continue;
+            }
+            if let Ok(mac) = std::fs::read_to_string(entry.path().join("address")) {
+                let clean = mac.trim().to_ascii_lowercase();
+                if clean.len() == 17 && clean != "00:00:00:00:00:00" {
+                    macs.push(format!("{}:{}", name, clean));
+                }
+            }
+        }
+        macs.sort();
+        if let Some(primary_mac) = macs.first() {
+            return format!("net-mac:{}", primary_mac);
+        }
+    }
+    for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        if let Ok(mid) = std::fs::read_to_string(path) {
+            let clean = mid.trim();
+            if !clean.is_empty() {
+                return format!("machine-id:{}", clean);
+            }
+        }
+    }
+    if let Ok(host) = std::fs::read_to_string("/etc/hostname") {
+        let clean = host.trim();
+        if !clean.is_empty() {
+            return format!("hostname:{}", clean);
+        }
+    }
+    if let Ok(host) = std::env::var("HOSTNAME") {
+        let clean = host.trim();
+        if !clean.is_empty() {
+            return format!("env-host:{}", clean);
+        }
+    }
+    if let Some(ip) = probe_local_lan_ip("8.8.8.8", 53) {
+        return format!("lan-ip:{}", ip);
+    }
+    "rpi-default-node".to_string()
+}
+
+/// Return this board's stable 6-hex hardware short ID (e.g. `"a1b2c3"`), cached for process lifetime.
+pub fn rpi_hardware_short_id() -> &'static str {
+    RPI_HW_SHORT_ID
+        .get_or_init(|| derive_rpi_short_id_from_seed(&detect_rpi_hardware_seed()))
+        .as_str()
+}
+
+/// Build the hardware-scoped DMD Showcase client/topic ID (`rpi_<hwid>_<domain>_<W>x<H>`).
+pub fn format_rpi_dmd_client_id(domain_slug: &str, width: u32, height: u32) -> String {
+    format!(
+        "rpi_{}_{}_{}x{}",
+        rpi_hardware_short_id(),
+        domain_slug,
+        width,
+        height
+    )
+}
 
 /// Register a candidate LAN IPv4 address (e.g., WebUI client `peer_addr` or configured MQTT broker)
 /// to prioritize during automatic `dmdmediashowcase.local` discovery when running under Docker.
@@ -1907,12 +2021,7 @@ impl MediaShowcaseRunner {
     }
 
     pub fn dmd_client_id(&self) -> String {
-        format!(
-            "rpi_{}_{}x{}",
-            self.domain.as_api_slug(),
-            self.width,
-            self.height
-        )
+        format_rpi_dmd_client_id(self.domain.as_api_slug(), self.width, self.height)
     }
 
     /// Spawn the background worker thread (`mqtt_udp` real-time client or `http_poll` fallback).
@@ -2001,7 +2110,7 @@ impl MediaShowcaseRunner {
         };
 
         let slug = domain.as_api_slug();
-        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let dmd_id = format_rpi_dmd_client_id(slug, width, height);
         let local_ip = probe_local_lan_ip(&mqtt_host, mqtt_port).unwrap_or_default();
         let udp_socket = match UdpSocket::bind("0.0.0.0:0") {
             Ok(s) => {
@@ -2012,11 +2121,9 @@ impl MediaShowcaseRunner {
         };
         let local_udp_port = udp_socket.local_addr().map(|a| a.port()).unwrap_or(5568);
 
-        let mut mqtt_opts = MqttOptions::new(
-            format!("{}_{}", dmd_id, my_gen % 1000),
-            mqtt_host,
-            mqtt_port,
-        );
+        let conn_seq = MQTT_CONN_SEQ.fetch_add(1, Ordering::Relaxed) % 10_000;
+        let mut mqtt_opts =
+            MqttOptions::new(format!("{}_{}", dmd_id, conn_seq), mqtt_host, mqtt_port);
         mqtt_opts.set_keep_alive(Duration::from_secs(15));
         // Raise rumqttc's default 10 KB incoming packet limit to 64 KB so 256x64 / 128x64
         // `ready` payloads (`48x64` Base64 poster = 8,192 chars + full localized synopsis)
@@ -2540,7 +2647,7 @@ impl MediaShowcaseRunner {
         let resolved_base = resolve_showcase_server_url(&cfg.server_url);
         let base = resolved_base.trim_end_matches('/');
         let slug = domain.as_api_slug();
-        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let dmd_id = format_rpi_dmd_client_id(slug, width, height);
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
         // 1. Register client config (`POST /api/v1/{domain}/config`)
@@ -4245,10 +4352,15 @@ mod tests {
         assert_eq!(last_px, [0, 255, 0]);
 
         // 3. Live hardware geometry transition (128x32 -> 256x64) clears stale 128x32 media
-        //    and updates client ID to `rpi_games_256x64`
+        //    and updates client ID to `rpi_<hwid>_games_256x64`
+        let hwid = rpi_hardware_short_id();
+        assert_eq!(hwid.len(), 6);
+        assert!(hwid
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Games, 128, 32);
         runner.cfg.enabled = false; // prevent spawning live network thread in unit test
-        assert_eq!(runner.dmd_client_id(), "rpi_games_128x32");
+        assert_eq!(runner.dmd_client_id(), format!("rpi_{}_games_128x32", hwid));
         let gen_before = runner.config_gen.load(Ordering::SeqCst);
         runner.active_item = Some(PreparedShowcaseItem {
             id: "old_128x32".to_string(),
@@ -4268,8 +4380,25 @@ mod tests {
         });
         runner.on_display_geometry_changed(256, 64);
         assert_eq!((runner.width, runner.height), (256, 64));
-        assert_eq!(runner.dmd_client_id(), "rpi_games_256x64");
+        assert_eq!(runner.dmd_client_id(), format!("rpi_{}_games_256x64", hwid));
         assert!(runner.active_item.is_none());
         assert!(runner.config_gen.load(Ordering::SeqCst) > gen_before);
+    }
+
+    #[test]
+    fn test_hardware_scoped_rpi_short_id_isolates_multiple_boards() {
+        let cpu_a = "Hardware\t: BCM2835\nRevision\t: c03112\nSerial\t\t: 10000000aa11bb22\n";
+        let cpu_b = "Hardware\t: BCM2835\nRevision\t: c03112\nSerial\t\t: 10000000cc33dd44\n";
+        let ser_a = extract_cpuinfo_serial(cpu_a).expect("serial A");
+        let ser_b = extract_cpuinfo_serial(cpu_b).expect("serial B");
+        assert_eq!(ser_a, "10000000aa11bb22");
+        assert_eq!(ser_b, "10000000cc33dd44");
+
+        let id_a = derive_rpi_short_id_from_seed(&format!("cpu-serial:{}", ser_a));
+        let id_b = derive_rpi_short_id_from_seed(&format!("cpu-serial:{}", ser_b));
+        assert_eq!(id_a.len(), 6);
+        assert_eq!(id_b.len(), 6);
+        assert_ne!(id_a, id_b);
+        assert!(extract_cpuinfo_serial("Serial : 0000000000000000\n").is_none());
     }
 }

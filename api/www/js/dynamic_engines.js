@@ -11,7 +11,7 @@ function escHtml(s) {
 }
 
 export const GLOBAL_TIMEZONES = [
-  { value: "system", label: "System Default / Fuseau Système" },
+  { value: "system", label: "System Default" },
   { value: "Europe/Paris", label: "Europe/Paris (UTC+1/+2)" },
   { value: "Europe/London", label: "Europe/London (UTC+0/+1)" },
   { value: "Europe/Dublin", label: "Europe/Dublin (UTC+0/+1)" },
@@ -141,7 +141,8 @@ export function getEngineMeta(descOrMeta) {
     else icon = '🧩';
   }
   
-  const desc = (dict && dict[`engine_desc_${id}`]) ? dict[`engine_desc_${id}`] : (meta.description || `${name} display engine plugin for ArcadeMatrix.`);
+  const fallbackTpl = (dict && dict.engine_desc_fallback) ? dict.engine_desc_fallback : "{name} display module for your LED matrix.";
+  const desc = (dict && dict[`engine_desc_${id}`]) ? dict[`engine_desc_${id}`] : (meta.description || fallbackTpl.replace('{name}', name));
   return { id, name, category: cat, icon, desc, version: meta.version || '1.0.0' };
 }
 
@@ -167,6 +168,15 @@ async function fetchCachedEndpoint(url) {
 }
 
 // Fetch consolidated Showcase referential ({ systems, genres, decades }) from dmd-media-showcase
+function normalizeShowcaseUrlHelper(raw) {
+  if (typeof window !== 'undefined' && typeof window.normalizeShowcaseMdnsUrl === 'function') {
+    return window.normalizeShowcaseMdnsUrl(raw);
+  }
+  let s = String(raw || '').trim().replace(/\/+$/, '') || 'http://dmdmediashowcase.local:8890';
+  if (!s.startsWith('http://') && !s.startsWith('https://')) s = 'http://' + s;
+  return s;
+}
+
 async function fetchShowcaseReferential(serverUrl, endpointPath, lang, forceRefresh = false) {
   const sysShowcase = (typeof window !== 'undefined' && window.__sysConfig && window.__sysConfig.showcase) ? window.__sysConfig.showcase : null;
   if (!forceRefresh && sysShowcase && sysShowcase.enabled === false) {
@@ -174,7 +184,7 @@ async function fetchShowcaseReferential(serverUrl, endpointPath, lang, forceRefr
   }
   let rawCandidate = (typeof window !== 'undefined' && window.__showcaseResolvedUrl)
     ? window.__showcaseResolvedUrl
-    : (serverUrl || (sysShowcase && sysShowcase.server_url) || 'http://dmdmediashowcase.local:8890');
+    : normalizeShowcaseUrlHelper(serverUrl || (sysShowcase && sysShowcase.server_url));
   if (typeof window !== 'undefined' && (!window.__showcaseResolvedUrl || forceRefresh) && String(rawCandidate).toLowerCase().includes('.local')) {
     try {
       const st = await API.get(`/api/showcase/status?url=${encodeURIComponent(rawCandidate)}&enabled=true${forceRefresh ? '&force=true' : ''}`);
@@ -363,13 +373,23 @@ export function formatOptLabel(fieldId, val, raw) {
     if (lower === 'c' || lower === 'metric') return dict.opt_unit_c || "Celsius (°C)";
     if (lower === 'f' || lower === 'imperial') return dict.opt_unit_f || "Fahrenheit (°F)";
   }
-  // 3. Languages
+  // 3. Languages & Countries
   if (fieldId === 'lang') {
+    if (lower === 'auto') return dict.opt_lang_auto || "Auto (System Default)";
     if (lower === 'fr') return dict.opt_lang_fr || "Français (French)";
     if (lower === 'en') return dict.opt_lang_en || "English";
     if (lower === 'es') return dict.opt_lang_es || "Español (Spanish)";
     if (lower === 'de') return dict.opt_lang_de || "Deutsch (German)";
     if (lower === 'it') return dict.opt_lang_it || "Italiano (Italian)";
+    if (lower === 'pt') return dict.opt_lang_pt || "Português (Portuguese)";
+    if (lower === 'nl') return dict.opt_lang_nl || "Nederlands (Dutch)";
+    if (lower === 'ru') return dict.opt_lang_ru || "Русский (Russian)";
+    if (lower === 'zh') return dict.opt_lang_zh || "中文 (Chinese)";
+    if (lower === 'ja') return dict.opt_lang_ja || "日本語 (Japanese)";
+  }
+  if (fieldId === 'country') {
+    const cKey = `opt_country_${lower}`;
+    if (dict[cKey]) return dict[cKey];
   }
   // 4. Fit Modes
   if (fieldId === 'fit_mode') {
@@ -377,26 +397,46 @@ export function formatOptLabel(fieldId, val, raw) {
     if (lower === 'stretch') return dict.fit_mode_stretch || "Stretch to Panel";
     if (lower === 'center') return dict.fit_mode_center || "1:1 Centered";
   }
-  // 5. Timeframes
+  // 5. Timeframes & Providers
   if (fieldId === 'chart_timeframe') {
-    if (lower === 'hourly') return "Hourly (1h)";
-    if (lower === 'daily') return "Daily (24h)";
-    if (lower === 'weekly') return "Weekly (7d)";
-    if (lower === 'monthly') return "Monthly (30d)";
+    if (lower === 'hourly') return dict.opt_timeframe_hourly || "Hourly (1h)";
+    if (lower === 'daily') return dict.opt_timeframe_daily || "Daily (24h)";
+    if (lower === 'weekly') return dict.opt_timeframe_weekly || "Weekly (7d)";
+    if (lower === 'monthly') return dict.opt_timeframe_monthly || "Monthly (30d)";
+  }
+  if (fieldId === 'provider') {
+    const pKey = `opt_provider_${lower}`;
+    if (dict[pKey]) return dict[pKey];
   }
   // 6. Currencies
   if (fieldId === 'currency') {
-    if (lower === 'usd') return "US Dollar ($ USD)";
-    if (lower === 'eur') return "Euro (€ EUR)";
-    if (lower === 'gbp') return "British Pound (£ GBP)";
-    if (lower === 'jpy') return "Japanese Yen (¥ JPY)";
+    if (lower === 'usd') return dict.opt_currency_usd || "US Dollar ($ USD)";
+    if (lower === 'eur') return dict.opt_currency_eur || "Euro (€ EUR)";
+    if (lower === 'gbp') return dict.opt_currency_gbp || "British Pound (£ GBP)";
+    if (lower === 'jpy') return dict.opt_currency_jpy || "Japanese Yen (¥ JPY)";
   }
-  // 7. Visualizer styles
+  // 7. Visualizer styles, Clock Glow, Clock Mode & Refresh Intervals
   if (fieldId === 'style') {
-    if (lower === 'spectrum') return "Spectrum Bars";
-    if (lower === 'waveform') return "Waveform Oscilloscope";
-    if (lower === 'radial') return "Radial Circular";
-    if (lower === 'neon_fire') return "Neon Fire";
+    if (lower === 'spectrum') return dict.opt_style_spectrum || "Spectrum Bars";
+    if (lower === 'waveform') return dict.opt_style_waveform || "Waveform Oscilloscope";
+    if (lower === 'radial') return dict.opt_style_radial || "Radial Circular";
+    if (lower === 'neon_fire') return dict.opt_style_neon_fire || "Neon Fire";
+  }
+  if (fieldId === 'clock_glow') {
+    const gKey = `opt_glow_${lower}`;
+    if (dict[gKey]) return dict[gKey];
+  }
+  if (fieldId === 'clock_mode') {
+    const cmKey = `opt_clock_mode_${lower}`;
+    if (dict[cmKey]) return dict[cmKey];
+  }
+  if (fieldId === 'refresh_interval') {
+    const riKey = `opt_refresh_${lower}`;
+    if (dict[riKey]) return dict[riKey];
+  }
+  if (fieldId === 'format_24h') {
+    if (lower === '24h') return dict.opt_fmt_24h || "24 Hours (23:59)";
+    if (lower === '12h') return dict.opt_fmt_12h || "12 Hours (11:59 PM)";
   }
   // 8. Date & Clock formats
   if (fieldId === 'date_format') {
@@ -414,9 +454,10 @@ export function formatOptLabel(fieldId, val, raw) {
     if (v === '%I:%M:%S') return dict.opt_time_12s || "12h with Seconds (HH:MM:SS)";
     if (v === '%I:%M') return dict.opt_time_12 || "12h (HH:MM)";
   }
-  // 9. Theme names
-  if (fieldId === 'clock_theme' || fieldId === 'theme') {
-    const tName = THEME_ID_MAP[v] || raw || v;
+  // 9. Theme names (avoid colliding numeric IDs on non-clock engines when raw label is explicit)
+  if (fieldId === 'clock_theme' || fieldId === 'date_theme' || fieldId === 'theme') {
+    const useExplicitRaw = (fieldId === 'theme' && raw && String(raw).trim() !== v);
+    const tName = useExplicitRaw ? String(raw).trim() : (THEME_ID_MAP[v] || raw || v);
     const themeKey = `theme_${tName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
     return dict[themeKey] || tName;
   }
@@ -491,7 +532,7 @@ export function resolveScreenInfo(instance, engineDesc) {
       if (chosenField.options) {
         const opts = parseOptions(chosenField.options);
         const matchOpt = opts.find(o => String(o.value) === rawVal || (typeof rawVal === 'string' && rawVal.startsWith(o.value + ':')));
-        bestValueLabel = matchOpt ? matchOpt.label : formatOptLabel(chosenField.id, rawVal);
+        bestValueLabel = matchOpt ? formatOptLabel(chosenField.id, matchOpt.value, matchOpt.label) : formatOptLabel(chosenField.id, rawVal);
       } else {
         bestValueLabel = formatOptLabel(chosenField.id, rawVal);
       }
@@ -578,26 +619,26 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
           <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="23" selected>🎮 Tetris Clock</option>
-            <option value="30">🍄 Mario Clock</option>
-            <option value="31">🦇 Castlevania Clock</option>
-            <option value="35">🤖 Mega Man Clock</option>
-            <option value="39">💨 Sonic Clock</option>
-            <option value="41">🪖 Metal Slug Clock</option>
-            <option value="26">🟡 Pac-Man Clock</option>
-            <option value="34">🎀 Ms. Pac-Man Clock</option>
-            <option value="29">🟩 Tetris Gameboy Clock</option>
-            <option value="21">💻 Matrix Rain Clock</option>
-            <option value="27">🥊 Capcom / Versus Clock</option>
-            <option value="32">📕 Pocket Index</option>
-            <option value="33">🌍 World Clock</option>
-            <option value="37">📝 Words Clock</option>
-            <option value="19">⏱️ Flip Clock</option>
-            <option value="24">🔤 Word Clock</option>
-            <option value="18">🌆 Cyberpunk Clock</option>
-            <option value="22">🏓 Pong Clock</option>
-            <option value="25">🔢 Binary Clock</option>
-            <option value="28">🎰 Slot Machine Clock</option>
+            <option value="23" selected>${escHtml(t('theme_tetris_clock', '🎮 Tetris Clock'))}</option>
+            <option value="30">${escHtml(t('theme_mario_clock', '🍄 Mario Clock'))}</option>
+            <option value="31">${escHtml(t('theme_castlevania_clock', '🦇 Castlevania Clock'))}</option>
+            <option value="35">${escHtml(t('theme_mega_man_clock', '🤖 Mega Man Clock'))}</option>
+            <option value="39">${escHtml(t('theme_sonic_clock', '💨 Sonic Clock'))}</option>
+            <option value="41">${escHtml(t('theme_metal_slug_clock', '🪖 Metal Slug Clock'))}</option>
+            <option value="26">${escHtml(t('theme_pac_man_clock', '🟡 Pac-Man Clock'))}</option>
+            <option value="34">${escHtml(t('theme_ms__pac_man_clock', '🎀 Ms. Pac-Man Clock'))}</option>
+            <option value="29">${escHtml(t('theme_tetris_game_boy', '🟩 Tetris Game Boy Clock'))}</option>
+            <option value="21">${escHtml(t('theme_matrix_rain_clock', '💻 Matrix Rain Clock'))}</option>
+            <option value="27">${escHtml(t('theme_versus_clock', '🥊 Capcom / Versus Clock'))}</option>
+            <option value="32">${escHtml(t('theme_pocket_index', '📕 Pocket Index'))}</option>
+            <option value="33">${escHtml(t('theme_world_clock', '🌍 World Clock'))}</option>
+            <option value="37">${escHtml(t('theme_words_clock', '📝 Words Clock'))}</option>
+            <option value="19">${escHtml(t('theme_flip_clock', '⏱️ Flip Clock'))}</option>
+            <option value="24">${escHtml(t('theme_word_clock', '🔤 Word Clock'))}</option>
+            <option value="18">${escHtml(t('theme_cyberpunk', '🌆 Cyberpunk Clock'))}</option>
+            <option value="22">${escHtml(t('theme_pong_clock', '🏓 Pong Clock'))}</option>
+            <option value="25">${escHtml(t('theme_binary_clock', '🔢 Binary Clock'))}</option>
+            <option value="28">${escHtml(t('theme_slot_machine_clock', '🎰 Slot Machine Clock'))}</option>
           </select>
         </div>
       `;
@@ -666,10 +707,10 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
         <div class="form-group" style="margin-top: 1rem;">
           <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="modal_choose_theme">${t('modal_choose_theme', 'Theme / Style / Variant:')}</label>
           <select id="modal-field-variant" class="input" style="font-weight: 600;">
-            <option value="0" selected>🌆 Cyberpunk Neon</option>
-            <option value="1">📟 Amber HUD / Tactical</option>
-            <option value="2">❄️ Minimalist Luxury</option>
-            <option value="3">💻 Matrix Phosphor</option>
+            <option value="0" selected>🌆 ${escHtml(t('theme_cyberpunk_neon', 'Cyberpunk Neon'))}</option>
+            <option value="1">${escHtml(t('theme_arcade_amber_hud', '📟 Arcade Amber HUD'))}</option>
+            <option value="2">${escHtml(t('theme_minimalist_luxury', '❄️ Minimalist Luxury'))}</option>
+            <option value="3">${escHtml(t('theme_matrix_phosphor', '💻 Matrix Phosphor'))}</option>
           </select>
         </div>
       `;
@@ -682,7 +723,9 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
       ) : null;
 
       if (primaryField) {
-        const fLabel = escHtml(primaryField.label || primaryField.id);
+        const fLabelRaw = t(`field_${primaryField.id}`, primaryField.label || primaryField.id);
+        const fDescRaw = t(`field_desc_${primaryField.id}`, primaryField.description || primaryField.default_value || '');
+        const fLabel = escHtml(fLabelRaw);
         if (isFileAssetField(primaryField)) {
           initialVariant = primaryField.default_value || '';
           variantHtml = `
@@ -706,7 +749,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
           variantHtml = `
             <div class="form-group" style="margin-top: 1rem;">
               <label style="font-size: 0.85rem; font-weight: 600;">${fLabel}:</label>
-              <input type="text" id="modal-field-variant" class="input" placeholder="${escHtml(primaryField.description || primaryField.default_value || '')}" value="${escHtml(initialVariant)}">
+              <input type="text" id="modal-field-variant" class="input" placeholder="${escHtml(fDescRaw)}" value="${escHtml(initialVariant)}">
             </div>
           `;
         }
@@ -740,7 +783,7 @@ export function showAddScreenModal(selectedEngineId, descriptors, instancesList,
 
           <div class="form-group" style="margin-top: 1rem;">
             <label style="font-size: 0.85rem; font-weight: 600;" data-i18n="screen_name_label">${t('screen_name_label', 'Screen Title / Label:')}</label>
-            <input type="text" id="modal-input-title" class="input" placeholder="e.g. Living Room Clock" value="${escHtml(name)}">
+            <input type="text" id="modal-input-title" class="input" placeholder="${escHtml(t('ph_screen_title', 'e.g. Living Room Clock'))}" value="${escHtml(name)}">
           </div>
 
           <div class="form-group" style="margin-top: 0.75rem;">
@@ -1289,9 +1332,9 @@ export function renderRotationPanel(container, insertionPoint, rotationList, ins
     });
     try {
       await API.post('/api/rotation', payload);
-      window.showToast('Rotation playlist saved successfully!', 'success');
+      window.showToast(t('toast_rotation_saved', 'Rotation playlist saved successfully!'), 'success');
     } catch (e) {
-      window.showToast('Failed to save rotation playlist', 'warning');
+      window.showToast(t('toast_rotation_failed', 'Failed to save rotation playlist'), 'warning');
     }
   };
 
@@ -1726,7 +1769,7 @@ function buildShowcaseReferentialWidget(field, instance, configMap, initialRefer
   async function refreshFromShowcase(force = false) {
     const srvEl = document.getElementById(`cfg-dyn-${instId}-server_url`);
     const langEl = document.getElementById(`cfg-dyn-${instId}-lang`);
-    const srvUrl = srvEl ? srvEl.value : (configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890');
+    const srvUrl = normalizeShowcaseUrlHelper(srvEl ? srvEl.value : (configMap.server_url || (window.__sysConfig?.showcase?.server_url)));
     const langVal = langEl ? langEl.value : (configMap.lang || 'system');
     statusSpan.innerHTML = t('showcase_ref_syncing', '⏳ Syncing...');
     const fresh = await fetchShowcaseReferential(srvUrl, field.options_endpoint, langVal, force);
@@ -2257,10 +2300,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
                 const cleanedRot = curRot.filter(r => r.instance_id !== instance.instance_id);
                 await API.post('/api/rotation', cleanedRot);
               }
-              window.showToast('Screen removed', 'success');
+              window.showToast(t('toast_screen_removed', 'Screen removed'), 'success');
               await renderDynamicDisplay();
             } catch (e) {
-              window.showToast('Failed to remove screen', 'error');
+              window.showToast(t('toast_screen_remove_failed', 'Failed to remove screen'), 'error');
               delBtn.disabled = false;
             }
           }
@@ -2278,7 +2321,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       titleFormGroup.style = "grid-column: 1 / -1; margin-bottom: 0.75rem; background: rgba(255,255,255,0.02); padding: 0.75rem; border-radius: var(--radius-md); border: 1px solid var(--glass-border);";
       titleFormGroup.innerHTML = `
         <label style="font-size: 0.85rem; font-weight: 600; color: var(--accent-primary);" data-i18n="screen_name_label">${t('screen_name_label', 'Screen Title / Label:')}</label>
-        <input type="text" id="cfg-custom-title-${cleanId}" class="input" placeholder="e.g. ${escHtml(info.title)}" value="${escHtml((instance.config && instance.config.screen_title) ? instance.config.screen_title : '')}">
+        <input type="text" id="cfg-custom-title-${cleanId}" class="input" placeholder="${escHtml(t('ph_example_prefix', 'e.g.'))} ${escHtml(info.title)}" value="${escHtml((instance.config && instance.config.screen_title) ? instance.config.screen_title : '')}">
         <small class="text-muted" style="margin-top: 0.35rem; display: block;" data-i18n="screen_name_help">${t('screen_name_help', 'Custom friendly name displayed in tabs and the rotation playlist.')}</small>
       `;
       formGrid.appendChild(titleFormGroup);
@@ -2328,7 +2371,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
               });
           } else if (field.options_endpoint && field.options_endpoint.startsWith('/api/v1/')) {
               const refData = await fetchShowcaseReferential(
-                  configMap.server_url || (window.__sysConfig?.showcase?.server_url) || 'http://dmdmediashowcase.local:8890',
+                  normalizeShowcaseUrlHelper(configMap.server_url || (window.__sysConfig?.showcase?.server_url)),
                   field.options_endpoint,
                   configMap.lang || 'system',
                   false
@@ -2545,7 +2588,7 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
              return true;
          } catch(e) {
              console.error('API Error:', e);
-             window.showToast('Failed to save screen config: ' + (e.message || ''), 'warning');
+             window.showToast(t('toast_save_screen_failed', 'Failed to save screen configuration: ') + (e.message || ''), 'warning');
              return false;
          }
       }
@@ -2583,6 +2626,10 @@ export async function renderDynamicDisplay(targetActiveInstanceId = null) {
       await renderDynamicDisplay(nextId);
     }
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.renderDynamicDisplay = renderDynamicDisplay;
 }
 
 export function initDynamicEngines() {

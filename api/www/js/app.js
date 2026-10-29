@@ -165,11 +165,12 @@ function initDashboard() {
       const newState = isOff;
       try {
         await API.post('/api/system/power', { state: newState });
-        btnPower.textContent = newState ? 'Turn Panel OFF' : 'Turn Panel ON';
+        btnPower.setAttribute('data-i18n', newState ? 'dash_power_off_btn' : 'dash_power_on_btn');
+        btnPower.textContent = newState ? t('dash_power_off_btn', 'Turn Panel OFF') : t('dash_power_on_btn', 'Turn Panel ON');
         btnPower.className = `btn ${newState ? 'btn-power-on' : 'btn-power-off'}`;
-        window.showToast(newState ? 'Panel powered ON' : 'Panel powered OFF', 'info');
+        window.showToast(newState ? t('toast_power_on', 'Panel powered ON') : t('toast_power_off', 'Panel powered OFF'), 'info');
       } catch (e) {
-        window.showToast('Failed to toggle power', 'error');
+        window.showToast(t('toast_power_failed', 'Failed to toggle power'), 'error');
       }
     });
   }
@@ -177,12 +178,12 @@ function initDashboard() {
   const btnReboot = document.getElementById('btn-reboot');
   if (btnReboot) {
     btnReboot.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to reboot the system?')) {
+      if (confirm(t('confirm_reboot', 'Are you sure you want to reboot the system?'))) {
         try {
           await API.post('/api/system/reboot');
-          window.showToast('Rebooting system...', 'info');
+          window.showToast(t('toast_rebooting', 'Rebooting system...'), 'info');
         } catch (e) {
-          window.showToast('Failed to reboot system', 'error');
+          window.showToast(t('toast_reboot_failed', 'Failed to reboot system'), 'error');
         }
       }
     });
@@ -191,12 +192,12 @@ function initDashboard() {
   const btnShutdown = document.getElementById('btn-shutdown');
   if (btnShutdown) {
     btnShutdown.addEventListener('click', async () => {
-      if (confirm('Are you sure you want to shutdown the system?')) {
+      if (confirm(t('confirm_shutdown', 'Are you sure you want to shutdown the system?'))) {
         try {
           await API.post('/api/system/shutdown');
-          window.showToast('Shutting down system...', 'info');
+          window.showToast(t('toast_shutting_down', 'Shutting down system...'), 'info');
         } catch (e) {
-          window.showToast('Failed to shutdown system', 'error');
+          window.showToast(t('toast_shutdown_failed', 'Failed to shutdown system'), 'error');
         }
       }
     });
@@ -205,12 +206,12 @@ function initDashboard() {
   const btnRestartApp = document.getElementById('btn-restart-app');
   if (btnRestartApp) {
     btnRestartApp.addEventListener('click', async () => {
-      if (confirm('Restart the ArcadeMatrix app? The display will go blank for a few seconds.')) {
+      if (confirm(t('confirm_restart_app', 'Restart the ArcadeMatrix app? The display will go blank for a few seconds.'))) {
         try {
           await API.post('/api/system/restart');
-          window.showToast('Restarting app...', 'info');
+          window.showToast(t('toast_restarting_app', 'Restarting app...'), 'info');
         } catch (e) {
-          window.showToast('Failed to restart app', 'error');
+          window.showToast(t('toast_restart_app_failed', 'Failed to restart app'), 'error');
         }
       }
     });
@@ -777,13 +778,71 @@ function initNetworkSettings() {
   if (selUseBroker) selUseBroker.addEventListener('change', updateShowcaseBrokerVisibility);
   if (selBrokerSource) selBrokerSource.addEventListener('change', updateShowcaseBrokerVisibility);
 
+  const normalizeMdnsEndpointUrl = (raw, migrateLegacy = true) => {
+    let s = String(raw || '').trim().replace(/\/+$/, '');
+    if (!s) return '';
+    const low = s.toLowerCase();
+    if (migrateLegacy && (
+      low === 'http://192.168.1.50:8000' ||
+      low === 'http://127.0.0.1:8080' ||
+      low === 'http://dmdmediashowcase:8080' ||
+      low === 'http://dmdmediashowcase.local:8080' ||
+      low === 'http://dmdmediashowcase:8890' ||
+      low === 'http://dmdmediashowcase' ||
+      low === 'dmdmediashowcase:8890' ||
+      low === 'dmdmediashowcase'
+    )) {
+      return 'http://dmdmediashowcase.local:8890';
+    }
+    let schemePrefix = '';
+    let rest = s;
+    const schemeIdx = s.indexOf('://');
+    if (schemeIdx > 0) {
+      schemePrefix = s.slice(0, schemeIdx + 3);
+      rest = s.slice(schemeIdx + 3);
+    }
+    let auth = rest;
+    let pathSuffix = '';
+    const slashIdx = rest.indexOf('/');
+    if (slashIdx >= 0) {
+      auth = rest.slice(0, slashIdx);
+      pathSuffix = rest.slice(slashIdx);
+    }
+    let host = auth;
+    let portSuffix = '';
+    const closeBracket = auth.lastIndexOf(']');
+    const colonIdx = auth.lastIndexOf(':');
+    if (colonIdx > 0 && colonIdx > closeBracket) {
+      host = auth.slice(0, colonIdx);
+      portSuffix = auth.slice(colonIdx);
+    }
+    const hostLow = host.toLowerCase();
+    if (host && !host.includes('.') && !host.includes(':') && hostLow !== 'localhost' && hostLow !== 'auto') {
+      host = `${host}.local`;
+      return `${schemePrefix}${host}${portSuffix}${pathSuffix}`;
+    }
+    return s;
+  };
+  const normalizeShowcaseMdnsUrl = (raw, fallback = 'http://dmdmediashowcase.local:8890') => {
+    let norm = normalizeMdnsEndpointUrl(raw, true) || fallback;
+    if (!norm.startsWith('http://') && !norm.startsWith('https://')) {
+      norm = 'http://' + norm;
+    }
+    return norm;
+  };
+  window.normalizeMdnsEndpointUrl = normalizeMdnsEndpointUrl;
+  window.normalizeShowcaseMdnsUrl = normalizeShowcaseMdnsUrl;
+
   const checkShowcaseStatus = async (forceProbe = false) => {
     const badge = document.getElementById('showcase-comm-badge');
     const enEl = document.getElementById('hw-showcase-enabled');
     const urlEl = document.getElementById('hw-showcase-server-url');
     if (!badge) return;
     const enabled = enEl ? enEl.value === 'true' : !!(window.__sysConfig?.showcase?.enabled);
-    const url = (urlEl ? urlEl.value : (window.__sysConfig?.showcase?.server_url || 'http://dmdmediashowcase.local:8890')).trim() || 'http://dmdmediashowcase.local:8890';
+    const url = normalizeShowcaseMdnsUrl(urlEl ? urlEl.value : (window.__sysConfig?.showcase?.server_url || 'http://dmdmediashowcase.local:8890'));
+    if (urlEl && urlEl.value.trim() && urlEl.value.trim() !== url) {
+      urlEl.value = url;
+    }
     if (!enabled && !forceProbe) {
       badge.textContent = t('showcase_status_disabled', '⚪ Disabled');
       badge.style.background = 'rgba(255,255,255,0.08)';
@@ -841,14 +900,19 @@ function initNetworkSettings() {
   if (btnSaveShowcase) {
     btnSaveShowcase.addEventListener('click', async () => {
       const enabled = document.getElementById('hw-showcase-enabled')?.value === 'true';
-      const server_url = (document.getElementById('hw-showcase-server-url').value || '').trim() || 'http://dmdmediashowcase.local:8890';
+      const urlInputEl = document.getElementById('hw-showcase-server-url');
+      const customUrlEl = document.getElementById('hw-showcase-custom-url');
+      const server_url = window.normalizeShowcaseMdnsUrl(urlInputEl ? urlInputEl.value : '');
+      const mqtt_custom_url = window.normalizeMdnsEndpointUrl(customUrlEl ? customUrlEl.value : '', false);
+      if (urlInputEl) urlInputEl.value = server_url;
+      if (customUrlEl && mqtt_custom_url) customUrlEl.value = mqtt_custom_url;
       const showcase = {
         enabled,
         server_url,
         transport_mode: document.getElementById('hw-showcase-transport-mode').value,
         use_showcase_broker: document.getElementById('hw-showcase-use-broker').value === 'true',
         mqtt_broker_source: document.getElementById('hw-showcase-broker-source').value,
-        mqtt_custom_url: (document.getElementById('hw-showcase-custom-url').value || '').trim(),
+        mqtt_custom_url,
       };
       try {
         await API.post('/api/system', { showcase });
@@ -1031,12 +1095,22 @@ async function initSettings() {
 
     // DMD Media Showcase (nested showcase.*)
     const showcase = cfg.showcase || {};
+    const normScUrl = typeof window.normalizeShowcaseMdnsUrl === 'function'
+      ? window.normalizeShowcaseMdnsUrl(showcase.server_url)
+      : (showcase.server_url || 'http://dmdmediashowcase.local:8890');
+    const normCustomMqtt = typeof window.normalizeMdnsEndpointUrl === 'function'
+      ? window.normalizeMdnsEndpointUrl(showcase.mqtt_custom_url || '', false)
+      : (showcase.mqtt_custom_url || '');
+    if (cfg.showcase) {
+      cfg.showcase.server_url = normScUrl;
+      cfg.showcase.mqtt_custom_url = normCustomMqtt;
+    }
     setVal('hw-showcase-enabled', showcase.enabled ? 'true' : 'false');
-    setVal('hw-showcase-server-url', showcase.server_url || 'http://dmdmediashowcase.local:8890');
+    setVal('hw-showcase-server-url', normScUrl);
     setVal('hw-showcase-transport-mode', showcase.transport_mode || 'mqtt_udp');
     setVal('hw-showcase-use-broker', showcase.use_showcase_broker !== undefined ? (showcase.use_showcase_broker ? 'true' : 'false') : 'true');
     setVal('hw-showcase-broker-source', showcase.mqtt_broker_source || 'global');
-    setVal('hw-showcase-custom-url', showcase.mqtt_custom_url || '');
+    setVal('hw-showcase-custom-url', normCustomMqtt);
     if (typeof window.updateShowcaseBrokerVisibility === 'function') {
       window.updateShowcaseBrokerVisibility();
     }

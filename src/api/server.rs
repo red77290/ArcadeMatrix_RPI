@@ -148,9 +148,21 @@ async fn post_system(
         }
     }
     if let Some(sc) = body.get("showcase") {
-        if let Ok(sc_val) =
+        if let Ok(mut sc_val) =
             serde_json::from_value::<crate::core::config::ShowcaseConfig>(sc.clone())
         {
+            let norm_url = crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                &sc_val.server_url,
+                true,
+            );
+            if !norm_url.is_empty() {
+                sc_val.server_url = norm_url;
+            }
+            sc_val.mqtt_custom_url =
+                crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                    &sc_val.mqtt_custom_url,
+                    false,
+                );
             s.showcase = sc_val;
         }
     }
@@ -1538,14 +1550,15 @@ async fn get_showcase_status(
         );
     }
     let enabled = query.enabled.unwrap_or(cfg_enabled);
-    let raw_url = query
+    let raw_input_url = query
         .url
         .as_deref()
         .map(str::trim)
         .filter(|u| !u.is_empty())
         .unwrap_or(cfg_url.as_str())
-        .trim_end_matches('/')
-        .to_string();
+        .trim_end_matches('/');
+    let raw_url =
+        crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(raw_input_url, true);
     let force_probe = query.force.unwrap_or(false);
 
     if (!enabled && !force_probe) || raw_url.is_empty() {

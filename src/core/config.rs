@@ -564,19 +564,31 @@ impl Config {
             needs_save = true;
         }
 
+        // Normalize bare single-label LAN hostnames (e.g. `http://dmdmediashowcase:8890` from v1.0.0) to `.local`
+        let norm_sc_url = crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+            &settings.showcase.server_url,
+            true,
+        );
+        if !norm_sc_url.is_empty() && norm_sc_url != settings.showcase.server_url {
+            settings.showcase.server_url = norm_sc_url;
+            needs_save = true;
+        }
+        let norm_custom_mqtt =
+            crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                &settings.showcase.mqtt_custom_url,
+                false,
+            );
+        if norm_custom_mqtt != settings.showcase.mqtt_custom_url {
+            settings.showcase.mqtt_custom_url = norm_custom_mqtt;
+            needs_save = true;
+        }
+
         // Auto-migrate legacy per-engine showcase settings if system showcase settings are still default
         if settings.showcase.server_url == "http://192.168.1.50:8000"
             || settings.showcase.server_url == "http://127.0.0.1:8080"
             || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
             || settings.showcase.server_url == "http://dmdmediashowcase.local:8890"
         {
-            if settings.showcase.server_url == "http://192.168.1.50:8000"
-                || settings.showcase.server_url == "http://127.0.0.1:8080"
-                || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
-            {
-                settings.showcase.server_url = "http://dmdmediashowcase.local:8890".to_string();
-                needs_save = true;
-            }
             for inst in &settings.instances {
                 if [
                     "retro_games",
@@ -587,13 +599,14 @@ impl Config {
                 .contains(&inst.engine_id.as_str())
                 {
                     if let Some(url) = inst.config.get("server_url") {
-                        if !url.trim().is_empty()
-                            && url != "http://192.168.1.50:8000"
-                            && url != "http://127.0.0.1:8080"
-                            && url != "http://dmdmediashowcase.local:8080"
-                            && url != "http://dmdmediashowcase.local:8890"
+                        let norm_inst_url =
+                            crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                                url, true,
+                            );
+                        if !norm_inst_url.is_empty()
+                            && norm_inst_url != "http://dmdmediashowcase.local:8890"
                         {
-                            settings.showcase.server_url = url.clone();
+                            settings.showcase.server_url = norm_inst_url;
                             settings.showcase.enabled = true;
                             if let Some(tm) = inst.config.get("transport_mode") {
                                 settings.showcase.transport_mode = tm.clone();
@@ -605,7 +618,10 @@ impl Config {
                                 settings.showcase.mqtt_broker_source = bs.clone();
                             }
                             if let Some(cu) = inst.config.get("mqtt_custom_url") {
-                                settings.showcase.mqtt_custom_url = cu.clone();
+                                settings.showcase.mqtt_custom_url =
+                                    crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                                        cu, false,
+                                    );
                             }
                             needs_save = true;
                             break;

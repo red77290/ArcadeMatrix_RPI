@@ -337,7 +337,87 @@ impl ShowcaseConfig {
     }
 }
 
-/// Extract `(host, port)` from an HTTP or MQTT URL string.
+/// Normalize a bare single-label LAN hostname (e.g. `"dmdmediashowcase"` or `"mosquitto"`)
+/// to its `.local` mDNS form while leaving IPv4/IPv6 literals, `localhost`, and FQDNs untouched.
+pub fn normalize_mdns_hostname(host: &str) -> String {
+    let trimmed = host.trim().trim_end_matches('.');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return "dmdmediashowcase.local".to_string();
+    }
+    if !trimmed.contains('.')
+        && !trimmed.contains(':')
+        && !trimmed.starts_with('[')
+        && !trimmed.eq_ignore_ascii_case("localhost")
+    {
+        return format!("{}.local", trimmed);
+    }
+    trimmed.to_string()
+}
+
+/// Normalize an HTTP or MQTT endpoint URL, migrating legacy v1.0.0 Showcase URLs
+/// (e.g. `"http://dmdmediashowcase:8890"`) and appending `.local` to single-label LAN hosts.
+pub fn normalize_mdns_endpoint_url(raw_url: &str, migrate_showcase_legacy: bool) -> String {
+    let trimmed = raw_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if migrate_showcase_legacy {
+        let low = trimmed.to_ascii_lowercase();
+        if matches!(
+            low.as_str(),
+            "http://192.168.1.50:8000"
+                | "http://127.0.0.1:8080"
+                | "http://dmdmediashowcase:8080"
+                | "http://dmdmediashowcase.local:8080"
+                | "http://dmdmediashowcase:8890"
+                | "http://dmdmediashowcase"
+                | "dmdmediashowcase:8890"
+                | "dmdmediashowcase"
+        ) {
+            return "http://dmdmediashowcase.local:8890".to_string();
+        }
+    }
+
+    let (scheme_prefix, rest) = if let Some(idx) = trimmed.find("://") {
+        (&trimmed[..idx + 3], &trimmed[idx + 3..])
+    } else {
+        ("", trimmed)
+    };
+    let (auth, path_suffix) = if let Some(slash_idx) = rest.find('/') {
+        (&rest[..slash_idx], &rest[slash_idx..])
+    } else {
+        (rest, "")
+    };
+    let close_bracket = auth.rfind(']');
+    let (host, port_suffix) = if let Some(colon_idx) = auth.rfind(':') {
+        if colon_idx > 0 && close_bracket.is_none_or(|b| colon_idx > b) {
+            (&auth[..colon_idx], &auth[colon_idx..])
+        } else {
+            (auth, "")
+        }
+    } else {
+        (auth, "")
+    };
+
+    if !host.is_empty()
+        && !host.contains('.')
+        && !host.contains(':')
+        && !host.eq_ignore_ascii_case("localhost")
+        && !host.eq_ignore_ascii_case("auto")
+    {
+        return format!(
+            "{}{}.local{}{}",
+            scheme_prefix, host, port_suffix, path_suffix
+        );
+    }
+    trimmed.to_string()
+}
+
+/// Extract `(host, port)` from an HTTP or MQTT URL string, normalizing bare single-label
+/// LAN hostnames (e.g. `http://dmdmediashowcase:8890`) to `.local` (`dmdmediashowcase.local`).
 pub fn parse_host_and_port(raw_url: &str, default_port: u16) -> Option<(String, u16)> {
     let trimmed = raw_url.trim();
     if trimmed.is_empty() {
@@ -353,13 +433,15 @@ pub fn parse_host_and_port(raw_url: &str, default_port: u16) -> Option<(String, 
     if authority.is_empty() {
         return None;
     }
+    let close_bracket = authority.rfind(']');
     if let Some((h, p_str)) = authority.rsplit_once(':') {
-        if !h.is_empty() {
+        let colon_pos = h.len();
+        if !h.is_empty() && close_bracket.is_none_or(|b| colon_pos > b) {
             let port = p_str.parse::<u16>().unwrap_or(default_port);
-            return Some((h.to_string(), port));
+            return Some((normalize_mdns_hostname(h), port));
         }
     }
-    Some((authority.to_string(), default_port))
+    Some((normalize_mdns_hostname(authority), default_port))
 }
 
 fn skip_dns_name(packet: &[u8], mut offset: usize) -> Option<usize> {
@@ -758,7 +840,7 @@ pub fn discover_showcase_on_lan(port: u16) -> Option<String> {
 /// Send a fast RFC 6762 UDP multicast DNS `A` query to `224.0.0.251:5353` for `.local` hostnames
 /// so `dmdmediashowcase.local` resolves reliably in <120ms without blocking on OS DNS timeouts.
 pub fn query_mdns_ipv4(hostname: &str, port: u16) -> Option<String> {
-    let clean = hostname.trim().trim_end_matches('.').to_ascii_lowercase();
+    let clean = normalize_mdns_hostname(hostname).to_ascii_lowercase();
     if !clean.ends_with(".local") {
         return None;
     }
@@ -870,7 +952,8 @@ pub fn resolve_showcase_host(host: &str) -> String {
 }
 
 pub fn resolve_showcase_host_with_port(host: &str, port: u16) -> String {
-    let trimmed = host.trim();
+    let normalized = normalize_mdns_hostname(host);
+    let trimmed = normalized.as_str();
     if trimmed.is_empty() || !trimmed.to_ascii_lowercase().ends_with(".local") {
         return trimmed.to_string();
     }
@@ -2120,8 +2203,12 @@ impl MediaShowcaseRunner {
             Err(_) => return,
         };
         let local_udp_port = udp_socket.local_addr().map(|a| a.port()).unwrap_or(5568);
+        let hello_pkt = format!("DMDH|{}|{}", dmd_id, local_ip);
+        let _ = udp_socket.send_to(hello_pkt.as_bytes(), (mqtt_host.as_str(), 5569));
 
         let conn_seq = MQTT_CONN_SEQ.fetch_add(1, Ordering::Relaxed) % 10_000;
+        let pump_mqtt_host = mqtt_host.clone();
+        let pump_dmd_id = dmd_id.clone();
         let mut mqtt_opts =
             MqttOptions::new(format!("{}_{}", dmd_id, conn_seq), mqtt_host, mqtt_port);
         mqtt_opts.set_keep_alive(Duration::from_secs(15));
@@ -2282,6 +2369,9 @@ impl MediaShowcaseRunner {
                         }
                     }
                     if let Some(item_id) = start_stream_id {
+                        let hello_pkt = format!("DMDH|{}|{}", pump_dmd_id, pump_local_ip);
+                        let _ = udp_socket
+                            .send_to(hello_pkt.as_bytes(), (pump_mqtt_host.as_str(), 5569));
                         info!(
                             "[Showcase:{}] --> MQTT 'start_stream' item_id='{}' (UDP {}:{})",
                             slug, item_id, pump_local_ip, local_udp_port
@@ -4400,5 +4490,44 @@ mod tests {
         assert_eq!(id_b.len(), 6);
         assert_ne!(id_a, id_b);
         assert!(extract_cpuinfo_serial("Serial : 0000000000000000\n").is_none());
+    }
+
+    #[test]
+    fn test_normalize_mdns_hostname_and_endpoint_url() {
+        assert_eq!(
+            normalize_mdns_hostname("dmdmediashowcase"),
+            "dmdmediashowcase.local"
+        );
+        assert_eq!(normalize_mdns_hostname("auto"), "dmdmediashowcase.local");
+        assert_eq!(normalize_mdns_hostname("localhost"), "localhost");
+        assert_eq!(normalize_mdns_hostname("192.168.1.22"), "192.168.1.22");
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://dmdmediashowcase:8890", true),
+            "http://dmdmediashowcase.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://dmdmediashowcase:8080", true),
+            "http://dmdmediashowcase.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://mybox:8890", false),
+            "http://mybox.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("mqtt://mosquitto:1883", false),
+            "mqtt://mosquitto.local:1883"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://192.168.1.22:8890", true),
+            "http://192.168.1.22:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://localhost:8890", false),
+            "http://localhost:8890"
+        );
+        assert_eq!(
+            parse_host_and_port("http://dmdmediashowcase:8890", 8890),
+            Some(("dmdmediashowcase.local".to_string(), 8890))
+        );
     }
 }

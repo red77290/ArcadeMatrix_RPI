@@ -62,40 +62,40 @@
             <button id="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
             <h1 data-i18n="nav_dashboard">Dashboard</h1>
           </div>
-          <div id="status-badge" class="status-badge online">● Online</div>
+          <div id="status-badge" class="status-badge online" data-i18n="dash_status_online">● Online</div>
         </header>
 
         <div class="dashboard-grid">
           <!-- Power Control Card -->
           <div class="card glass shadow">
-            <h3>Matrix Power</h3>
+            <h3 data-i18n="dash_power_title">Matrix Power</h3>
             <div class="power-toggle-container">
-              <button id="btn-power-toggle" class="btn btn-power-on">Turn Panel OFF</button>
+              <button id="btn-power-toggle" class="btn btn-power-on" data-i18n="dash_power_off_btn">Turn Panel OFF</button>
             </div>
             <div class="slider-group" style="margin-top: 1.5rem;">
-              <label>Matrix Brightness (<span id="val-brightness">40</span>%)</label>
+              <label><span data-i18n="dash_brightness">Matrix Brightness</span> (<span id="val-brightness">40</span>%)</label>
               <input type="range" id="slider-brightness" min="1" max="100" value="40">
             </div>
           </div>
 
           <!-- System Metrics Grid -->
           <div class="card glass shadow">
-            <h3>System Metrics</h3>
+            <h3 data-i18n="dash_metrics_title">System Metrics</h3>
             <div class="metrics-grid">
               <div class="metric-box">
-                <div class="metric-label">CPU Load</div>
+                <div class="metric-label" data-i18n="dash_cpu">CPU Load</div>
                 <div class="metric-val" id="metric-cpu">-- %</div>
               </div>
               <div class="metric-box">
-                <div class="metric-label">Temperature</div>
+                <div class="metric-label" data-i18n="dash_temp">Temperature</div>
                 <div class="metric-val" id="metric-temp">-- °C</div>
               </div>
               <div class="metric-box">
-                <div class="metric-label">RAM Memory</div>
+                <div class="metric-label" data-i18n="dash_ram">RAM Memory</div>
                 <div class="metric-val" id="metric-ram">-- MB</div>
               </div>
               <div class="metric-box">
-                <div class="metric-label">Disk Storage</div>
+                <div class="metric-label" data-i18n="dash_disk">Disk Storage</div>
                 <div class="metric-val" id="metric-disk">-- GB</div>
               </div>
             </div>
@@ -103,11 +103,11 @@
 
           <!-- Quick Actions -->
           <div class="card glass shadow">
-            <h3>System Control</h3>
+            <h3 data-i18n="dash_control_title">System Control</h3>
             <div class="action-buttons">
-              <button id="btn-reboot" class="btn btn-warning">Reboot System</button>
-              <button id="btn-restart-app" class="btn btn-primary" style="margin-left: 0.5rem;">Restart App</button>
-              <button id="btn-shutdown" class="btn btn-danger">Shutdown</button>
+              <button id="btn-reboot" class="btn btn-warning" data-i18n="dash_reboot_btn">Reboot System</button>
+              <button id="btn-restart-app" class="btn btn-primary" style="margin-left: 0.5rem;" data-i18n="dash_restart_btn">Restart App</button>
+              <button id="btn-shutdown" class="btn btn-danger" data-i18n="dash_shutdown_btn">Shutdown</button>
             </div>
           </div>
         </div>
@@ -158,14 +158,14 @@
             </div>
             <div class="gif-fm-pane">
               <div style="display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; flex-wrap: wrap;">
-                <div><strong id="gif-fm-title">Select a folder</strong> <span id="gif-fm-count" class="text-muted" style="font-size: 0.85rem;"></span></div>
+                <div><strong id="gif-fm-title" data-i18n="gifs_select_folder">Select a folder</strong> <span id="gif-fm-count" class="text-muted" style="font-size: 0.85rem;"></span></div>
                 <span id="gif-fm-folder-actions" style="display: none;">
                   <button id="gif-fm-rename-folder" class="btn" style="padding: 0.2rem 0.6rem;" data-i18n="gifs_rename">Rename</button>
                   <button id="gif-fm-delete-folder" class="btn btn-danger" style="padding: 0.2rem 0.6rem; margin-left: 0.3rem;" data-i18n="gifs_delete_folder">Delete folder</button>
                 </span>
               </div>
               <div id="gif-fm-drop" class="drop-zone" style="margin-top: 0.6rem; padding: 0.9rem; border: 2px dashed rgba(255,255,255,0.2); border-radius: 8px; text-align: center; cursor: pointer;">
-                <div class="drop-text" style="font-size: 0.9rem;"><span data-i18n="gifs_drop_text_pre">Drop files here for</span> <span id="gif-fm-drop-target">the selected folder</span><span data-i18n="gifs_drop_text_post">, or drop folders to create playlists</span></div>
+                <div class="drop-text" style="font-size: 0.9rem;"><span data-i18n="gifs_drop_text_pre">Drop files here for</span> <span id="gif-fm-drop-target" data-i18n="gifs_drop_target_default">the selected folder</span><span data-i18n="gifs_drop_text_post">, or drop folders to create playlists</span></div>
                 <div class="text-muted" style="font-size: 0.8rem; margin-top: 0.25rem;"><span data-i18n="gifs_browse_files">click to browse files</span> · <a href="#" id="gif-fm-pick-dir" data-i18n="gifs_browse_folder">browse for a folder</a></div>
                 <input type="file" id="gif-fm-files-input" accept=".gif,.png,.raw,image/gif,image/png" multiple style="display: none;">
                 <input type="file" id="gif-fm-dir-input" webkitdirectory directory multiple style="display: none;">
@@ -212,42 +212,42 @@
           </div>
         </header>
         <div class="card glass shadow">
-          <h3>Custom Marquee Message</h3>
+          <h3 data-i18n="msg_card_title">Custom Marquee Message</h3>
           <div class="form-group">
-            <label>Text</label>
-            <input type="text" id="msg-input" class="input" placeholder="Type text to scroll...">
+            <label data-i18n="msg_text_label">Text</label>
+            <input type="text" id="msg-input" class="input" placeholder="Type text to scroll..." data-i18n-placeholder="msg_text_ph">
           </div>
           <div class="form-grid col-3" style="margin-top: 1rem;">
             <div class="form-group">
-              <label>Color (Hex)</label>
+              <label data-i18n="msg_color_label">Color (Hex)</label>
               <input type="color" id="msg-color" class="input" value="#ffffff" style="height: 42px; padding: 0.2rem;">
             </div>
             <div class="form-group">
-              <label>Size (Scale)</label>
+              <label data-i18n="msg_size_label">Size (Scale)</label>
               <input type="number" id="msg-size" class="input" value="1" min="1" max="5">
             </div>
             <div class="form-group">
-              <label>Direction</label>
+              <label data-i18n="msg_dir_label">Direction</label>
               <select id="msg-direction" class="input">
-                <option value="rtl">Right to Left (RTL)</option>
-                <option value="ltr">Left to Right (LTR)</option>
-                <option value="ttb">Top to Bottom (TTB)</option>
-                <option value="btt">Bottom to Top (BTT)</option>
-                <option value="static">Static (No Scroll)</option>
+                <option value="rtl" data-i18n="dir_rtl">Right to Left (RTL)</option>
+                <option value="ltr" data-i18n="dir_ltr">Left to Right (LTR)</option>
+                <option value="ttb" data-i18n="dir_ttb">Top to Bottom (TTB)</option>
+                <option value="btt" data-i18n="dir_btt">Bottom to Top (BTT)</option>
+                <option value="static" data-i18n="dir_static">Static (No Scroll)</option>
               </select>
             </div>
           </div>
           <div class="form-grid col-2" style="margin-top: 1rem;">
             <div class="form-group">
-              <label>Speed (Higher = Slower)</label>
+              <label data-i18n="msg_speed_label">Speed (Higher = Slower)</label>
               <input type="number" id="msg-speed" class="input" value="30">
             </div>
             <div class="form-group">
-              <label>Timeout (Seconds)</label>
+              <label data-i18n="msg_timeout_label">Timeout (Seconds)</label>
               <input type="number" id="msg-timeout" class="input" value="10">
             </div>
           </div>
-          <button id="btn-send-message" class="btn btn-primary" style="margin-top: 1.5rem;">Send to Matrix 🚀</button>
+          <button id="btn-send-message" class="btn btn-primary" style="margin-top: 1.5rem;" data-i18n="msg_send_btn">Send to Matrix 🚀</button>
         </div>
       </section>
 
@@ -305,17 +305,17 @@
                 <div class="form-group">
                   <label data-i18n="slot_transition_label">Between Rotation Slots</label>
                   <select id="sys-slot-transition" class="input">
-                    <option value="none">Instant Cut (None)</option>
-                    <option value="wipe">Wipe Across</option>
-                    <option value="curtain">Curtain</option>
-                    <option value="shutter">Shutter</option>
-                    <option value="dissolve">Dissolve</option>
-                    <option value="checker">Checkerboard</option>
-                    <option value="matrix">Matrix Rain</option>
-                    <option value="slide">Smooth Slide</option>
-                    <option value="zoom">Tunnel Zoom</option>
-                    <option value="glitch">Cyberpunk Glitch</option>
-                    <option value="random">Random (Every slot)</option>
+                    <option value="none" data-i18n="hw_trans_none">Instant Cut (None)</option>
+                    <option value="wipe" data-i18n="slot_trans_wipe">Wipe Across</option>
+                    <option value="curtain" data-i18n="slot_trans_curtain">Curtain</option>
+                    <option value="shutter" data-i18n="slot_trans_shutter">Shutter</option>
+                    <option value="dissolve" data-i18n="slot_trans_dissolve">Dissolve</option>
+                    <option value="checker" data-i18n="slot_trans_checker">Checkerboard</option>
+                    <option value="matrix" data-i18n="hw_trans_matrix">Matrix Rain</option>
+                    <option value="slide" data-i18n="hw_trans_slide">Smooth Slide</option>
+                    <option value="zoom" data-i18n="hw_trans_zoom">Tunnel Zoom</option>
+                    <option value="glitch" data-i18n="hw_trans_glitch">Cyberpunk Glitch</option>
+                    <option value="random" data-i18n="slot_trans_random">Random (Every slot)</option>
                   </select>
                 </div>
                 <div class="form-group">
@@ -390,25 +390,25 @@
             <h3 data-i18n="hw_matrix_title">Matrix Hardware Configuration</h3>
             <div class="form-grid col-4">
               <div class="form-group">
-                <label>Rows (Height)</label>
+                <label data-i18n="hw_rows">Rows (Height)</label>
                 <input type="number" id="hw-rows" class="input" value="32">
               </div>
               <div class="form-group">
-                <label>Cols (Width)</label>
+                <label data-i18n="hw_cols">Cols (Width)</label>
                 <input type="number" id="hw-cols" class="input" value="64">
               </div>
               <div class="form-group">
-                <label>Chain Length <span class="tooltip-icon" data-i18n-tooltip="tt_hw_chain">?</span></label>
+                <label><span data-i18n="hw_chain">Chain Length</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_chain">?</span></label>
                 <input type="number" id="hw-chain" class="input" value="1">
               </div>
               <div class="form-group">
-                <label>Parallel Chains <span class="tooltip-icon" data-i18n-tooltip="tt_hw_parallel">?</span></label>
+                <label><span data-i18n="hw_parallel">Parallel Chains</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_parallel">?</span></label>
                 <input type="number" id="hw-parallel" class="input" value="1">
               </div>
             </div>
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Matrix Driver Chip <span class="tooltip-icon" data-tooltip="Select hardware LED driver chip (Standard SHIFTREG, FM6124/FM6126A, ICN2038S, MBI5124, SM16208)">?</span></label>
+                <label><span data-i18n="hw_driver_chip">Matrix Driver Chip</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_driver_chip">?</span></label>
                 <select id="hw-driver-chip" class="input">
                   <option value="SHIFTREG">Standard (SHIFTREG)</option>
                   <option value="FM6126A">FM6124 / FM6126A</option>
@@ -418,7 +418,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>HAT / Mapping <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
+                <label><span data-i18n="hw_mapping">HAT / Mapping</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_mapping">?</span></label>
                 <select id="hw-mapping" class="input">
                   <option value="regular">Regular</option>
                   <option value="regular-pi1">Regular Pi1</option>
@@ -428,7 +428,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>RGB Sequence <span class="tooltip-icon" data-i18n-tooltip="tt_hw_rgb">?</span></label>
+                <label><span data-i18n="hw_rgb">RGB Sequence</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_rgb">?</span></label>
                 <select id="hw-rgb" class="input">
                   <option value="RGB">RGB</option>
                   <option value="RBG">RBG</option>
@@ -439,7 +439,7 @@
                 </select>
               </div>
               <div class="form-group">
-                <label>Row Addr Type <span class="tooltip-icon" data-tooltip="Default 0. Set to 1 for AB, 2 for direct, 3 for ABC, 4 for ShiftReg. Used for complex P2 panels.">?</span></label>
+                <label><span data-i18n="hw_row_addr_type">Row Addr Type</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_row_addr">?</span></label>
                 <select id="hw-row-addr-type" class="input">
                   <option value="0">0 - Direct Binary (Default)</option>
                   <option value="1">1 - Direct 16 Lines (AB)</option>
@@ -451,29 +451,29 @@
             </div>
             <div class="form-grid col-4" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Multiplexing <span class="tooltip-icon" data-tooltip="Default 0. 1=Stripe, 2=Checkered. Useful for indoor panels.">?</span></label>
+                <label><span data-i18n="hw_multiplexing">Multiplexing</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_multiplexing">?</span></label>
                 <input type="number" id="hw-multiplexing" class="input" value="0" min="0" max="17">
               </div>
               <div class="form-group">
-                <label>Slowdown GPIO <span class="tooltip-icon" data-tooltip="Slowdown for fast Pi CPUs (Pi 3=1, Pi 4=2, Pi 5=4)">?</span></label>
+                <label><span data-i18n="hw_slowdown">Slowdown GPIO</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_slowdown">?</span></label>
                 <input type="number" id="hw-slowdown" class="input" value="1" min="0" max="5">
               </div>
               <div class="form-group">
-                <label>PWM Bits <span class="tooltip-icon" data-tooltip="Color depth (1-11)">?</span></label>
+                <label><span data-i18n="hw_pwm_bits">PWM Bits</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_bits">?</span></label>
                 <input type="number" id="hw-pwm-bits" class="input" value="11" min="1" max="11">
               </div>
               <div class="form-group">
-                <label>PWM LSB (ns) <span class="tooltip-icon" data-tooltip="LSB pulse width (130 default)">?</span></label>
+                <label><span data-i18n="hw_pwm_lsb">PWM LSB (ns)</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pwm_lsb">?</span></label>
                 <input type="number" id="hw-pwm-lsb" class="input" value="130" min="50" max="3000">
               </div>
             </div>
             <div class="form-grid col-2" style="margin-top: 1rem;">
               <div class="form-group">
-                <label>Limit Refresh (Hz) <span class="tooltip-icon" data-tooltip="Max refresh rate in Hz (0 = unlimited)">?</span></label>
+                <label><span data-i18n="hw_limit_refresh">Limit Refresh (Hz)</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_limit_refresh">?</span></label>
                 <input type="number" id="hw-limit-refresh" class="input" value="0" min="0" max="500">
               </div>
               <div class="form-group">
-                <label>Disable Hardware Pulsing <span class="tooltip-icon" data-tooltip="Enable if DMA saturates internal Wi-Fi or audio glitches">?</span></label>
+                <label><span data-i18n="hw_disable_pulsing">Disable Hardware Pulsing</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_disable_pulsing">?</span></label>
                 <div style="display: flex; align-items: center; height: 100%;">
                   <label class="switch">
                     <input type="checkbox" id="hw-disable-pulsing">
@@ -494,7 +494,7 @@
                 </select>
               </div>
             </div>
-            <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;">💾 Save Hardware Settings</button>
+            <button id="btn-save-hw" class="btn btn-primary" style="margin-top: 1.5rem; width: 100%;" data-i18n="hw_save_btn">💾 Save Hardware Settings</button>
           </div>
         </div>
 
@@ -544,7 +544,7 @@
             <div class="form-grid">
               <div class="form-group">
                 <label data-i18n="wifi_ssid">SSID (Network Name)</label>
-                <input type="text" id="hw-wifi-ssid" class="input" placeholder="Your Network">
+                <input type="text" id="hw-wifi-ssid" class="input" placeholder="Your Network" data-i18n-placeholder="ph_your_network">
               </div>
               <div class="form-group">
                 <label data-i18n="wifi_pass">Password</label>
@@ -598,11 +598,11 @@
               <div class="form-grid" style="margin-top: 1rem;">
                 <div class="form-group">
                   <label data-i18n="mqtt_user">Username</label>
-                  <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional">
+                  <input type="text" id="hw-mqtt-user" class="input" placeholder="Optional" data-i18n-placeholder="ph_optional">
                 </div>
                 <div class="form-group">
                   <label data-i18n="mqtt_pass">Password</label>
-                  <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional">
+                  <input type="password" id="hw-mqtt-pass" class="input" placeholder="Optional" data-i18n-placeholder="ph_optional">
                 </div>
               </div>
 
@@ -663,11 +663,11 @@
                     <div class="form-group">
                       <label data-i18n="fsync_card_layout">Card Layout</label>
                       <select id="hw-mqtt-card-layout" class="input">
-                        <option value="classic_split">Classic Split (Poster Left)</option>
-                        <option value="poster_right">Poster Right</option>
-                        <option value="badge_header">Badge Header</option>
-                        <option value="hero_banner">Hero Banner</option>
-                        <option value="minimal_arcade">Minimal Arcade</option>
+                        <option value="classic_split" data-i18n="fsync_layout_classic_split">Classic Split (Poster Left)</option>
+                        <option value="poster_right" data-i18n="fsync_layout_poster_right">Poster Right</option>
+                        <option value="badge_header" data-i18n="fsync_layout_badge_header">Badge Header</option>
+                        <option value="hero_banner" data-i18n="fsync_layout_hero_banner">Hero Banner</option>
+                        <option value="minimal_arcade" data-i18n="fsync_layout_minimal_arcade">Minimal Arcade</option>
                       </select>
                     </div>
                   </div>
@@ -675,19 +675,19 @@
                     <div class="form-group">
                       <label data-i18n="fsync_card_theme">Card Visual Theme</label>
                       <select id="hw-mqtt-card-theme" class="input">
-                        <option value="tinted">Tinted Accent</option>
-                        <option value="poster_wash">Poster Color Wash</option>
-                        <option value="neon_border">Neon Arcade Border</option>
-                        <option value="crt_amber">CRT Amber</option>
-                        <option value="pure_black">Pure Black OLED/DMD</option>
+                        <option value="tinted" data-i18n="fsync_theme_tinted">Tinted Accent</option>
+                        <option value="poster_wash" data-i18n="fsync_theme_poster_wash">Poster Color Wash</option>
+                        <option value="neon_border" data-i18n="fsync_theme_neon_border">Neon Arcade Border</option>
+                        <option value="crt_amber" data-i18n="fsync_theme_crt_amber">CRT Amber</option>
+                        <option value="pure_black" data-i18n="fsync_theme_pure_black">Pure Black OLED/DMD</option>
                       </select>
                     </div>
                     <div class="form-group">
                       <label data-i18n="fsync_scroll_speed">Synopsis Scroll Speed</label>
                       <select id="hw-mqtt-scroll-speed" class="input">
-                        <option value="slow">Slow</option>
-                        <option value="normal" selected>Normal</option>
-                        <option value="fast">Fast</option>
+                        <option value="slow" data-i18n="fsync_speed_slow">Slow</option>
+                        <option value="normal" data-i18n="fsync_speed_normal" selected>Normal</option>
+                        <option value="fast" data-i18n="fsync_speed_fast">Fast</option>
                       </select>
                     </div>
                   </div>
@@ -755,18 +755,18 @@
                     <div class="form-group">
                       <label data-i18n="fsync_video_mode">Video Framing Mode</label>
                       <select id="hw-mqtt-video-mode" class="input">
-                        <option value="auto_action">Auto Action Tracking</option>
-                        <option value="panorama">Smooth Panorama</option>
-                        <option value="center_crop">Center Crop</option>
+                        <option value="auto_action" data-i18n="fsync_vmode_auto">Auto Action Tracking</option>
+                        <option value="panorama" data-i18n="fsync_vmode_pano">Smooth Panorama</option>
+                        <option value="center_crop" data-i18n="fsync_vmode_crop">Center Crop</option>
                       </select>
                     </div>
                     <div class="form-group">
                       <label data-i18n="fsync_color_boost">DMD Color Boost</label>
                       <select id="hw-mqtt-color-boost" class="input">
-                        <option value="auto">Auto</option>
-                        <option value="pixel_art">Pixel Art Crisp</option>
-                        <option value="anime">Vibrant</option>
-                        <option value="cinema">Natural Cinema</option>
+                        <option value="auto" data-i18n="fsync_cboost_auto">Auto</option>
+                        <option value="pixel_art" data-i18n="fsync_cboost_pixel">Pixel Art Crisp</option>
+                        <option value="anime" data-i18n="fsync_cboost_vibrant">Vibrant</option>
+                        <option value="cinema" data-i18n="fsync_cboost_cinema">Natural Cinema</option>
                       </select>
                     </div>
                   </div>
@@ -780,9 +780,9 @@
               <h4 style="margin-top: 1.5rem;" data-i18n="recalbox_title">Recalbox / Batocera / RetroPie Sync</h4>
               <p class="text-muted" style="font-size: 0.9em;" data-i18n="recalbox_desc">Automatically install the MQTT sync scripts onto your retro-gaming console via SSH.</p>
               <div class="form-group" style="margin-top: 1rem;">
-                <label style="display:block; margin-bottom:0.35rem;">Target Gaming OS</label>
+                <label style="display:block; margin-bottom:0.35rem;" data-i18n="recalbox_target_os">Target Gaming OS</label>
                 <select id="hw-mqtt-target-os" class="input" style="font-weight: 600;">
-                  <option value="auto">Auto-Detect (Remote Scan)</option>
+                  <option value="auto" data-i18n="recalbox_os_auto">Auto-Detect (Remote Scan)</option>
                   <option value="recalbox">Recalbox (/recalbox/share)</option>
                   <option value="batocera">Batocera (/userdata/system)</option>
                   <option value="retropie">RetroPie (/opt/retropie)</option>
@@ -836,11 +836,11 @@
               <div class="form-grid" style="margin-top: 1rem;">
                 <div class="form-group">
                   <label data-i18n="mqtt_user">Username</label>
-                  <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional">
+                  <input type="text" id="hw-data-mqtt-user" class="input" placeholder="Optional" data-i18n-placeholder="ph_optional">
                 </div>
                 <div class="form-group">
                   <label data-i18n="mqtt_pass">Password</label>
-                  <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional">
+                  <input type="password" id="hw-data-mqtt-pass" class="input" placeholder="Optional" data-i18n-placeholder="ph_optional">
                 </div>
               </div>
               <button id="btn-save-data-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="data_mqtt_save_btn">Save MQTT Data</button>
@@ -923,7 +923,7 @@
                 </div>
                 <div class="form-group">
                   <label data-i18n="api_token">API Token</label>
-                  <input type="text" id="hw-api-token" class="input" placeholder="Token for clients">
+                  <input type="text" id="hw-api-token" class="input" placeholder="Token for clients" data-i18n-placeholder="ph_api_token">
                 </div>
               </div>
               <button id="btn-save-api" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="api_save_btn">Save API Auth</button>
@@ -937,7 +937,7 @@
           <div class="card glass shadow ota-card" style="margin-bottom: 1.5rem;">
             <div class="card-header-badge">
               <h3 data-i18n="ota_online_title">🌐 Online Update (GitHub Releases)</h3>
-              <span class="badge badge-accent">1-Click OTA</span>
+              <span class="badge badge-accent" data-i18n="ota_1click_badge">1-Click OTA</span>
             </div>
             <p class="text-muted" data-i18n="ota_online_desc">Check GitHub Releases for new updates matching your Raspberry Pi architecture and update automatically.</p>
 
@@ -949,7 +949,7 @@
             <div id="ota-online-card" style="display: none; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">
               <div style="display: flex; align-items: center; justify-content: space-between;">
                 <div>
-                  <span id="ota-online-badge" class="badge badge-accent">Update Available</span>
+                  <span id="ota-online-badge" class="badge badge-accent" data-i18n="ota_update_available">Update Available</span>
                   <strong id="ota-online-target-ver" style="margin-left: 0.5rem; font-size: 1.1rem;">--</strong>
                 </div>
                 <span id="ota-online-size" class="text-muted" style="font-size: 0.85rem;">15 MB</span>
@@ -959,7 +959,7 @@
 
             <div id="ota-auto-progress" class="progress-bar-container" style="display: none; margin-bottom: 1rem;">
               <div id="ota-auto-progress-fill" class="progress-bar-fill" style="width: 100%;"></div>
-              <span id="ota-auto-progress-text" class="progress-text">Downloading from GitHub & installing...</span>
+              <span id="ota-auto-progress-text" class="progress-text" data-i18n="ota_downloading_github">Downloading from GitHub & installing...</span>
             </div>
 
             <div style="display: flex; gap: 0.75rem; flex-wrap: wrap;">
@@ -976,7 +976,7 @@
           <div class="card glass shadow ota-card">
             <div class="card-header-badge">
               <h3 data-i18n="ota_manual_title">📁 Manual File Upload</h3>
-              <span class="badge">Offline / Custom</span>
+              <span class="badge" data-i18n="ota_offline_badge">Offline / Custom</span>
             </div>
             <p class="text-muted" data-i18n="ota_manual_desc">Upload a pre-compiled binary manually if your device is offline or using a custom build.</p>
 

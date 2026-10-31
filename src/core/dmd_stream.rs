@@ -1,10 +1,10 @@
-//! Shared DMD Binary Stream Codec (`DMDZ` v1/v2 & `DMDS`) and Zero-Allocation Stream Player.
+//! Shared DMD Binary Stream Codec (`DMDZ` v2 & `DMDS`) and Zero-Allocation Stream Player.
 //!
-//! Centralizes HTTP stream URL construction, unpaced `dmdz2` / `DMDS` fetching, lossless `DMDZ`
-//! (`v1` & `v2`: `FRAME_DELTA`, `FRAME_SCROLL`, `FRAME_KEY`, `FRAME_SCROLL_2D`, `FRAME_RAW`,
-//! `FRAME_PAL8` + `OP_LUMA`/`OP_TLUMA`/`OP_LZ`/`OP_TDIFF`) decoding, and monotonic wall-clock
-//! frame pacing across all 4 Showcase rotation engines (`MediaShowcaseRunner`) and
-//! `FrontendSync` (`InGameShowcaseEngine`).
+//! Centralizes HTTP stream URL construction, lossless `dmdz2` / `DMDS` fetching, 16-bit lossless
+//! `DMDZ` v2 (`FRAME_DELTA`, `FRAME_SCROLL`, `FRAME_KEY`, `FRAME_SCROLL_2D`, `FRAME_RAW` +
+//! `OP_LUMA`/`OP_TLUMA`/`OP_LZ`/`OP_TDIFF`) decoding, and monotonic wall-clock frame pacing across
+//! all 4 Showcase rotation engines (`MediaShowcaseRunner`) and `FrontendSync`
+//! (`InGameShowcaseEngine`).
 
 use crate::core::matrix::IDrawingSurface;
 use std::sync::Arc;
@@ -15,15 +15,13 @@ pub const DMDZ_MAGIC: &[u8; 4] = b"DMDZ";
 pub const DMD_STREAM_HEADER_SIZE: usize = 16;
 pub const MAX_PRELOADED_FRAMES: usize = 7_600;
 
-const MIN_DMDZ_VERSION: u8 = 1;
-const MAX_DMDZ_VERSION: u8 = 2;
+pub const DMDZ_VERSION: u8 = 2;
 
 pub const FRAME_DELTA: u8 = 0x00;
 pub const FRAME_SCROLL: u8 = 0x01;
 pub const FRAME_KEY: u8 = 0x02;
 pub const FRAME_SCROLL_2D: u8 = 0x03;
 pub const FRAME_RAW: u8 = 0x04;
-pub const FRAME_PAL8: u8 = 0x05;
 
 const TDIFF_VECS: [[i32; 3]; 8] = [
     [-1, -2, -1],
@@ -36,7 +34,7 @@ const TDIFF_VECS: [[i32; 3]; 8] = [
     [0, 2, 0],
 ];
 
-/// Parsed 16-byte `<4sBBHHHHH` container header for `DMDZ` (`v1`/`v2`) and `DMDS` streams.
+/// Parsed 16-byte `<4sBBHHHHH` container header for `DMDZ` v2 and `DMDS` streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DmdStreamHeader {
     pub is_dmdz: bool,
@@ -60,7 +58,7 @@ impl DmdStreamHeader {
             return None;
         }
         let version = raw16[4];
-        if is_dmdz && !(MIN_DMDZ_VERSION..=MAX_DMDZ_VERSION).contains(&version) {
+        if is_dmdz && version != DMDZ_VERSION {
             return None;
         }
         let fps = if raw16[5] > 0 { raw16[5] } else { 15 };
@@ -176,36 +174,24 @@ enum DecoderState {
     TLumaLo,
     LzLo,
     LzHi,
-    PalHdr,
-    PalScrollDx,
-    PalScrollDy,
-    PalTableLo,
-    PalTableHi,
-    PalOp,
-    PalLongSkipLo,
-    PalLongSkipHi,
 }
 
-/// Lossless, zero-allocation, chunk-resumable `DMDZ` (`v1` & `v2`) RGB565 stream decoder.
+/// Lossless, zero-allocation, chunk-resumable `DMDZ` v2 RGB565 stream decoder.
 ///
 /// Byte-for-byte compatible with ESP32 `core::drawing::DmdzStreamDecoder` and Python
 /// `dmdz_codec.py`, supporting arbitrary chunk boundaries down to 1 byte.
 #[derive(Debug, Clone)]
 pub struct DmdzDecoder {
     cache: [u16; 64],
-    pal: [u16; 128],
     num_pixels: usize,
     pos: usize,
     width: u16,
     height: u16,
     bytes_remaining: usize,
     last: u16,
-    version: u8,
     lit_remaining: u8,
     lo_byte: u8,
     op_header: u8,
-    pal_count: usize,
-    pal_idx: usize,
     scroll_dx: i8,
     state: DecoderState,
     error: bool,
@@ -221,19 +207,15 @@ impl DmdzDecoder {
     pub fn new() -> Self {
         Self {
             cache: [0u16; 64],
-            pal: [0u16; 128],
             num_pixels: 0,
             pos: 0,
             width: 0,
             height: 0,
             bytes_remaining: 0,
             last: 0,
-            version: 1,
             lit_remaining: 0,
             lo_byte: 0,
             op_header: 0,
-            pal_count: 0,
-            pal_idx: 0,
             scroll_dx: 0,
             state: DecoderState::FrameType,
             error: false,
@@ -255,22 +237,17 @@ impl DmdzDecoder {
         self.pos = 0;
         self.bytes_remaining = 0;
         self.last = 0;
-        self.version = if version >= 2 { 2 } else { 1 };
         self.lit_remaining = 0;
         self.lo_byte = 0;
         self.op_header = 0;
-        self.pal_count = 0;
-        self.pal_idx = 0;
         self.scroll_dx = 0;
         self.state = DecoderState::FrameType;
-        self.error =
-            self.num_pixels == 0 || !(MIN_DMDZ_VERSION..=MAX_DMDZ_VERSION).contains(&version);
+        self.error = self.num_pixels == 0 || version != DMDZ_VERSION;
         self.cache.fill(0);
-        self.pal.fill(0);
     }
 
     pub fn begin_frame(&mut self, payload_len: u16) -> bool {
-        if self.num_pixels == 0 || payload_len == 0 {
+        if self.error || self.num_pixels == 0 || payload_len == 0 {
             self.error = true;
             return false;
         }
@@ -281,11 +258,8 @@ impl DmdzDecoder {
         self.lit_remaining = 0;
         self.lo_byte = 0;
         self.op_header = 0;
-        self.pal_count = 0;
-        self.pal_idx = 0;
         self.scroll_dx = 0;
         self.state = DecoderState::FrameType;
-        self.error = false;
         true
     }
 
@@ -306,16 +280,14 @@ impl DmdzDecoder {
                         self.state = DecoderState::Op;
                     } else if b == FRAME_SCROLL {
                         self.state = DecoderState::ScrollDy;
-                    } else if self.version >= 2 && b == FRAME_SCROLL_2D {
+                    } else if b == FRAME_SCROLL_2D {
                         self.state = DecoderState::Scroll2DDx;
-                    } else if self.version >= 2 && b == FRAME_RAW {
+                    } else if b == FRAME_RAW {
                         if self.bytes_remaining != self.num_pixels * 2 {
                             self.error = true;
                             return false;
                         }
                         self.state = DecoderState::RawLo;
-                    } else if self.version >= 2 && b == FRAME_PAL8 {
-                        self.state = DecoderState::PalHdr;
                     } else {
                         self.error = true;
                         return false;
@@ -399,7 +371,7 @@ impl DmdzDecoder {
                         self.cache[Self::hash_pixel(p)] = p;
                         self.last = p;
                     } else if (0xDC..=0xDF).contains(&b) {
-                        if self.version < 2 || self.pos >= self.num_pixels {
+                        if self.pos >= self.num_pixels {
                             self.error = true;
                             return false;
                         }
@@ -416,21 +388,17 @@ impl DmdzDecoder {
                     } else if b == 0xF0 {
                         self.state = DecoderState::LongSkipLo;
                     } else if (0xF1..=0xF4).contains(&b) {
-                        if self.version < 2 || self.pos >= self.num_pixels {
+                        if self.pos >= self.num_pixels {
                             self.error = true;
                             return false;
                         }
                         self.op_header = b - 0xF1;
                         self.state = DecoderState::TLumaLo;
                     } else if b == 0xF6 || b == 0xF7 {
-                        if self.version < 2 {
-                            self.error = true;
-                            return false;
-                        }
                         self.op_header = b & 0x01;
                         self.state = DecoderState::LzLo;
                     } else if b >= 0xF8 {
-                        if self.version < 2 || self.pos >= self.num_pixels {
+                        if self.pos >= self.num_pixels {
                             self.error = true;
                             return false;
                         }
@@ -519,88 +487,6 @@ impl DmdzDecoder {
                     self.cache[Self::hash_pixel(self.last)] = self.last;
                     self.state = DecoderState::Op;
                 }
-                DecoderState::PalHdr => {
-                    let has_scroll_2d = (b & 0x80) != 0;
-                    self.pal_count = ((b & 0x7F) as usize) + 1;
-                    self.pal_idx = 0;
-                    self.state = if has_scroll_2d {
-                        DecoderState::PalScrollDx
-                    } else {
-                        DecoderState::PalTableLo
-                    };
-                }
-                DecoderState::PalScrollDx => {
-                    self.scroll_dx = b as i8;
-                    self.state = DecoderState::PalScrollDy;
-                }
-                DecoderState::PalScrollDy => {
-                    let dx = self.scroll_dx as i32;
-                    let dy = (b as i8) as i32;
-                    if !apply_scroll_2d_in_place(frame565, w, h, dx, dy) {
-                        self.error = true;
-                        return false;
-                    }
-                    self.state = DecoderState::PalTableLo;
-                }
-                DecoderState::PalTableLo => {
-                    self.lo_byte = b;
-                    self.state = DecoderState::PalTableHi;
-                }
-                DecoderState::PalTableHi => {
-                    self.pal[self.pal_idx] = (self.lo_byte as u16) | ((b as u16) << 8);
-                    self.pal_idx += 1;
-                    if self.pal_idx < self.pal_count {
-                        self.state = DecoderState::PalTableLo;
-                    } else {
-                        self.last = self.pal[0];
-                        self.state = DecoderState::PalOp;
-                    }
-                }
-                DecoderState::PalOp => {
-                    if b < 0x80 {
-                        let idx = b as usize;
-                        if idx >= self.pal_count || self.pos >= self.num_pixels {
-                            self.error = true;
-                            return false;
-                        }
-                        let p = self.pal[idx];
-                        frame565[self.pos] = p;
-                        self.pos += 1;
-                        self.last = p;
-                    } else if b <= 0xBF {
-                        let count = ((b & 0x3F) as usize) + 1;
-                        if self.pos + count > self.num_pixels {
-                            self.error = true;
-                            return false;
-                        }
-                        self.pos += count;
-                        self.last = frame565[self.pos - 1];
-                    } else if b <= 0xFE {
-                        let count = ((b - 0xC0) as usize) + 2;
-                        if self.pos + count > self.num_pixels {
-                            self.error = true;
-                            return false;
-                        }
-                        frame565[self.pos..(self.pos + count)].fill(self.last);
-                        self.pos += count;
-                    } else {
-                        self.state = DecoderState::PalLongSkipLo;
-                    }
-                }
-                DecoderState::PalLongSkipLo => {
-                    self.lo_byte = b;
-                    self.state = DecoderState::PalLongSkipHi;
-                }
-                DecoderState::PalLongSkipHi => {
-                    let count = (self.lo_byte as usize) | ((b as usize) << 8);
-                    if count == 0 || self.pos + count > self.num_pixels {
-                        self.error = true;
-                        return false;
-                    }
-                    self.pos += count;
-                    self.last = frame565[self.pos - 1];
-                    self.state = DecoderState::PalOp;
-                }
             }
         }
         true
@@ -610,7 +496,7 @@ impl DmdzDecoder {
     pub fn finish_frame(&self) -> bool {
         !self.error
             && self.bytes_remaining == 0
-            && (self.state == DecoderState::Op || self.state == DecoderState::PalOp)
+            && self.state == DecoderState::Op
             && self.pos == self.num_pixels
     }
 
@@ -623,12 +509,12 @@ impl DmdzDecoder {
     }
 }
 
-/// Internal storage backing a preloaded DMD binary stream (`DMDZ` compressed or legacy `DMDS` raw).
+/// Internal storage backing a preloaded DMD binary stream (`DMDZ` v2 compressed or legacy `DMDS` raw).
 #[derive(Debug, Clone)]
 pub enum DmdStreamStorage {
     /// Uncompressed little-endian RGB565 frames (`frame_count * width * height * 2` bytes).
     RawRgb565Le(Vec<u8>),
-    /// Lossless `DMDZ` (`v1` or `v2`) compressed stream (`[u16 payload_len][ops...]`) with
+    /// Lossless `DMDZ` v2 compressed stream (`[u16 payload_len][ops...]`) with
     /// pre-indexed byte offsets (`frame_offsets.len() == frame_count + 1`) into `payload`.
     CompressedDmdz {
         version: u8,
@@ -638,7 +524,7 @@ pub enum DmdStreamStorage {
     },
 }
 
-/// Single-allocation preloaded Showcase stream (`DMDZ` v1/v2 or legacy `DMDS` RGB565LE).
+/// Single-allocation preloaded Showcase stream (`DMDZ` v2 or legacy `DMDS` RGB565LE).
 ///
 /// Storing compressed `DMDZ` v2 directly in RAM shrinks 60s `256x64` sequences from `57.6 MB`
 /// down to `~2–4 MB` (~12x–20x smaller) while preserving 100% lossless True-RGB565 output and
@@ -845,7 +731,7 @@ fn blit_u16_rgb565_frame(buf: &[u16], width: u32, height: u32, matrix: &mut dyn 
     }
 }
 
-/// Parse a binary Showcase stream (`DMDZ` v1/v2 or legacy `DMDS` RGB565LE) into a single
+/// Parse a binary Showcase stream (`DMDZ` v2 or legacy `DMDS` RGB565LE) into a single
 /// contiguous `Arc<PreloadedDmdStream>`.
 pub fn parse_dmd_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedDmdStream>> {
     let hdr = DmdStreamHeader::parse(bytes)?;
@@ -920,25 +806,13 @@ pub fn parse_dmd_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedDmdStream>>
     }
 }
 
-/// Select the Showcase server stream profile matching the target panel geometry (`psram` vs `psram_hd`).
-#[inline]
-pub fn select_stream_profile(width: u32, height: u32) -> &'static str {
-    if (width as u64).saturating_mul(height as u64) > 8_192 {
-        "psram_hd"
-    } else {
-        "psram"
-    }
-}
-
-/// Build the canonical unpaced `dmdz2` HTTP stream URL for `dmd-media-showcase`, normalizing any
+/// Build the canonical `dmdz2` HTTP stream URL for `dmd-media-showcase`, normalizing any
 /// pre-existing query parameters while preserving optional `api_key` parameters.
 pub fn build_showcase_stream_url(
     base_url: &str,
     raw_path: &str,
     client_id: Option<&str>,
     purge: bool,
-    width: u32,
-    height: u32,
 ) -> String {
     let base = base_url.trim().trim_end_matches('/');
     let trimmed_path = raw_path.trim();
@@ -963,20 +837,18 @@ pub fn build_showcase_stream_url(
         let key = kv.split_once('=').map_or(kv, |(k, _)| k);
         if matches!(
             key.to_ascii_lowercase().as_str(),
-            "purge" | "paced" | "codec" | "profile" | "client_id" | "drop_late"
+            "purge" | "codec" | "client_id"
         ) {
             continue;
         }
         preserved_params.push(kv);
     }
 
-    let profile = select_stream_profile(width, height);
     let mut url = format!(
-        "{}{}?purge={}&paced=0&codec=dmdz2&profile={}",
+        "{}{}?purge={}&codec=dmdz2",
         base,
         clean_path,
         if purge { "true" } else { "false" },
-        profile
     );
     if let Some(cid) = client_id.map(str::trim).filter(|s| !s.is_empty()) {
         url.push_str("&client_id=");
@@ -996,14 +868,12 @@ pub fn fetch_showcase_stream(
     raw_path: &str,
     client_id: Option<&str>,
     purge: bool,
-    width: u32,
-    height: u32,
     timeout: Option<Duration>,
 ) -> Option<Arc<PreloadedDmdStream>> {
     if base_url.trim().is_empty() || raw_path.trim().is_empty() {
         return None;
     }
-    let url = build_showcase_stream_url(base_url, raw_path, client_id, purge, width, height);
+    let url = build_showcase_stream_url(base_url, raw_path, client_id, purge);
     let client = crate::core::memory::stream_http_client();
     let mut req = client.get(&url);
     if let Some(t) = timeout {
@@ -1017,7 +887,7 @@ pub fn fetch_showcase_stream(
     parse_dmd_stream_compact(&bytes)
 }
 
-/// Shared stateful zero-reallocation player for `PreloadedDmdStream` (`DMDZ` v1/v2 & `DMDS`).
+/// Shared stateful zero-reallocation player for `PreloadedDmdStream` (`DMDZ` v2 & `DMDS`).
 ///
 /// Reused 1:1 by both `MediaShowcaseRunner` (rotation Showcase engines) and
 /// `InGameShowcaseEngine` (`FrontendSync` Late Preemption):
@@ -1341,7 +1211,7 @@ mod tests {
         // 4x2 = 8 pixels stream exercising:
         // Frame 0: FRAME_RAW (0x04)
         // Frame 1: FRAME_SCROLL_2D (0x03) + OP_LUMA + OP_TLUMA + OP_LZ + OP_TDIFF
-        // Frame 2: FRAME_PAL8 (0x05) with 2D scroll + PAL_INDEX + PAL_RUN + PAL_SKIP
+        // Frame 2: FRAME_SCROLL_2D (dx=-1, dy=0) + OP_LITERAL + OP_RUN + OP_SKIP + OP_LONG_SKIP
         let w = 4u16;
         let h = 2u16;
         let p_red: u16 = 0xF800;
@@ -1388,21 +1258,27 @@ mod tests {
             expected_p3,
         ];
 
-        // Frame 2: FRAME_PAL8 with hasScroll2D (dx=-1, dy=0) + 2 palette colors [0xFFFF, 0xF81F]
-        // After dx=-1 scroll on expected_f1: [p_red, p_red, 0x0000, p_blue, p_red, p_red, 0x0000, p_blue]
-        //   pos 0: PAL_INDEX 1 (0xF81F), last = 0xF81F
-        //   pos 1..3 (3 pixels): PAL_RUN count=3 (0xC0 + 1) -> 0xF81F
-        //   pos 4..5 (2 pixels): PAL_SKIP count=2 (0x80 | 1) -> keeps [p_red, p_red]
-        //   pos 6..7 (2 pixels): PAL_LONG_SKIP count=2 (0xFF, 0x02, 0x00) -> keeps [0x0000, p_blue]
-        let mut f2 = vec![FRAME_PAL8, 0x80 | 1, (-1i8) as u8, 0u8];
-        f2.extend_from_slice(&0xFFFFu16.to_le_bytes());
+        // Frame 2: FRAME_SCROLL_2D (dx=-1, dy=0) on expected_f1 -> [p_red, p_red, 0x0000, p_blue, p_red, p_red, 0x0000, p_blue]
+        //   pos 0: OP_LITERAL count=1 (0xE0) -> 0xF81F, last = 0xF81F
+        //   pos 1..3 (3 pixels): OP_RUN count=3 (0x40 | 2) -> 0xF81F
+        //   pos 4..5 (2 pixels): OP_SKIP count=2 (0x01) -> keeps [p_red, p_red]
+        //   pos 6..7 (2 pixels): OP_LONG_SKIP count=2 (0xF0, 0x02, 0x00) -> keeps [0x0000, p_blue]
+        let mut f2 = vec![FRAME_SCROLL_2D, (-1i8) as u8, 0u8];
+        f2.push(0xE0); // OP_LITERAL 1 -> pos 1
         f2.extend_from_slice(&0xF81Fu16.to_le_bytes());
-        f2.push(1); // PAL_INDEX 1 -> pos 1
-        f2.push(0xC1); // PAL_RUN 3 -> pos 4
-        f2.push(0x81); // PAL_SKIP 2 -> pos 6
-        f2.extend_from_slice(&[0xFF, 2, 0]); // PAL_LONG_SKIP 2 -> pos 8
+        f2.push(0x42); // OP_RUN 3 -> pos 4
+        f2.push(0x01); // OP_SKIP 2 -> pos 6
+        f2.extend_from_slice(&[0xF0, 2, 0]); // OP_LONG_SKIP 2 -> pos 8
 
         let expected_f2 = [0xF81F, 0xF81F, 0xF81F, 0xF81F, p_red, p_red, 0x0000, p_blue];
+
+        // Reject legacy v1 container and unknown frame types (e.g. removed 0x05)
+        let bad_v1 = pack_dmdz_container(1, 25, w, h, 40, 0, &[f0.clone()]);
+        assert!(DmdStreamHeader::parse(&bad_v1).is_none());
+        let mut bad_dec = DmdzDecoder::new();
+        bad_dec.reset_stream(w, h, 2);
+        let mut dummy_buf = [0u16; 8];
+        assert!(!bad_dec.decode_frame(&[0x05, 0x00], &mut dummy_buf));
 
         // Verify 1-byte chunk-resumable decoding matches full-frame decoding
         let mut dec = DmdzDecoder::new();
@@ -1456,12 +1332,10 @@ mod tests {
             "/api/v1/movies/stream/pkg_movies_abc123.rgb565.stream?purge=true&api_key=sec123",
             Some("rpi_deadbe_movies_128x32"),
             false,
-            128,
-            32,
         );
         assert_eq!(
             u1,
-            "http://192.168.1.50:8890/api/v1/movies/stream/pkg_movies_abc123.rgb565.stream?purge=false&paced=0&codec=dmdz2&profile=psram&client_id=rpi_deadbe_movies_128x32&api_key=sec123"
+            "http://192.168.1.50:8890/api/v1/movies/stream/pkg_movies_abc123.rgb565.stream?purge=false&codec=dmdz2&client_id=rpi_deadbe_movies_128x32&api_key=sec123"
         );
 
         let u2 = build_showcase_stream_url(
@@ -1469,12 +1343,10 @@ mod tests {
             "/api/v1/games/stream/pkg_games_999.rgb565.stream",
             None,
             true,
-            256,
-            64,
         );
         assert_eq!(
             u2,
-            "http://192.168.1.50:8890/api/v1/games/stream/pkg_games_999.rgb565.stream?purge=true&paced=0&codec=dmdz2&profile=psram_hd"
+            "http://192.168.1.50:8890/api/v1/games/stream/pkg_games_999.rgb565.stream?purge=true&codec=dmdz2"
         );
     }
 

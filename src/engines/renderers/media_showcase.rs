@@ -1294,7 +1294,7 @@ pub struct MqttReadyPayload {
     pub card: Option<ApiShowcaseItem>,
 }
 
-/// Re-export of the unified `PreloadedDmdStream` (`DMDZ` v1/v2 compressed or legacy `DMDS` RGB565LE).
+/// Re-export of the unified `PreloadedDmdStream` (`DMDZ` v2 compressed or legacy `DMDS` RGB565LE).
 pub type PreloadedRgb565Stream = crate::core::dmd_stream::PreloadedDmdStream;
 
 /// Single Consume-Once item held only during the current rotation turn.
@@ -1436,7 +1436,7 @@ pub fn decode_rgb565_le_image(bytes: &[u8], width: u32, height: u32) -> Option<R
     Some(img)
 }
 
-/// Parse a binary Showcase stream (`DMDZ` v1/v2 or legacy `DMDS`) into a single contiguous
+/// Parse a binary Showcase stream (`DMDZ` v2 or legacy `DMDS`) into a single contiguous
 /// `Arc<PreloadedRgb565Stream>` (`PreloadedDmdStream`).
 #[inline]
 pub fn parse_rgb565_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedRgb565Stream>> {
@@ -2513,8 +2513,6 @@ impl MediaShowcaseRunner {
                                                                 &p_stream_path,
                                                                 Some(&p_dmd_id),
                                                                 false,
-                                                                width,
-                                                                height,
                                                                 Some(Duration::from_secs(25)),
                                                             )
                                                         {
@@ -2760,8 +2758,6 @@ impl MediaShowcaseRunner {
                 &stream_path,
                 Some(&dmd_id),
                 true,
-                width,
-                height,
                 Some(Duration::from_secs(25)),
             ) {
                 http_frame_delay = stream_arc.frame_delay;
@@ -3212,7 +3208,7 @@ impl MediaShowcaseRunner {
 
                 let max_cfg_dur = self.configured_max_stream_duration();
 
-                // 1. Shared `ShowcaseStreamPlayer` (`DMDZ` v1/v2 & `DMDS`) playback:
+                // 1. Shared `ShowcaseStreamPlayer` (`DMDZ` v2 & `DMDS`) playback:
                 //    Indexes frames strictly by monotonic wall-clock `phase_elapsed` (never by
                 //    drifting `Duration::ZERO` resets) and enforces the DMD's `video_max_duration_s` cap.
                 if http_frames_len > 0 {
@@ -4485,19 +4481,17 @@ mod tests {
         dmdz.extend_from_slice(&40u16.to_le_bytes());
         dmdz.extend_from_slice(&0u16.to_le_bytes());
 
-        // Frame 0: FRAME_PAL8, 1 color (pure red 0xF800), PAL_INDEX 0 + PAL_RUN 3 -> 4 red pixels
-        let mut f0 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        // Frame 0: FRAME_KEY, OP_LITERAL 1 (pure red 0xF800) + OP_RUN 3 -> 4 red pixels
+        let mut f0 = vec![crate::core::dmd_stream::FRAME_KEY, 0xE0];
         f0.extend_from_slice(&0xF800u16.to_le_bytes());
-        f0.push(0);
-        f0.push(0xC1); // run of 3 -> total 4 pixels
+        f0.push(0x42); // run of 3 -> total 4 pixels
         dmdz.extend_from_slice(&(f0.len() as u16).to_le_bytes());
         dmdz.extend_from_slice(&f0);
 
-        // Frame 1: FRAME_PAL8, 1 color (pure green 0x07E0), PAL_INDEX 0 + PAL_RUN 3 -> 4 green pixels
-        let mut f1 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        // Frame 1: FRAME_KEY, OP_LITERAL 1 (pure green 0x07E0) + OP_RUN 3 -> 4 green pixels
+        let mut f1 = vec![crate::core::dmd_stream::FRAME_KEY, 0xE0];
         f1.extend_from_slice(&0x07E0u16.to_le_bytes());
-        f1.push(0);
-        f1.push(0xC1);
+        f1.push(0x42);
         dmdz.extend_from_slice(&(f1.len() as u16).to_le_bytes());
         dmdz.extend_from_slice(&f1);
 

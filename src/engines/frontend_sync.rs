@@ -643,7 +643,7 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
             return;
         }
 
-        // Download compact lossless `DMDZ` v2 stream (`purge=false&paced=0&codec=dmdz2`, with automatic
+        // Download compact lossless `DMDZ` v2 stream (`purge=false&codec=dmdz2`, with automatic
         // `DMDS` fallback) so alternating/loop cycles replay locally from RAM with 0 network load.
         let stream_path = format!("/api/v1/games/stream/{}.rgb565.stream", item_id);
         let Some(stream) = crate::core::dmd_stream::fetch_showcase_stream(
@@ -651,8 +651,6 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
             &stream_path,
             Some(&sync_client_id),
             false,
-            width,
-            height,
             Some(Duration::from_secs(20)),
         ) else {
             warn!(
@@ -957,7 +955,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         .expect("Failed to spawn frontend-sync thread");
 }
 
-/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v1/v2 & `DMDS`).
+/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`).
 ///
 /// Shares [`crate::core::dmd_stream::ShowcaseStreamPlayer`] 1:1 with [`MediaShowcaseRunner`] and
 /// preempts `Marquee` only once the complete sequence is ready (`DisplaySourceId::InGameShowcase`).
@@ -1132,7 +1130,7 @@ impl Engine for InGameShowcaseEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::dmd_stream::{parse_dmd_stream_compact, DMDZ_MAGIC, FRAME_PAL8, FRAME_RAW};
+    use crate::core::dmd_stream::{parse_dmd_stream_compact, DMDZ_MAGIC, FRAME_KEY, FRAME_RAW};
     use crate::core::matrix::{IDrawingSurface, MockSurface};
     use crate::core::registry::EngineRuntime;
     use std::collections::HashMap;
@@ -1158,11 +1156,10 @@ mod tests {
         raw.extend_from_slice(&(f0.len() as u16).to_le_bytes());
         raw.extend_from_slice(&f0);
 
-        // Frame 1: FRAME_PAL8 1 palette entry (pure blue 0x001F), PAL_INDEX 0 + PAL_RUN 3
-        let mut f1 = vec![FRAME_PAL8, 0];
+        // Frame 1: FRAME_KEY OP_LITERAL 1 (pure blue 0x001F) + OP_RUN 3 -> 4 blue pixels
+        let mut f1 = vec![FRAME_KEY, 0xE0];
         f1.extend_from_slice(&0x001Fu16.to_le_bytes());
-        f1.push(0);
-        f1.push(0xC1);
+        f1.push(0x42);
         raw.extend_from_slice(&(f1.len() as u16).to_le_bytes());
         raw.extend_from_slice(&f1);
 
@@ -1268,7 +1265,7 @@ mod tests {
         assert_eq!(surface.canvas.get_pixel(0, 0).0, [255, 0, 0]);
         assert_eq!(surface.canvas.get_pixel(3, 3).0, [0, 0, 0]);
 
-        // Advance past frame 0 (35ms -> frame 1 = FRAME_PAL8 blue)
+        // Advance past frame 0 (35ms -> frame 1 = FRAME_KEY blue)
         std::thread::sleep(Duration::from_millis(38));
         {
             let mut ctx = EngineContext {

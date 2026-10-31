@@ -4,9 +4,8 @@ use crate::core::types::{
     DisplayGeometry, ForcedEngineMode, InGameCycleMode, InGameShowcasePayload,
 };
 use crate::engines::renderers::media_showcase::{
-    parse_host_and_port, parse_rgb565_stream_compact, probe_local_lan_ip,
-    probe_showcase_health_details, resolve_showcase_host, resolve_showcase_server_url,
-    rpi_hardware_short_id,
+    parse_host_and_port, probe_local_lan_ip, probe_showcase_health_details, resolve_showcase_host,
+    resolve_showcase_server_url, rpi_hardware_short_id,
 };
 use parking_lot::Mutex;
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
@@ -644,29 +643,20 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
             return;
         }
 
-        // Download compact DMDS RGB565 stream (`purge=false` so alternating/loop cycles replay locally with 0 network load)
-        let stream_url = format!(
-            "{}/api/v1/games/stream/{}.rgb565.stream?purge=false",
-            resolved_url.trim_end_matches('/'),
-            item_id
-        );
-        let stream_client = crate::core::memory::stream_http_client();
-        let Ok(stream_resp) = stream_client
-            .get(&stream_url)
-            .timeout(Duration::from_secs(12))
-            .send()
-        else {
-            return;
-        };
-        if !stream_resp.status().is_success() {
-            return;
-        }
-        let Ok(bytes) = stream_resp.bytes() else {
-            return;
-        };
-        let Some(stream) = parse_rgb565_stream_compact(&bytes) else {
+        // Download compact lossless `DMDZ` v2 stream (`purge=false&paced=0&codec=dmdz2`, with automatic
+        // `DMDS` fallback) so alternating/loop cycles replay locally from RAM with 0 network load.
+        let stream_path = format!("/api/v1/games/stream/{}.rgb565.stream", item_id);
+        let Some(stream) = crate::core::dmd_stream::fetch_showcase_stream(
+            &resolved_url,
+            &stream_path,
+            Some(&sync_client_id),
+            false,
+            width,
+            height,
+            Some(Duration::from_secs(20)),
+        ) else {
             warn!(
-                "[FrontendSync] Invalid DMDS stream received for item {}",
+                "[FrontendSync] Invalid or unreachable DMDZ/DMDS stream for item {}",
                 item_id
             );
             return;
@@ -677,8 +667,17 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
         }
 
         info!(
-            "[FrontendSync] Late preemption ready for {}/{} ({} frames, {:?})",
-            system, game, stream.frame_count, cycle_mode
+            "[FrontendSync] Late preemption ready for {}/{} ({} frames, {}, {} B, {:?})",
+            system,
+            game,
+            stream.frame_count,
+            if stream.is_compressed_dmdz() {
+                "DMDZ"
+            } else {
+                "DMDS"
+            },
+            stream.payload_byte_len(),
+            cycle_mode
         );
         config.set_ingame_showcase(Some(InGameShowcasePayload {
             session_token: req_id,
@@ -958,34 +957,34 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         .expect("Failed to spawn frontend-sync thread");
 }
 
-/// Zero-allocation realtime playback engine for In-Game Showcase sequences (`DMDS` RGB565 streams).
-/// Preempts `Marquee` only once the complete sequence is ready (`DisplaySourceId::InGameShowcase`).
+/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v1/v2 & `DMDS`).
+///
+/// Shares [`crate::core::dmd_stream::ShowcaseStreamPlayer`] 1:1 with [`MediaShowcaseRunner`] and
+/// preempts `Marquee` only once the complete sequence is ready (`DisplaySourceId::InGameShowcase`).
 pub struct InGameShowcaseEngine {
     session_token: u64,
-    frame_idx: usize,
-    frame_count: usize,
     stream_width: u32,
     stream_height: u32,
-    frame_elapsed: Duration,
-    last_tick: Option<Instant>,
-    last_drawn_frame: Option<usize>,
+    surface_width: u32,
+    surface_height: u32,
+    has_stream: bool,
+    pending_draw: bool,
     finished: bool,
-    paused: bool,
+    player: crate::core::dmd_stream::ShowcaseStreamPlayer,
 }
 
 impl InGameShowcaseEngine {
     pub fn new() -> Self {
         Self {
             session_token: 0,
-            frame_idx: 0,
-            frame_count: 0,
             stream_width: 0,
             stream_height: 0,
-            frame_elapsed: Duration::ZERO,
-            last_tick: None,
-            last_drawn_frame: None,
+            surface_width: 0,
+            surface_height: 0,
+            has_stream: false,
+            pending_draw: false,
             finished: false,
-            paused: false,
+            player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
         }
     }
 }
@@ -1006,112 +1005,111 @@ impl Engine for InGameShowcaseEngine {
     }
 
     fn activate(&mut self) {
-        self.frame_idx = 0;
-        self.frame_elapsed = Duration::ZERO;
-        self.last_tick = Some(Instant::now());
-        self.last_drawn_frame = None;
         self.finished = false;
-        self.paused = false;
+        self.pending_draw = true;
+        self.player.start(Instant::now());
     }
 
     fn pause(&mut self) {
-        self.paused = true;
-        self.last_tick = None;
+        self.pending_draw = false;
+        self.player.pause(Instant::now());
     }
 
     fn resume(&mut self) {
-        self.paused = false;
-        self.last_tick = Some(Instant::now());
-        self.last_drawn_frame = None;
+        self.player.resume(Instant::now());
+        self.pending_draw = self.has_stream && !self.finished;
     }
 
     fn deactivate(&mut self) {
-        self.frame_idx = 0;
-        self.frame_count = 0;
-        self.frame_elapsed = Duration::ZERO;
-        self.last_tick = None;
-        self.last_drawn_frame = None;
+        self.session_token = 0;
+        self.stream_width = 0;
+        self.stream_height = 0;
+        self.has_stream = false;
+        self.pending_draw = false;
         self.finished = false;
-        self.paused = false;
+        self.player.reset();
+    }
+
+    fn on_display_geometry_changed(&mut self, geometry: &DisplayGeometry) {
+        self.surface_width = geometry.width();
+        self.surface_height = geometry.height();
+        self.player.invalidate_drawn_frame();
+        if self.has_stream && !self.finished && !self.player.is_paused() {
+            self.pending_draw = true;
+        }
     }
 
     fn update(&mut self, context: &mut EngineContext) {
-        if self.paused {
+        self.surface_width = context.surface.width();
+        self.surface_height = context.surface.height();
+        if self.player.is_paused() {
+            self.pending_draw = false;
             return;
         }
         let snap = context.config.producer_snapshot.load();
         let Some(ref ig) = snap.ingame_showcase else {
+            self.has_stream = false;
+            self.pending_draw = false;
             self.finished = true;
             return;
         };
         if ig.stream.is_empty() {
+            self.has_stream = false;
+            self.pending_draw = false;
             self.finished = true;
             return;
-        }
+        };
 
+        let now = Instant::now();
         if self.session_token != ig.session_token {
+            let prev_token = self.session_token;
             self.session_token = ig.session_token;
-            self.frame_idx = 0;
-            self.frame_elapsed = Duration::ZERO;
-            self.last_drawn_frame = None;
             self.finished = false;
-            self.last_tick = Some(Instant::now());
+            if prev_token != 0 || !self.player.is_started() {
+                self.player.start(now);
+            }
         }
 
-        self.frame_count = ig.stream.frame_count;
+        self.has_stream = true;
         self.stream_width = ig.stream.width;
         self.stream_height = ig.stream.height;
 
         if self.finished {
+            self.pending_draw = false;
             return;
         }
 
-        let now = Instant::now();
-        let dt = self
-            .last_tick
-            .map(|t| now.duration_since(t))
-            .unwrap_or(Duration::ZERO);
-        self.last_tick = Some(now);
-        self.frame_elapsed += dt;
-
-        let delay = ig.stream.frame_delay.max(Duration::from_millis(16));
-        while self.frame_elapsed >= delay {
-            self.frame_elapsed -= delay;
-            if self.frame_idx + 1 < self.frame_count {
-                self.frame_idx += 1;
-            } else {
-                match ig.cycle_mode {
-                    InGameCycleMode::Loop => {
-                        self.frame_idx = 0;
-                    }
-                    InGameCycleMode::Once | InGameCycleMode::Alternating { .. } => {
-                        self.finished = true;
-                        break;
-                    }
-                }
-            }
-        }
+        let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop);
+        self.finished = self.player.advance(&ig.stream, now, loop_playback, None);
+        self.pending_draw = self.player.has_new_frame(&ig.stream);
     }
 
     fn render(&mut self, context: &mut EngineContext) {
+        self.surface_width = context.surface.width();
+        self.surface_height = context.surface.height();
         let snap = context.config.producer_snapshot.load();
         if let Some(ref ig) = snap.ingame_showcase {
-            ig.stream
-                .draw_frame_to_surface(self.frame_idx, &mut *context.surface);
-            self.last_drawn_frame = Some(self.frame_idx);
+            self.player
+                .render_to_surface(&ig.stream, &mut *context.surface);
         }
+        self.pending_draw = false;
     }
 
     fn wants_clear(&self) -> bool {
-        self.stream_width == 0 || self.stream_height == 0
+        !self.has_stream
+            || self.stream_width == 0
+            || self.stream_height == 0
+            || (self.surface_width > 0
+                && (self.stream_width != self.surface_width
+                    || self.stream_height != self.surface_height))
     }
 
     fn has_new_frame(&self) -> bool {
-        !self.finished && self.last_drawn_frame != Some(self.frame_idx)
+        !self.finished && !self.player.is_paused() && self.pending_draw
     }
 
     fn is_realtime(&self) -> bool {
-        !self.finished && !self.paused
+        !self.finished && !self.player.is_paused()
     }
 
     fn is_finished(&self) -> bool {
@@ -1134,6 +1132,42 @@ impl Engine for InGameShowcaseEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::dmd_stream::{parse_dmd_stream_compact, DMDZ_MAGIC, FRAME_PAL8, FRAME_RAW};
+    use crate::core::matrix::{IDrawingSurface, MockSurface};
+    use crate::core::registry::EngineRuntime;
+    use std::collections::HashMap;
+
+    fn build_sample_dmdz_v2_stream(
+        frame_dur_ms: u16,
+    ) -> Arc<crate::core::dmd_stream::PreloadedDmdStream> {
+        let mut raw = Vec::new();
+        raw.extend_from_slice(DMDZ_MAGIC);
+        raw.push(2); // version 2
+        raw.push(25); // fps
+        raw.extend_from_slice(&2u16.to_le_bytes()); // width = 2
+        raw.extend_from_slice(&2u16.to_le_bytes()); // height = 2
+        raw.extend_from_slice(&2u16.to_le_bytes()); // total_frames = 2
+        raw.extend_from_slice(&frame_dur_ms.to_le_bytes());
+        raw.extend_from_slice(&1u16.to_le_bytes());
+
+        // Frame 0: FRAME_RAW pure red (0xF800)
+        let mut f0 = vec![FRAME_RAW];
+        for _ in 0..4 {
+            f0.extend_from_slice(&0xF800u16.to_le_bytes());
+        }
+        raw.extend_from_slice(&(f0.len() as u16).to_le_bytes());
+        raw.extend_from_slice(&f0);
+
+        // Frame 1: FRAME_PAL8 1 palette entry (pure blue 0x001F), PAL_INDEX 0 + PAL_RUN 3
+        let mut f1 = vec![FRAME_PAL8, 0];
+        f1.extend_from_slice(&0x001Fu16.to_le_bytes());
+        f1.push(0);
+        f1.push(0xC1);
+        raw.extend_from_slice(&(f1.len() as u16).to_le_bytes());
+        raw.extend_from_slice(&f1);
+
+        parse_dmd_stream_compact(&raw).expect("valid DMDZ v2 test stream")
+    }
 
     #[test]
     fn test_format_game_name() {
@@ -1192,5 +1226,124 @@ mod tests {
         assert_eq!(parse_cycle_mode(&cfg), InGameCycleMode::Once);
         cfg.ingame_cycle_mode = "loop".to_string();
         assert_eq!(parse_cycle_mode(&cfg), InGameCycleMode::Loop);
+    }
+
+    #[test]
+    fn test_ingame_showcase_engine_plays_dmdz_v2_and_clears_borders() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_ingame_dmdz_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = Config::new(tmp_dir.join("config.json"));
+        let stream = build_sample_dmdz_v2_stream(30);
+
+        config.set_ingame_showcase(Some(InGameShowcasePayload {
+            session_token: 42,
+            stream: Arc::clone(&stream),
+            cycle_mode: InGameCycleMode::Once,
+        }));
+
+        let mut engine = InGameShowcaseEngine::new();
+        assert!(!engine.allows_overlay());
+        assert!(!engine.allow_rotation());
+        assert!(engine.self_paced());
+
+        // Surface is 4x4 while stream is 2x2 -> wants_clear() must be true and borders cleared!
+        let mut surface = MockSurface::new(4, 4);
+        surface.fill_rect(0, 0, 4, 4, 255, 255, 255);
+
+        engine.activate();
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(engine.wants_clear());
+            assert!(engine.has_new_frame());
+            engine.render(&mut ctx);
+            assert!(!engine.has_new_frame());
+        }
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [255, 0, 0]);
+        assert_eq!(surface.canvas.get_pixel(3, 3).0, [0, 0, 0]);
+
+        // Advance past frame 0 (35ms -> frame 1 = FRAME_PAL8 blue)
+        std::thread::sleep(Duration::from_millis(38));
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(!engine.is_finished());
+            assert!(engine.has_new_frame());
+            engine.render(&mut ctx);
+        }
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [0, 0, 255]);
+
+        // Advance past frame 1 in `Once` mode -> marks finished
+        std::thread::sleep(Duration::from_millis(38));
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(engine.is_finished());
+            assert!(!engine.has_new_frame());
+        }
+
+        // Switch to `Loop` mode on a new session token -> wraps around cleanly without finishing
+        config.set_ingame_showcase(Some(InGameShowcasePayload {
+            session_token: 43,
+            stream,
+            cycle_mode: InGameCycleMode::Loop,
+        }));
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(!engine.is_finished());
+            assert!(engine.has_new_frame());
+            engine.render(&mut ctx);
+        }
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [255, 0, 0]);
+
+        engine.deactivate();
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_registry_recycle_preserves_frontend_sync_ingame_engine() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_recycle_sync_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = Config::new(tmp_dir.join("config.json"));
+        let mut surface = MockSurface::new(2, 2);
+        let mut runtime = EngineRuntime::new();
+
+        let h_sync = runtime.register_instance_handle("__ingame_showcase", "frontend_sync");
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            assert!(runtime.init_instance(h_sync, &mut ctx, &HashMap::new()));
+        }
+        assert!(runtime.recycle_instance(h_sync, false));
+        let recycled = runtime
+            .get_active_instance(h_sync)
+            .expect("frontend_sync instance must remain initialized after recycle");
+        // DummyEngine returns allows_overlay() == true (default), whereas InGameShowcaseEngine returns false!
+        assert!(!recycled.allows_overlay());
+        assert!(!recycled.allow_rotation());
+        assert!(recycled.self_paced());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

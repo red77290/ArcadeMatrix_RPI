@@ -78,6 +78,10 @@ impl Engine for MovieShowcaseEngine {
         true
     }
 
+    fn allows_overlay(&self) -> bool {
+        self.runner.allows_overlay()
+    }
+
     fn set_rotation_budget(&mut self, budget: u32) {
         self.runner.set_rotation_budget(budget);
     }

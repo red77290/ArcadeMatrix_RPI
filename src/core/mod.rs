@@ -3,6 +3,7 @@ pub mod build_info;
 pub mod config;
 pub mod config_sanitizer;
 pub mod dmd_cache;
+pub mod dmd_stream;
 pub mod engine_contract;
 pub mod i18n;
 pub mod matrix;

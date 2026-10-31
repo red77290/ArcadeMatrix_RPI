@@ -2,7 +2,7 @@ name: Rust CI
 
 on:
   push:
-    branches: [ main, rust_migration ]
+    branches: [ main, rust_migration, 'feat/**', 'fix/**' ]
   pull_request:
     branches: [ main, rust_migration ]
 

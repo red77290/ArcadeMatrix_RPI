@@ -1294,66 +1294,8 @@ pub struct MqttReadyPayload {
     pub card: Option<ApiShowcaseItem>,
 }
 
-/// Single-allocation contiguous RGB565LE stream buffer (`DMDS`).
-/// Avoids allocating thousands of separate `RgbImage` heap buffers (which fragment glibc arenas)
-/// and exceeds the 64 KB `M_MMAP_THRESHOLD` so Linux immediately reclaims 100% of physical RAM on `drop()`.
-#[derive(Debug, Clone)]
-pub struct PreloadedRgb565Stream {
-    pub width: u32,
-    pub height: u32,
-    pub frame_count: usize,
-    pub frame_delay: Duration,
-    pub raw_rgb565_le: Vec<u8>,
-}
-
-impl PreloadedRgb565Stream {
-    #[inline]
-    pub fn frame_bytes(&self) -> usize {
-        (self.width as usize) * (self.height as usize) * 2
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.frame_count
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.frame_count == 0 || self.raw_rgb565_le.is_empty()
-    }
-
-    pub fn draw_frame_to_surface(&self, frame_idx: usize, matrix: &mut dyn IDrawingSurface) {
-        if self.is_empty() || self.width == 0 || self.height == 0 {
-            return;
-        }
-        let idx = frame_idx.min(self.frame_count - 1);
-        let fb = self.frame_bytes();
-        let start = idx.saturating_mul(fb);
-        if start + fb > self.raw_rgb565_le.len() {
-            return;
-        }
-        let slice = &self.raw_rgb565_le[start..start + fb];
-        let fw = (self.width as i32).min(matrix.width() as i32);
-        let fh = (self.height as i32).min(matrix.height() as i32);
-        let stride = (self.width as usize) * 2;
-        for py in 0..fh {
-            let row_off = (py as usize) * stride;
-            for px in 0..fw {
-                let off = row_off + (px as usize) * 2;
-                let lo = slice[off] as u16;
-                let hi = slice[off + 1] as u16;
-                let p = lo | (hi << 8);
-                let r5 = ((p >> 11) & 0x1F) as u8;
-                let g6 = ((p >> 5) & 0x3F) as u8;
-                let b5 = (p & 0x1F) as u8;
-                let r = (r5 << 3) | (r5 >> 2);
-                let g = (g6 << 2) | (g6 >> 4);
-                let b = (b5 << 3) | (b5 >> 2);
-                matrix.set_pixel(px, py, r, g, b);
-            }
-        }
-    }
-}
+/// Re-export of the unified `PreloadedDmdStream` (`DMDZ` v1/v2 compressed or legacy `DMDS` RGB565LE).
+pub type PreloadedRgb565Stream = crate::core::dmd_stream::PreloadedDmdStream;
 
 /// Single Consume-Once item held only during the current rotation turn.
 /// Never cached across turns or replayed when the server goes offline.
@@ -1494,51 +1436,11 @@ pub fn decode_rgb565_le_image(bytes: &[u8], width: u32, height: u32) -> Option<R
     Some(img)
 }
 
-/// Parse a binary `.rgb565.stream` (`DMDS`) payload into a single contiguous `Arc<PreloadedRgb565Stream>`.
-/// Uses 1 single heap allocation (`Vec<u8>`) instead of thousands of `RgbImage` structs, preventing
-/// glibc heap arena fragmentation and allowing immediate OS kernel reclamation via `munmap` on drop.
+/// Parse a binary Showcase stream (`DMDZ` v1/v2 or legacy `DMDS`) into a single contiguous
+/// `Arc<PreloadedRgb565Stream>` (`PreloadedDmdStream`).
+#[inline]
 pub fn parse_rgb565_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedRgb565Stream>> {
-    if bytes.len() < DMDS_HEADER_SIZE {
-        return None;
-    }
-    if &bytes[0..4] != DMDS_MAGIC {
-        return None;
-    }
-    let _version = bytes[4];
-    let fps = bytes[5].max(1);
-    let width = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
-    let height = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
-    let total_frames = u16::from_le_bytes([bytes[10], bytes[11]]) as usize;
-    let frame_delay_ms = u16::from_le_bytes([bytes[12], bytes[13]]) as u64;
-
-    if width == 0 || height == 0 || total_frames == 0 {
-        return None;
-    }
-    let frame_bytes = (width as usize)
-        .checked_mul(height as usize)?
-        .checked_mul(2)?;
-    if frame_bytes == 0 {
-        return None;
-    }
-    let payload_len = bytes.len().saturating_sub(DMDS_HEADER_SIZE);
-    let available_frames = (payload_len / frame_bytes).min(total_frames).min(7600);
-    if available_frames == 0 {
-        return None;
-    }
-    let valid_byte_len = available_frames * frame_bytes;
-    let raw_rgb565_le = bytes[DMDS_HEADER_SIZE..DMDS_HEADER_SIZE + valid_byte_len].to_vec();
-    let delay_ms = if frame_delay_ms > 0 {
-        frame_delay_ms.clamp(16, 500)
-    } else {
-        (1000 / (fps as u64)).clamp(16, 500)
-    };
-    Some(Arc::new(PreloadedRgb565Stream {
-        width,
-        height,
-        frame_count: available_frames,
-        frame_delay: Duration::from_millis(delay_ms),
-        raw_rgb565_le,
-    }))
+    crate::core::dmd_stream::parse_dmd_stream_compact(bytes)
 }
 
 /// Parse a binary `.rgb565.stream` (`DMDS`) payload into a sequence of `RgbImage` frames and frame delay.
@@ -1991,6 +1893,7 @@ pub struct MediaShowcaseRunner {
     pub last_retry_poll: Instant,
     pub http_frame_idx: usize,
     pub http_frame_elapsed: Duration,
+    pub stream_player: crate::core::dmd_stream::ShowcaseStreamPlayer,
     pub last_tick: Instant,
     pub turn_evaluated: bool,
     pub skip_turn_immediately: bool,
@@ -2038,6 +1941,7 @@ impl MediaShowcaseRunner {
             last_retry_poll: now,
             http_frame_idx: 0,
             http_frame_elapsed: Duration::ZERO,
+            stream_player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
             last_tick: now,
             turn_evaluated: false,
             skip_turn_immediately: false,
@@ -2053,6 +1957,13 @@ impl MediaShowcaseRunner {
 
     pub fn set_rotation_budget(&mut self, budget: u32) {
         self.rotation_budget = budget.max(1);
+    }
+
+    /// Transverse overlays (e.g. M.U.G.E.N Fighter) are permitted during `Card` / waiting scenes
+    /// and strictly forbidden during `LiveStream` video/panorama playback (1:1 parity with ESP32).
+    #[inline]
+    pub fn allows_overlay(&self) -> bool {
+        self.phase == PlaybackPhase::Card
     }
 
     /// Strict DMD-side upper bound on `LiveStream` duration: configured `video_max_duration_s`
@@ -2181,7 +2092,7 @@ impl MediaShowcaseRunner {
         config_gen_arc: Arc<AtomicU64>,
         my_gen: u64,
     ) {
-        let Some((mqtt_host, mqtt_port)) = resolve_mqtt_broker_endpoint(
+        let Some((mut mqtt_host, mut mqtt_port)) = resolve_mqtt_broker_endpoint(
             &cfg,
             if global_host.is_empty() {
                 None
@@ -2191,6 +2102,26 @@ impl MediaShowcaseRunner {
         ) else {
             return;
         };
+        let base_url = resolve_showcase_server_url(&cfg.server_url);
+        if cfg.use_showcase_broker {
+            if let Some((h, p)) = parse_host_and_port(&base_url, 8890) {
+                if let Some(details) = probe_showcase_health_details(&h, p) {
+                    if details.mqtt_port > 0 {
+                        mqtt_port = details.mqtt_port;
+                    }
+                    if !details.mqtt_host.is_empty()
+                        && details.mqtt_host != "localhost"
+                        && details.mqtt_host != "127.0.0.1"
+                        && details.mqtt_host != "mosquitto"
+                        && !details.mqtt_host.starts_with("172.")
+                    {
+                        mqtt_host = resolve_showcase_host_with_port(&details.mqtt_host, mqtt_port);
+                    } else {
+                        mqtt_host = h;
+                    }
+                }
+            }
+        }
 
         let slug = domain.as_api_slug();
         let dmd_id = format_rpi_dmd_client_id(slug, width, height);
@@ -2278,7 +2209,6 @@ impl MediaShowcaseRunner {
         let http_client = crate::core::memory::stream_http_client();
         let preload_in_flight = Arc::new(AtomicBool::new(false));
         let pending_preload: Arc<Mutex<Option<(String, String)>>> = Arc::new(Mutex::new(None));
-        let base_url = resolve_showcase_server_url(&cfg.server_url);
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
         // Spawn a dedicated fast 4ms I/O pump thread for UDP `DMDF` packet reception and
@@ -2513,19 +2443,17 @@ impl MediaShowcaseRunner {
                                             guard.generation = my_gen;
                                         }
 
-                                        // Preload the unified `.rgb565.stream` (`DMDS`) over HTTP TCP in a background thread
-                                        // while the Card is displaying on the DMD (or while N+1 waits in `ready_item`).
+                                        // Preload the unified stream (`DMDZ` v2 lossless True-RGB565 with automatic `DMDS`
+                                        // fallback) over HTTP TCP in a background thread while the Card is displaying on the DMD
+                                        // (or while N+1 waits in `ready_item`).
                                         // Queues `pending_preload` so if N+1 `ready: true` arrives while N is still
                                         // downloading, N+1 is automatically preloaded immediately after N completes.
                                         if has_stream && !base_url.is_empty() {
-                                            let sep =
-                                                if stream_path.contains('?') { "&" } else { "?" };
-                                            let next_url = format!(
-                                                "{}{}{}purge=false",
-                                                base_url, stream_path, sep
-                                            );
                                             if let Ok(mut q) = pending_preload.lock() {
-                                                *q = Some((preload_item_id.clone(), next_url));
+                                                *q = Some((
+                                                    preload_item_id.clone(),
+                                                    stream_path.clone(),
+                                                ));
                                             }
                                             if preload_in_flight
                                                 .compare_exchange(
@@ -2541,15 +2469,16 @@ impl MediaShowcaseRunner {
                                                 let in_flight_arc = Arc::clone(&preload_in_flight);
                                                 let pending_arc = Arc::clone(&pending_preload);
                                                 let p_slug = slug.to_string();
+                                                let p_base_url = base_url.clone();
+                                                let p_dmd_id = dmd_id.clone();
                                                 std::thread::spawn(move || {
-                                                    let client =
-                                                        crate::core::memory::stream_http_client();
                                                     loop {
                                                         let next_job = pending_arc
                                                             .lock()
                                                             .ok()
                                                             .and_then(|mut q| q.take());
-                                                        let Some((p_item_id, url)) = next_job
+                                                        let Some((p_item_id, p_stream_path)) =
+                                                            next_job
                                                         else {
                                                             in_flight_arc
                                                                 .store(false, Ordering::Release);
@@ -2578,65 +2507,51 @@ impl MediaShowcaseRunner {
                                                                 .store(false, Ordering::Release);
                                                             break;
                                                         }
-                                                        if let Ok(resp) = client.get(&url).send() {
-                                                            if resp.status().is_success() {
-                                                                if let Ok(bytes) = resp.bytes() {
-                                                                    if let Some(stream_arc) =
-                                                                        parse_rgb565_stream_compact(
-                                                                            &bytes,
-                                                                        )
-                                                                    {
-                                                                        let f_cnt =
-                                                                            stream_arc.frame_count;
-                                                                        let delay =
-                                                                            stream_arc.frame_delay;
-                                                                        if preload_gen_arc
-                                                                            .load(Ordering::SeqCst)
-                                                                            == my_gen
-                                                                        {
-                                                                            let mut guard =
-                                                                                preload_shared
-                                                                                    .lock()
-                                                                                    .unwrap();
-                                                                            let mut
-                                                                            attached_to_ready =
-                                                                                false;
-                                                                            if let Some(
-                                                                                ref mut rdy,
-                                                                            ) = guard.ready_item
-                                                                            {
-                                                                                if rdy.id
-                                                                                    == p_item_id
-                                                                                {
-                                                                                    rdy.http_stream =
-                                                                                        Some(Arc::clone(
-                                                                                            &stream_arc,
-                                                                                        ));
-                                                                                    rdy.http_frame_delay =
-                                                                                        delay;
-                                                                                    attached_to_ready =
-                                                                                        true;
-                                                                                }
-                                                                            }
-                                                                            if !attached_to_ready {
-                                                                                guard
-                                                                                    .preloaded_streams
-                                                                                    .clear();
-                                                                                guard
-                                                                                    .preloaded_streams
-                                                                                    .push_back((
-                                                                                        p_item_id
-                                                                                            .clone(),
-                                                                                        stream_arc,
-                                                                                    ));
-                                                                            }
-                                                                            info!(
-                                                                                "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
-                                                                                p_slug, p_item_id, f_cnt, delay
-                                                                            );
-                                                                        }
+                                                        if let Some(stream_arc) =
+                                                            crate::core::dmd_stream::fetch_showcase_stream(
+                                                                &p_base_url,
+                                                                &p_stream_path,
+                                                                Some(&p_dmd_id),
+                                                                false,
+                                                                width,
+                                                                height,
+                                                                Some(Duration::from_secs(25)),
+                                                            )
+                                                        {
+                                                            let f_cnt = stream_arc.frame_count;
+                                                            let delay = stream_arc.frame_delay;
+                                                            if preload_gen_arc
+                                                                .load(Ordering::SeqCst)
+                                                                == my_gen
+                                                            {
+                                                                let mut guard =
+                                                                    preload_shared.lock().unwrap();
+                                                                let mut attached_to_ready = false;
+                                                                if let Some(ref mut rdy) =
+                                                                    guard.ready_item
+                                                                {
+                                                                    if rdy.id == p_item_id {
+                                                                        rdy.http_stream = Some(
+                                                                            Arc::clone(&stream_arc),
+                                                                        );
+                                                                        rdy.http_frame_delay =
+                                                                            delay;
+                                                                        attached_to_ready = true;
                                                                     }
                                                                 }
+                                                                if !attached_to_ready {
+                                                                    guard.preloaded_streams.clear();
+                                                                    guard
+                                                                        .preloaded_streams
+                                                                        .push_back((
+                                                                            p_item_id.clone(),
+                                                                            stream_arc,
+                                                                        ));
+                                                                }
+                                                                info!(
+                                                                    "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
+                                                                    p_slug, p_item_id, f_cnt, delay
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -2831,7 +2746,7 @@ impl MediaShowcaseRunner {
             None
         };
 
-        // Fetch unified `.rgb565.stream` (`[Jacket Panorama -> Marquee -> Snapshots -> Video]`)
+        // Fetch unified stream (`DMDZ` v2 lossless True-RGB565 with automatic `DMDS` fallback)
         let mut http_stream = None;
         let mut http_frame_delay = Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
         let stream_path = if !api_item.assets.unified_stream_rgb565.is_empty() {
@@ -2840,17 +2755,17 @@ impl MediaShowcaseRunner {
             format!("/api/v1/{}/stream/{}.rgb565.stream", slug, item_id)
         };
         if (cfg.any_panorama_requested() || cfg.show_video) && !stream_path.is_empty() {
-            let url = format!("{}{}", base, stream_path);
-            let stream_client = crate::core::memory::stream_http_client();
-            if let Ok(r) = stream_client.get(&url).send() {
-                if r.status().is_success() {
-                    if let Ok(bytes) = r.bytes() {
-                        if let Some(stream_arc) = parse_rgb565_stream_compact(&bytes) {
-                            http_frame_delay = stream_arc.frame_delay;
-                            http_stream = Some(stream_arc);
-                        }
-                    }
-                }
+            if let Some(stream_arc) = crate::core::dmd_stream::fetch_showcase_stream(
+                base,
+                &stream_path,
+                Some(&dmd_id),
+                true,
+                width,
+                height,
+                Some(Duration::from_secs(25)),
+            ) {
+                http_frame_delay = stream_arc.frame_delay;
+                http_stream = Some(stream_arc);
             }
         }
 
@@ -2920,6 +2835,7 @@ impl MediaShowcaseRunner {
             self.last_retry_poll = now;
             self.http_frame_idx = 0;
             self.http_frame_elapsed = Duration::ZERO;
+            self.stream_player.reset();
             self.skip_turn_immediately = false;
             self.turn_completed = false;
             self.consecutive_warm_skips = 0;
@@ -2947,6 +2863,7 @@ impl MediaShowcaseRunner {
             self.last_retry_poll = now;
             self.http_frame_idx = 0;
             self.http_frame_elapsed = Duration::ZERO;
+            self.stream_player.reset();
             self.turn_evaluated = false;
             self.skip_turn_immediately = false;
             self.turn_completed = false;
@@ -2969,6 +2886,7 @@ impl MediaShowcaseRunner {
         self.items_played_in_turn = 0;
         self.http_frame_idx = 0;
         self.http_frame_elapsed = Duration::ZERO;
+        self.stream_player.start(now);
         self.phase = PlaybackPhase::Card;
         self.phase_started_at = now;
         self.last_retry_poll = now;
@@ -2992,6 +2910,7 @@ impl MediaShowcaseRunner {
             }
         }
         self.config_gen.fetch_add(1, Ordering::SeqCst);
+        self.stream_player.reset();
         self.skip_turn_immediately = false;
         self.turn_evaluated = false;
         self.turn_completed = false;
@@ -3066,6 +2985,7 @@ impl MediaShowcaseRunner {
         self.phase_started_at = now;
         self.http_frame_idx = 0;
         self.http_frame_elapsed = Duration::ZERO;
+        self.stream_player.start(now);
         {
             let mut guard = self.shared.lock().unwrap();
             guard.stream_eof = false;
@@ -3101,6 +3021,7 @@ impl MediaShowcaseRunner {
 
     fn finish_current_turn(&mut self) {
         let stopped_id = self.active_item.take().map(|it| it.id);
+        self.stream_player.reset();
         {
             let mut guard = self.shared.lock().unwrap();
             guard.live_udp_frame = None;
@@ -3239,23 +3160,16 @@ impl MediaShowcaseRunner {
             }
         }
 
-        let Some((
-            item_id,
-            has_stream,
-            stream_duration_s,
-            mut http_frames_len,
-            mut http_frame_delay,
-            card_target_dur,
-        )) = self.active_item.as_ref().map(|it| {
-            (
-                it.id.clone(),
-                it.has_stream,
-                it.stream_duration_s,
-                it.http_stream_frame_count(),
-                it.http_frame_delay,
-                self.organic_card_duration(it),
-            )
-        })
+        let Some((item_id, has_stream, stream_duration_s, mut http_frames_len, card_target_dur)) =
+            self.active_item.as_ref().map(|it| {
+                (
+                    it.id.clone(),
+                    it.has_stream,
+                    it.stream_duration_s,
+                    it.http_stream_frame_count(),
+                    self.organic_card_duration(it),
+                )
+            })
         else {
             if now.saturating_duration_since(self.last_retry_poll) >= Duration::from_millis(2500) {
                 self.last_retry_poll = now;
@@ -3279,18 +3193,17 @@ impl MediaShowcaseRunner {
                 }
             }
             PlaybackPhase::LiveStream => {
-                self.dirty = true;
                 // Attach background-preloaded HTTP stream if it completed right after LiveStream started
                 if http_frames_len == 0 {
                     let mut guard = self.shared.lock().unwrap();
                     if let Some(stream_arc) = guard.take_preloaded_stream(&item_id) {
                         if let Some(ref mut active) = self.active_item {
                             http_frames_len = stream_arc.frame_count;
-                            http_frame_delay = stream_arc.frame_delay;
                             active.http_frame_delay = stream_arc.frame_delay;
                             active.http_stream = Some(stream_arc);
                             self.http_frame_idx = 0;
                             self.http_frame_elapsed = Duration::ZERO;
+                            self.stream_player.start(now);
                             self.phase_started_at = now;
                             phase_elapsed = Duration::ZERO;
                         }
@@ -3299,18 +3212,32 @@ impl MediaShowcaseRunner {
 
                 let max_cfg_dur = self.configured_max_stream_duration();
 
-                // 1. If playing HTTP pre-decoded stream frames for this single item:
-                //    Index frames strictly by monotonic wall-clock `phase_elapsed` (never by
-                //    drifting `Duration::ZERO` resets where `2 * 16ms = 32ms < 33ms` slowed 30 FPS
-                //    video by 1.5x–2x!) AND enforce the DMD's configured `video_max_duration_s` cap.
+                // 1. Shared `ShowcaseStreamPlayer` (`DMDZ` v1/v2 & `DMDS`) playback:
+                //    Indexes frames strictly by monotonic wall-clock `phase_elapsed` (never by
+                //    drifting `Duration::ZERO` resets) and enforces the DMD's `video_max_duration_s` cap.
                 if http_frames_len > 0 {
-                    let frame_us = http_frame_delay.as_micros().max(1_000);
-                    self.http_frame_idx = (phase_elapsed.as_micros() / frame_us) as usize;
-                    if self.http_frame_idx >= http_frames_len || phase_elapsed >= max_cfg_dur {
-                        self.finish_current_turn();
+                    let stream_opt = self
+                        .active_item
+                        .as_ref()
+                        .and_then(|it| it.http_stream.as_ref())
+                        .cloned();
+                    if let Some(stream) = stream_opt {
+                        let finished = self.stream_player.advance_at_elapsed(
+                            &stream,
+                            phase_elapsed,
+                            false,
+                            Some(max_cfg_dur),
+                        );
+                        self.http_frame_idx = self.stream_player.current_frame_index();
+                        self.dirty = self.stream_player.has_new_frame(&stream);
+                        if finished {
+                            self.finish_current_turn();
+                        }
+                        return;
                     }
-                    return;
                 }
+
+                self.dirty = true;
 
                 // 2. Real-time UDP stream (`mqtt_udp`) with `stream_eof` + 1500ms packet watchdog
                 let (stream_eof, last_pkt) = {
@@ -3689,26 +3616,41 @@ impl MediaShowcaseRunner {
         let h = matrix.height() as i32;
         let phase_ms = self.phase_started_at.elapsed().as_millis();
 
-        let eff_lang = self.cfg.effective_lang(&self.system_lang);
-        let Some(ref item) = self.active_item else {
+        let eff_lang = self.cfg.effective_lang(&self.system_lang).to_string();
+        if self.active_item.is_none() {
             let effective_url = if self.cfg.enabled {
                 self.cfg.server_url.as_str()
             } else {
                 ""
             };
-            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, effective_url, eff_lang);
+            render_waiting_pixel_art(
+                self.domain,
+                matrix,
+                w,
+                h,
+                phase_ms,
+                effective_url,
+                &eff_lang,
+            );
             self.dirty = false;
             return;
-        };
+        }
 
         match self.phase {
             PlaybackPhase::Card => {
-                self.render_card_adaptive(matrix, item, w, h, phase_ms);
+                if let Some(ref item) = self.active_item {
+                    self.render_card_adaptive(matrix, item, w, h, phase_ms);
+                }
             }
             PlaybackPhase::LiveStream => {
-                if let Some(ref stream) = item.http_stream {
+                let stream_opt = self
+                    .active_item
+                    .as_ref()
+                    .and_then(|it| it.http_stream.as_ref())
+                    .cloned();
+                if let Some(stream) = stream_opt {
                     if !stream.is_empty() {
-                        stream.draw_frame_to_surface(self.http_frame_idx, matrix);
+                        self.stream_player.render_to_surface(&stream, matrix);
                     }
                 } else {
                     let live_frame = {
@@ -3733,7 +3675,7 @@ impl MediaShowcaseRunner {
                             h,
                             phase_ms,
                             &self.cfg.server_url,
-                            eff_lang,
+                            &eff_lang,
                         );
                     }
                 }
@@ -3950,7 +3892,7 @@ mod tests {
         let compact = parse_rgb565_stream_compact(&stream).expect("valid compact DMDS stream");
         assert_eq!(compact.frame_count, 2);
         assert_eq!(compact.frame_delay, Duration::from_millis(66));
-        assert_eq!(compact.raw_rgb565_le.len(), 16);
+        assert_eq!(compact.payload_byte_len(), 16);
         let mut surface = MockSurface::new(2, 2);
         compact.draw_frame_to_surface(0, &mut surface);
         assert!(surface.canvas.get_pixel(0, 0).0[0] >= 248);
@@ -4117,13 +4059,13 @@ mod tests {
     #[test]
     fn test_deactivate_purges_all_cached_streams_and_stops_workers() {
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 64);
-        let stream = Arc::new(PreloadedRgb565Stream {
-            width: 128,
-            height: 64,
-            frame_count: 10,
-            frame_delay: Duration::from_millis(33),
-            raw_rgb565_le: vec![0u8; 128 * 64 * 2 * 10],
-        });
+        let stream = Arc::new(PreloadedRgb565Stream::from_raw_rgb565_le(
+            128,
+            64,
+            10,
+            Duration::from_millis(33),
+            vec![0u8; 128 * 64 * 2 * 10],
+        ));
         {
             let mut guard = runner.shared.lock().unwrap();
             let item = PreparedShowcaseItem {
@@ -4286,13 +4228,13 @@ mod tests {
         );
 
         // 2400 frames @ 33ms (~79.2s) > 60s DMD cap
-        let stream = Arc::new(PreloadedRgb565Stream {
-            width: 2,
-            height: 2,
-            frame_count: 2400,
-            frame_delay: Duration::from_millis(33),
-            raw_rgb565_le: vec![0u8; 2 * 2 * 2 * 2400],
-        });
+        let stream = Arc::new(PreloadedRgb565Stream::from_raw_rgb565_le(
+            2,
+            2,
+            2400,
+            Duration::from_millis(33),
+            vec![0u8; 2 * 2 * 2 * 2400],
+        ));
         let config = crate::core::config::Config::new("/tmp/nonexistent_showcase_test_cfg.json");
         {
             let mut s = config.settings.write();
@@ -4529,5 +4471,93 @@ mod tests {
             parse_host_and_port("http://dmdmediashowcase:8890", 8890),
             Some(("dmdmediashowcase.local".to_string(), 8890))
         );
+    }
+
+    #[test]
+    fn test_dmdz_v2_stream_playback_and_allows_overlay_gate() {
+        let mut dmdz = Vec::new();
+        dmdz.extend_from_slice(crate::core::dmd_stream::DMDZ_MAGIC);
+        dmdz.push(2); // v2
+        dmdz.push(25); // 25 FPS
+        dmdz.extend_from_slice(&2u16.to_le_bytes());
+        dmdz.extend_from_slice(&2u16.to_le_bytes());
+        dmdz.extend_from_slice(&2u16.to_le_bytes()); // 2 frames
+        dmdz.extend_from_slice(&40u16.to_le_bytes());
+        dmdz.extend_from_slice(&0u16.to_le_bytes());
+
+        // Frame 0: FRAME_PAL8, 1 color (pure red 0xF800), PAL_INDEX 0 + PAL_RUN 3 -> 4 red pixels
+        let mut f0 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        f0.extend_from_slice(&0xF800u16.to_le_bytes());
+        f0.push(0);
+        f0.push(0xC1); // run of 3 -> total 4 pixels
+        dmdz.extend_from_slice(&(f0.len() as u16).to_le_bytes());
+        dmdz.extend_from_slice(&f0);
+
+        // Frame 1: FRAME_PAL8, 1 color (pure green 0x07E0), PAL_INDEX 0 + PAL_RUN 3 -> 4 green pixels
+        let mut f1 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        f1.extend_from_slice(&0x07E0u16.to_le_bytes());
+        f1.push(0);
+        f1.push(0xC1);
+        dmdz.extend_from_slice(&(f1.len() as u16).to_le_bytes());
+        dmdz.extend_from_slice(&f1);
+
+        let stream = parse_rgb565_stream_compact(&dmdz).expect("valid DMDZ v2 stream");
+        assert!(stream.is_compressed_dmdz());
+
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 2, 2);
+        runner.cfg.enabled = true;
+        runner.cfg.server_url.clear();
+        assert!(runner.allows_overlay());
+
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_showcase_dmdz_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = crate::core::config::Config::new(tmp_dir.join("config.json"));
+        {
+            let mut s = config.settings.write();
+            s.showcase.enabled = true;
+            s.showcase.server_url.clear();
+        }
+        runner.unified_showcase = config.settings.read().showcase.clone();
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.server_online = true;
+            guard.readiness = BatchReadiness::Ready;
+        }
+        runner.activate();
+        runner.turn_evaluated = true;
+        runner.active_item = Some(PreparedShowcaseItem {
+            id: "dmdz_item".to_string(),
+            title: "Akira".to_string(),
+            year: "1988".to_string(),
+            badge: "ANIME".to_string(),
+            badge_rgb: (255, 64, 129),
+            subtitle: "Cyberpunk".to_string(),
+            rating: "8.0".to_string(),
+            synopsis: "Neo-Tokyo.".to_string(),
+            poster: None,
+            has_stream: true,
+            stream_duration_s: 1.0,
+            stream_fps: 25,
+            http_stream: Some(stream),
+            http_frame_delay: Duration::from_millis(40),
+        });
+
+        let now = Instant::now();
+        runner.start_live_stream_phase(now - Duration::from_millis(50), "dmdz_item");
+        assert!(!runner.allows_overlay());
+
+        let mut surface = MockSurface::new(2, 2);
+        let mut ctx = crate::core::engine_contract::EngineContext {
+            surface: &mut surface,
+            config: &config,
+        };
+        runner.update(&mut ctx);
+        assert_eq!(runner.http_frame_idx, 1);
+        runner.render(&mut ctx);
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [0, 255, 0]);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

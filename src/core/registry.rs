@@ -351,9 +351,15 @@ impl EngineRuntime {
                 drop(old_eng);
             }
             crate::core::memory::trim_heap();
-            entry.engine = EngineRegistry::get_descriptor(&entry.engine_name)
-                .filter(|d| d.available)
-                .map(|d| (d.factory)());
+            entry.engine = if entry.engine_name == "frontend_sync" {
+                Some(Box::new(
+                    crate::engines::frontend_sync::InGameShowcaseEngine::new(),
+                ))
+            } else {
+                EngineRegistry::get_descriptor(&entry.engine_name)
+                    .filter(|d| d.available)
+                    .map(|d| (d.factory)())
+            };
             entry.ready = false;
             entry.needs_activate = reactivate_on_next_update;
             entry.recycle_count = entry.recycle_count.saturating_add(1);
@@ -537,7 +543,11 @@ impl EngineRuntime {
                 return false;
             }
             if entry.engine.is_none() {
-                if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
+                if entry.engine_name == "frontend_sync" {
+                    entry.engine = Some(Box::new(
+                        crate::engines::frontend_sync::InGameShowcaseEngine::new(),
+                    ));
+                } else if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
                     if desc.available {
                         entry.engine = Some((desc.factory)());
                     }

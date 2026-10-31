@@ -22,7 +22,7 @@ pub enum InGameCycleMode {
 #[derive(Clone)]
 pub struct InGameShowcasePayload {
     pub session_token: u64,
-    pub stream: Arc<crate::engines::renderers::media_showcase::PreloadedRgb565Stream>,
+    pub stream: Arc<crate::core::dmd_stream::PreloadedDmdStream>,
     pub cycle_mode: InGameCycleMode,
 }
 

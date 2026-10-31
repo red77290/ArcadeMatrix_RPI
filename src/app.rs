@@ -292,6 +292,7 @@ struct RuntimeSnapshot {
     slot_transition_duration_ms: u32,
     mqtt_handle: EngineHandle,
     marquee_handle: EngineHandle,
+    ingame_showcase_handle: EngineHandle,
 }
 
 #[inline]
@@ -332,7 +333,14 @@ fn build_runtime_snapshot(
     let marquee_handle = engine_runtime.register_instance_handle("marquee", "marquee");
     engine_runtime.init_instance(marquee_handle, &mut ctx, &empty_cfg);
 
-    engine_runtime.prune_inactive_instances(&active_instance_ids, &[mqtt_handle, marquee_handle]);
+    let ingame_showcase_handle =
+        engine_runtime.register_instance_handle("ingame_showcase", "frontend_sync");
+    engine_runtime.init_instance(ingame_showcase_handle, &mut ctx, &empty_cfg);
+
+    engine_runtime.prune_inactive_instances(
+        &active_instance_ids,
+        &[mqtt_handle, marquee_handle, ingame_showcase_handle],
+    );
 
     let mut rotation = Vec::with_capacity(settings.rotation.len());
     for entry in &settings.rotation {
@@ -364,6 +372,7 @@ fn build_runtime_snapshot(
         slot_transition_duration_ms: settings.matrix.slot_transition_duration_ms,
         mqtt_handle,
         marquee_handle,
+        ingame_showcase_handle,
     }
 }
 
@@ -430,13 +439,18 @@ impl ArcadeMatrixApp {
 
         let mut mqtt_req_gen = crate::core::types::RequestIdGenerator::new(1001);
         let mut marquee_req_gen = crate::core::types::RequestIdGenerator::new(2001);
+        let mut ingame_req_gen = crate::core::types::RequestIdGenerator::new(3001);
 
         let mut message_sync = ProducerSyncState::INIT;
         let mut marquee_sync = ProducerSyncState::INIT;
+        let mut ingame_sync = ProducerSyncState::INIT;
         let mut rotation_sync = ProducerSyncState::INIT;
         let mut last_message_payload: Option<
             std::sync::Arc<crate::engines::message::MessagePayload>,
         > = None;
+        let mut last_ingame_token: u64 = 0;
+        let mut completed_ingame_token: u64 = 0;
+        let mut ingame_cooldown_until: Option<std::time::Instant> = None;
 
         // 1. Run interactive Startup Splash Screen
         let active_ip = crate::core::splash::SplashScreen::run(
@@ -630,6 +644,56 @@ impl ArcadeMatrixApp {
                 }
             }
 
+            // 1b. Sync In-Game Showcase Producer (Late Preemption over Marquee/Banner)
+            match &producer_snap.ingame_showcase {
+                Some(ig) => {
+                    if ig.session_token != last_ingame_token {
+                        last_ingame_token = ig.session_token;
+                        completed_ingame_token = 0;
+                        ingame_cooldown_until = None;
+                        let req_id = ingame_req_gen.next_id();
+                        let req = DisplayRequest::new(
+                            DisplaySourceId::InGameShowcase,
+                            req_id,
+                            snapshot.ingame_showcase_handle,
+                            DisplaySourceId::InGameShowcase as u8,
+                            RequestLifecycle::Persistent,
+                            true,
+                            0,
+                        );
+                        arbiter.submit_request(req);
+                        ingame_sync.update(true, req_id, snapshot.ingame_showcase_handle);
+                    } else if completed_ingame_token != ig.session_token && !ingame_sync.active {
+                        if let Some(until) = ingame_cooldown_until {
+                            if std::time::Instant::now() >= until {
+                                ingame_cooldown_until = None;
+                                let req_id = ingame_req_gen.next_id();
+                                let req = DisplayRequest::new(
+                                    DisplaySourceId::InGameShowcase,
+                                    req_id,
+                                    snapshot.ingame_showcase_handle,
+                                    DisplaySourceId::InGameShowcase as u8,
+                                    RequestLifecycle::Persistent,
+                                    true,
+                                    0,
+                                );
+                                arbiter.submit_request(req);
+                                ingame_sync.update(true, req_id, snapshot.ingame_showcase_handle);
+                            }
+                        }
+                    }
+                }
+                None => {
+                    last_ingame_token = 0;
+                    completed_ingame_token = 0;
+                    ingame_cooldown_until = None;
+                    if ingame_sync.active {
+                        arbiter.cancel_request(DisplaySourceId::InGameShowcase, 0);
+                        ingame_sync.update(false, 0, EngineHandle::NULL);
+                    }
+                }
+            }
+
             // 2. Sync Rotation Producer
             let rotation_entry_changed = if !snapshot.rotation.is_empty() {
                 let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
@@ -683,7 +747,11 @@ impl ArcadeMatrixApp {
                         crate::core::memory::trim_heap();
                         engine_runtime.enforce_memory_watchdog(
                             active_handle,
-                            &[snapshot.mqtt_handle, snapshot.marquee_handle],
+                            &[
+                                snapshot.mqtt_handle,
+                                snapshot.marquee_handle,
+                                snapshot.ingame_showcase_handle,
+                            ],
                             None,
                         );
                         engine_runtime.activate_instance(active_handle);
@@ -695,7 +763,11 @@ impl ArcadeMatrixApp {
                     last_memory_watchdog = std::time::Instant::now();
                     engine_runtime.enforce_memory_watchdog(
                         runtime.active_session().engine_handle,
-                        &[snapshot.mqtt_handle, snapshot.marquee_handle],
+                        &[
+                            snapshot.mqtt_handle,
+                            snapshot.marquee_handle,
+                            snapshot.ingame_showcase_handle,
+                        ],
                         None,
                     );
                 }
@@ -775,8 +847,39 @@ impl ArcadeMatrixApp {
                 runtime.render(&mut engine_runtime, &mut ctx);
             }
 
-            // 6. Check rotation advance
-            if runtime.active_session().source_id == DisplaySourceId::Rotation
+            // 6. Check rotation advance & In-Game Showcase cycle completion
+            if runtime.active_session().source_id == DisplaySourceId::InGameShowcase && is_finished
+            {
+                if let Some(ref ig) = producer_snap.ingame_showcase {
+                    match ig.cycle_mode {
+                        crate::core::types::InGameCycleMode::Once => {
+                            completed_ingame_token = ig.session_token;
+                            arbiter.cancel_request(DisplaySourceId::InGameShowcase, 0);
+                            ingame_sync.update(false, 0, EngineHandle::NULL);
+                            config.clear_ingame_showcase_if_token(ig.session_token);
+                            crate::engines::frontend_sync::notify_ingame_once_completed(
+                                ig.session_token,
+                            );
+                        }
+                        crate::core::types::InGameCycleMode::Alternating {
+                            marquee_interval_sec,
+                        } => {
+                            ingame_cooldown_until = Some(
+                                std::time::Instant::now()
+                                    + std::time::Duration::from_secs(
+                                        marquee_interval_sec.max(5) as u64
+                                    ),
+                            );
+                            arbiter.cancel_request(DisplaySourceId::InGameShowcase, 0);
+                            ingame_sync.update(false, 0, EngineHandle::NULL);
+                        }
+                        crate::core::types::InGameCycleMode::Loop => {}
+                    }
+                } else {
+                    arbiter.cancel_request(DisplaySourceId::InGameShowcase, 0);
+                    ingame_sync.update(false, 0, EngineHandle::NULL);
+                }
+            } else if runtime.active_session().source_id == DisplaySourceId::Rotation
                 && !snapshot.rotation.is_empty()
             {
                 let curr_idx = rotation_manager.current_index() % snapshot.rotation.len();
@@ -819,7 +922,8 @@ impl ArcadeMatrixApp {
             was_composited = composited_this_frame;
             surface.present();
 
-            // Adaptive frame-paced sleep: realtime engines target ~60fps (16ms), static at 1000ms
+            // Adaptive frame-paced sleep: realtime engines target ~60fps (16ms),
+            // FrontendSync marquee/banner polls at 40ms for <40ms menu browsing latency, static idle at 200ms
             if realtime_cadence {
                 let elapsed = frame_start.elapsed();
                 let target = std::time::Duration::from_millis(16);
@@ -828,8 +932,12 @@ impl ArcadeMatrixApp {
                 } else {
                     std::thread::sleep(std::time::Duration::from_millis(1));
                 }
+            } else if forced_mode != crate::core::types::ForcedEngineMode::None
+                || producer_snap.ingame_showcase.is_some()
+            {
+                std::thread::sleep(std::time::Duration::from_millis(40));
             } else {
-                std::thread::sleep(std::time::Duration::from_millis(1000));
+                std::thread::sleep(std::time::Duration::from_millis(200));
             }
         }
 

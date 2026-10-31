@@ -337,7 +337,87 @@ impl ShowcaseConfig {
     }
 }
 
-/// Extract `(host, port)` from an HTTP or MQTT URL string.
+/// Normalize a bare single-label LAN hostname (e.g. `"dmdmediashowcase"` or `"mosquitto"`)
+/// to its `.local` mDNS form while leaving IPv4/IPv6 literals, `localhost`, and FQDNs untouched.
+pub fn normalize_mdns_hostname(host: &str) -> String {
+    let trimmed = host.trim().trim_end_matches('.');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.eq_ignore_ascii_case("auto") {
+        return "dmdmediashowcase.local".to_string();
+    }
+    if !trimmed.contains('.')
+        && !trimmed.contains(':')
+        && !trimmed.starts_with('[')
+        && !trimmed.eq_ignore_ascii_case("localhost")
+    {
+        return format!("{}.local", trimmed);
+    }
+    trimmed.to_string()
+}
+
+/// Normalize an HTTP or MQTT endpoint URL, migrating legacy v1.0.0 Showcase URLs
+/// (e.g. `"http://dmdmediashowcase:8890"`) and appending `.local` to single-label LAN hosts.
+pub fn normalize_mdns_endpoint_url(raw_url: &str, migrate_showcase_legacy: bool) -> String {
+    let trimmed = raw_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if migrate_showcase_legacy {
+        let low = trimmed.to_ascii_lowercase();
+        if matches!(
+            low.as_str(),
+            "http://192.168.1.50:8000"
+                | "http://127.0.0.1:8080"
+                | "http://dmdmediashowcase:8080"
+                | "http://dmdmediashowcase.local:8080"
+                | "http://dmdmediashowcase:8890"
+                | "http://dmdmediashowcase"
+                | "dmdmediashowcase:8890"
+                | "dmdmediashowcase"
+        ) {
+            return "http://dmdmediashowcase.local:8890".to_string();
+        }
+    }
+
+    let (scheme_prefix, rest) = if let Some(idx) = trimmed.find("://") {
+        (&trimmed[..idx + 3], &trimmed[idx + 3..])
+    } else {
+        ("", trimmed)
+    };
+    let (auth, path_suffix) = if let Some(slash_idx) = rest.find('/') {
+        (&rest[..slash_idx], &rest[slash_idx..])
+    } else {
+        (rest, "")
+    };
+    let close_bracket = auth.rfind(']');
+    let (host, port_suffix) = if let Some(colon_idx) = auth.rfind(':') {
+        if colon_idx > 0 && close_bracket.is_none_or(|b| colon_idx > b) {
+            (&auth[..colon_idx], &auth[colon_idx..])
+        } else {
+            (auth, "")
+        }
+    } else {
+        (auth, "")
+    };
+
+    if !host.is_empty()
+        && !host.contains('.')
+        && !host.contains(':')
+        && !host.eq_ignore_ascii_case("localhost")
+        && !host.eq_ignore_ascii_case("auto")
+    {
+        return format!(
+            "{}{}.local{}{}",
+            scheme_prefix, host, port_suffix, path_suffix
+        );
+    }
+    trimmed.to_string()
+}
+
+/// Extract `(host, port)` from an HTTP or MQTT URL string, normalizing bare single-label
+/// LAN hostnames (e.g. `http://dmdmediashowcase:8890`) to `.local` (`dmdmediashowcase.local`).
 pub fn parse_host_and_port(raw_url: &str, default_port: u16) -> Option<(String, u16)> {
     let trimmed = raw_url.trim();
     if trimmed.is_empty() {
@@ -353,13 +433,15 @@ pub fn parse_host_and_port(raw_url: &str, default_port: u16) -> Option<(String, 
     if authority.is_empty() {
         return None;
     }
+    let close_bracket = authority.rfind(']');
     if let Some((h, p_str)) = authority.rsplit_once(':') {
-        if !h.is_empty() {
+        let colon_pos = h.len();
+        if !h.is_empty() && close_bracket.is_none_or(|b| colon_pos > b) {
             let port = p_str.parse::<u16>().unwrap_or(default_port);
-            return Some((h.to_string(), port));
+            return Some((normalize_mdns_hostname(h), port));
         }
     }
-    Some((authority.to_string(), default_port))
+    Some((normalize_mdns_hostname(authority), default_port))
 }
 
 fn skip_dns_name(packet: &[u8], mut offset: usize) -> Option<usize> {
@@ -388,6 +470,120 @@ static CANDIDATE_SHOWCASE_IPS: std::sync::OnceLock<Mutex<Vec<String>>> = std::sy
 static MDNS_CACHE: std::sync::OnceLock<
     Mutex<std::collections::HashMap<String, (String, Instant)>>,
 > = std::sync::OnceLock::new();
+static RPI_HW_SHORT_ID: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+static MQTT_CONN_SEQ: AtomicU64 = AtomicU64::new(1);
+
+/// Extract the Broadcom SoC hardware serial from `/proc/cpuinfo` content if present.
+/// Prioritizing silicon OTP serial over `/etc/machine-id` guarantees distinct `<hwid>` tags
+/// even when multiple Raspberry Pi boards boot from cloned SD card images.
+pub fn extract_cpuinfo_serial(cpuinfo: &str) -> Option<String> {
+    for line in cpuinfo.lines() {
+        let Some((k, v)) = line.split_once(':') else {
+            continue;
+        };
+        if k.trim().eq_ignore_ascii_case("Serial") {
+            let clean = v.trim().trim_matches('\0');
+            if !clean.is_empty() && clean.chars().any(|c| c != '0') {
+                return Some(clean.to_ascii_lowercase());
+            }
+        }
+    }
+    None
+}
+
+/// Deterministically fold an arbitrary hardware identity seed into a 6-lowercase-hex short ID.
+pub fn derive_rpi_short_id_from_seed(seed: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for &b in seed.trim().as_bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    let mut folded = (((hash >> 40) ^ (hash >> 20) ^ hash) as u32) & 0x00FF_FFFF;
+    if folded == 0 {
+        folded = 0x0052_5049;
+    }
+    format!("{:06x}", folded)
+}
+
+fn detect_rpi_hardware_seed() -> String {
+    if let Ok(cpuinfo) = std::fs::read_to_string("/proc/cpuinfo") {
+        if let Some(serial) = extract_cpuinfo_serial(&cpuinfo) {
+            return format!("cpu-serial:{}", serial);
+        }
+    }
+    if let Ok(dt_serial) = std::fs::read_to_string("/sys/firmware/devicetree/base/serial-number") {
+        let clean = dt_serial.trim().trim_matches('\0');
+        if !clean.is_empty() && clean.chars().any(|c| c != '0') {
+            return format!("dt-serial:{}", clean);
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir("/sys/class/net") {
+        let mut macs = Vec::new();
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name == "lo"
+                || name.starts_with("docker")
+                || name.starts_with("veth")
+                || name.starts_with("br-")
+                || name.starts_with("virbr")
+            {
+                continue;
+            }
+            if let Ok(mac) = std::fs::read_to_string(entry.path().join("address")) {
+                let clean = mac.trim().to_ascii_lowercase();
+                if clean.len() == 17 && clean != "00:00:00:00:00:00" {
+                    macs.push(format!("{}:{}", name, clean));
+                }
+            }
+        }
+        macs.sort();
+        if let Some(primary_mac) = macs.first() {
+            return format!("net-mac:{}", primary_mac);
+        }
+    }
+    for path in ["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        if let Ok(mid) = std::fs::read_to_string(path) {
+            let clean = mid.trim();
+            if !clean.is_empty() {
+                return format!("machine-id:{}", clean);
+            }
+        }
+    }
+    if let Ok(host) = std::fs::read_to_string("/etc/hostname") {
+        let clean = host.trim();
+        if !clean.is_empty() {
+            return format!("hostname:{}", clean);
+        }
+    }
+    if let Ok(host) = std::env::var("HOSTNAME") {
+        let clean = host.trim();
+        if !clean.is_empty() {
+            return format!("env-host:{}", clean);
+        }
+    }
+    if let Some(ip) = probe_local_lan_ip("8.8.8.8", 53) {
+        return format!("lan-ip:{}", ip);
+    }
+    "rpi-default-node".to_string()
+}
+
+/// Return this board's stable 6-hex hardware short ID (e.g. `"a1b2c3"`), cached for process lifetime.
+pub fn rpi_hardware_short_id() -> &'static str {
+    RPI_HW_SHORT_ID
+        .get_or_init(|| derive_rpi_short_id_from_seed(&detect_rpi_hardware_seed()))
+        .as_str()
+}
+
+/// Build the hardware-scoped DMD Showcase client/topic ID (`rpi_<hwid>_<domain>_<W>x<H>`).
+pub fn format_rpi_dmd_client_id(domain_slug: &str, width: u32, height: u32) -> String {
+    format!(
+        "rpi_{}_{}_{}x{}",
+        rpi_hardware_short_id(),
+        domain_slug,
+        width,
+        height
+    )
+}
 
 /// Register a candidate LAN IPv4 address (e.g., WebUI client `peer_addr` or configured MQTT broker)
 /// to prioritize during automatic `dmdmediashowcase.local` discovery when running under Docker.
@@ -419,8 +615,17 @@ pub fn invalidate_showcase_host_cache() {
     }
 }
 
-/// Parse a raw HTTP response from `GET /api/v1/health` and verify Showcase signature fields.
-pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> {
+/// Detailed health and broker metadata returned by `GET /api/v1/health` on `dmd-media-showcase`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShowcaseHealthDetails {
+    pub version: String,
+    pub mqtt_mode: String,
+    pub mqtt_host: String,
+    pub mqtt_port: u16,
+}
+
+/// Parse a raw HTTP response from `GET /api/v1/health` and extract full Showcase health details.
+pub fn parse_showcase_health_details_http_response(raw: &[u8]) -> Option<ShowcaseHealthDetails> {
     let text = String::from_utf8_lossy(raw);
     let (headers, body) = text.split_once("\r\n\r\n")?;
     let status_line = headers.lines().next().unwrap_or("");
@@ -443,13 +648,38 @@ pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> 
         .and_then(|s| s.as_str())
         .unwrap_or("3.0.0")
         .to_string();
-    let mqtt_port = v.get("mqtt_port").and_then(|p| p.as_u64()).unwrap_or(1883);
-    Some((version, mqtt_port))
+    let mqtt_mode = v
+        .get("mqtt_mode")
+        .and_then(|s| s.as_str())
+        .unwrap_or("embedded")
+        .to_string();
+    let mqtt_host = v
+        .get("mqtt_host")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let mqtt_port = v
+        .get("mqtt_port")
+        .and_then(|p| p.as_u64())
+        .unwrap_or(1883)
+        .clamp(1, 65535) as u16;
+    Some(ShowcaseHealthDetails {
+        version,
+        mqtt_mode,
+        mqtt_host,
+        mqtt_port,
+    })
 }
 
-/// Fast single-socket TCP + HTTP `/api/v1/health` verification confirming a `dmd-media-showcase`
-/// instance is reachable at `(ip, port)`. Returns `Some((version, mqtt_port))` on success.
-pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
+/// Parse a raw HTTP response from `GET /api/v1/health` and verify Showcase signature fields.
+pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> {
+    let details = parse_showcase_health_details_http_response(raw)?;
+    Some((details.version, details.mqtt_port as u64))
+}
+
+/// Fast single-socket TCP + HTTP `/api/v1/health` verification returning full broker metadata.
+pub fn probe_showcase_health_details(ip: &str, port: u16) -> Option<ShowcaseHealthDetails> {
     use std::io::{Read, Write};
     let clean_ip = ip.trim().trim_start_matches("::ffff:");
     let ip_addr: std::net::IpAddr = clean_ip.parse().ok()?;
@@ -468,7 +698,14 @@ pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
 
     let mut raw = Vec::with_capacity(1024);
     let _ = stream.take(8192).read_to_end(&mut raw);
-    parse_showcase_health_http_response(&raw)
+    parse_showcase_health_details_http_response(&raw)
+}
+
+/// Fast single-socket TCP + HTTP `/api/v1/health` verification confirming a `dmd-media-showcase`
+/// instance is reachable at `(ip, port)`. Returns `Some((version, mqtt_port))` on success.
+pub fn probe_showcase_health(ip: &str, port: u16) -> Option<(String, u64)> {
+    let details = probe_showcase_health_details(ip, port)?;
+    Some((details.version, details.mqtt_port as u64))
 }
 
 fn read_linux_arp_neighbors() -> Vec<String> {
@@ -603,7 +840,7 @@ pub fn discover_showcase_on_lan(port: u16) -> Option<String> {
 /// Send a fast RFC 6762 UDP multicast DNS `A` query to `224.0.0.251:5353` for `.local` hostnames
 /// so `dmdmediashowcase.local` resolves reliably in <120ms without blocking on OS DNS timeouts.
 pub fn query_mdns_ipv4(hostname: &str, port: u16) -> Option<String> {
-    let clean = hostname.trim().trim_end_matches('.').to_ascii_lowercase();
+    let clean = normalize_mdns_hostname(hostname).to_ascii_lowercase();
     if !clean.ends_with(".local") {
         return None;
     }
@@ -715,7 +952,8 @@ pub fn resolve_showcase_host(host: &str) -> String {
 }
 
 pub fn resolve_showcase_host_with_port(host: &str, port: u16) -> String {
-    let trimmed = host.trim();
+    let normalized = normalize_mdns_hostname(host);
+    let trimmed = normalized.as_str();
     if trimmed.is_empty() || !trimmed.to_ascii_lowercase().ends_with(".local") {
         return trimmed.to_string();
     }
@@ -1056,66 +1294,8 @@ pub struct MqttReadyPayload {
     pub card: Option<ApiShowcaseItem>,
 }
 
-/// Single-allocation contiguous RGB565LE stream buffer (`DMDS`).
-/// Avoids allocating thousands of separate `RgbImage` heap buffers (which fragment glibc arenas)
-/// and exceeds the 64 KB `M_MMAP_THRESHOLD` so Linux immediately reclaims 100% of physical RAM on `drop()`.
-#[derive(Debug, Clone)]
-pub struct PreloadedRgb565Stream {
-    pub width: u32,
-    pub height: u32,
-    pub frame_count: usize,
-    pub frame_delay: Duration,
-    pub raw_rgb565_le: Vec<u8>,
-}
-
-impl PreloadedRgb565Stream {
-    #[inline]
-    pub fn frame_bytes(&self) -> usize {
-        (self.width as usize) * (self.height as usize) * 2
-    }
-
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.frame_count
-    }
-
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.frame_count == 0 || self.raw_rgb565_le.is_empty()
-    }
-
-    pub fn draw_frame_to_surface(&self, frame_idx: usize, matrix: &mut dyn IDrawingSurface) {
-        if self.is_empty() || self.width == 0 || self.height == 0 {
-            return;
-        }
-        let idx = frame_idx.min(self.frame_count - 1);
-        let fb = self.frame_bytes();
-        let start = idx.saturating_mul(fb);
-        if start + fb > self.raw_rgb565_le.len() {
-            return;
-        }
-        let slice = &self.raw_rgb565_le[start..start + fb];
-        let fw = (self.width as i32).min(matrix.width() as i32);
-        let fh = (self.height as i32).min(matrix.height() as i32);
-        let stride = (self.width as usize) * 2;
-        for py in 0..fh {
-            let row_off = (py as usize) * stride;
-            for px in 0..fw {
-                let off = row_off + (px as usize) * 2;
-                let lo = slice[off] as u16;
-                let hi = slice[off + 1] as u16;
-                let p = lo | (hi << 8);
-                let r5 = ((p >> 11) & 0x1F) as u8;
-                let g6 = ((p >> 5) & 0x3F) as u8;
-                let b5 = (p & 0x1F) as u8;
-                let r = (r5 << 3) | (r5 >> 2);
-                let g = (g6 << 2) | (g6 >> 4);
-                let b = (b5 << 3) | (b5 >> 2);
-                matrix.set_pixel(px, py, r, g, b);
-            }
-        }
-    }
-}
+/// Re-export of the unified `PreloadedDmdStream` (`DMDZ` v1/v2 compressed or legacy `DMDS` RGB565LE).
+pub type PreloadedRgb565Stream = crate::core::dmd_stream::PreloadedDmdStream;
 
 /// Single Consume-Once item held only during the current rotation turn.
 /// Never cached across turns or replayed when the server goes offline.
@@ -1256,51 +1436,11 @@ pub fn decode_rgb565_le_image(bytes: &[u8], width: u32, height: u32) -> Option<R
     Some(img)
 }
 
-/// Parse a binary `.rgb565.stream` (`DMDS`) payload into a single contiguous `Arc<PreloadedRgb565Stream>`.
-/// Uses 1 single heap allocation (`Vec<u8>`) instead of thousands of `RgbImage` structs, preventing
-/// glibc heap arena fragmentation and allowing immediate OS kernel reclamation via `munmap` on drop.
+/// Parse a binary Showcase stream (`DMDZ` v1/v2 or legacy `DMDS`) into a single contiguous
+/// `Arc<PreloadedRgb565Stream>` (`PreloadedDmdStream`).
+#[inline]
 pub fn parse_rgb565_stream_compact(bytes: &[u8]) -> Option<Arc<PreloadedRgb565Stream>> {
-    if bytes.len() < DMDS_HEADER_SIZE {
-        return None;
-    }
-    if &bytes[0..4] != DMDS_MAGIC {
-        return None;
-    }
-    let _version = bytes[4];
-    let fps = bytes[5].max(1);
-    let width = u16::from_le_bytes([bytes[6], bytes[7]]) as u32;
-    let height = u16::from_le_bytes([bytes[8], bytes[9]]) as u32;
-    let total_frames = u16::from_le_bytes([bytes[10], bytes[11]]) as usize;
-    let frame_delay_ms = u16::from_le_bytes([bytes[12], bytes[13]]) as u64;
-
-    if width == 0 || height == 0 || total_frames == 0 {
-        return None;
-    }
-    let frame_bytes = (width as usize)
-        .checked_mul(height as usize)?
-        .checked_mul(2)?;
-    if frame_bytes == 0 {
-        return None;
-    }
-    let payload_len = bytes.len().saturating_sub(DMDS_HEADER_SIZE);
-    let available_frames = (payload_len / frame_bytes).min(total_frames).min(7600);
-    if available_frames == 0 {
-        return None;
-    }
-    let valid_byte_len = available_frames * frame_bytes;
-    let raw_rgb565_le = bytes[DMDS_HEADER_SIZE..DMDS_HEADER_SIZE + valid_byte_len].to_vec();
-    let delay_ms = if frame_delay_ms > 0 {
-        frame_delay_ms.clamp(16, 500)
-    } else {
-        (1000 / (fps as u64)).clamp(16, 500)
-    };
-    Some(Arc::new(PreloadedRgb565Stream {
-        width,
-        height,
-        frame_count: available_frames,
-        frame_delay: Duration::from_millis(delay_ms),
-        raw_rgb565_le,
-    }))
+    crate::core::dmd_stream::parse_dmd_stream_compact(bytes)
 }
 
 /// Parse a binary `.rgb565.stream` (`DMDS`) payload into a sequence of `RgbImage` frames and frame delay.
@@ -1753,6 +1893,7 @@ pub struct MediaShowcaseRunner {
     pub last_retry_poll: Instant,
     pub http_frame_idx: usize,
     pub http_frame_elapsed: Duration,
+    pub stream_player: crate::core::dmd_stream::ShowcaseStreamPlayer,
     pub last_tick: Instant,
     pub turn_evaluated: bool,
     pub skip_turn_immediately: bool,
@@ -1800,6 +1941,7 @@ impl MediaShowcaseRunner {
             last_retry_poll: now,
             http_frame_idx: 0,
             http_frame_elapsed: Duration::ZERO,
+            stream_player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
             last_tick: now,
             turn_evaluated: false,
             skip_turn_immediately: false,
@@ -1815,6 +1957,13 @@ impl MediaShowcaseRunner {
 
     pub fn set_rotation_budget(&mut self, budget: u32) {
         self.rotation_budget = budget.max(1);
+    }
+
+    /// Transverse overlays (e.g. M.U.G.E.N Fighter) are permitted during `Card` / waiting scenes
+    /// and strictly forbidden during `LiveStream` video/panorama playback (1:1 parity with ESP32).
+    #[inline]
+    pub fn allows_overlay(&self) -> bool {
+        self.phase == PlaybackPhase::Card
     }
 
     /// Strict DMD-side upper bound on `LiveStream` duration: configured `video_max_duration_s`
@@ -1866,12 +2015,7 @@ impl MediaShowcaseRunner {
     }
 
     pub fn dmd_client_id(&self) -> String {
-        format!(
-            "rpi_{}_{}x{}",
-            self.domain.as_api_slug(),
-            self.width,
-            self.height
-        )
+        format_rpi_dmd_client_id(self.domain.as_api_slug(), self.width, self.height)
     }
 
     /// Spawn the background worker thread (`mqtt_udp` real-time client or `http_poll` fallback).
@@ -1948,7 +2092,7 @@ impl MediaShowcaseRunner {
         config_gen_arc: Arc<AtomicU64>,
         my_gen: u64,
     ) {
-        let Some((mqtt_host, mqtt_port)) = resolve_mqtt_broker_endpoint(
+        let Some((mut mqtt_host, mut mqtt_port)) = resolve_mqtt_broker_endpoint(
             &cfg,
             if global_host.is_empty() {
                 None
@@ -1958,9 +2102,29 @@ impl MediaShowcaseRunner {
         ) else {
             return;
         };
+        let base_url = resolve_showcase_server_url(&cfg.server_url);
+        if cfg.use_showcase_broker {
+            if let Some((h, p)) = parse_host_and_port(&base_url, 8890) {
+                if let Some(details) = probe_showcase_health_details(&h, p) {
+                    if details.mqtt_port > 0 {
+                        mqtt_port = details.mqtt_port;
+                    }
+                    if !details.mqtt_host.is_empty()
+                        && details.mqtt_host != "localhost"
+                        && details.mqtt_host != "127.0.0.1"
+                        && details.mqtt_host != "mosquitto"
+                        && !details.mqtt_host.starts_with("172.")
+                    {
+                        mqtt_host = resolve_showcase_host_with_port(&details.mqtt_host, mqtt_port);
+                    } else {
+                        mqtt_host = h;
+                    }
+                }
+            }
+        }
 
         let slug = domain.as_api_slug();
-        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let dmd_id = format_rpi_dmd_client_id(slug, width, height);
         let local_ip = probe_local_lan_ip(&mqtt_host, mqtt_port).unwrap_or_default();
         let udp_socket = match UdpSocket::bind("0.0.0.0:0") {
             Ok(s) => {
@@ -1970,12 +2134,14 @@ impl MediaShowcaseRunner {
             Err(_) => return,
         };
         let local_udp_port = udp_socket.local_addr().map(|a| a.port()).unwrap_or(5568);
+        let hello_pkt = format!("DMDH|{}|{}", dmd_id, local_ip);
+        let _ = udp_socket.send_to(hello_pkt.as_bytes(), (mqtt_host.as_str(), 5569));
 
-        let mut mqtt_opts = MqttOptions::new(
-            format!("{}_{}", dmd_id, my_gen % 1000),
-            mqtt_host,
-            mqtt_port,
-        );
+        let conn_seq = MQTT_CONN_SEQ.fetch_add(1, Ordering::Relaxed) % 10_000;
+        let pump_mqtt_host = mqtt_host.clone();
+        let pump_dmd_id = dmd_id.clone();
+        let mut mqtt_opts =
+            MqttOptions::new(format!("{}_{}", dmd_id, conn_seq), mqtt_host, mqtt_port);
         mqtt_opts.set_keep_alive(Duration::from_secs(15));
         // Raise rumqttc's default 10 KB incoming packet limit to 64 KB so 256x64 / 128x64
         // `ready` payloads (`48x64` Base64 poster = 8,192 chars + full localized synopsis)
@@ -2043,7 +2209,6 @@ impl MediaShowcaseRunner {
         let http_client = crate::core::memory::stream_http_client();
         let preload_in_flight = Arc::new(AtomicBool::new(false));
         let pending_preload: Arc<Mutex<Option<(String, String)>>> = Arc::new(Mutex::new(None));
-        let base_url = resolve_showcase_server_url(&cfg.server_url);
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
         // Spawn a dedicated fast 4ms I/O pump thread for UDP `DMDF` packet reception and
@@ -2134,6 +2299,9 @@ impl MediaShowcaseRunner {
                         }
                     }
                     if let Some(item_id) = start_stream_id {
+                        let hello_pkt = format!("DMDH|{}|{}", pump_dmd_id, pump_local_ip);
+                        let _ = udp_socket
+                            .send_to(hello_pkt.as_bytes(), (pump_mqtt_host.as_str(), 5569));
                         info!(
                             "[Showcase:{}] --> MQTT 'start_stream' item_id='{}' (UDP {}:{})",
                             slug, item_id, pump_local_ip, local_udp_port
@@ -2275,19 +2443,17 @@ impl MediaShowcaseRunner {
                                             guard.generation = my_gen;
                                         }
 
-                                        // Preload the unified `.rgb565.stream` (`DMDS`) over HTTP TCP in a background thread
-                                        // while the Card is displaying on the DMD (or while N+1 waits in `ready_item`).
+                                        // Preload the unified stream (`DMDZ` v2 lossless True-RGB565 with automatic `DMDS`
+                                        // fallback) over HTTP TCP in a background thread while the Card is displaying on the DMD
+                                        // (or while N+1 waits in `ready_item`).
                                         // Queues `pending_preload` so if N+1 `ready: true` arrives while N is still
                                         // downloading, N+1 is automatically preloaded immediately after N completes.
                                         if has_stream && !base_url.is_empty() {
-                                            let sep =
-                                                if stream_path.contains('?') { "&" } else { "?" };
-                                            let next_url = format!(
-                                                "{}{}{}purge=false",
-                                                base_url, stream_path, sep
-                                            );
                                             if let Ok(mut q) = pending_preload.lock() {
-                                                *q = Some((preload_item_id.clone(), next_url));
+                                                *q = Some((
+                                                    preload_item_id.clone(),
+                                                    stream_path.clone(),
+                                                ));
                                             }
                                             if preload_in_flight
                                                 .compare_exchange(
@@ -2303,15 +2469,16 @@ impl MediaShowcaseRunner {
                                                 let in_flight_arc = Arc::clone(&preload_in_flight);
                                                 let pending_arc = Arc::clone(&pending_preload);
                                                 let p_slug = slug.to_string();
+                                                let p_base_url = base_url.clone();
+                                                let p_dmd_id = dmd_id.clone();
                                                 std::thread::spawn(move || {
-                                                    let client =
-                                                        crate::core::memory::stream_http_client();
                                                     loop {
                                                         let next_job = pending_arc
                                                             .lock()
                                                             .ok()
                                                             .and_then(|mut q| q.take());
-                                                        let Some((p_item_id, url)) = next_job
+                                                        let Some((p_item_id, p_stream_path)) =
+                                                            next_job
                                                         else {
                                                             in_flight_arc
                                                                 .store(false, Ordering::Release);
@@ -2340,65 +2507,51 @@ impl MediaShowcaseRunner {
                                                                 .store(false, Ordering::Release);
                                                             break;
                                                         }
-                                                        if let Ok(resp) = client.get(&url).send() {
-                                                            if resp.status().is_success() {
-                                                                if let Ok(bytes) = resp.bytes() {
-                                                                    if let Some(stream_arc) =
-                                                                        parse_rgb565_stream_compact(
-                                                                            &bytes,
-                                                                        )
-                                                                    {
-                                                                        let f_cnt =
-                                                                            stream_arc.frame_count;
-                                                                        let delay =
-                                                                            stream_arc.frame_delay;
-                                                                        if preload_gen_arc
-                                                                            .load(Ordering::SeqCst)
-                                                                            == my_gen
-                                                                        {
-                                                                            let mut guard =
-                                                                                preload_shared
-                                                                                    .lock()
-                                                                                    .unwrap();
-                                                                            let mut
-                                                                            attached_to_ready =
-                                                                                false;
-                                                                            if let Some(
-                                                                                ref mut rdy,
-                                                                            ) = guard.ready_item
-                                                                            {
-                                                                                if rdy.id
-                                                                                    == p_item_id
-                                                                                {
-                                                                                    rdy.http_stream =
-                                                                                        Some(Arc::clone(
-                                                                                            &stream_arc,
-                                                                                        ));
-                                                                                    rdy.http_frame_delay =
-                                                                                        delay;
-                                                                                    attached_to_ready =
-                                                                                        true;
-                                                                                }
-                                                                            }
-                                                                            if !attached_to_ready {
-                                                                                guard
-                                                                                    .preloaded_streams
-                                                                                    .clear();
-                                                                                guard
-                                                                                    .preloaded_streams
-                                                                                    .push_back((
-                                                                                        p_item_id
-                                                                                            .clone(),
-                                                                                        stream_arc,
-                                                                                    ));
-                                                                            }
-                                                                            info!(
-                                                                                "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
-                                                                                p_slug, p_item_id, f_cnt, delay
-                                                                            );
-                                                                        }
+                                                        if let Some(stream_arc) =
+                                                            crate::core::dmd_stream::fetch_showcase_stream(
+                                                                &p_base_url,
+                                                                &p_stream_path,
+                                                                Some(&p_dmd_id),
+                                                                false,
+                                                                width,
+                                                                height,
+                                                                Some(Duration::from_secs(25)),
+                                                            )
+                                                        {
+                                                            let f_cnt = stream_arc.frame_count;
+                                                            let delay = stream_arc.frame_delay;
+                                                            if preload_gen_arc
+                                                                .load(Ordering::SeqCst)
+                                                                == my_gen
+                                                            {
+                                                                let mut guard =
+                                                                    preload_shared.lock().unwrap();
+                                                                let mut attached_to_ready = false;
+                                                                if let Some(ref mut rdy) =
+                                                                    guard.ready_item
+                                                                {
+                                                                    if rdy.id == p_item_id {
+                                                                        rdy.http_stream = Some(
+                                                                            Arc::clone(&stream_arc),
+                                                                        );
+                                                                        rdy.http_frame_delay =
+                                                                            delay;
+                                                                        attached_to_ready = true;
                                                                     }
                                                                 }
+                                                                if !attached_to_ready {
+                                                                    guard.preloaded_streams.clear();
+                                                                    guard
+                                                                        .preloaded_streams
+                                                                        .push_back((
+                                                                            p_item_id.clone(),
+                                                                            stream_arc,
+                                                                        ));
+                                                                }
+                                                                info!(
+                                                                    "[Showcase:{}] Preloaded HTTP stream for '{}' ({} frames @ {:?}/frame)",
+                                                                    p_slug, p_item_id, f_cnt, delay
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -2499,7 +2652,7 @@ impl MediaShowcaseRunner {
         let resolved_base = resolve_showcase_server_url(&cfg.server_url);
         let base = resolved_base.trim_end_matches('/');
         let slug = domain.as_api_slug();
-        let dmd_id = format!("rpi_{}_{}x{}", slug, width, height);
+        let dmd_id = format_rpi_dmd_client_id(slug, width, height);
         let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
         // 1. Register client config (`POST /api/v1/{domain}/config`)
@@ -2593,7 +2746,7 @@ impl MediaShowcaseRunner {
             None
         };
 
-        // Fetch unified `.rgb565.stream` (`[Jacket Panorama -> Marquee -> Snapshots -> Video]`)
+        // Fetch unified stream (`DMDZ` v2 lossless True-RGB565 with automatic `DMDS` fallback)
         let mut http_stream = None;
         let mut http_frame_delay = Duration::from_millis((1000 / api_item.video_fps.max(1)) as u64);
         let stream_path = if !api_item.assets.unified_stream_rgb565.is_empty() {
@@ -2602,17 +2755,17 @@ impl MediaShowcaseRunner {
             format!("/api/v1/{}/stream/{}.rgb565.stream", slug, item_id)
         };
         if (cfg.any_panorama_requested() || cfg.show_video) && !stream_path.is_empty() {
-            let url = format!("{}{}", base, stream_path);
-            let stream_client = crate::core::memory::stream_http_client();
-            if let Ok(r) = stream_client.get(&url).send() {
-                if r.status().is_success() {
-                    if let Ok(bytes) = r.bytes() {
-                        if let Some(stream_arc) = parse_rgb565_stream_compact(&bytes) {
-                            http_frame_delay = stream_arc.frame_delay;
-                            http_stream = Some(stream_arc);
-                        }
-                    }
-                }
+            if let Some(stream_arc) = crate::core::dmd_stream::fetch_showcase_stream(
+                base,
+                &stream_path,
+                Some(&dmd_id),
+                true,
+                width,
+                height,
+                Some(Duration::from_secs(25)),
+            ) {
+                http_frame_delay = stream_arc.frame_delay;
+                http_stream = Some(stream_arc);
             }
         }
 
@@ -2682,6 +2835,7 @@ impl MediaShowcaseRunner {
             self.last_retry_poll = now;
             self.http_frame_idx = 0;
             self.http_frame_elapsed = Duration::ZERO;
+            self.stream_player.reset();
             self.skip_turn_immediately = false;
             self.turn_completed = false;
             self.consecutive_warm_skips = 0;
@@ -2709,6 +2863,7 @@ impl MediaShowcaseRunner {
             self.last_retry_poll = now;
             self.http_frame_idx = 0;
             self.http_frame_elapsed = Duration::ZERO;
+            self.stream_player.reset();
             self.turn_evaluated = false;
             self.skip_turn_immediately = false;
             self.turn_completed = false;
@@ -2731,6 +2886,7 @@ impl MediaShowcaseRunner {
         self.items_played_in_turn = 0;
         self.http_frame_idx = 0;
         self.http_frame_elapsed = Duration::ZERO;
+        self.stream_player.start(now);
         self.phase = PlaybackPhase::Card;
         self.phase_started_at = now;
         self.last_retry_poll = now;
@@ -2754,6 +2910,7 @@ impl MediaShowcaseRunner {
             }
         }
         self.config_gen.fetch_add(1, Ordering::SeqCst);
+        self.stream_player.reset();
         self.skip_turn_immediately = false;
         self.turn_evaluated = false;
         self.turn_completed = false;
@@ -2828,6 +2985,7 @@ impl MediaShowcaseRunner {
         self.phase_started_at = now;
         self.http_frame_idx = 0;
         self.http_frame_elapsed = Duration::ZERO;
+        self.stream_player.start(now);
         {
             let mut guard = self.shared.lock().unwrap();
             guard.stream_eof = false;
@@ -2863,6 +3021,7 @@ impl MediaShowcaseRunner {
 
     fn finish_current_turn(&mut self) {
         let stopped_id = self.active_item.take().map(|it| it.id);
+        self.stream_player.reset();
         {
             let mut guard = self.shared.lock().unwrap();
             guard.live_udp_frame = None;
@@ -3001,23 +3160,16 @@ impl MediaShowcaseRunner {
             }
         }
 
-        let Some((
-            item_id,
-            has_stream,
-            stream_duration_s,
-            mut http_frames_len,
-            mut http_frame_delay,
-            card_target_dur,
-        )) = self.active_item.as_ref().map(|it| {
-            (
-                it.id.clone(),
-                it.has_stream,
-                it.stream_duration_s,
-                it.http_stream_frame_count(),
-                it.http_frame_delay,
-                self.organic_card_duration(it),
-            )
-        })
+        let Some((item_id, has_stream, stream_duration_s, mut http_frames_len, card_target_dur)) =
+            self.active_item.as_ref().map(|it| {
+                (
+                    it.id.clone(),
+                    it.has_stream,
+                    it.stream_duration_s,
+                    it.http_stream_frame_count(),
+                    self.organic_card_duration(it),
+                )
+            })
         else {
             if now.saturating_duration_since(self.last_retry_poll) >= Duration::from_millis(2500) {
                 self.last_retry_poll = now;
@@ -3041,18 +3193,17 @@ impl MediaShowcaseRunner {
                 }
             }
             PlaybackPhase::LiveStream => {
-                self.dirty = true;
                 // Attach background-preloaded HTTP stream if it completed right after LiveStream started
                 if http_frames_len == 0 {
                     let mut guard = self.shared.lock().unwrap();
                     if let Some(stream_arc) = guard.take_preloaded_stream(&item_id) {
                         if let Some(ref mut active) = self.active_item {
                             http_frames_len = stream_arc.frame_count;
-                            http_frame_delay = stream_arc.frame_delay;
                             active.http_frame_delay = stream_arc.frame_delay;
                             active.http_stream = Some(stream_arc);
                             self.http_frame_idx = 0;
                             self.http_frame_elapsed = Duration::ZERO;
+                            self.stream_player.start(now);
                             self.phase_started_at = now;
                             phase_elapsed = Duration::ZERO;
                         }
@@ -3061,18 +3212,32 @@ impl MediaShowcaseRunner {
 
                 let max_cfg_dur = self.configured_max_stream_duration();
 
-                // 1. If playing HTTP pre-decoded stream frames for this single item:
-                //    Index frames strictly by monotonic wall-clock `phase_elapsed` (never by
-                //    drifting `Duration::ZERO` resets where `2 * 16ms = 32ms < 33ms` slowed 30 FPS
-                //    video by 1.5x–2x!) AND enforce the DMD's configured `video_max_duration_s` cap.
+                // 1. Shared `ShowcaseStreamPlayer` (`DMDZ` v1/v2 & `DMDS`) playback:
+                //    Indexes frames strictly by monotonic wall-clock `phase_elapsed` (never by
+                //    drifting `Duration::ZERO` resets) and enforces the DMD's `video_max_duration_s` cap.
                 if http_frames_len > 0 {
-                    let frame_us = http_frame_delay.as_micros().max(1_000);
-                    self.http_frame_idx = (phase_elapsed.as_micros() / frame_us) as usize;
-                    if self.http_frame_idx >= http_frames_len || phase_elapsed >= max_cfg_dur {
-                        self.finish_current_turn();
+                    let stream_opt = self
+                        .active_item
+                        .as_ref()
+                        .and_then(|it| it.http_stream.as_ref())
+                        .cloned();
+                    if let Some(stream) = stream_opt {
+                        let finished = self.stream_player.advance_at_elapsed(
+                            &stream,
+                            phase_elapsed,
+                            false,
+                            Some(max_cfg_dur),
+                        );
+                        self.http_frame_idx = self.stream_player.current_frame_index();
+                        self.dirty = self.stream_player.has_new_frame(&stream);
+                        if finished {
+                            self.finish_current_turn();
+                        }
+                        return;
                     }
-                    return;
                 }
+
+                self.dirty = true;
 
                 // 2. Real-time UDP stream (`mqtt_udp`) with `stream_eof` + 1500ms packet watchdog
                 let (stream_eof, last_pkt) = {
@@ -3451,26 +3616,41 @@ impl MediaShowcaseRunner {
         let h = matrix.height() as i32;
         let phase_ms = self.phase_started_at.elapsed().as_millis();
 
-        let eff_lang = self.cfg.effective_lang(&self.system_lang);
-        let Some(ref item) = self.active_item else {
+        let eff_lang = self.cfg.effective_lang(&self.system_lang).to_string();
+        if self.active_item.is_none() {
             let effective_url = if self.cfg.enabled {
                 self.cfg.server_url.as_str()
             } else {
                 ""
             };
-            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, effective_url, eff_lang);
+            render_waiting_pixel_art(
+                self.domain,
+                matrix,
+                w,
+                h,
+                phase_ms,
+                effective_url,
+                &eff_lang,
+            );
             self.dirty = false;
             return;
-        };
+        }
 
         match self.phase {
             PlaybackPhase::Card => {
-                self.render_card_adaptive(matrix, item, w, h, phase_ms);
+                if let Some(ref item) = self.active_item {
+                    self.render_card_adaptive(matrix, item, w, h, phase_ms);
+                }
             }
             PlaybackPhase::LiveStream => {
-                if let Some(ref stream) = item.http_stream {
+                let stream_opt = self
+                    .active_item
+                    .as_ref()
+                    .and_then(|it| it.http_stream.as_ref())
+                    .cloned();
+                if let Some(stream) = stream_opt {
                     if !stream.is_empty() {
-                        stream.draw_frame_to_surface(self.http_frame_idx, matrix);
+                        self.stream_player.render_to_surface(&stream, matrix);
                     }
                 } else {
                     let live_frame = {
@@ -3495,7 +3675,7 @@ impl MediaShowcaseRunner {
                             h,
                             phase_ms,
                             &self.cfg.server_url,
-                            eff_lang,
+                            &eff_lang,
                         );
                     }
                 }
@@ -3712,7 +3892,7 @@ mod tests {
         let compact = parse_rgb565_stream_compact(&stream).expect("valid compact DMDS stream");
         assert_eq!(compact.frame_count, 2);
         assert_eq!(compact.frame_delay, Duration::from_millis(66));
-        assert_eq!(compact.raw_rgb565_le.len(), 16);
+        assert_eq!(compact.payload_byte_len(), 16);
         let mut surface = MockSurface::new(2, 2);
         compact.draw_frame_to_surface(0, &mut surface);
         assert!(surface.canvas.get_pixel(0, 0).0[0] >= 248);
@@ -3879,13 +4059,13 @@ mod tests {
     #[test]
     fn test_deactivate_purges_all_cached_streams_and_stops_workers() {
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 128, 64);
-        let stream = Arc::new(PreloadedRgb565Stream {
-            width: 128,
-            height: 64,
-            frame_count: 10,
-            frame_delay: Duration::from_millis(33),
-            raw_rgb565_le: vec![0u8; 128 * 64 * 2 * 10],
-        });
+        let stream = Arc::new(PreloadedRgb565Stream::from_raw_rgb565_le(
+            128,
+            64,
+            10,
+            Duration::from_millis(33),
+            vec![0u8; 128 * 64 * 2 * 10],
+        ));
         {
             let mut guard = runner.shared.lock().unwrap();
             let item = PreparedShowcaseItem {
@@ -4048,13 +4228,13 @@ mod tests {
         );
 
         // 2400 frames @ 33ms (~79.2s) > 60s DMD cap
-        let stream = Arc::new(PreloadedRgb565Stream {
-            width: 2,
-            height: 2,
-            frame_count: 2400,
-            frame_delay: Duration::from_millis(33),
-            raw_rgb565_le: vec![0u8; 2 * 2 * 2 * 2400],
-        });
+        let stream = Arc::new(PreloadedRgb565Stream::from_raw_rgb565_le(
+            2,
+            2,
+            2400,
+            Duration::from_millis(33),
+            vec![0u8; 2 * 2 * 2 * 2400],
+        ));
         let config = crate::core::config::Config::new("/tmp/nonexistent_showcase_test_cfg.json");
         {
             let mut s = config.settings.write();
@@ -4204,10 +4384,15 @@ mod tests {
         assert_eq!(last_px, [0, 255, 0]);
 
         // 3. Live hardware geometry transition (128x32 -> 256x64) clears stale 128x32 media
-        //    and updates client ID to `rpi_games_256x64`
+        //    and updates client ID to `rpi_<hwid>_games_256x64`
+        let hwid = rpi_hardware_short_id();
+        assert_eq!(hwid.len(), 6);
+        assert!(hwid
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Games, 128, 32);
         runner.cfg.enabled = false; // prevent spawning live network thread in unit test
-        assert_eq!(runner.dmd_client_id(), "rpi_games_128x32");
+        assert_eq!(runner.dmd_client_id(), format!("rpi_{}_games_128x32", hwid));
         let gen_before = runner.config_gen.load(Ordering::SeqCst);
         runner.active_item = Some(PreparedShowcaseItem {
             id: "old_128x32".to_string(),
@@ -4227,8 +4412,152 @@ mod tests {
         });
         runner.on_display_geometry_changed(256, 64);
         assert_eq!((runner.width, runner.height), (256, 64));
-        assert_eq!(runner.dmd_client_id(), "rpi_games_256x64");
+        assert_eq!(runner.dmd_client_id(), format!("rpi_{}_games_256x64", hwid));
         assert!(runner.active_item.is_none());
         assert!(runner.config_gen.load(Ordering::SeqCst) > gen_before);
+    }
+
+    #[test]
+    fn test_hardware_scoped_rpi_short_id_isolates_multiple_boards() {
+        let cpu_a = "Hardware\t: BCM2835\nRevision\t: c03112\nSerial\t\t: 10000000aa11bb22\n";
+        let cpu_b = "Hardware\t: BCM2835\nRevision\t: c03112\nSerial\t\t: 10000000cc33dd44\n";
+        let ser_a = extract_cpuinfo_serial(cpu_a).expect("serial A");
+        let ser_b = extract_cpuinfo_serial(cpu_b).expect("serial B");
+        assert_eq!(ser_a, "10000000aa11bb22");
+        assert_eq!(ser_b, "10000000cc33dd44");
+
+        let id_a = derive_rpi_short_id_from_seed(&format!("cpu-serial:{}", ser_a));
+        let id_b = derive_rpi_short_id_from_seed(&format!("cpu-serial:{}", ser_b));
+        assert_eq!(id_a.len(), 6);
+        assert_eq!(id_b.len(), 6);
+        assert_ne!(id_a, id_b);
+        assert!(extract_cpuinfo_serial("Serial : 0000000000000000\n").is_none());
+    }
+
+    #[test]
+    fn test_normalize_mdns_hostname_and_endpoint_url() {
+        assert_eq!(
+            normalize_mdns_hostname("dmdmediashowcase"),
+            "dmdmediashowcase.local"
+        );
+        assert_eq!(normalize_mdns_hostname("auto"), "dmdmediashowcase.local");
+        assert_eq!(normalize_mdns_hostname("localhost"), "localhost");
+        assert_eq!(normalize_mdns_hostname("192.168.1.22"), "192.168.1.22");
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://dmdmediashowcase:8890", true),
+            "http://dmdmediashowcase.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://dmdmediashowcase:8080", true),
+            "http://dmdmediashowcase.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://mybox:8890", false),
+            "http://mybox.local:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("mqtt://mosquitto:1883", false),
+            "mqtt://mosquitto.local:1883"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://192.168.1.22:8890", true),
+            "http://192.168.1.22:8890"
+        );
+        assert_eq!(
+            normalize_mdns_endpoint_url("http://localhost:8890", false),
+            "http://localhost:8890"
+        );
+        assert_eq!(
+            parse_host_and_port("http://dmdmediashowcase:8890", 8890),
+            Some(("dmdmediashowcase.local".to_string(), 8890))
+        );
+    }
+
+    #[test]
+    fn test_dmdz_v2_stream_playback_and_allows_overlay_gate() {
+        let mut dmdz = Vec::new();
+        dmdz.extend_from_slice(crate::core::dmd_stream::DMDZ_MAGIC);
+        dmdz.push(2); // v2
+        dmdz.push(25); // 25 FPS
+        dmdz.extend_from_slice(&2u16.to_le_bytes());
+        dmdz.extend_from_slice(&2u16.to_le_bytes());
+        dmdz.extend_from_slice(&2u16.to_le_bytes()); // 2 frames
+        dmdz.extend_from_slice(&40u16.to_le_bytes());
+        dmdz.extend_from_slice(&0u16.to_le_bytes());
+
+        // Frame 0: FRAME_PAL8, 1 color (pure red 0xF800), PAL_INDEX 0 + PAL_RUN 3 -> 4 red pixels
+        let mut f0 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        f0.extend_from_slice(&0xF800u16.to_le_bytes());
+        f0.push(0);
+        f0.push(0xC1); // run of 3 -> total 4 pixels
+        dmdz.extend_from_slice(&(f0.len() as u16).to_le_bytes());
+        dmdz.extend_from_slice(&f0);
+
+        // Frame 1: FRAME_PAL8, 1 color (pure green 0x07E0), PAL_INDEX 0 + PAL_RUN 3 -> 4 green pixels
+        let mut f1 = vec![crate::core::dmd_stream::FRAME_PAL8, 0];
+        f1.extend_from_slice(&0x07E0u16.to_le_bytes());
+        f1.push(0);
+        f1.push(0xC1);
+        dmdz.extend_from_slice(&(f1.len() as u16).to_le_bytes());
+        dmdz.extend_from_slice(&f1);
+
+        let stream = parse_rgb565_stream_compact(&dmdz).expect("valid DMDZ v2 stream");
+        assert!(stream.is_compressed_dmdz());
+
+        let mut runner = MediaShowcaseRunner::new(ShowcaseDomain::Movies, 2, 2);
+        runner.cfg.enabled = true;
+        runner.cfg.server_url.clear();
+        assert!(runner.allows_overlay());
+
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_showcase_dmdz_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = crate::core::config::Config::new(tmp_dir.join("config.json"));
+        {
+            let mut s = config.settings.write();
+            s.showcase.enabled = true;
+            s.showcase.server_url.clear();
+        }
+        runner.unified_showcase = config.settings.read().showcase.clone();
+        {
+            let mut guard = runner.shared.lock().unwrap();
+            guard.server_online = true;
+            guard.readiness = BatchReadiness::Ready;
+        }
+        runner.activate();
+        runner.turn_evaluated = true;
+        runner.active_item = Some(PreparedShowcaseItem {
+            id: "dmdz_item".to_string(),
+            title: "Akira".to_string(),
+            year: "1988".to_string(),
+            badge: "ANIME".to_string(),
+            badge_rgb: (255, 64, 129),
+            subtitle: "Cyberpunk".to_string(),
+            rating: "8.0".to_string(),
+            synopsis: "Neo-Tokyo.".to_string(),
+            poster: None,
+            has_stream: true,
+            stream_duration_s: 1.0,
+            stream_fps: 25,
+            http_stream: Some(stream),
+            http_frame_delay: Duration::from_millis(40),
+        });
+
+        let now = Instant::now();
+        runner.start_live_stream_phase(now - Duration::from_millis(50), "dmdz_item");
+        assert!(!runner.allows_overlay());
+
+        let mut surface = MockSurface::new(2, 2);
+        let mut ctx = crate::core::engine_contract::EngineContext {
+            surface: &mut surface,
+            config: &config,
+        };
+        runner.update(&mut ctx);
+        assert_eq!(runner.http_frame_idx, 1);
+        runner.render(&mut ctx);
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [0, 255, 0]);
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 }

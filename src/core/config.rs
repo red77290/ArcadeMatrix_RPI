@@ -162,6 +162,30 @@ pub struct MqttConfig {
     pub pass: String,
     pub device_name: String,
     pub allow_overlay: bool,
+    /// When Showcase is enabled and reachable, share Showcase's MQTT broker instead of the local broker.
+    pub use_showcase_broker: bool,
+    /// Automatically prepare and present a Showcase sequence (Card + Panoramas + Gameplay Video) on `playing`.
+    pub ingame_showcase_enabled: bool,
+    /// Cycle behavior once the Showcase sequence ends while still playing: `"alternating"`, `"loop"`, or `"once"`.
+    pub ingame_cycle_mode: String,
+    /// Marquee display duration (seconds) between Showcase cycles when `ingame_cycle_mode == "alternating"`.
+    pub ingame_marquee_interval_sec: u32,
+    /// Presentation style source: `"showcase_profile"` (inherit DMD profile on Showcase) or `"custom"` (override from DMD UI).
+    pub card_style_source: String,
+    pub include_card_intro: bool,
+    pub card_layout: String,
+    pub card_theme: String,
+    pub include_poster: bool,
+    pub include_synopsis: bool,
+    pub text_scroll_speed: String,
+    pub jacket_panorama: bool,
+    pub marquee_panorama: bool,
+    pub snapshot_panorama_count: u32,
+    pub include_video: bool,
+    pub video_max_duration_s: u32,
+    pub video_fps: u32,
+    pub video_mode: String,
+    pub color_boost: String,
 }
 
 /// Broker credentials for the MQTT Data engine. Separate
@@ -337,6 +361,25 @@ impl Default for MqttConfig {
             pass: "".to_string(),
             device_name: "arcadematrix".to_string(),
             allow_overlay: false,
+            use_showcase_broker: true,
+            ingame_showcase_enabled: true,
+            ingame_cycle_mode: "alternating".to_string(),
+            ingame_marquee_interval_sec: 45,
+            card_style_source: "showcase_profile".to_string(),
+            include_card_intro: true,
+            card_layout: "classic_split".to_string(),
+            card_theme: "tinted".to_string(),
+            include_poster: true,
+            include_synopsis: true,
+            text_scroll_speed: "normal".to_string(),
+            jacket_panorama: true,
+            marquee_panorama: false,
+            snapshot_panorama_count: 0,
+            include_video: true,
+            video_max_duration_s: 12,
+            video_fps: 15,
+            video_mode: "auto_action".to_string(),
+            color_boost: "auto".to_string(),
         }
     }
 }
@@ -388,8 +431,9 @@ impl Default for ConfigSettings {
     }
 }
 
-use crate::core::types::{ForcedEngineMode, ProducerSnapshot};
+use crate::core::types::{ForcedEngineMode, InGameShowcasePayload, ProducerSnapshot};
 use arc_swap::ArcSwap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 pub struct Config {
@@ -402,6 +446,7 @@ pub struct Config {
     pub matrix_brightness: AtomicU32,
     pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub image_obj: Mutex<Option<image::RgbImage>>,
+    pub image_generation: AtomicU64,
     pub settings: RwLock<ConfigSettings>,
 }
 
@@ -519,19 +564,31 @@ impl Config {
             needs_save = true;
         }
 
+        // Normalize bare single-label LAN hostnames (e.g. `http://dmdmediashowcase:8890` from v1.0.0) to `.local`
+        let norm_sc_url = crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+            &settings.showcase.server_url,
+            true,
+        );
+        if !norm_sc_url.is_empty() && norm_sc_url != settings.showcase.server_url {
+            settings.showcase.server_url = norm_sc_url;
+            needs_save = true;
+        }
+        let norm_custom_mqtt =
+            crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                &settings.showcase.mqtt_custom_url,
+                false,
+            );
+        if norm_custom_mqtt != settings.showcase.mqtt_custom_url {
+            settings.showcase.mqtt_custom_url = norm_custom_mqtt;
+            needs_save = true;
+        }
+
         // Auto-migrate legacy per-engine showcase settings if system showcase settings are still default
         if settings.showcase.server_url == "http://192.168.1.50:8000"
             || settings.showcase.server_url == "http://127.0.0.1:8080"
             || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
             || settings.showcase.server_url == "http://dmdmediashowcase.local:8890"
         {
-            if settings.showcase.server_url == "http://192.168.1.50:8000"
-                || settings.showcase.server_url == "http://127.0.0.1:8080"
-                || settings.showcase.server_url == "http://dmdmediashowcase.local:8080"
-            {
-                settings.showcase.server_url = "http://dmdmediashowcase.local:8890".to_string();
-                needs_save = true;
-            }
             for inst in &settings.instances {
                 if [
                     "retro_games",
@@ -542,13 +599,14 @@ impl Config {
                 .contains(&inst.engine_id.as_str())
                 {
                     if let Some(url) = inst.config.get("server_url") {
-                        if !url.trim().is_empty()
-                            && url != "http://192.168.1.50:8000"
-                            && url != "http://127.0.0.1:8080"
-                            && url != "http://dmdmediashowcase.local:8080"
-                            && url != "http://dmdmediashowcase.local:8890"
+                        let norm_inst_url =
+                            crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                                url, true,
+                            );
+                        if !norm_inst_url.is_empty()
+                            && norm_inst_url != "http://dmdmediashowcase.local:8890"
                         {
-                            settings.showcase.server_url = url.clone();
+                            settings.showcase.server_url = norm_inst_url;
                             settings.showcase.enabled = true;
                             if let Some(tm) = inst.config.get("transport_mode") {
                                 settings.showcase.transport_mode = tm.clone();
@@ -560,7 +618,10 @@ impl Config {
                                 settings.showcase.mqtt_broker_source = bs.clone();
                             }
                             if let Some(cu) = inst.config.get("mqtt_custom_url") {
-                                settings.showcase.mqtt_custom_url = cu.clone();
+                                settings.showcase.mqtt_custom_url =
+                                    crate::engines::renderers::media_showcase::normalize_mdns_endpoint_url(
+                                        cu, false,
+                                    );
                             }
                             needs_save = true;
                             break;
@@ -591,6 +652,7 @@ impl Config {
             matrix_brightness: AtomicU32::new(initial_brightness),
             producer_snapshot: ArcSwap::from_pointee(ProducerSnapshot::default()),
             image_obj: Mutex::new(None),
+            image_generation: AtomicU64::new(0),
             settings: RwLock::new(settings),
         };
 
@@ -601,11 +663,45 @@ impl Config {
         cfg
     }
 
+    /// Updates the dynamic marquee image and bumps `image_generation` so `MarqueeEngine` re-renders immediately.
+    pub fn set_marquee_image(&self, img: Option<image::RgbImage>) {
+        *self.image_obj.lock() = img;
+        self.image_generation.fetch_add(1, Ordering::Release);
+    }
+
     /// Atomically updates and publishes a forced engine mode in a lock-free snapshot.
     pub fn set_forced_engine_mode(&self, mode: ForcedEngineMode) {
         self.producer_snapshot.rcu(|current| {
             let mut next = (**current).clone();
             next.forced_mode = mode;
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Atomically updates and publishes an in-game Showcase stream payload in the lock-free snapshot.
+    pub fn set_ingame_showcase(&self, payload: Option<InGameShowcasePayload>) {
+        let ig_arc = payload.map(Arc::new);
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.ingame_showcase = ig_arc.clone();
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Atomically clears the active in-game Showcase stream if its `session_token` matches `token`.
+    pub fn clear_ingame_showcase_if_token(&self, token: u64) {
+        self.producer_snapshot.rcu(|current| {
+            let matches = current
+                .ingame_showcase
+                .as_ref()
+                .map_or(false, |ig| ig.session_token == token);
+            if !matches {
+                return (**current).clone();
+            }
+            let mut next = (**current).clone();
+            next.ingame_showcase = None;
             next.generation = next.generation.wrapping_add(1);
             next
         });
@@ -623,6 +719,21 @@ impl Config {
             } else {
                 next.forced_mode
             };
+            if msg_arc.is_some() {
+                next.ingame_showcase = None;
+            }
+            next.message_payload = msg_arc.clone();
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Publishes a temporary FrontendSync fallback text banner without clearing an in-progress Showcase preparation.
+    pub fn set_frontend_sync_banner(&self, payload: crate::engines::message::MessagePayload) {
+        let msg_arc = Some(Arc::new(payload));
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.forced_mode = ForcedEngineMode::Message;
             next.message_payload = msg_arc.clone();
             next.generation = next.generation.wrapping_add(1);
             next
@@ -635,6 +746,7 @@ impl Config {
             let mut next = (**current).clone();
             next.forced_mode = ForcedEngineMode::None;
             next.message_payload = None;
+            next.ingame_showcase = None;
             next.generation = next.generation.wrapping_add(1);
             next
         });

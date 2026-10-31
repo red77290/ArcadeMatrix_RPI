@@ -10,11 +10,46 @@ pub enum ForcedEngineMode {
     Marquee,
 }
 
+/// Cycle behavior once an in-game Showcase sequence finishes playing while the game is still running
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum InGameCycleMode {
+    Once,
+    Loop,
+    Alternating { marquee_interval_sec: u32 },
+}
+
+/// Preloaded in-game Showcase stream published from the FrontendSync worker to the render loop
+#[derive(Clone)]
+pub struct InGameShowcasePayload {
+    pub session_token: u64,
+    pub stream: Arc<crate::core::dmd_stream::PreloadedDmdStream>,
+    pub cycle_mode: InGameCycleMode,
+}
+
+impl std::fmt::Debug for InGameShowcasePayload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InGameShowcasePayload")
+            .field("session_token", &self.session_token)
+            .field("frame_count", &self.stream.frame_count)
+            .field("cycle_mode", &self.cycle_mode)
+            .finish()
+    }
+}
+
+impl PartialEq for InGameShowcasePayload {
+    fn eq(&self, other: &Self) -> bool {
+        self.session_token == other.session_token && self.cycle_mode == other.cycle_mode
+    }
+}
+
+impl Eq for InGameShowcasePayload {}
+
 /// Immutable lock-free snapshot published atomically by Control Plane to Realtime Plane
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProducerSnapshot {
     pub forced_mode: ForcedEngineMode,
     pub message_payload: Option<Arc<crate::engines::message::MessagePayload>>,
+    pub ingame_showcase: Option<Arc<InGameShowcasePayload>>,
     pub generation: u32,
 }
 
@@ -23,6 +58,7 @@ impl Default for ProducerSnapshot {
         Self {
             forced_mode: ForcedEngineMode::None,
             message_payload: None,
+            ingame_showcase: None,
             generation: 0,
         }
     }
@@ -63,6 +99,7 @@ pub enum DisplaySourceId {
     Gif = 20,
     Marquee = 30,
     Mqtt = 40,
+    InGameShowcase = 45,
 }
 
 /// Request lifecycle duration contract

@@ -147,7 +147,12 @@ impl EngineRuntime {
         }
 
         if self.id_to_registered[idx].is_none() {
-            let engine = if let Some(desc) = EngineRegistry::get_descriptor(engine_id_str) {
+            let engine = if engine_id_str == "frontend_sync" {
+                Some(
+                    Box::new(crate::engines::frontend_sync::InGameShowcaseEngine::new())
+                        as Box<dyn Engine>,
+                )
+            } else if let Some(desc) = EngineRegistry::get_descriptor(engine_id_str) {
                 if desc.available {
                     Some((desc.factory)())
                 } else {
@@ -292,7 +297,11 @@ impl EngineRuntime {
             return None;
         }
         if entry.engine.is_none() {
-            if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
+            if entry.engine_name == "frontend_sync" {
+                entry.engine = Some(Box::new(
+                    crate::engines::frontend_sync::InGameShowcaseEngine::new(),
+                ));
+            } else if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
                 if desc.available {
                     entry.engine = Some((desc.factory)());
                 }
@@ -342,9 +351,15 @@ impl EngineRuntime {
                 drop(old_eng);
             }
             crate::core::memory::trim_heap();
-            entry.engine = EngineRegistry::get_descriptor(&entry.engine_name)
-                .filter(|d| d.available)
-                .map(|d| (d.factory)());
+            entry.engine = if entry.engine_name == "frontend_sync" {
+                Some(Box::new(
+                    crate::engines::frontend_sync::InGameShowcaseEngine::new(),
+                ))
+            } else {
+                EngineRegistry::get_descriptor(&entry.engine_name)
+                    .filter(|d| d.available)
+                    .map(|d| (d.factory)())
+            };
             entry.ready = false;
             entry.needs_activate = reactivate_on_next_update;
             entry.recycle_count = entry.recycle_count.saturating_add(1);
@@ -528,7 +543,11 @@ impl EngineRuntime {
                 return false;
             }
             if entry.engine.is_none() {
-                if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
+                if entry.engine_name == "frontend_sync" {
+                    entry.engine = Some(Box::new(
+                        crate::engines::frontend_sync::InGameShowcaseEngine::new(),
+                    ));
+                } else if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
                     if desc.available {
                         entry.engine = Some((desc.factory)());
                     }

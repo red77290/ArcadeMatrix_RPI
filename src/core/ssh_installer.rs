@@ -75,9 +75,54 @@ fn generate_daemon_code(matrix_ip: &str, topic: &str) -> String {
 import time
 import os
 import json
+import urllib.request
 
-BROKER = "{}"
+DMD_HOST = "{}"
+DMD_HTTP_PORTS = (8080, 80)
 TOPIC = "{}"
+BROKER_TTL_SEC = 15.0
+
+_cached_broker = None
+_cached_at = 0.0
+
+def resolve_broker(force=False):
+    global _cached_broker, _cached_at
+    now = time.time()
+    if not force and _cached_broker is not None and (now - _cached_at) < BROKER_TTL_SEC:
+        return _cached_broker
+    for http_port in DMD_HTTP_PORTS:
+        url = f"http://{{DMD_HOST}}:{{http_port}}/api/mqtt/broker-target"
+        try:
+            req = urllib.request.Request(url, headers={{"Accept": "application/json"}})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                host = str(data.get("host") or "").strip()
+                port = int(data.get("port") or 1883)
+                if host:
+                    _cached_broker = (host, port)
+                    _cached_at = now
+                    return _cached_broker
+        except Exception:
+            continue
+    _cached_broker = (DMD_HOST, 1883)
+    _cached_at = now
+    return _cached_broker
+
+def publish_mqtt(msg, force_refresh=False):
+    host, port = resolve_broker(force=force_refresh)
+    res = subprocess.run(
+        ["mosquitto_pub", "-h", host, "-p", str(port), "-t", TOPIC, "-m", msg],
+        timeout=2,
+        check=False,
+    )
+    if res.returncode != 0 and not force_refresh:
+        host2, port2 = resolve_broker(force=True)
+        if (host2, port2) != (host, port):
+            subprocess.run(
+                ["mosquitto_pub", "-h", host2, "-p", str(port2), "-t", TOPIC, "-m", msg],
+                timeout=2,
+                check=False,
+            )
 
 def parse_statefile():
     game = None
@@ -126,7 +171,7 @@ def main():
         print("Another daemon is already running, exiting...")
         sys.exit(1)
         
-    print("Daemon started (lightweight)!", flush=True)
+    print("Daemon started (dynamic broker discovery via DMD)!", flush=True)
     time.sleep(3)
     last_state_key = None
     last_sent_key = None
@@ -171,7 +216,7 @@ def main():
                     msg = json.dumps({{"status": current_key[2], "game": gbase, "system": str(current_key[1])}})
 
                 try:
-                    subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
+                    publish_mqtt(msg, force_refresh=(current_key[2] == "playing"))
                 except Exception:
                     pass
         except Exception as e:
@@ -183,6 +228,335 @@ if __name__ == "__main__":
     main()
 "#,
         matrix_ip, topic
+    )
+}
+
+fn generate_batocera_hook_code(matrix_ip: &str) -> String {
+    format!(
+        r#"#!/bin/sh
+DMD_HOST="{dmd_host}"
+BROKER_CACHE="/tmp/arcadematrix_broker.cache"
+BROKER_HOST="$DMD_HOST"
+BROKER_PORT="1883"
+TOPIC="system/playing/batocera"
+LOG_FILE="/userdata/system/scripts/daemon.log"
+DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
+MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
+
+resolve_broker() {{
+    _FORCE="$1"
+    _NOW=$(date +%s 2>/dev/null || echo 0)
+    if [ "$_FORCE" != "1" ] && [ -f "$BROKER_CACHE" ]; then
+        read _TS _H _P < "$BROKER_CACHE" 2>/dev/null || true
+        if [ -n "$_H" ] && [ -n "$_P" ] && [ $((_NOW - _TS)) -lt 15 ] 2>/dev/null; then
+            BROKER_HOST="$_H"
+            BROKER_PORT="$_P"
+            return 0
+        fi
+    fi
+
+    _JSON=""
+    for _HTTP_PORT in 8080 80; do
+        _URL="http://$DMD_HOST:$_HTTP_PORT/api/mqtt/broker-target"
+        if command -v curl >/dev/null 2>&1; then
+            _JSON=$(curl -fsS --connect-timeout 0.5 --max-time 0.9 "$_URL" 2>/dev/null || true)
+        elif command -v wget >/dev/null 2>&1; then
+            _JSON=$(wget -qO- -T 1 "$_URL" 2>/dev/null || true)
+        fi
+        if [ -n "$_JSON" ]; then
+            _H=$(printf '%s' "$_JSON" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+            _P=$(printf '%s' "$_JSON" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+            if [ -n "$_H" ]; then
+                BROKER_HOST="$_H"
+                BROKER_PORT="${{_P:-1883}}"
+                echo "$_NOW $BROKER_HOST $BROKER_PORT" > "$BROKER_CACHE" 2>/dev/null || true
+                return 0
+            fi
+        fi
+    done
+
+    BROKER_HOST="$DMD_HOST"
+    BROKER_PORT="1883"
+    echo "$_NOW $BROKER_HOST $BROKER_PORT" > "$BROKER_CACHE" 2>/dev/null || true
+    return 0
+}}
+
+publish_once() {{
+    _PAYLOAD="$1"
+    _MOSQ=""
+    if command -v mosquitto_pub >/dev/null 2>&1; then
+        _MOSQ="mosquitto_pub"
+    else
+        for p in /usr/bin/mosquitto_pub /usr/local/bin/mosquitto_pub /bin/mosquitto_pub; do
+            if [ -x "$p" ]; then
+                _MOSQ="$p"
+                break
+            fi
+        done
+    fi
+
+    if [ -n "$_MOSQ" ]; then
+        "$_MOSQ" -h "$BROKER_HOST" -p "$BROKER_PORT" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD"
+        return $?
+    fi
+
+    PYTHON_BIN=""
+    if command -v python3 >/dev/null 2>&1; then
+        PYTHON_BIN="python3"
+    elif command -v python >/dev/null 2>&1; then
+        PYTHON_BIN="python"
+    elif [ -x /usr/bin/python3 ]; then
+        PYTHON_BIN="/usr/bin/python3"
+    fi
+    if [ -n "$PYTHON_BIN" ]; then
+        "$PYTHON_BIN" -c "
+import sys, socket, os
+broker, port, topic, payload = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
+def enc(l):
+    r = bytearray()
+    while True:
+        b = l % 128
+        l //= 128
+        if l > 0: b |= 0x80
+        r.append(b)
+        if l == 0: break
+    return bytes(r)
+cid = f'batocera_es_{{os.getpid()}}'.encode('utf-8')
+c_body = b'\x00\x04MQTT\x04\x02\x00\x3c' + len(cid).to_bytes(2, 'big') + cid
+c_pkt = b'\x10' + enc(len(c_body)) + c_body
+t_b = topic.encode('utf-8')
+m_b = payload.encode('utf-8')
+p_body = len(t_b).to_bytes(2, 'big') + t_b + m_b
+p_pkt = b'\x30' + enc(len(p_body)) + p_body
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(2.0)
+s.connect((broker, port))
+s.sendall(c_pkt)
+s.recv(4)
+s.sendall(p_pkt)
+s.sendall(b'\xe0\x00')
+s.close()
+" "$BROKER_HOST" "$BROKER_PORT" "$TOPIC" "$_PAYLOAD"
+        return $?
+    fi
+    echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] ERROR: Neither mosquitto_pub nor python3 found" >> "$LOG_FILE"
+    return 1
+}}
+
+send_mqtt() {{
+    _PAYLOAD="$1"
+    _FORCE_RESOLVE="${{2:-0}}"
+
+    # Terminate any previously running publication to avoid concurrent socket accumulation
+    if [ -f "$MQTT_PUB_PID_FILE" ]; then
+        OLD_PID=$(cat "$MQTT_PUB_PID_FILE" 2>/dev/null)
+        if [ -n "$OLD_PID" ]; then
+            kill "$OLD_PID" 2>/dev/null || true
+        fi
+        rm -f "$MQTT_PUB_PID_FILE"
+    fi
+
+    (
+        resolve_broker "$_FORCE_RESOLVE"
+        if ! publish_once "$_PAYLOAD"; then
+            resolve_broker 1
+            publish_once "$_PAYLOAD" || true
+        fi
+    ) >> "$LOG_FILE" 2>&1 &
+    echo $! > "$MQTT_PUB_PID_FILE"
+    return 0
+}}
+
+send_mqtt_debounced() {{
+    _PAYLOAD="$1"
+    TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
+    echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
+    (
+        sleep 0.15
+        CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
+        if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
+            rm -f "$DEBOUNCE_TOKEN_FILE"
+            send_mqtt "$_PAYLOAD" 0
+        fi
+    ) &
+}}
+
+clean_name() {{
+    echo "$1" | sed -E \
+        -e 's/^[Aa]rcade [Mm]anufacturer //' \
+        -e 's/^[Aa]rcade [Ss]ystem //' \
+        -e 's/^[Aa]rcade [Gg]enre //' \
+        -e 's/^[Aa]rcade [Cc]ollection //' \
+        -e 's/^[Mm]anufacturer //' \
+        -e 's/^[Ss]ystem //' \
+        -e 's/^[Gg]enre //' \
+        -e 's/^[Cc]ollection //' \
+        -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}}
+
+extract_system() {{
+    _sys="$1"
+    _rom="$2"
+    _base="$3"
+    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
+        if echo "$_rom" | grep -q '/roms/'; then
+            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
+        elif [ -n "$_rom" ]; then
+            basename "$(dirname "$_rom")"
+        else
+            echo "$_sys"
+        fi
+    else
+        echo "$_sys"
+    fi
+}}
+
+EVENT="$1"
+shift
+
+if [ -z "$EVENT" ] || [ ! -z "${{EVENT##game*}}" -a ! -z "${{EVENT##system*}}" ]; then
+    PARENT_DIR="$(basename "$(dirname "$0")")"
+    case "$PARENT_DIR" in
+        game-selected|system-selected|game-start|game-end)
+            exec /userdata/system/scripts/arcadematrix_mqtt.sh "$PARENT_DIR" "$EVENT" "$@"
+            ;;
+    esac
+fi
+
+case "$EVENT" in
+    gameStart)
+        rm -f "$DEBOUNCE_TOKEN_FILE"
+        SYS_NAME="$1"
+        if [ -n "$4" ]; then
+            ROM_PATH="$4"
+        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
+            ROM_PATH="$2"
+        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+        else
+            ROM_PATH="$1"
+        fi
+        GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
+        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt "$PAYLOAD" 1
+        ;;
+
+    gameStop)
+        rm -f "$DEBOUNCE_TOKEN_FILE"
+        SYS_NAME="$1"
+        if [ -n "$4" ]; then
+            ROM_PATH="$4"
+        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
+            ROM_PATH="$2"
+        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+        else
+            ROM_PATH="$1"
+        fi
+        GAME_BASENAME=""
+        if [ -n "$ROM_PATH" ]; then
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+        fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
+        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt "$PAYLOAD" 0
+        ;;
+
+    game-selected|gameSelected)
+        SYS_NAME="$1"
+        ROM_PATH="$2"
+        TITLE="$3"
+        if echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+            TITLE="$3"
+        fi
+        if [ -n "$ROM_PATH" ]; then
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        elif [ -n "$TITLE" ]; then
+            GAME_BASENAME=""
+            GAME_CLEAN=$(clean_name "$TITLE")
+        else
+            GAME_BASENAME=""
+            GAME_CLEAN=""
+        fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt_debounced "$PAYLOAD"
+        ;;
+
+    system-selected|systemSelected)
+        SYS_CLEAN=$(clean_name "$1")
+        PAYLOAD="{{\"status\": \"browsing\", \"system\": \"$SYS_CLEAN\", \"type\": \"system\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: system-selected | Sys: $1 | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt_debounced "$PAYLOAD"
+        ;;
+
+    game-start)
+        rm -f "$DEBOUNCE_TOKEN_FILE"
+        SYS_NAME="$1"
+        ROM_PATH="$2"
+        TITLE="$3"
+        if echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+            TITLE="$3"
+        fi
+        if [ -n "$ROM_PATH" ]; then
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        elif [ -n "$TITLE" ]; then
+            GAME_BASENAME=""
+            GAME_CLEAN=$(clean_name "$TITLE")
+        else
+            GAME_BASENAME=""
+            GAME_CLEAN=""
+        fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt "$PAYLOAD" 1
+        ;;
+
+    game-end)
+        rm -f "$DEBOUNCE_TOKEN_FILE"
+        SYS_NAME="$1"
+        ROM_PATH="$2"
+        if echo "$1" | grep -qE '/|\.'; then
+            ROM_PATH="$1"
+            SYS_NAME="$2"
+        fi
+        GAME_BASENAME=""
+        if [ -n "$ROM_PATH" ]; then
+            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
+        fi
+        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
+        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
+        SYS_CLEAN=$(clean_name "$SYS_NAME")
+        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Sent: $PAYLOAD" >> "$LOG_FILE"
+        send_mqtt "$PAYLOAD" 0
+        ;;
+
+    *)
+        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Unhandled Event: $EVENT | Args: $*" >> "$LOG_FILE"
+        ;;
+esac
+"#,
+        dmd_host = matrix_ip
     )
 }
 
@@ -449,279 +823,7 @@ EOF
             }
 
             // 5. Install one-shot shell hook publishing via mosquitto_pub or python3 raw socket
-            let hook_code = format!(
-                r#"#!/bin/sh
-BROKER="{broker}"
-TOPIC="system/playing/batocera"
-LOG_FILE="/userdata/system/scripts/daemon.log"
-DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
-MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
-
-send_mqtt() {{
-    _PAYLOAD="$1"
-
-    # Terminate any previously running publication to avoid concurrent socket accumulation
-    if [ -f "$MQTT_PUB_PID_FILE" ]; then
-        OLD_PID=$(cat "$MQTT_PUB_PID_FILE" 2>/dev/null)
-        if [ -n "$OLD_PID" ]; then
-            kill "$OLD_PID" 2>/dev/null || true
-        fi
-        rm -f "$MQTT_PUB_PID_FILE"
-    fi
-
-    if command -v mosquitto_pub >/dev/null 2>&1; then
-        mosquitto_pub -h "$BROKER" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
-        echo $! > "$MQTT_PUB_PID_FILE"
-        return 0
-    fi
-    for p in /usr/bin/mosquitto_pub /usr/local/bin/mosquitto_pub /bin/mosquitto_pub; do
-        if [ -x "$p" ]; then
-            "$p" -h "$BROKER" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
-            echo $! > "$MQTT_PUB_PID_FILE"
-            return 0
-        fi
-    done
-    PYTHON_BIN=""
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_BIN="python3"
-    elif command -v python >/dev/null 2>&1; then
-        PYTHON_BIN="python"
-    elif [ -x /usr/bin/python3 ]; then
-        PYTHON_BIN="/usr/bin/python3"
-    fi
-    if [ -n "$PYTHON_BIN" ]; then
-        "$PYTHON_BIN" -c "
-import sys, socket, os, time
-broker, port, topic, payload = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-def enc(l):
-    r = bytearray()
-    while True:
-        b = l % 128
-        l //= 128
-        if l > 0: b |= 0x80
-        r.append(b)
-        if l == 0: break
-    return bytes(r)
-try:
-    cid = f'batocera_es_{{os.getpid()}}'.encode('utf-8')
-    c_body = b'\x00\x04MQTT\x04\x02\x00\x3c' + len(cid).to_bytes(2, 'big') + cid
-    c_pkt = b'\x10' + enc(len(c_body)) + c_body
-    t_b = topic.encode('utf-8')
-    m_b = payload.encode('utf-8')
-    p_body = len(t_b).to_bytes(2, 'big') + t_b + m_b
-    p_pkt = b'\x30' + enc(len(p_body)) + p_body
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(2.0)
-    s.connect((broker, port))
-    s.sendall(c_pkt)
-    s.recv(4)
-    s.sendall(p_pkt)
-    s.sendall(b'\xe0\x00')
-    s.close()
-except Exception as e:
-    print(f'MQTT Error: {{e}}', file=sys.stderr)
-" "$BROKER" 1883 "$TOPIC" "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
-        echo $! > "$MQTT_PUB_PID_FILE"
-        return 0
-    fi
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] ERROR: Neither mosquitto_pub nor python3 found" >> "$LOG_FILE"
-    return 1
-}}
-
-send_mqtt_debounced() {{
-    _PAYLOAD="$1"
-    TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
-    echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
-    (
-        sleep 0.15
-        CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
-        if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
-            rm -f "$DEBOUNCE_TOKEN_FILE"
-            send_mqtt "$_PAYLOAD"
-        fi
-    ) &
-}}
-
-clean_name() {{
-    echo "$1" | sed -E \
-        -e 's/^[Aa]rcade [Mm]anufacturer //' \
-        -e 's/^[Aa]rcade [Ss]ystem //' \
-        -e 's/^[Aa]rcade [Gg]enre //' \
-        -e 's/^[Aa]rcade [Cc]ollection //' \
-        -e 's/^[Mm]anufacturer //' \
-        -e 's/^[Ss]ystem //' \
-        -e 's/^[Gg]enre //' \
-        -e 's/^[Cc]ollection //' \
-        -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-}}
-
-extract_system() {{
-    _sys="$1"
-    _rom="$2"
-    _base="$3"
-    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
-        if echo "$_rom" | grep -q '/roms/'; then
-            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
-        elif [ -n "$_rom" ]; then
-            basename "$(dirname "$_rom")"
-        else
-            echo "$_sys"
-        fi
-    else
-        echo "$_sys"
-    fi
-}}
-
-EVENT="$1"
-shift
-
-if [ -z "$EVENT" ] || [ ! -z "${{EVENT##game*}}" -a ! -z "${{EVENT##system*}}" ]; then
-    PARENT_DIR="$(basename "$(dirname "$0")")"
-    case "$PARENT_DIR" in
-        game-selected|system-selected|game-start|game-end)
-            exec /userdata/system/scripts/arcadematrix_mqtt.sh "$PARENT_DIR" "$EVENT" "$@"
-            ;;
-    esac
-fi
-
-case "$EVENT" in
-    gameStart)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        if [ -n "$4" ]; then
-            ROM_PATH="$4"
-        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
-            ROM_PATH="$2"
-        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        else
-            ROM_PATH="$1"
-        fi
-        GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD"
-        ;;
-
-    gameStop)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        # Batocera system runner: $1=system, $2=emulator, $3=core, $4=rom_path
-        SYS_NAME="$1"
-        if [ -n "$4" ]; then
-            ROM_PATH="$4"
-        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
-            ROM_PATH="$2"
-        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        else
-            ROM_PATH="$1"
-        fi
-        GAME_BASENAME=""
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD"
-        ;;
-
-    game-selected|gameSelected)
-        # ES game-selected: $1=system, $2=rom_path, $3=game_title
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        TITLE="$3"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-            TITLE="$3"
-        fi
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        elif [ -n "$TITLE" ]; then
-            GAME_BASENAME=""
-            GAME_CLEAN=$(clean_name "$TITLE")
-        else
-            GAME_BASENAME=""
-            GAME_CLEAN=""
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt_debounced "$PAYLOAD"
-        ;;
-
-    system-selected|systemSelected)
-        SYS_CLEAN=$(clean_name "$1")
-        PAYLOAD="{{\"status\": \"browsing\", \"system\": \"$SYS_CLEAN\", \"type\": \"system\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: system-selected | Sys: $1 | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt_debounced "$PAYLOAD"
-        ;;
-
-    game-start)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        TITLE="$3"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-            TITLE="$3"
-        fi
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        elif [ -n "$TITLE" ]; then
-            GAME_BASENAME=""
-            GAME_CLEAN=$(clean_name "$TITLE")
-        else
-            GAME_BASENAME=""
-            GAME_CLEAN=""
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD"
-        ;;
-
-    game-end)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        # ES game-end: $1=system, $2=rom_path, $3=game_title
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        fi
-        GAME_BASENAME=""
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD"
-        ;;
-
-    *)
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Unhandled Event: $EVENT | Args: $*" >> "$LOG_FILE"
-        ;;
-esac
-"#,
-                broker = matrix_ip
-            );
+            let hook_code = generate_batocera_hook_code(matrix_ip);
 
             let expected_size = hook_code.len();
             tracing::info!("Batocera hook_code size: {} bytes", expected_size);
@@ -1016,5 +1118,29 @@ pub fn fetch_sync_logs(
         Ok("Log file is empty.".to_string())
     } else {
         Ok(logs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generated_recalbox_daemon_uses_dynamic_broker_target() {
+        let code = generate_daemon_code("192.168.1.42", "system/playing/recalbox");
+        assert!(code.contains("DMD_HOST = \"192.168.1.42\""));
+        assert!(code.contains("/api/mqtt/broker-target"));
+        assert!(code.contains("def resolve_broker"));
+        assert!(!code.contains("BROKER = \"192.168.1.42\""));
+    }
+
+    #[test]
+    fn test_generated_batocera_hook_uses_dynamic_broker_target() {
+        let hook = generate_batocera_hook_code("192.168.1.42");
+        assert!(hook.starts_with("#!/bin/sh\n"));
+        assert!(hook.contains("DMD_HOST=\"192.168.1.42\""));
+        assert!(hook.contains("/api/mqtt/broker-target"));
+        assert!(hook.contains("resolve_broker()"));
+        assert!(!hook.contains("\nBROKER=\"192.168.1.42\""));
     }
 }

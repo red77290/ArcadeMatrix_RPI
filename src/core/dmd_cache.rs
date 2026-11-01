@@ -145,6 +145,12 @@ impl DmdCache {
         self.negative_cache.lock().contains(&key)
     }
 
+    pub fn is_system_negative_cached(&self, system: &str) -> bool {
+        let safe_sys = sanitize_cache_component(system);
+        let key = format!("system/{}", safe_sys);
+        self.negative_cache.lock().contains(&key)
+    }
+
     fn insert_negative_cache(&self, key: String) {
         let mut lock = self.negative_cache.lock();
         if lock.insert(key.clone()) {

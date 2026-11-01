@@ -253,12 +253,12 @@ ArcadeMatrix supports instant **Pixelcade-style** marquees while browsing menus 
 1. **Menu Browsing (`0 ms` Instant Marquee)**: As you browse your game lists, the Raspberry Pi downloads official Pixelcade marquees in the background, caches them on your SD card, and displays them instantly on your LED matrix.
 2. **Launching a Game (Seamless In-Game Showcase)**:
    - The moment you launch a game, the **classic marquee appears immediately** (zero black screen or `"Waiting for content"` screen).
-   - If **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** is enabled on your network and **In-Game Showcase** is turned on, Showcase prepares the game's presentation in the background (**Animated Info Card** + **Boxart/Marquee/Screenshot Panoramas** + **Gameplay Video**) and smoothly takes over the screen once the first frame is ready.
+   - If **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** is enabled on your network and **In-Game Showcase** is turned on, `FrontendSync` requests the game's presentation on a dedicated `{dmd_id}_sync` slot (sending both the ROM basename and console display title as `fallback_query` without disturbing Showcase rotation queues), prepares the **Animated Info Card** + **Boxart/Marquee/Screenshot Panoramas** + **Gameplay Video** in the background, and smoothly takes over the screen once ready.
    - Configurable **Playback Cycle** while playing:
      - **Alternate Marquee & Showcase** *(default)*: Alternates between the Showcase presentation and a configurable pause on the classic marquee (e.g. `45s`).
      - **Play Once then Keep Marquee**: Plays the Showcase presentation once, then leaves the game's marquee on screen.
      - **Loop Showcase Continuously**: Repeats the Showcase presentation while the game runs.
-3. **Exiting a Game**: Returning to the console menu immediately cancels any in-game Showcase stream and restores live menu marquees (or normal idle rotation).
+3. **Exiting a Game (`0 ms` Menu Return & Server Process Abort)**: Returning to the console menu immediately restores live menu marquees (`0 ms`) and automatically aborts any running server-side Showcase transcoding processes (`1..N` converter/`ffmpeg` workers per DMD via `DELETE /api/v1/clients/{sync_id}/queue`, with zero HTTP traffic during idle menu browsing).
 4. **Automatic Shared MQTT Broker (Zero Re-install & Extra Free RAM)**:
    - Console sync scripts store **only your DMD's IP address** (`DMD_HOST`) and ask the DMD dynamically which MQTT broker to use.
    - When **Share Showcase MQTT Broker** is enabled and Showcase is reachable, ArcadeMatrix automatically uses Showcase's MQTT broker and stops its local `mosquitto` service to free system RAM — falling back automatically to the local broker if Showcase is turned off. **You never need to re-install the script on Recalbox/Batocera!**

@@ -73,6 +73,7 @@ pub struct MessageEngine {
     color: String,
     parsed_color: (u8, u8, u8),
     size: u32,
+    configured_direction: ScrollDirection,
     direction: ScrollDirection,
     speed: u32,
     text_w: i32,
@@ -96,6 +97,7 @@ impl MessageEngine {
             color: "#ffffff".to_string(),
             parsed_color: (255, 255, 255),
             size: 1,
+            configured_direction: ScrollDirection::Rtl,
             direction: ScrollDirection::Rtl,
             speed: 40,
             text_w: 0,
@@ -140,6 +142,15 @@ impl MessageEngine {
             }
         }
         self.parsed_color = (r, g, b);
+
+        // Auto-promote static banners (e.g. "WAITING FOR MARQUEE" or game/system names on narrow panels)
+        // to smooth RTL scrolling whenever the rendered glyph width exceeds the active surface width.
+        self.direction =
+            if self.configured_direction == ScrollDirection::None && text_w > width as i32 {
+                ScrollDirection::Rtl
+            } else {
+                self.configured_direction
+            };
 
         match self.direction {
             ScrollDirection::Rtl => {
@@ -186,8 +197,10 @@ impl MessageEngine {
         let dir = payload.direction.to_lowercase();
         let mat_w = matrix.width() as f32;
         let mat_h = matrix.height() as f32;
+        let static_overflow =
+            (dir == "none" || dir == "static" || dir.is_empty()) && text_w > matrix.width() as i32;
 
-        if dir == "rtl" || dir == "left" {
+        if dir == "rtl" || dir == "left" || static_overflow {
             self.offset_x -= move_px;
             self.offset_y = ((matrix.height() as i32 - text_h) / 2).max(0) as f32;
             if self.offset_x < -(text_w as f32) {
@@ -256,7 +269,8 @@ impl Engine for MessageEngine {
         self.text = config.get_string("text", "ArcadeMatrix");
         self.color = config.get_string("color", "#ffffff");
         self.size = config.get_int("size", 1) as u32;
-        self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
+        self.configured_direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
+        self.direction = self.configured_direction;
         self.speed = config.get_int("speed", 50) as u32;
         self.reset_state(
             context.surface.width() as f32,
@@ -270,9 +284,19 @@ impl Engine for MessageEngine {
         self.last_update = Some(Instant::now());
     }
 
+    fn resume(&mut self) {
+        self.has_drawn_static = false;
+        self.last_update = Some(Instant::now());
+    }
+
     fn update(&mut self, context: &mut EngineContext) {
-        self.last_width = context.surface.width() as f32;
-        self.last_height = context.surface.height() as f32;
+        let cur_w = context.surface.width() as f32;
+        let cur_h = context.surface.height() as f32;
+        let geom_changed =
+            (cur_w - self.last_width).abs() > 0.5 || (cur_h - self.last_height).abs() > 0.5;
+        self.last_width = cur_w;
+        self.last_height = cur_h;
+        let mut did_reset = false;
         let snap = context.config.producer_snapshot.load();
         if let Some(ref payload) = snap.message_payload {
             let is_changed = match &self.last_payload {
@@ -284,13 +308,15 @@ impl Engine for MessageEngine {
                 self.text = payload.text.clone();
                 self.color = payload.color.clone();
                 self.size = payload.size;
-                self.direction = ScrollDirection::parse(&payload.direction);
+                self.configured_direction = ScrollDirection::parse(&payload.direction);
+                self.direction = self.configured_direction;
                 self.speed = payload.speed;
-                self.reset_state(
-                    context.surface.width() as f32,
-                    context.surface.height() as f32,
-                );
+                self.reset_state(cur_w, cur_h);
+                did_reset = true;
             }
+        }
+        if geom_changed && !did_reset {
+            self.reset_state(cur_w, cur_h);
         }
 
         let now = Instant::now();
@@ -393,7 +419,8 @@ impl Engine for MessageEngine {
         self.text = config.get_string("text", "ArcadeMatrix");
         self.color = config.get_string("color", "#ffffff");
         self.size = config.get_int("size", 1) as u32;
-        self.direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
+        self.configured_direction = ScrollDirection::parse(&config.get_string("direction", "rtl"));
+        self.direction = self.configured_direction;
         self.speed = config.get_int("speed", 50) as u32;
         self.reset_state(self.last_width, self.last_height);
     }
@@ -581,5 +608,33 @@ mod tests {
             engine.offset_x = -(engine.text_w as f32);
         }
         assert_eq!(engine.offset_x, -40.0);
+    }
+
+    #[test]
+    fn test_static_waiting_banner_auto_scrolls_when_overflowing_panel() {
+        let mut engine = MessageEngine::new();
+        engine.text = "WAITING FOR MARQUEE".to_string();
+        engine.color = "#ffffff".to_string();
+        engine.size = 1;
+        engine.configured_direction = ScrollDirection::None;
+        engine.direction = ScrollDirection::None;
+
+        // On 128x32 (and 64x32), 19 glyphs in 8px PressStart2P exceed 128px -> must auto-scroll RTL
+        engine.reset_state(128.0, 32.0);
+        assert!(engine.text_w > 128);
+        assert_eq!(engine.direction, ScrollDirection::Rtl);
+        assert!(engine.is_realtime());
+        assert_eq!(engine.offset_x, 128.0);
+
+        // On wide 256x64 panel, 152px fits cleanly -> remains centered static without scrolling
+        engine.reset_state(256.0, 64.0);
+        assert_eq!(engine.direction, ScrollDirection::None);
+        assert!(!engine.is_realtime());
+        assert!(engine.offset_x > 0.0);
+
+        // Rotating 256x64 -> 64x256 portrait overflows 64px -> promotes back to RTL
+        engine.reset_state(64.0, 256.0);
+        assert_eq!(engine.direction, ScrollDirection::Rtl);
+        assert!(engine.is_realtime());
     }
 }

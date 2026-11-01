@@ -238,7 +238,15 @@ pub fn resolve_broker_target(config: &Config, force_probe: bool) -> ResolvedBrok
 
 pub fn format_game_name(game: &str) -> String {
     let stripped = crate::core::dmd_cache::clean_system_name(game);
-    let clean_name = stripped.replace('-', " ").replace('_', " ");
+    let without_paren = match stripped.find(" (") {
+        Some(idx) if idx > 0 => &stripped[..idx],
+        _ => stripped.as_str(),
+    };
+    let without_tags = match without_paren.find(" [") {
+        Some(idx) if idx > 0 => &without_paren[..idx],
+        _ => without_paren,
+    };
+    let clean_name = without_tags.replace('-', " ").replace('_', " ");
     clean_name
         .split_whitespace()
         .map(|word| {
@@ -809,7 +817,13 @@ fn handle_frontend_sync_payload(
             }
         }
 
-        let clean_name = format_game_name(&crate::core::dmd_cache::clean_system_name(&system));
+        config.set_marquee_image(None);
+        let formatted_sys = format_game_name(&crate::core::dmd_cache::clean_system_name(&system));
+        let clean_name = if formatted_sys.is_empty() {
+            "Unknown".to_string()
+        } else {
+            formatted_sys
+        };
         let mut text_to_show = clean_name.clone();
         if text_to_show.len() > 10 {
             text_to_show = format!(" {} ", text_to_show);
@@ -823,27 +837,40 @@ fn handle_frontend_sync_payload(
         );
         config.set_frontend_sync_banner(msg_payload);
 
-        let config_clone = Arc::clone(config);
-        let cache_clone = Arc::clone(dmd_cache);
-        std::thread::spawn(move || {
-            if let Some(path) = cache_clone.download_system_marquee(&system) {
-                if let Ok(img) = image::open(&path) {
-                    if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
-                        config_clone.set_marquee_image(Some(img.to_rgb8()));
-                        config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
+        if !dmd_cache.is_system_negative_cached(&system) {
+            let config_clone = Arc::clone(config);
+            let cache_clone = Arc::clone(dmd_cache);
+            std::thread::spawn(move || {
+                if let Some(path) = cache_clone.download_system_marquee(&system) {
+                    if let Ok(img) = image::open(&path) {
+                        if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+                            config_clone.set_marquee_image(Some(img.to_rgb8()));
+                            config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
+                        }
                     }
                 }
-            }
-        });
+            });
+        }
     } else {
         let game = if !raw_game.is_empty() {
             raw_game
         } else {
             "Unknown".to_string()
         };
-        let clean_name = format_game_name(&game);
+        let title_source = if !raw_title.is_empty() {
+            raw_title.as_str()
+        } else {
+            game.as_str()
+        };
+        let formatted_title = format_game_name(title_source);
+        let clean_name = if formatted_title.is_empty() {
+            "Unknown".to_string()
+        } else {
+            formatted_title
+        };
 
-        // 1. Display local cached game/system marquee immediately (< 15 ms) or launch Pixelcade fetch
+        // 1. Display local cached game marquee immediately (< 15 ms), or show the cyan game name
+        //    banner and attempt Pixelcade game marquee download (never falling back to system art).
         let mut marquee_shown = false;
         if let Some(path) = dmd_cache.get_cached_path(&system, &game) {
             if let Ok(img) = image::open(&path) {
@@ -853,17 +880,8 @@ fn handle_frontend_sync_payload(
             }
         }
 
-        if !marquee_shown && dmd_cache.is_negative_cached(&system, &game) {
-            if let Some(path) = dmd_cache.get_cached_system_path(&system) {
-                if let Ok(img) = image::open(&path) {
-                    config.set_marquee_image(Some(img.to_rgb8()));
-                    config.set_forced_engine_mode(ForcedEngineMode::Marquee);
-                    marquee_shown = true;
-                }
-            }
-        }
-
         if !marquee_shown {
+            config.set_marquee_image(None);
             let mut text_to_show = clean_name.clone();
             if text_to_show.len() > 10 {
                 text_to_show = format!(" {} ", text_to_show);
@@ -877,23 +895,22 @@ fn handle_frontend_sync_payload(
             );
             config.set_frontend_sync_banner(msg_payload);
 
-            let config_clone = Arc::clone(config);
-            let cache_clone = Arc::clone(dmd_cache);
-            let sys_for_dl = system.clone();
-            let game_for_dl = game.clone();
-            std::thread::spawn(move || {
-                let path_opt = cache_clone
-                    .download_marquee(&sys_for_dl, &game_for_dl)
-                    .or_else(|| cache_clone.download_system_marquee(&sys_for_dl));
-                if let Some(path) = path_opt {
-                    if let Ok(img) = image::open(&path) {
-                        if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
-                            config_clone.set_marquee_image(Some(img.to_rgb8()));
-                            config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
+            if !dmd_cache.is_negative_cached(&system, &game) {
+                let config_clone = Arc::clone(config);
+                let cache_clone = Arc::clone(dmd_cache);
+                let sys_for_dl = system.clone();
+                let game_for_dl = game.clone();
+                std::thread::spawn(move || {
+                    if let Some(path) = cache_clone.download_marquee(&sys_for_dl, &game_for_dl) {
+                        if let Ok(img) = image::open(&path) {
+                            if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+                                config_clone.set_marquee_image(Some(img.to_rgb8()));
+                                config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
 
         // 2. When launching a game (`status == "playing"`), request Showcase sequence in background for Late Preemption
@@ -1253,6 +1270,94 @@ mod tests {
         assert_eq!(format_game_name("pacman"), "Pacman");
         assert_eq!(format_game_name("STREET_FIGHTER_II"), "STREET FIGHTER II");
         assert_eq!(format_game_name("donkey_kong"), "Donkey Kong");
+        assert_eq!(
+            format_game_name("Super Mario World (USA) [!]"),
+            "Super Mario World"
+        );
+    }
+
+    #[test]
+    fn test_missing_game_marquee_displays_cyan_game_name_not_system_marquee() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_missing_game_marquee_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        let marquee_dir = tmp_dir.join("marquees");
+        std::fs::create_dir_all(&marquee_dir).unwrap();
+
+        // Populate a valid cached system marquee (`system_snes.png`) AND negative-cache entries
+        let mut sys_img = image::RgbImage::new(8, 8);
+        sys_img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
+        sys_img.save(marquee_dir.join("system_snes.png")).unwrap();
+        std::fs::write(
+            marquee_dir.join(".negative_cache"),
+            "snes/homebrew_quest\nsnes/shortg\nsystem/custom_arcade\n",
+        )
+        .unwrap();
+
+        let config = Arc::new(Config::new(tmp_dir.join("config.json")));
+        let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new(&marquee_dir));
+
+        // 1. System event with cached system marquee -> displays system marquee
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","system":"snes","type":"system"}"#,
+        );
+        assert_eq!(
+            config.producer_snapshot.load().forced_mode,
+            ForcedEngineMode::Marquee
+        );
+        assert!(config.image_obj.lock().is_some());
+
+        // 2. Game event with missing Pixelcade marquee -> MUST display cyan game title (NOT system_snes.png!)
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","game":"homebrew_quest","title":"Secret Homebrew Quest","system":"snes"}"#,
+        );
+        let snap = config.producer_snapshot.load();
+        assert_eq!(snap.forced_mode, ForcedEngineMode::Message);
+        assert!(
+            config.image_obj.lock().is_none(),
+            "stale system marquee image must be cleared when falling back to cyan game banner"
+        );
+        let msg = snap
+            .message_payload
+            .as_ref()
+            .expect("cyan game banner payload");
+        assert_eq!(msg.color, "#00ffff");
+        assert_eq!(msg.text, " Secret Homebrew Quest ");
+        assert_eq!(msg.direction, "left");
+
+        // 3. Short game slug without `title` field -> displays formatted game name in cyan
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","game":"shortg","system":"snes"}"#,
+        );
+        let snap_short = config.producer_snapshot.load();
+        assert_eq!(snap_short.forced_mode, ForcedEngineMode::Message);
+        let msg_short = snap_short.message_payload.as_ref().unwrap();
+        assert_eq!(msg_short.color, "#00ffff");
+        assert_eq!(msg_short.text, "Shortg");
+        assert_eq!(msg_short.direction, "none");
+
+        // 4. System event without Pixelcade marquee -> displays cyan system name
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","system":"custom_arcade","type":"system"}"#,
+        );
+        let snap_sys = config.producer_snapshot.load();
+        assert_eq!(snap_sys.forced_mode, ForcedEngineMode::Message);
+        let msg_sys = snap_sys.message_payload.as_ref().unwrap();
+        assert_eq!(msg_sys.color, "#00ffff");
+        assert_eq!(msg_sys.text, " Custom Arcade ");
+        assert_eq!(msg_sys.direction, "left");
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
     }
 
     #[test]

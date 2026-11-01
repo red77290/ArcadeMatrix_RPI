@@ -42,15 +42,17 @@ struct CachedBrokerProbe {
 
 static BROKER_PROBE_CACHE: OnceLock<Mutex<Option<CachedBrokerProbe>>> = OnceLock::new();
 
-#[derive(Debug, Clone)]
-struct ActiveSyncQueueItem {
+#[derive(Debug, Clone, Default)]
+struct RemoteSyncSessionState {
     req_id: u64,
     server_url: String,
     sync_client_id: String,
-    queue_id: String,
+    /// Armed strictly when a `playing` event dispatches a Showcase sync job; consumed once on exit/preempt.
+    /// Prevents HTTP `DELETE` traffic while scrolling frontend menus (`browsing` -> `browsing`).
+    remote_sync_dirty: bool,
 }
 
-static ACTIVE_SYNC_QUEUE: OnceLock<Mutex<Option<ActiveSyncQueueItem>>> = OnceLock::new();
+static ACTIVE_SYNC_QUEUE: OnceLock<Mutex<RemoteSyncSessionState>> = OnceLock::new();
 
 struct ReadySignalState {
     ready_events: Vec<(String, String, String)>, // (sync_client_id, queue_id, item_id)
@@ -273,15 +275,34 @@ pub fn build_ingame_queue_payload(
     height: u32,
     lang: &str,
 ) -> serde_json::Value {
+    build_ingame_queue_payload_with_fallback(mqtt_cfg, system, game, None, width, height, lang)
+}
+
+pub fn build_ingame_queue_payload_with_fallback(
+    mqtt_cfg: &MqttConfig,
+    system: &str,
+    game: &str,
+    fallback_title: Option<&str>,
+    width: u32,
+    height: u32,
+    lang: &str,
+) -> serde_json::Value {
     let systems: Vec<&str> = if system.trim().is_empty() {
         Vec::new()
     } else {
         vec![system.trim()]
     };
+    let clean_game = game.trim();
     let mut obj = serde_json::Map::new();
     obj.insert("domain".to_string(), json!("games"));
     obj.insert("systems".to_string(), json!(systems));
-    obj.insert("query".to_string(), json!(game.trim()));
+    obj.insert("query".to_string(), json!(clean_game));
+    if let Some(raw_fb) = fallback_title {
+        let fb = raw_fb.trim();
+        if !fb.is_empty() && !fb.eq_ignore_ascii_case(clean_game) {
+            obj.insert("fallback_query".to_string(), json!(fb));
+        }
+    }
     obj.insert("mode".to_string(), json!("play_now"));
     obj.insert("mark_seen".to_string(), json!(false));
     obj.insert("async_prepare".to_string(), json!(true));
@@ -341,13 +362,15 @@ pub fn build_ingame_queue_payload(
     serde_json::Value::Object(obj)
 }
 
-fn delete_showcase_queue_item_async(item: ActiveSyncQueueItem) {
+fn delete_showcase_client_queue_async(server_url: String, sync_client_id: String) {
+    if server_url.trim().is_empty() || sync_client_id.trim().is_empty() {
+        return;
+    }
     std::thread::spawn(move || {
         let url = format!(
-            "{}/api/v1/clients/{}/queue/{}",
-            item.server_url.trim_end_matches('/'),
-            item.sync_client_id,
-            item.queue_id
+            "{}/api/v1/clients/{}/queue",
+            server_url.trim_end_matches('/'),
+            sync_client_id
         );
         let client = crate::core::memory::fast_http_client();
         let _ = client
@@ -357,27 +380,37 @@ fn delete_showcase_queue_item_async(item: ActiveSyncQueueItem) {
     });
 }
 
+fn take_dirty_remote_sync_target(matching_req_id: Option<u64>) -> Option<(String, String)> {
+    let slot = ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(RemoteSyncSessionState::default()));
+    let mut guard = slot.lock();
+    if !guard.remote_sync_dirty {
+        return None;
+    }
+    if let Some(expected) = matching_req_id {
+        if guard.req_id != expected {
+            return None;
+        }
+    }
+    guard.remote_sync_dirty = false;
+    if guard.server_url.is_empty() || guard.sync_client_id.is_empty() {
+        return None;
+    }
+    Some((guard.server_url.clone(), guard.sync_client_id.clone()))
+}
+
 pub fn cancel_active_ingame_showcase(config: &Config) {
     config.set_ingame_showcase(None);
-    let slot = ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(None));
-    if let Some(prev) = slot.lock().take() {
-        delete_showcase_queue_item_async(prev);
+    if let Some((server_url, sync_client_id)) = take_dirty_remote_sync_target(None) {
+        delete_showcase_client_queue_async(server_url, sync_client_id);
     }
     let (_, cv) = ready_signal();
     cv.notify_all();
 }
 
-/// Called from `app.rs` when `InGameCycleMode::Once` completes so the server-side temporary queue item is also purged.
+/// Called from `app.rs` when `InGameCycleMode::Once` completes so the server-side temporary queue is also purged.
 pub fn notify_ingame_once_completed(session_token: u64) {
-    let slot = ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(None));
-    let mut guard = slot.lock();
-    if guard
-        .as_ref()
-        .map_or(false, |it| it.req_id == session_token)
-    {
-        if let Some(prev) = guard.take() {
-            delete_showcase_queue_item_async(prev);
-        }
+    if let Some((server_url, sync_client_id)) = take_dirty_remote_sync_target(Some(session_token)) {
+        delete_showcase_client_queue_async(server_url, sync_client_id);
     }
 }
 
@@ -439,7 +472,13 @@ fn take_ready_signal(sync_client_id: &str, queue_id: &str) -> Option<String> {
     None
 }
 
-fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: String, game: String) {
+fn spawn_ingame_showcase_request(
+    config: Arc<Config>,
+    req_id: u64,
+    system: String,
+    game: String,
+    fallback_title: String,
+) {
     std::thread::spawn(move || {
         let (showcase_enabled, raw_server_url, mqtt_cfg, width, height, lang) = {
             let s = config.settings.read();
@@ -484,12 +523,35 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
             width,
             height
         );
+
+        // Arm `remote_sync_dirty` BEFORE the HTTP POST so even an immediate game exit (< 100 ms)
+        // purges the server queue and terminates any spawned converter worker process.
+        {
+            let slot =
+                ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(RemoteSyncSessionState::default()));
+            let mut guard = slot.lock();
+            if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
+                return;
+            }
+            guard.req_id = req_id;
+            guard.server_url = resolved_url.clone();
+            guard.sync_client_id = sync_client_id.clone();
+            guard.remote_sync_dirty = true;
+        }
+
         let enqueue_url = format!(
             "{}/api/v1/clients/{}/queue/async",
             resolved_url.trim_end_matches('/'),
             sync_client_id
         );
-        let body = build_ingame_queue_payload(&mqtt_cfg, &system, &game, width, height, &lang);
+        let fb_opt = if fallback_title.trim().is_empty() {
+            None
+        } else {
+            Some(fallback_title.as_str())
+        };
+        let body = build_ingame_queue_payload_with_fallback(
+            &mqtt_cfg, &system, &game, fb_opt, width, height, &lang,
+        );
         let cycle_mode = parse_cycle_mode(&mqtt_cfg);
 
         let api_client = crate::core::memory::api_http_client();
@@ -501,6 +563,7 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
         {
             Ok(r) if r.status().is_success() => r,
             Ok(r) => {
+                let _ = take_dirty_remote_sync_target(Some(req_id));
                 warn!(
                     "[FrontendSync] Showcase queue/async returned HTTP {} for {}/{}",
                     r.status(),
@@ -510,10 +573,17 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
                 return;
             }
             Err(e) => {
+                let _ = take_dirty_remote_sync_target(Some(req_id));
                 warn!("[FrontendSync] Showcase queue/async unreachable: {}", e);
                 return;
             }
         };
+
+        // If the game was exited while the HTTP POST was in flight, ensure the server queue is cleared!
+        if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
+            delete_showcase_client_queue_async(resolved_url, sync_client_id);
+            return;
+        }
 
         let Ok(resp_json) = resp.json::<serde_json::Value>() else {
             return;
@@ -528,24 +598,6 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
             return;
         }
 
-        // Register active queue item; if game already changed while HTTP POST was in flight, delete immediately!
-        {
-            let slot = ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(None));
-            let active_record = ActiveSyncQueueItem {
-                req_id,
-                server_url: resolved_url.clone(),
-                sync_client_id: sync_client_id.clone(),
-                queue_id: queue_id.clone(),
-            };
-            if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
-                delete_showcase_queue_item_async(active_record);
-                return;
-            }
-            if let Some(prev) = slot.lock().replace(active_record) {
-                delete_showcase_queue_item_async(prev);
-            }
-        }
-
         let mut ready_item_id: Option<String> = None;
         let initial_status = queue_item
             .get("status")
@@ -558,11 +610,13 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string());
         } else if initial_status == "error" {
+            let _ = take_dirty_remote_sync_target(Some(req_id));
             return;
         }
 
         // Wait for async preparation (0 ms on MQTT `play_now` signal, or <= 750 ms via lightweight queue poll)
-        let wait_deadline = Instant::now() + Duration::from_secs(60);
+        let wait_deadline = Instant::now() + Duration::from_secs(120);
+        let mut ended_without_match = false;
         let queue_poll_url = format!(
             "{}/api/v1/clients/{}/queue",
             resolved_url.trim_end_matches('/'),
@@ -619,6 +673,8 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
                                             break;
                                         }
                                     } else if st == "error" {
+                                        ended_without_match = true;
+                                        let _ = take_dirty_remote_sync_target(Some(req_id));
                                         warn!(
                                             "[FrontendSync] Showcase failed to prepare {}/{}: {:?}",
                                             system,
@@ -628,7 +684,15 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
                                         return;
                                     }
                                 }
-                                None => return,
+                                None => {
+                                    ended_without_match = true;
+                                    let _ = take_dirty_remote_sync_target(Some(req_id));
+                                    warn!(
+                                        "[FrontendSync] Showcase found no scraper match for {}/{} (fallback='{}'); keeping marquee.",
+                                        system, game, fallback_title
+                                    );
+                                    return;
+                                }
                             }
                         }
                     }
@@ -637,6 +701,15 @@ fn spawn_ingame_showcase_request(config: Arc<Config>, req_id: u64, system: Strin
         }
 
         let Some(item_id) = ready_item_id else {
+            if !ended_without_match && MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+                warn!(
+                    "[FrontendSync] Showcase preparation timed out after 120s for {}/{}; aborting server conversion and keeping marquee.",
+                    system, game
+                );
+                if let Some((srv, cid)) = take_dirty_remote_sync_target(Some(req_id)) {
+                    delete_showcase_client_queue_async(srv, cid);
+                }
+            }
             return;
         };
         if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
@@ -704,6 +777,7 @@ fn handle_frontend_sync_payload(
 
     let raw_system = json["system"].as_str().unwrap_or("").to_string();
     let raw_game = json["game"].as_str().unwrap_or("").to_string();
+    let raw_title = json["title"].as_str().unwrap_or("").trim().to_string();
 
     let clean_sys = crate::core::dmd_cache::clean_system_name(&raw_system);
     let clean_game = crate::core::dmd_cache::clean_system_name(&raw_game);
@@ -827,7 +901,13 @@ fn handle_frontend_sync_payload(
 
         // 2. When launching a game (`status == "playing"`), request Showcase sequence in background for Late Preemption
         if is_playing && !game_clean.is_empty() {
-            spawn_ingame_showcase_request(Arc::clone(config), req_id, system, game_clean);
+            spawn_ingame_showcase_request(
+                Arc::clone(config),
+                req_id,
+                system,
+                game_clean,
+                raw_title,
+            );
         }
     }
 }
@@ -1208,6 +1288,66 @@ mod tests {
         assert_eq!(payload["card_theme"], "neon_border");
         assert_eq!(payload["video_max_duration_s"], 15);
         assert_eq!(payload["render_card_in_stream"], true);
+    }
+
+    #[test]
+    fn test_build_ingame_queue_payload_fallback_query_and_dirty_sync_guard() {
+        let cfg = MqttConfig::default();
+        let with_fb = build_ingame_queue_payload_with_fallback(
+            &cfg,
+            "neogeo",
+            "mslugx",
+            Some("Metal Slug X - Super Vehicle-001"),
+            128,
+            32,
+            "fr",
+        );
+        assert_eq!(with_fb["query"], "mslugx");
+        assert_eq!(
+            with_fb["fallback_query"],
+            "Metal Slug X - Super Vehicle-001"
+        );
+
+        let same_title = build_ingame_queue_payload_with_fallback(
+            &cfg,
+            "neogeo",
+            "mslugx",
+            Some("MSLUGX"),
+            128,
+            32,
+            "fr",
+        );
+        assert!(same_title.get("fallback_query").is_none());
+
+        // Idle browsing -> remote_sync_dirty is false -> take_dirty_remote_sync_target returns None (0 HTTP DELETE)
+        {
+            let slot =
+                ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(RemoteSyncSessionState::default()));
+            *slot.lock() = RemoteSyncSessionState::default();
+        }
+        assert!(take_dirty_remote_sync_target(None).is_none());
+
+        // Armed during `playing` -> consumed strictly ONCE on exit, then idle again for subsequent browsing
+        {
+            let slot =
+                ACTIVE_SYNC_QUEUE.get_or_init(|| Mutex::new(RemoteSyncSessionState::default()));
+            *slot.lock() = RemoteSyncSessionState {
+                req_id: 99,
+                server_url: "http://127.0.0.1:8890".to_string(),
+                sync_client_id: "rpi_abcdef_games_128x32_sync".to_string(),
+                remote_sync_dirty: true,
+            };
+        }
+        assert!(take_dirty_remote_sync_target(Some(42)).is_none());
+        let consumed = take_dirty_remote_sync_target(None);
+        assert_eq!(
+            consumed,
+            Some((
+                "http://127.0.0.1:8890".to_string(),
+                "rpi_abcdef_games_128x32_sync".to_string()
+            ))
+        );
+        assert!(take_dirty_remote_sync_target(None).is_none());
     }
 
     #[test]

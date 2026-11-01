@@ -31,7 +31,9 @@ l'appareil via SSH** (pas depuis votre PC) pour installer le daemon MQTT "en cou
 5. Le script installe automatiquement le daemon, configure le démarrage du système et propose de redémarrer.
 
 Ce qu'il installe :
-- Un petit daemon Python (`arcadematrix_daemon.py`) qui surveille les lancements/arrêts de jeux et publie `{"status": "playing"|"browsing"|"stopped", "game": "<nom de base de la rom>", "system": "<SystemId>"}` via MQTT sur `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera` ou `system/playing/retropie`) via `mosquitto_pub`.
+- Un petit daemon Python (`arcadematrix_daemon.py` ou hook d'événements EmulationStation) qui surveille la navigation, les lancements et les sorties de jeux et publie `{"status": "playing"|"browsing"|"stopped", "game": "<nom de base de la rom>", "system": "<SystemId>", "title": "<titre affiché>"}` via MQTT sur `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera` ou `system/playing/retropie`) via `mosquitto_pub` :
+  - `"title"` est optionnel et inclus automatiquement lorsque le titre lisible du jeu sur la console (`Game=` dans `/tmp/es_state.inf` sur Recalbox ou l'argument `$5` du hook Batocera) diffère de `"game"`, permettant à `dmd_media_showcase` de résoudre les noms courts de ROMs via `fallback_query`.
+  - Publier `"browsing"` ou `"stopped"` en quittant un jeu restaure les marquees de menu en `0 ms` et ordonne à `FrontendSync` d'interrompre immédiatement tout processus de conversion Showcase en cours sur le serveur (`DELETE /api/v1/clients/{sync_id}/queue`, avec `0` requête HTTP `DELETE` pendant la simple navigation dans les menus).
 - L'intégration au démarrage assurant la persistance après chaque redémarrage.
 
 **Note pour les utilisateurs qui ont aussi un appareil ESP32 ArcadeMatrix** :

@@ -31,7 +31,9 @@ A standalone shell script you copy onto your retro gaming console (Recalbox, Bat
 5. The script automatically installs the daemon, hooks into the OS lifecycle (EmulationStation scripts, services, or runcommand hooks), and reboots when prompted.
 
 What it installs:
-- A small Python daemon (`arcadematrix_daemon.py`) that monitors game launch/stop events and publishes `{"status": "playing"|"browsing"|"stopped", "game": "<rom basename>", "system": "<SystemId>"}` over MQTT on `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera`, or `system/playing/retropie`) via `mosquitto_pub`.
+- A small Python daemon (`arcadematrix_daemon.py` or EmulationStation event hook) that monitors game selection, launch, and exit events and publishes `{"status": "playing"|"browsing"|"stopped", "game": "<rom basename>", "system": "<SystemId>", "title": "<display title>"}` over MQTT on `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera`, or `system/playing/retropie`) via `mosquitto_pub`:
+  - `"title"` is optional and automatically included when the human-readable console title (Recalbox `Game=` in `/tmp/es_state.inf` or Batocera's `$5` hook argument) differs from `"game"`, allowing `dmd_media_showcase` to resolve arcade/console ROM shortnames via `fallback_query`.
+  - Publishing `"browsing"` or `"stopped"` upon exiting a game restores menu marquees in `0 ms` and triggers `FrontendSync` to abort any in-flight Showcase conversion worker processes on the server (`DELETE /api/v1/clients/{sync_id}/queue`, with `0` HTTP `DELETE` traffic during normal menu browsing).
 - Startup integration keeping the daemon active across reboots.
 
 **Note for users who also have an ESP32 ArcadeMatrix device**:

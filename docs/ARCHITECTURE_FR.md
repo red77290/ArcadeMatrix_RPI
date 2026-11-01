@@ -257,6 +257,41 @@ Afin de garantir une empreinte RAM strictement bornée (~120–180 Mo RSS) indé
 4. **Codec Binaire `DMDZ` v2 Sans Perte & `ShowcaseStreamPlayer` Unifié (`core::dmd_stream`)** : Les 4 moteurs de rotation Showcase (`MediaShowcaseRunner` dans `engines/renderers/media_showcase.rs`) et la préemption tardive `FrontendSync` (`InGameShowcaseEngine` dans `engines/frontend_sync.rs`) partagent un module de streaming unique sans aucune duplication de code (`src/core/dmd_stream.rs`) :
    - `fetch_showcase_stream()` pré-charge les flux `DMDZ` v2 sans perte (`?purge=true|false&codec=dmdz2`, avec repli automatique sur `DMDS` RGB565LE brut) dans un `Arc<PreloadedDmdStream>` compact, réduisant une séquence `256x64` de 60 s de `57,6 Mo` à `~2–4 Mo` (`~12x–20x` plus compact) en RAM.
    - `ShowcaseStreamPlayer` décode les trames `DMDZ` v2 (`FRAME_DELTA`, `FRAME_SCROLL`, `FRAME_KEY`, `FRAME_SCROLL_2D`, `FRAME_RAW` + `OP_LUMA`/`OP_TLUMA`/`OP_LZ`/`OP_TDIFF`) séquentiellement en `O(1)` dans un unique tampon réutilisable `Vec<u16>` (`0` allocation tas par trame), assure un cadencement horloge monotone compatible pause/reprise, nettoie automatiquement les bordures lorsque la géométrie du flux diffère de la surface, et verrouille `allows_overlay() -> false` pendant la lecture vidéo (`LiveStream` / `InGameShowcase`).
+5. **Showcase en Jeu `FrontendSync` & Protocole d'Arrêt Multi-Processus (`engines::frontend_sync`)** :
+   - **Slot Client de Synchronisation Éphémère Dédié (`{dmd_id}_sync`)** : Les requêtes en jeu ciblent `rpi_<serial>_games_<WxH>_sync`, isolant strictement les sessions `FrontendSync` des files d'attente autonomes `N+1` de la rotation Showcase (`mark_seen: false`) tandis que les écouteurs passifs de rotation ignorent les topics `_sync/command`.
+   - **Double Recherche (`query` + `fallback_query`)** : Lorsqu'une console publie `status: "playing"` sur `system/playing/#`, `FrontendSync` affiche le marquee local/Pixelcade en `0 ms` et envoie `POST /api/v1/clients/{sync_id}/queue/async` (`mode: "play_now"`) avec `query` (nom de base de la ROM) ainsi qu'un `fallback_query` optionnel (titre lisible du jeu extrait de `Game=` dans `/tmp/es_state.inf` sur Recalbox ou de l'argument `$5` du hook Batocera lorsqu'il diffère de `game`).
+   - **Protocole Déterministe d'Arrêt des Conversions Serveur (`DELETE /api/v1/clients/{sync_id}/queue`)** : Protégé localement par `RemoteSyncSessionState::remote_sync_dirty` — armé **uniquement** lorsqu'un `POST /queue/async` est émis pour un événement `playing` (`0` requête HTTP `DELETE` pendant la navigation dans les menus) et consommé **strictement une seule fois** via un `DELETE /api/v1/clients/{sync_id}/queue` asynchrone lors : (a) de la sortie du jeu (`"browsing"` ou `"stopped"` sur `system/playing/#`), (b) du lancement d'un nouveau jeu remplaçant une préparation en cours (incrément de `MQTT_REQUEST_ID`), (c) du dépassement de l'échéance cliente de `120s`, ou (d) de la fin d'un cycle unique (`ingame_cycle_mode = "once"`). Côté `dmd_media_showcase`, `DELETE /api/v1/clients/{sync_id}/queue` annule les tâches en attente et termine immédiatement l'ensemble des `1..N` arbres de processus workers OS actifs (`dmd_show_converter` / `dmd_gif_converter`, `ffmpeg`, `yt-dlp`) enregistrés sous `{sync_id}` (`os.killpg` / `taskkill /F /T`) sans casser le `ProcessPoolExecutor`.
+
+```mermaid
+sequenceDiagram
+    participant Con as Console (Recalbox / Batocera / RetroPie)
+    participant MQTT as Broker MQTT (system/playing/#)
+    participant Sync as FrontendSync (ArcadeMatrix RPi)
+    participant Show as Serveur dmd_media_showcase
+    participant Wrk as Groupe Workers OS (1..N dmd_show_converter / ffmpeg)
+
+    Note over Con,Sync: Navigation Menus (remote_sync_dirty = false -> 0 appel HTTP DELETE)
+    Con->>MQTT: {"status": "browsing", "system": "snes", "game": "smw"}
+    MQTT->>Sync: Affichage Marquee local/Pixelcade (0 ms)
+
+    Note over Con,Wrk: Lancement de Jeu & Préemption Tardive
+    Con->>MQTT: {"status": "playing", "system": "snes", "game": "smw", "title": "Super Mario World"}
+    MQTT->>Sync: Affichage Marquee (0 ms) + arme remote_sync_dirty = true
+    Sync->>Show: POST /api/v1/clients/{sync_id}/queue/async (query + fallback_query, play_now, mark_seen=false)
+    Show->>Wrk: Lance 1..N groupes de processus converter/ffmpeg marqués {sync_id}
+    alt Prêt avant l'échéance de 120s
+        Wrk-->>Show: Flux DMDZ v2 prêt
+        Show-->>Sync: Signal MQTT play_now / file prête (item_id)
+        Sync->>Show: GET /api/v1/games/stream/{item_id}.rgb565.stream?purge=false&codec=dmdz2
+        Show-->>Sync: Préchargement DMDZ v2 compact en RAM -> Préemption tardive active
+    end
+
+    Note over Con,Wrk: Sortie de Jeu / Remplacement / Timeout 120s / Fin Cycle "once"
+    Con->>MQTT: {"status": "browsing" | "stopped"} (ou timeout 120s / nouveau jeu)
+    MQTT->>Sync: Restaure Marquee (0 ms) + consomme remote_sync_dirty (true -> false)
+    Sync->>Show: DELETE asynchrone /api/v1/clients/{sync_id}/queue (consommé 1 fois)
+    Show->>Wrk: Purge la file + killpg / taskkill /F /T sur les 1..N arbres workers de {sync_id}
+```
 
 `get_instance()` est le cœur du Lazy-Once et du hot-reload :
 

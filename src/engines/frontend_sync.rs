@@ -616,7 +616,6 @@ fn spawn_ingame_showcase_request(
 
         // Wait for async preparation (0 ms on MQTT `play_now` signal, or <= 750 ms via lightweight queue poll)
         let wait_deadline = Instant::now() + Duration::from_secs(120);
-        let mut ended_without_match = false;
         let queue_poll_url = format!(
             "{}/api/v1/clients/{}/queue",
             resolved_url.trim_end_matches('/'),
@@ -673,7 +672,6 @@ fn spawn_ingame_showcase_request(
                                             break;
                                         }
                                     } else if st == "error" {
-                                        ended_without_match = true;
                                         let _ = take_dirty_remote_sync_target(Some(req_id));
                                         warn!(
                                             "[FrontendSync] Showcase failed to prepare {}/{}: {:?}",
@@ -685,7 +683,6 @@ fn spawn_ingame_showcase_request(
                                     }
                                 }
                                 None => {
-                                    ended_without_match = true;
                                     let _ = take_dirty_remote_sync_target(Some(req_id));
                                     warn!(
                                         "[FrontendSync] Showcase found no scraper match for {}/{} (fallback='{}'); keeping marquee.",
@@ -701,7 +698,7 @@ fn spawn_ingame_showcase_request(
         }
 
         let Some(item_id) = ready_item_id else {
-            if !ended_without_match && MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+            if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                 warn!(
                     "[FrontendSync] Showcase preparation timed out after 120s for {}/{}; aborting server conversion and keeping marquee.",
                     system, game

@@ -54,6 +54,35 @@ struct RemoteSyncSessionState {
 
 static ACTIVE_SYNC_QUEUE: OnceLock<Mutex<RemoteSyncSessionState>> = OnceLock::new();
 
+#[derive(Debug, Clone, Default)]
+pub struct E2eSyncTelemetry {
+    pub mqtt_events_received: u64,
+    pub last_mqtt_topic: String,
+    pub last_status: String,
+    pub last_system: String,
+    pub last_game: String,
+    pub active_marquee_path: String,
+    pub showcase_enqueues: u64,
+    pub showcase_streams_loaded: u64,
+}
+
+static E2E_TELEMETRY: OnceLock<Mutex<E2eSyncTelemetry>> = OnceLock::new();
+
+fn e2e_telemetry() -> &'static Mutex<E2eSyncTelemetry> {
+    E2E_TELEMETRY.get_or_init(|| Mutex::new(E2eSyncTelemetry::default()))
+}
+
+pub fn read_e2e_sync_telemetry() -> E2eSyncTelemetry {
+    e2e_telemetry().lock().clone()
+}
+
+fn open_marquee_image(path: &std::path::Path) -> Option<image::DynamicImage> {
+    image::ImageReader::open(path)
+        .ok()
+        .and_then(|r| r.with_guessed_format().ok())
+        .and_then(|r| r.decode().ok())
+}
+
 struct ReadySignalState {
     ready_events: Vec<(String, String, String)>, // (sync_client_id, queue_id, item_id)
 }
@@ -109,6 +138,9 @@ fn manage_local_mosquitto_service(
     local_is_loopback: bool,
     mqtt_enabled: bool,
 ) {
+    if crate::core::matrix::is_mock_matrix_mode() {
+        return;
+    }
     if using_showcase_broker && local_is_loopback {
         if !LOCAL_MOSQUITTO_STOPPED_BY_SYNC.swap(true, Ordering::SeqCst) {
             info!("[FrontendSync] Showcase MQTT broker active -> stopping local mosquitto.service to free RAM");
@@ -569,7 +601,10 @@ fn spawn_ingame_showcase_request(
             .json(&body)
             .send()
         {
-            Ok(r) if r.status().is_success() => r,
+            Ok(r) if r.status().is_success() => {
+                e2e_telemetry().lock().showcase_enqueues += 1;
+                r
+            }
             Ok(r) => {
                 let _ = take_dirty_remote_sync_target(Some(req_id));
                 warn!(
@@ -755,6 +790,8 @@ fn spawn_ingame_showcase_request(
             stream.payload_byte_len(),
             cycle_mode
         );
+        crate::core::matrix::reset_mock_distinct_crcs();
+        e2e_telemetry().lock().showcase_streams_loaded += 1;
         config.set_ingame_showcase(Some(InGameShowcasePayload {
             session_token: req_id,
             stream,
@@ -773,6 +810,11 @@ fn handle_frontend_sync_payload(
         return;
     };
     let status = json["status"].as_str().unwrap_or("stopped");
+    {
+        let mut t = e2e_telemetry().lock();
+        t.mqtt_events_received += 1;
+        t.last_status = status.to_string();
+    }
     if status == "stopped" {
         MQTT_REQUEST_ID.fetch_add(1, Ordering::AcqRel);
         cancel_active_ingame_showcase(config);
@@ -805,12 +847,19 @@ fn handle_frontend_sync_payload(
     };
 
     let req_id = MQTT_REQUEST_ID.fetch_add(1, Ordering::AcqRel) + 1;
+    {
+        let mut t = e2e_telemetry().lock();
+        t.last_system = system.clone();
+        t.last_game = game_clean.clone();
+        t.active_marquee_path.clear();
+    }
     // Any new browsing or playing event cancels any previously active in-game Showcase session
     cancel_active_ingame_showcase(config);
 
     if is_system_event {
         if let Some(path) = dmd_cache.get_cached_system_path(&system) {
-            if let Ok(img) = image::open(&path) {
+            if let Some(img) = open_marquee_image(&path) {
+                e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
                 config.set_marquee_image(Some(img.to_rgb8()));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 return;
@@ -842,8 +891,10 @@ fn handle_frontend_sync_payload(
             let cache_clone = Arc::clone(dmd_cache);
             std::thread::spawn(move || {
                 if let Some(path) = cache_clone.download_system_marquee(&system) {
-                    if let Ok(img) = image::open(&path) {
+                    if let Some(img) = open_marquee_image(&path) {
                         if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+                            e2e_telemetry().lock().active_marquee_path =
+                                path.to_string_lossy().to_string();
                             config_clone.set_marquee_image(Some(img.to_rgb8()));
                             config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                         }
@@ -873,7 +924,8 @@ fn handle_frontend_sync_payload(
         //    banner and attempt Pixelcade game marquee download (never falling back to system art).
         let mut marquee_shown = false;
         if let Some(path) = dmd_cache.get_cached_path(&system, &game) {
-            if let Ok(img) = image::open(&path) {
+            if let Some(img) = open_marquee_image(&path) {
+                e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
                 config.set_marquee_image(Some(img.to_rgb8()));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 marquee_shown = true;
@@ -902,8 +954,10 @@ fn handle_frontend_sync_payload(
                 let game_for_dl = game.clone();
                 std::thread::spawn(move || {
                     if let Some(path) = cache_clone.download_marquee(&sys_for_dl, &game_for_dl) {
-                        if let Ok(img) = image::open(&path) {
+                        if let Some(img) = open_marquee_image(&path) {
                             if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
+                                e2e_telemetry().lock().active_marquee_path =
+                                    path.to_string_lossy().to_string();
                                 config_clone.set_marquee_image(Some(img.to_rgb8()));
                                 config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                             }
@@ -1024,6 +1078,7 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                                 if publish.topic.starts_with("dmd_showcase/clients/") {
                                     record_showcase_command_event(&publish.topic, &payload);
                                 } else {
+                                    e2e_telemetry().lock().last_mqtt_topic = publish.topic.clone();
                                     handle_frontend_sync_payload(&config, &dmd_cache, &payload);
                                 }
                             }

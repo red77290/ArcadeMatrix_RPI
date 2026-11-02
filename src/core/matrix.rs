@@ -2,6 +2,67 @@ use crate::core::config::MatrixConfig;
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
 use crate::core::config::RenderPipeline;
 use image::RgbImage;
+use parking_lot::Mutex;
+use std::collections::HashSet;
+use std::sync::OnceLock;
+
+/// Returns true when `ARCADEMATRIX_MOCK_MATRIX=1` forces headless `MockSurface` execution
+/// (used in containerized `linux/arm64` E2E environments without Raspberry Pi GPIO `/dev/mem`).
+pub fn is_mock_matrix_mode() -> bool {
+    static MOCK_MODE: OnceLock<bool> = OnceLock::new();
+    *MOCK_MODE.get_or_init(|| {
+        std::env::var("ARCADEMATRIX_MOCK_MATRIX")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+pub fn is_e2e_inspect_enabled() -> bool {
+    static INSPECT_MODE: OnceLock<bool> = OnceLock::new();
+    *INSPECT_MODE.get_or_init(|| {
+        std::env::var("ARCADEMATRIX_E2E_INSPECT")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+#[derive(Clone, Default)]
+pub struct MockFrameSnapshot {
+    pub width: u32,
+    pub height: u32,
+    pub rgb565_le: Vec<u8>,
+    pub nonzero_pixels: u32,
+    pub frame_crc32: u32,
+    pub present_count: u64,
+    pub distinct_crcs: HashSet<u32>,
+}
+
+static MOCK_FRAME_SNAPSHOT: OnceLock<Mutex<MockFrameSnapshot>> = OnceLock::new();
+
+fn crc32_bytes(bytes: &[u8]) -> u32 {
+    let mut crc: u32 = 0xFFFF_FFFF;
+    for &b in bytes {
+        crc ^= b as u32;
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+
+pub fn read_mock_framebuffer_snapshot() -> MockFrameSnapshot {
+    MOCK_FRAME_SNAPSHOT
+        .get_or_init(|| Mutex::new(MockFrameSnapshot::default()))
+        .lock()
+        .clone()
+}
+
+pub fn reset_mock_distinct_crcs() {
+    if let Some(m) = MOCK_FRAME_SNAPSHOT.get() {
+        m.lock().distinct_crcs.clear();
+    }
+}
 
 /// Bounded rectangular vertical span tracking dirty pixel regions for zero-copy row transfers.
 #[derive(Debug, Clone)]
@@ -430,6 +491,34 @@ impl IDrawingSurface for MockSurface {
 
     fn present(&mut self) {
         self.dirty_bounds.reset(self.physical_height);
+        if is_mock_matrix_mode() || is_e2e_inspect_enabled() {
+            let w = self.physical_width;
+            let h = self.physical_height;
+            let mut rgb565_le = Vec::with_capacity((w * h * 2) as usize);
+            let mut nz: u32 = 0;
+            for px in self.canvas.pixels() {
+                let [r, g, b] = px.0;
+                let v565: u16 =
+                    (((r as u16) & 0xF8) << 8) | (((g as u16) & 0xFC) << 3) | ((b as u16) >> 3);
+                if v565 != 0 {
+                    nz += 1;
+                }
+                rgb565_le.extend_from_slice(&v565.to_le_bytes());
+            }
+            let crc = crc32_bytes(&rgb565_le);
+            let mut snap = MOCK_FRAME_SNAPSHOT
+                .get_or_init(|| Mutex::new(MockFrameSnapshot::default()))
+                .lock();
+            snap.width = w;
+            snap.height = h;
+            snap.rgb565_le = rgb565_le;
+            snap.nonzero_pixels = nz;
+            snap.frame_crc32 = crc;
+            snap.present_count = snap.present_count.saturating_add(1);
+            if nz > 0 {
+                snap.distinct_crcs.insert(crc);
+            }
+        }
     }
 
     fn set_brightness(&mut self, brightness: u8) {
@@ -941,6 +1030,14 @@ fn init_led_matrix(
 
 /// Factory creating the canonical IDrawingSurface according to configuration.
 pub fn create_surface(cfg: &MatrixConfig) -> Result<Box<dyn IDrawingSurface>, String> {
+    if is_mock_matrix_mode() {
+        let w = cfg.width * cfg.chain_length;
+        let h = cfg.height * cfg.parallel.clamp(1, 3);
+        let mut mock = MockSurface::new(w, h);
+        mock.set_rotation((cfg.rotation % 4) as u8);
+        return Ok(Box::new(mock));
+    }
+
     #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
     {
         let pipeline = if cfg.force_single_buffer {

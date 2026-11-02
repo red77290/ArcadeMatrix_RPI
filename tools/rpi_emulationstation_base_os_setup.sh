@@ -11,9 +11,9 @@ echo " (Recalbox / Batocera / RetroPie)"
 echo "=============================================================================="
 echo
 
-read -rp "ArcadeMatrix IP address (ESP32 or Raspberry Pi): " MQTT_BROKER
-if [ -z "$MQTT_BROKER" ]; then
-    echo "Error: Broker IP address is required." >&2
+read -rp "ArcadeMatrix DMD IP address (ESP32 or Raspberry Pi): " DMD_HOST
+if [ -z "$DMD_HOST" ]; then
+    echo "Error: ArcadeMatrix DMD IP address is required." >&2
     exit 1
 fi
 
@@ -66,24 +66,120 @@ import subprocess
 import time
 import os
 import json
+import socket
+import urllib.request
 
+DMD_HOST = "DMD_HOST_IP_PLACEHOLDER"
 BROKER = "MQTT_BROKER_IP_PLACEHOLDER"
 TOPIC = "MQTT_TOPIC_PLACEHOLDER"
 
+_cached_broker_host = None
+_cached_broker_port = 1883
+_cached_broker_ts = 0.0
+BROKER_CACHE_TTL_SEC = 15.0
+
+def get_default_host():
+    if DMD_HOST and "PLACEHOLDER" not in DMD_HOST:
+        return DMD_HOST
+    return BROKER
+
+def resolve_broker():
+    global _cached_broker_host, _cached_broker_port, _cached_broker_ts
+    now = time.time()
+    if _cached_broker_host and (now - _cached_broker_ts) < BROKER_CACHE_TTL_SEC:
+        return _cached_broker_host, _cached_broker_port
+
+    dmd = get_default_host()
+    host = dmd
+    port = 1883
+    for http_port in (80, 8080):
+        url = "http://{}:{}/api/mqtt/broker-target".format(dmd, http_port)
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                    cand_host = str(data.get("host") or "").strip()
+                    cand_port = int(data.get("port") or 1883)
+                    if cand_host and cand_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+                        host = cand_host
+                    elif cand_host in ("127.0.0.1", "localhost"):
+                        host = dmd
+                    if 1 <= cand_port <= 65535:
+                        port = cand_port
+                    break
+        except Exception:
+            continue
+
+    _cached_broker_host = host
+    _cached_broker_port = port
+    _cached_broker_ts = now
+    return host, port
+
+def _enc_mqtt_len(length):
+    out = bytearray()
+    while True:
+        b = length % 128
+        length //= 128
+        if length > 0:
+            b |= 0x80
+        out.append(b)
+        if length == 0:
+            break
+    return bytes(out)
+
+def publish_mqtt(topic, payload):
+    global _cached_broker_ts
+    host, port = resolve_broker()
+    try:
+        res = subprocess.run(
+            ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", payload],
+            timeout=2,
+            check=False,
+        )
+        if res.returncode == 0:
+            return
+    except FileNotFoundError:
+        pass
+    except Exception:
+        _cached_broker_ts = 0.0
+        return
+
+    try:
+        cid = "recalbox_es_{}".format(os.getpid()).encode("utf-8")
+        c_body = b"\x00\x04MQTT\x04\x02\x00\x3c" + len(cid).to_bytes(2, "big") + cid
+        c_pkt = b"\x10" + _enc_mqtt_len(len(c_body)) + c_body
+        t_b = topic.encode("utf-8")
+        m_b = payload.encode("utf-8")
+        p_body = len(t_b).to_bytes(2, "big") + t_b + m_b
+        p_pkt = b"\x30" + _enc_mqtt_len(len(p_body)) + p_body
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect((host, int(port)))
+        s.sendall(c_pkt)
+        s.recv(4)
+        s.sendall(p_pkt)
+        s.sendall(b"\xe0\x00")
+        s.close()
+    except Exception:
+        _cached_broker_ts = 0.0
+
 def parse_statefile():
-    game, system, state = None, None, "browsing"
+    game, title, system, state = None, None, None, "browsing"
     try:
         with open("/tmp/es_state.inf", "r") as f:
             for line in f:
                 if line.startswith("GamePath="):
                     game = line.split("=", 1)[1].strip()
+                elif line.startswith("Game="):
+                    title = line.split("=", 1)[1].strip()
                 elif line.startswith("SystemId="):
                     system = line.split("=", 1)[1].strip()
                 elif line.startswith("State="):
                     state = line.split("=", 1)[1].strip()
     except Exception:
         pass
-    return game, system, state
+    return game, title, system, state
 
 def clean_system_name(s):
     if not s:
@@ -106,7 +202,6 @@ def clean_system_name(s):
     return s_clean
 
 def main():
-    import socket
     import sys
     lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -122,24 +217,24 @@ def main():
 
     while True:
         try:
-            rom_path, system, state = parse_statefile()
-            if not system and not rom_path:
+            rom_path, game_title, system, state = parse_statefile()
+            if state != "stopped" and not system and not rom_path:
                 time.sleep(0.1)
                 continue
 
             system = clean_system_name(system)
 
             if state == "stopped":
-                current_key = (None, None, "stopped")
+                current_key = (None, None, None, "stopped")
             else:
                 is_system = True
                 if rom_path and not os.path.isdir(rom_path):
                     is_system = False
                 
                 if is_system:
-                    current_key = (None, system, "browsing")
+                    current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, system, state)
+                    current_key = (rom_path, game_title, system, state)
 
             if current_key != last_state_key:
                 last_state_key = current_key
@@ -149,19 +244,21 @@ def main():
             if elapsed >= 0.15 and current_key != last_sent_key:
                 last_sent_key = current_key
 
-                if current_key[2] == "stopped":
+                if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
                 elif current_key[0] is None:
-                    msg = json.dumps({"status": "browsing", "system": str(current_key[1]), "type": "system"})
+                    msg = json.dumps({"status": "browsing", "system": str(current_key[2]), "type": "system"})
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    msg = json.dumps({"status": current_key[2], "game": gbase, "system": str(current_key[1])})
+                    payload_obj = {"status": current_key[3], "game": gbase, "system": str(current_key[2])}
+                    if current_key[1]:
+                        tclean = clean_system_name(current_key[1])
+                        if tclean and tclean.lower() != gbase.lower():
+                            payload_obj["title"] = tclean
+                    msg = json.dumps(payload_obj)
 
-                try:
-                    subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
-                except Exception:
-                    pass
+                publish_mqtt(TOPIC, msg)
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
@@ -171,7 +268,8 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$MQTT_BROKER/g" "$DAEMON_FILE"
+    sed -i "s/DMD_HOST_IP_PLACEHOLDER/$DMD_HOST/g" "$DAEMON_FILE"
+    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$DMD_HOST/g" "$DAEMON_FILE"
     sed -i "s|MQTT_TOPIC_PLACEHOLDER|$TOPIC|g" "$DAEMON_FILE"
 
     cat << 'SHEOF' > "$LAUNCHER_FILE"
@@ -201,14 +299,63 @@ elif [ "$SYSTEM" = "batocera" ]; then
 
     cat << 'SHEOF' > "$HOOK_FILE"
 #!/bin/sh
+DMD_HOST="DMD_HOST_IP_PLACEHOLDER"
 BROKER="MQTT_BROKER_IP_PLACEHOLDER"
 TOPIC="system/playing/batocera"
 LOG_FILE="/userdata/system/scripts/daemon.log"
 DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
 MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
+BROKER_CACHE_FILE="/tmp/arcadematrix_broker_target.cache"
+
+resolve_broker_target() {
+    _DMD="$DMD_HOST"
+    if [ -z "$_DMD" ] || echo "$_DMD" | grep -q 'PLACEHOLDER'; then
+        _DMD="$BROKER"
+    fi
+    BROKER_HOST="$_DMD"
+    BROKER_PORT="1883"
+
+    NOW=$(date +%s 2>/dev/null || echo 0)
+    if [ -f "$BROKER_CACHE_FILE" ]; then
+        C_TS=$(awk 'NR==1{print $1}' "$BROKER_CACHE_FILE" 2>/dev/null)
+        C_HOST=$(awk 'NR==1{print $2}' "$BROKER_CACHE_FILE" 2>/dev/null)
+        C_PORT=$(awk 'NR==1{print $3}' "$BROKER_CACHE_FILE" 2>/dev/null)
+        if [ -n "$C_TS" ] && [ -n "$C_HOST" ] && [ $((NOW - C_TS)) -lt 15 ] 2>/dev/null; then
+            BROKER_HOST="$C_HOST"
+            BROKER_PORT="${C_PORT:-1883}"
+            return 0
+        fi
+    fi
+
+    RESP=""
+    for HPORT in 80 8080; do
+        if command -v curl >/dev/null 2>&1; then
+            RESP=$(curl -s -m 1 "http://${_DMD}:${HPORT}/api/mqtt/broker-target" 2>/dev/null)
+        elif command -v wget >/dev/null 2>&1; then
+            RESP=$(wget -q -T 1 -O - "http://${_DMD}:${HPORT}/api/mqtt/broker-target" 2>/dev/null)
+        fi
+        if echo "$RESP" | grep -q '"host"'; then
+            break
+        fi
+        RESP=""
+    done
+
+    if [ -n "$RESP" ]; then
+        P_HOST=$(echo "$RESP" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+        P_PORT=$(echo "$RESP" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
+        if [ -n "$P_HOST" ] && [ "$P_HOST" != "127.0.0.1" ] && [ "$P_HOST" != "localhost" ] && [ "$P_HOST" != "0.0.0.0" ]; then
+            BROKER_HOST="$P_HOST"
+        fi
+        if [ -n "$P_PORT" ]; then
+            BROKER_PORT="$P_PORT"
+        fi
+    fi
+    echo "$NOW $BROKER_HOST $BROKER_PORT" > "$BROKER_CACHE_FILE" 2>/dev/null || true
+}
 
 send_mqtt() {
     _PAYLOAD="$1"
+    resolve_broker_target
 
     # Terminate any previously running publication to avoid concurrent socket accumulation
     if [ -f "$MQTT_PUB_PID_FILE" ]; then
@@ -220,13 +367,13 @@ send_mqtt() {
     fi
 
     if command -v mosquitto_pub >/dev/null 2>&1; then
-        mosquitto_pub -h "$BROKER" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
+        mosquitto_pub -h "$BROKER_HOST" -p "$BROKER_PORT" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
         echo $! > "$MQTT_PUB_PID_FILE"
         return 0
     fi
     for p in /usr/bin/mosquitto_pub /usr/local/bin/mosquitto_pub /bin/mosquitto_pub; do
         if [ -x "$p" ]; then
-            "$p" -h "$BROKER" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
+            "$p" -h "$BROKER_HOST" -p "$BROKER_PORT" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
             echo $! > "$MQTT_PUB_PID_FILE"
             return 0
         fi
@@ -270,7 +417,7 @@ try:
     s.close()
 except Exception as e:
     print(f'MQTT Error: {e}', file=sys.stderr)
-" "$BROKER" 1883 "$TOPIC" "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
+" "$BROKER_HOST" "$BROKER_PORT" "$TOPIC" "$_PAYLOAD" >> "$LOG_FILE" 2>&1 &
         echo $! > "$MQTT_PUB_PID_FILE"
         return 0
     fi
@@ -352,7 +499,12 @@ case "$EVENT" in
         SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         GAME_CLEAN=$(clean_name "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        TITLE_CLEAN=$(clean_name "$5")
+        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
+            PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        else
+            PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
         ;;
@@ -385,7 +537,12 @@ case "$EVENT" in
         fi
         SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        TITLE_CLEAN=$(clean_name "$TITLE")
+        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
+            PAYLOAD="{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        else
+            PAYLOAD="{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt_debounced "$PAYLOAD"
         ;;
@@ -419,7 +576,12 @@ case "$EVENT" in
         fi
         SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
         SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        TITLE_CLEAN=$(clean_name "$TITLE")
+        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
+            PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        else
+            PAYLOAD="{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
+        fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
         ;;
@@ -436,7 +598,8 @@ case "$EVENT" in
         ;;
 esac
 SHEOF
-    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$MQTT_BROKER/g" "$HOOK_FILE"
+    sed -i "s/DMD_HOST_IP_PLACEHOLDER/$DMD_HOST/g" "$HOOK_FILE"
+    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$DMD_HOST/g" "$HOOK_FILE"
     chmod 755 "$HOOK_FILE"
 
     for evt in game-selected system-selected game-start game-end; do
@@ -456,7 +619,7 @@ elif [ "$SYSTEM" = "retropie" ]; then
     mkdir -p /opt/retropie/configs/all
 
     if ! command -v mosquitto_pub >/dev/null 2>&1; then
-        echo "Installation de mosquitto-clients pour RetroPie..."
+        echo "Installing mosquitto-clients for RetroPie..."
         sudo apt-get update && sudo apt-get install -y mosquitto-clients || true
     fi
 
@@ -465,24 +628,120 @@ import subprocess
 import time
 import os
 import json
+import socket
+import urllib.request
 
+DMD_HOST = "DMD_HOST_IP_PLACEHOLDER"
 BROKER = "MQTT_BROKER_IP_PLACEHOLDER"
 TOPIC = "MQTT_TOPIC_PLACEHOLDER"
 
+_cached_broker_host = None
+_cached_broker_port = 1883
+_cached_broker_ts = 0.0
+BROKER_CACHE_TTL_SEC = 15.0
+
+def get_default_host():
+    if DMD_HOST and "PLACEHOLDER" not in DMD_HOST:
+        return DMD_HOST
+    return BROKER
+
+def resolve_broker():
+    global _cached_broker_host, _cached_broker_port, _cached_broker_ts
+    now = time.time()
+    if _cached_broker_host and (now - _cached_broker_ts) < BROKER_CACHE_TTL_SEC:
+        return _cached_broker_host, _cached_broker_port
+
+    dmd = get_default_host()
+    host = dmd
+    port = 1883
+    for http_port in (80, 8080):
+        url = "http://{}:{}/api/mqtt/broker-target".format(dmd, http_port)
+        try:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8", errors="ignore"))
+                    cand_host = str(data.get("host") or "").strip()
+                    cand_port = int(data.get("port") or 1883)
+                    if cand_host and cand_host not in ("127.0.0.1", "localhost", "0.0.0.0"):
+                        host = cand_host
+                    elif cand_host in ("127.0.0.1", "localhost"):
+                        host = dmd
+                    if 1 <= cand_port <= 65535:
+                        port = cand_port
+                    break
+        except Exception:
+            continue
+
+    _cached_broker_host = host
+    _cached_broker_port = port
+    _cached_broker_ts = now
+    return host, port
+
+def _enc_mqtt_len(length):
+    out = bytearray()
+    while True:
+        b = length % 128
+        length //= 128
+        if length > 0:
+            b |= 0x80
+        out.append(b)
+        if length == 0:
+            break
+    return bytes(out)
+
+def publish_mqtt(topic, payload):
+    global _cached_broker_ts
+    host, port = resolve_broker()
+    try:
+        res = subprocess.run(
+            ["mosquitto_pub", "-h", host, "-p", str(port), "-t", topic, "-m", payload],
+            timeout=2,
+            check=False,
+        )
+        if res.returncode == 0:
+            return
+    except FileNotFoundError:
+        pass
+    except Exception:
+        _cached_broker_ts = 0.0
+        return
+
+    try:
+        cid = "recalbox_es_{}".format(os.getpid()).encode("utf-8")
+        c_body = b"\x00\x04MQTT\x04\x02\x00\x3c" + len(cid).to_bytes(2, "big") + cid
+        c_pkt = b"\x10" + _enc_mqtt_len(len(c_body)) + c_body
+        t_b = topic.encode("utf-8")
+        m_b = payload.encode("utf-8")
+        p_body = len(t_b).to_bytes(2, "big") + t_b + m_b
+        p_pkt = b"\x30" + _enc_mqtt_len(len(p_body)) + p_body
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.settimeout(2.0)
+        s.connect((host, int(port)))
+        s.sendall(c_pkt)
+        s.recv(4)
+        s.sendall(p_pkt)
+        s.sendall(b"\xe0\x00")
+        s.close()
+    except Exception:
+        _cached_broker_ts = 0.0
+
 def parse_statefile():
-    game, system, state = None, None, "browsing"
+    game, title, system, state = None, None, None, "browsing"
     try:
         with open("/tmp/es_state.inf", "r") as f:
             for line in f:
                 if line.startswith("GamePath="):
                     game = line.split("=", 1)[1].strip()
+                elif line.startswith("Game="):
+                    title = line.split("=", 1)[1].strip()
                 elif line.startswith("SystemId="):
                     system = line.split("=", 1)[1].strip()
                 elif line.startswith("State="):
                     state = line.split("=", 1)[1].strip()
     except Exception:
         pass
-    return game, system, state
+    return game, title, system, state
 
 def clean_system_name(s):
     if not s:
@@ -505,7 +764,6 @@ def clean_system_name(s):
     return s_clean
 
 def main():
-    import socket
     import sys
     lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
@@ -521,24 +779,24 @@ def main():
 
     while True:
         try:
-            rom_path, system, state = parse_statefile()
-            if not system and not rom_path:
+            rom_path, game_title, system, state = parse_statefile()
+            if state != "stopped" and not system and not rom_path:
                 time.sleep(0.1)
                 continue
 
             system = clean_system_name(system)
 
             if state == "stopped":
-                current_key = (None, None, "stopped")
+                current_key = (None, None, None, "stopped")
             else:
                 is_system = True
                 if rom_path and not os.path.isdir(rom_path):
                     is_system = False
                 
                 if is_system:
-                    current_key = (None, system, "browsing")
+                    current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, system, state)
+                    current_key = (rom_path, game_title, system, state)
 
             if current_key != last_state_key:
                 last_state_key = current_key
@@ -548,19 +806,21 @@ def main():
             if elapsed >= 0.15 and current_key != last_sent_key:
                 last_sent_key = current_key
 
-                if current_key[2] == "stopped":
+                if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
                 elif current_key[0] is None:
-                    msg = json.dumps({"status": "browsing", "system": str(current_key[1]), "type": "system"})
+                    msg = json.dumps({"status": "browsing", "system": str(current_key[2]), "type": "system"})
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    msg = json.dumps({"status": current_key[2], "game": gbase, "system": str(current_key[1])})
+                    payload_obj = {"status": current_key[3], "game": gbase, "system": str(current_key[2])}
+                    if current_key[1]:
+                        tclean = clean_system_name(current_key[1])
+                        if tclean and tclean.lower() != gbase.lower():
+                            payload_obj["title"] = tclean
+                    msg = json.dumps(payload_obj)
 
-                try:
-                    subprocess.run(["mosquitto_pub", "-h", BROKER, "-t", TOPIC, "-m", msg], timeout=2, check=False)
-                except Exception:
-                    pass
+                publish_mqtt(TOPIC, msg)
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
@@ -570,7 +830,8 @@ if __name__ == "__main__":
     main()
 PYEOF
 
-    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$MQTT_BROKER/g" "$DAEMON_FILE"
+    sed -i "s/DMD_HOST_IP_PLACEHOLDER/$DMD_HOST/g" "$DAEMON_FILE"
+    sed -i "s/MQTT_BROKER_IP_PLACEHOLDER/$DMD_HOST/g" "$DAEMON_FILE"
     sed -i "s|MQTT_TOPIC_PLACEHOLDER|$TOPIC|g" "$DAEMON_FILE"
     chmod +x "$DAEMON_FILE"
 

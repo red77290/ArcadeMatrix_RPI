@@ -29,9 +29,9 @@ read -rp "Action (1: Install Daemon, 2: Check Logs) [1]: " ACTION
 ACTION=${ACTION:-1}
 
 if [ "$ACTION" = "1" ]; then
-    read -rp "IP address of your ArcadeMatrix device (ESP32 or Raspberry Pi): " BROKER_IP
-    if [ -z "$BROKER_IP" ]; then
-        echo "Broker IP is required for installation. Aborting." >&2
+    read -rp "IP address of your ArcadeMatrix DMD (ESP32 or Raspberry Pi): " DMD_IP
+    if [ -z "$DMD_IP" ]; then
+        echo "ArcadeMatrix DMD IP is required for installation. Aborting." >&2
         exit 1
     fi
 fi
@@ -174,7 +174,7 @@ if [ "$ACTION" = "2" ]; then
 fi
 
 TOPIC="system/playing/$SYSTEM"
-sed -e "s/{{BROKER}}/$BROKER_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_daemon.py" > "$TMP_DIR/arcadematrix_daemon.py"
+sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_daemon.py" > "$TMP_DIR/arcadematrix_daemon.py"
 
 if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
@@ -188,7 +188,7 @@ if [ "$SYSTEM" = "recalbox" ]; then
     ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x '$TARGET_DIR/arcadematrix_launcher(permanent).sh'" || true
 
     echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "sleep 1 && reboot" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "sync && sleep 1 && reboot" || true
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"
@@ -202,8 +202,8 @@ elif [ "$SYSTEM" = "batocera" ]; then
     ssh_run "$ACTIVE_USER" "$PASSWORD" "if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi" || true
     ssh_run "$ACTIVE_USER" "$PASSWORD" "mkdir -p $TARGET_DIR" || true
 
-    echo "Preparing Batocera event hook..."
-    sed -e "s/{{BROKER}}/$BROKER_IP/g" "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" > "$TMP_DIR/arcadematrix_mqtt.sh"
+    echo "Preparing Batocera event hook (dynamic MQTT broker discovery via DMD $DMD_IP)..."
+    sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" > "$TMP_DIR/arcadematrix_mqtt.sh"
 
     echo "Uploading hook to $TARGET_DIR/arcadematrix_mqtt.sh..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_mqtt.sh" "$TARGET_DIR/arcadematrix_mqtt.sh" || { echo "Upload failed!"; exit 1; }
@@ -232,9 +232,6 @@ elif [ "$SYSTEM" = "batocera" ]; then
     ssh_run "$ACTIVE_USER" "$PASSWORD" "sync" || true
 
     echo "Batocera one-shot event hooks successfully installed!"
-
-    echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "sync && sleep 1 && reboot" || true
 
 elif [ "$SYSTEM" = "retropie" ]; then
     echo "Installing for RetroPie..."

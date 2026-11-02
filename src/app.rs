@@ -47,7 +47,7 @@ impl ArcadeMatrixApp {
         );
 
         #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
-        {
+        if !crate::core::matrix::is_mock_matrix_mode() {
             let sudoers_file = "/etc/sudoers.d/010_arcadematrix_daemon";
             let sudoers_content =
                 "ALL ALL=(ALL) NOPASSWD: /usr/bin/nmcli, /sbin/shutdown, /usr/sbin/shutdown, /sbin/reboot, /usr/sbin/reboot, /sbin/poweroff, /usr/sbin/poweroff, /bin/systemctl, /usr/bin/systemctl\n";
@@ -204,7 +204,12 @@ impl ArcadeMatrixApp {
                     .build()
                     .unwrap();
                 let sys = actix_web::rt::System::with_tokio_rt(|| rt);
-                if let Err(e) = sys.block_on(run_server(config_clone, 8080)) {
+                let api_port: u16 = std::env::var("ARCADEMATRIX_HTTP_PORT")
+                    .ok()
+                    .and_then(|v| v.parse::<u16>().ok())
+                    .filter(|&p| p > 0)
+                    .unwrap_or(8080);
+                if let Err(e) = sys.block_on(run_server(config_clone, api_port)) {
                     tracing::error!("API Server crashed: {}", e);
                 }
             })

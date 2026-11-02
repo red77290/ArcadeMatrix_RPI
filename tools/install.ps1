@@ -30,9 +30,9 @@ $Action = Read-Host "Action (1: Install Daemon, 2: Check Logs) [1]"
 if ([string]::IsNullOrWhiteSpace($Action)) { $Action = "1" }
 
 if ($Action -eq "1") {
-    $BrokerIp = Read-Host "IP address of your ArcadeMatrix device (ESP32 or Raspberry Pi)"
-    if ([string]::IsNullOrWhiteSpace($BrokerIp)) {
-        Write-Error "Broker IP address is required for installation. Aborting."
+    $DmdIp = Read-Host "IP address of your ArcadeMatrix DMD (ESP32 or Raspberry Pi)"
+    if ([string]::IsNullOrWhiteSpace($DmdIp)) {
+        Write-Error "ArcadeMatrix DMD IP address is required for installation. Aborting."
         exit 1
     }
 }
@@ -126,7 +126,7 @@ New-Item -ItemType Directory -Path $TmpDir | Out-Null
 
 try {
     $daemonSrc = Get-Content (Join-Path $ScriptDir "arcadematrix_daemon.py") -Raw
-    $daemonSrc = $daemonSrc.Replace("{{BROKER}}", $BrokerIp).Replace("{{TOPIC}}", $topic)
+    $daemonSrc = $daemonSrc.Replace("{{DMD_HOST}}", $DmdIp).Replace("{{BROKER}}", $DmdIp).Replace("{{TOPIC}}", $topic)
     $daemonLocal = Join-Path $TmpDir "arcadematrix_daemon.py"
     [System.IO.File]::WriteAllText($daemonLocal, $daemonSrc.Replace("`r`n", "`n"))
 
@@ -161,11 +161,12 @@ try {
         Invoke-RemoteCommand $activeUser "if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi" | Out-Null
         Invoke-RemoteCommand $activeUser "mkdir -p $TargetDir" | Out-Null
 
-        Write-Host "Preparing Batocera event hook..."
+        Write-Host "Preparing Batocera event hook (dynamic MQTT broker discovery via DMD $DmdIp)..."
         $batoceraTemplate = Join-Path $ScriptDir "arcadematrix_mqtt_batocera.sh"
-        $batoceraHookLocal = Join-Path $tmpDir "arcadematrix_mqtt.sh"
+        $batoceraHookLocal = Join-Path $TmpDir "arcadematrix_mqtt.sh"
         (Get-Content -Path $batoceraTemplate -Raw) `
-            -replace '\{\{BROKER\}\}', $BrokerIp | Set-Content -Path $batoceraHookLocal -NoNewline
+            -replace '\{\{DMD_HOST\}\}', $DmdIp `
+            -replace '\{\{BROKER\}\}', $DmdIp | Set-Content -Path $batoceraHookLocal -NoNewline
 
         Write-Host "Uploading hook to $TargetDir/arcadematrix_mqtt.sh..."
         Copy-ToRemote $activeUser $batoceraHookLocal "$TargetDir/arcadematrix_mqtt.sh"
@@ -190,9 +191,6 @@ try {
         Invoke-RemoteCommand $activeUser "sync" | Out-Null
 
         Write-Host "Batocera one-shot event hooks successfully installed!"
-
-        Write-Host "Rebooting $TargetIp to apply changes..."
-        Invoke-RemoteCommand $activeUser "sync && sleep 1 && reboot" | Out-Null
 
     } elseif ($system -eq "retropie") {
         Write-Host "Installing for RetroPie..."
@@ -240,8 +238,8 @@ nohup python3 /opt/retropie/configs/all/arcadematrix_daemon.py > /opt/retropie/c
     Write-Host ""
     Write-Host "=============================================="
     Write-Host " Done! $system is configured."
-    Write-Host " It publishes game events to MQTT broker ${BrokerIp}:1883 on topic"
-    Write-Host " $topic."
+    Write-Host " It dynamically queries DMD ${DmdIp} (/api/mqtt/broker-target)"
+    Write-Host " and publishes game events on topic $topic."
     Write-Host "=============================================="
 } finally {
     Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue

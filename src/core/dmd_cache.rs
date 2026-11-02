@@ -173,11 +173,12 @@ impl DmdCache {
             return None;
         }
 
-        let local_filename = format!("{}_{}.png", safe_sys, safe_game);
-        let local_path = self.cache_dir.join(&local_filename);
-
-        if local_path.exists() {
-            return Some(local_path);
+        for ext in &[".png", ".gif", ".bmp"] {
+            let local_filename = format!("{}_{}{}", safe_sys, safe_game, ext);
+            let local_path = self.cache_dir.join(&local_filename);
+            if local_path.exists() {
+                return Some(local_path);
+            }
         }
         None
     }
@@ -190,11 +191,8 @@ impl DmdCache {
             return None;
         }
 
-        let local_filename = format!("{}_{}.png", safe_sys, safe_game);
-        let local_path = self.cache_dir.join(&local_filename);
-
-        if local_path.exists() {
-            return Some(local_path);
+        if let Some(existing) = self.get_cached_path(system, game) {
+            return Some(existing);
         }
 
         let clean_sys = clean_system_name(system);
@@ -266,6 +264,8 @@ impl DmdCache {
                 {
                     Ok(resp) if resp.status().is_success() => {
                         if let Ok(bytes) = resp.bytes() {
+                            let local_filename = format!("{}_{}{}", safe_sys, safe_game, ext);
+                            let local_path = self.cache_dir.join(&local_filename);
                             let tmp_path = self.cache_dir.join(format!("{}.tmp", local_filename));
                             if let Ok(mut file) = File::create(&tmp_path) {
                                 if file.write_all(&bytes).is_ok()
@@ -306,13 +306,11 @@ impl DmdCache {
             return None;
         }
 
-        let local_png = self.cache_dir.join(format!("system_{}.png", safe_sys));
-        if local_png.exists() {
-            return Some(local_png);
-        }
-        let local_gif = self.cache_dir.join(format!("system_{}.gif", safe_sys));
-        if local_gif.exists() {
-            return Some(local_gif);
+        for ext in &[".png", ".gif", ".bmp"] {
+            let candidate = self.cache_dir.join(format!("system_{}{}", safe_sys, ext));
+            if candidate.exists() {
+                return Some(candidate);
+            }
         }
         None
     }

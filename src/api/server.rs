@@ -1643,20 +1643,129 @@ async fn get_showcase_status(
     }
 }
 
+#[get("/api/e2e/state")]
+async fn get_e2e_state(data: web::Data<AppState>) -> impl Responder {
+    if !crate::core::matrix::is_e2e_inspect_enabled() {
+        return HttpResponse::NotFound().json(json!({ "error": "e2e_inspect_disabled" }));
+    }
+    let cfg = Arc::clone(&data.config);
+    let broker = crate::engines::frontend_sync::resolve_broker_target(&cfg, false);
+    let sync_tel = crate::engines::frontend_sync::read_e2e_sync_telemetry();
+    let fb_snap = crate::core::matrix::read_mock_framebuffer_snapshot();
+    let prod_snap = cfg.producer_snapshot.load();
+    let (w, h) = {
+        let s = cfg.settings.read();
+        (
+            s.matrix.width * s.matrix.chain_length,
+            s.matrix.height * s.matrix.parallel.clamp(1, 3),
+        )
+    };
+    let sync_client_id = format!(
+        "rpi_{}_games_{}x{}_sync",
+        crate::engines::renderers::media_showcase::rpi_hardware_short_id(),
+        w,
+        h
+    );
+    HttpResponse::Ok().json(json!({
+        "target": "arcadematrix_rpi",
+        "width": w,
+        "height": h,
+        "sync_client_id": sync_client_id,
+        "forced_mode": format!("{:?}", prod_snap.forced_mode),
+        "ingame_showcase_active": prod_snap.ingame_showcase.is_some(),
+        "mqtt_events_received": sync_tel.mqtt_events_received,
+        "last_mqtt_topic": sync_tel.last_mqtt_topic,
+        "last_status": sync_tel.last_status,
+        "last_system": sync_tel.last_system,
+        "last_game": sync_tel.last_game,
+        "active_marquee_path": sync_tel.active_marquee_path,
+        "showcase_enqueues": sync_tel.showcase_enqueues,
+        "showcase_streams_loaded": sync_tel.showcase_streams_loaded,
+        "broker_host": broker.connect_host,
+        "broker_lan_host": broker.lan_host,
+        "broker_port": broker.port,
+        "broker_source": broker.source,
+        "nonzero_pixels": fb_snap.nonzero_pixels,
+        "frame_crc32": fb_snap.frame_crc32,
+        "present_count": fb_snap.present_count,
+        "distinct_crcs": fb_snap.distinct_crcs.len(),
+    }))
+}
+
+#[get("/api/e2e/framebuffer.raw")]
+async fn get_e2e_framebuffer(data: web::Data<AppState>) -> impl Responder {
+    if !crate::core::matrix::is_e2e_inspect_enabled() {
+        return HttpResponse::NotFound().body("e2e_inspect_disabled");
+    }
+    let fb_snap = crate::core::matrix::read_mock_framebuffer_snapshot();
+    if !fb_snap.rgb565_le.is_empty() {
+        return HttpResponse::Ok()
+            .content_type("application/octet-stream")
+            .body(fb_snap.rgb565_le);
+    }
+    let (w, h) = {
+        let s = data.config.settings.read();
+        (
+            s.matrix.width * s.matrix.chain_length,
+            s.matrix.height * s.matrix.parallel.clamp(1, 3),
+        )
+    };
+    HttpResponse::Ok()
+        .content_type("application/octet-stream")
+        .body(vec![0u8; (w * h * 2) as usize])
+}
+
+fn extract_request_target_host(req: &HttpRequest) -> Option<String> {
+    let raw = req.connection_info().host().trim().to_string();
+    if raw.is_empty() {
+        return None;
+    }
+    let host_only = if raw.starts_with('[') {
+        raw.split(']')
+            .next()
+            .map(|s| format!("{}]", s))
+            .unwrap_or(raw)
+    } else {
+        raw.split(':').next().unwrap_or(&raw).to_string()
+    };
+    let lower = host_only.to_ascii_lowercase();
+    if lower.is_empty()
+        || lower == "127.0.0.1"
+        || lower == "localhost"
+        || lower == "0.0.0.0"
+        || lower == "[::1]"
+    {
+        None
+    } else {
+        Some(host_only)
+    }
+}
+
 #[get("/api/mqtt/broker-target")]
-async fn get_mqtt_broker_target(data: web::Data<AppState>) -> impl Responder {
+async fn get_mqtt_broker_target(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
+    let req_host = extract_request_target_host(&req);
     let cfg = Arc::clone(&data.config);
     let res =
         web::block(move || crate::engines::frontend_sync::resolve_broker_target(&cfg, false)).await;
     match res {
-        Ok(target) => HttpResponse::Ok().json(json!({
-            "host": target.lan_host,
-            "port": target.port,
-            "source": target.source,
-            "mqtt_enabled": target.mqtt_enabled,
-        })),
+        Ok(target) => {
+            let effective_host = if target.lan_host == "127.0.0.1"
+                || target.lan_host.eq_ignore_ascii_case("localhost")
+                || target.lan_host == "0.0.0.0"
+            {
+                req_host.unwrap_or(target.lan_host)
+            } else {
+                target.lan_host
+            };
+            HttpResponse::Ok().json(json!({
+                "host": effective_host,
+                "port": target.port,
+                "source": target.source,
+                "mqtt_enabled": target.mqtt_enabled,
+            }))
+        }
         Err(_) => {
-            let fallback_ip = get_local_ip();
+            let fallback_ip = req_host.unwrap_or_else(get_local_ip);
             HttpResponse::Ok().json(json!({
                 "host": fallback_ip,
                 "port": 1883,
@@ -1814,6 +1923,8 @@ pub async fn run_server(config: Arc<Config>, port: u16) -> std::io::Result<()> {
             .service(post_mqtt_install)
             .service(post_mqtt_logs)
             .service(get_mqtt_broker_target)
+            .service(get_e2e_state)
+            .service(get_e2e_framebuffer)
             .service(get_showcase_status)
             .service(post_showcase_cache_evict)
             .service(crate::api::ota::get_version)

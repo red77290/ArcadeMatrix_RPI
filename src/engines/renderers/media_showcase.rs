@@ -679,11 +679,22 @@ pub fn parse_showcase_health_http_response(raw: &[u8]) -> Option<(String, u64)> 
 }
 
 /// Fast single-socket TCP + HTTP `/api/v1/health` verification returning full broker metadata.
+/// Accepts both IPv4/IPv6 literals and DNS hostnames (FQDNs or single-label names).
 pub fn probe_showcase_health_details(ip: &str, port: u16) -> Option<ShowcaseHealthDetails> {
     use std::io::{Read, Write};
+    use std::net::ToSocketAddrs;
     let clean_ip = ip.trim().trim_start_matches("::ffff:");
-    let ip_addr: std::net::IpAddr = clean_ip.parse().ok()?;
-    let sock_addr = std::net::SocketAddr::new(ip_addr, port);
+    if clean_ip.is_empty() {
+        return None;
+    }
+    let sock_addr = if let Ok(ip_addr) = clean_ip.parse::<std::net::IpAddr>() {
+        std::net::SocketAddr::new(ip_addr, port)
+    } else {
+        let mut resolved: Vec<std::net::SocketAddr> =
+            (clean_ip, port).to_socket_addrs().ok()?.collect();
+        resolved.sort_by_key(|a| if a.is_ipv4() { 0u8 } else { 1u8 });
+        *resolved.first()?
+    };
     let mut stream =
         std::net::TcpStream::connect_timeout(&sock_addr, Duration::from_millis(80)).ok()?;
     let _ = stream.set_read_timeout(Some(Duration::from_millis(350)));
@@ -945,8 +956,40 @@ pub fn query_mdns_ipv4(hostname: &str, port: u16) -> Option<String> {
     None
 }
 
+/// Resolve a single-label or `.local` hostname via standard OS unicast DNS (`/etc/hosts`,
+/// Docker embedded DNS, router/Pi-hole DNS) and verify Showcase HTTP or MQTT reachability.
+fn resolve_unicast_dns_showcase_ipv4(hostname: &str, port: u16) -> Option<String> {
+    use std::net::ToSocketAddrs;
+    let clean = hostname.trim().trim_end_matches('.');
+    if clean.is_empty() {
+        return None;
+    }
+    let addrs = (clean, port).to_socket_addrs().ok()?;
+    for addr in addrs {
+        let std::net::IpAddr::V4(v4) = addr.ip() else {
+            continue;
+        };
+        if v4.is_unspecified() || v4.is_broadcast() {
+            continue;
+        }
+        let ip_str = v4.to_string();
+        if probe_showcase_health(&ip_str, port).is_some()
+            || (port != 8890 && probe_showcase_health(&ip_str, 8890).is_some())
+            || std::net::TcpStream::connect_timeout(
+                &std::net::SocketAddr::new(std::net::IpAddr::V4(v4), 1883),
+                Duration::from_millis(60),
+            )
+            .is_ok()
+        {
+            return Some(ip_str);
+        }
+    }
+    None
+}
+
 /// Resolve a hostname (especially `.local` mDNS hostnames such as `dmdmediashowcase.local`)
-/// via direct UDP multicast mDNS (`224.0.0.251:5353`) followed by Docker-aware LAN auto-discovery.
+/// via OS unicast DNS (for single-label Docker/router/NAS hosts), direct UDP multicast mDNS
+/// (`224.0.0.251:5353`), and Docker-aware LAN auto-discovery.
 pub fn resolve_showcase_host(host: &str) -> String {
     resolve_showcase_host_with_port(host, 8890)
 }
@@ -973,7 +1016,16 @@ pub fn resolve_showcase_host_with_port(host: &str, port: u16) -> String {
         }
     }
 
-    if let Some(ip) = query_mdns_ipv4(trimmed, port)
+    let bare_label = trimmed
+        .strip_suffix(".local")
+        .or_else(|| trimmed.strip_suffix(".LOCAL"))
+        .unwrap_or("");
+
+    if let Some(ip) = (!bare_label.is_empty())
+        .then(|| resolve_unicast_dns_showcase_ipv4(bare_label, port))
+        .flatten()
+        .or_else(|| query_mdns_ipv4(trimmed, port))
+        .or_else(|| resolve_unicast_dns_showcase_ipv4(trimmed, port))
         .or_else(|| discover_showcase_on_lan(port))
         .or_else(|| {
             if port != 8890 {

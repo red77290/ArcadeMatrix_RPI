@@ -73,11 +73,12 @@ ssh_run() {
 }
 
 scp_run() {
-    local user="$1" password="$2" src="$3" dst="$4"
+    local user="$1" password="$2" src="$3" dst="${4#\'}"
+    dst="${dst%\'}"
     if [ "$have_sshpass" = "1" ]; then
-        cat "$src" | sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
+        tr -d '\r' < "$src" | sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
     else
-        cat "$src" | ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
+        tr -d '\r' < "$src" | ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
     fi
 }
 
@@ -179,16 +180,14 @@ sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$T
 if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
     echo "Cleaning up any previous install..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true" || true
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "mkdir -p $TARGET_DIR" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true; mkdir -p $TARGET_DIR" || true
 
     echo "Uploading daemon (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
-    scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "'$TARGET_DIR/arcadematrix_launcher(permanent).sh'" || { echo "SCP failed!"; exit 1; }
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x '$TARGET_DIR/arcadematrix_launcher(permanent).sh'" || true
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "$TARGET_DIR/arcadematrix_launcher(permanent).sh" || { echo "SCP failed!"; exit 1; }
 
     echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "sync && sleep 1 && reboot" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x '$TARGET_DIR/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" || true
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"

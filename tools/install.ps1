@@ -64,9 +64,17 @@ function Invoke-RemoteCommand {
 
 function Copy-ToRemote {
     param([string]$User, [string]$LocalPath, [string]$RemotePath)
-    # Using SSH pipe instead of SCP avoids all OpenSSH SFTP legacy incompatibilities (e.g. on Batocera)
-    Get-Content $LocalPath -Raw | & ssh @SshOpts "${User}@${TargetIp}" "cat > '$RemotePath'"
-    if ($LASTEXITCODE -ne 0) { throw "upload failed for $LocalPath" }
+    $CleanRemotePath = $RemotePath.Trim("'")
+    # Using SSH pipe instead of SCP avoids all OpenSSH SFTP legacy incompatibilities (e.g. on Batocera).
+    # Strip CR (\r) remotely so Windows PowerShell string piping never writes CRLF into Linux scripts.
+    $prevEncoding = $OutputEncoding
+    try {
+        $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+        Get-Content -LiteralPath $LocalPath -Raw -Encoding UTF8 | & ssh @SshOpts "${User}@${TargetIp}" "tr -d '\r' > '$CleanRemotePath'"
+        if ($LASTEXITCODE -ne 0) { throw "upload failed for $LocalPath" }
+    } finally {
+        $OutputEncoding = $prevEncoding
+    }
 }
 
 $system = "unknown"
@@ -125,7 +133,7 @@ $TmpDir = Join-Path $env:TEMP "arcadematrix_installer_$(Get-Random)"
 New-Item -ItemType Directory -Path $TmpDir | Out-Null
 
 try {
-    $daemonSrc = Get-Content (Join-Path $ScriptDir "arcadematrix_daemon.py") -Raw
+    $daemonSrc = Get-Content -LiteralPath (Join-Path $ScriptDir "arcadematrix_daemon.py") -Raw -Encoding UTF8
     $daemonSrc = $daemonSrc.Replace("{{DMD_HOST}}", $DmdIp).Replace("{{BROKER}}", $DmdIp).Replace("{{TOPIC}}", $topic)
     $daemonLocal = Join-Path $TmpDir "arcadematrix_daemon.py"
     [System.IO.File]::WriteAllText($daemonLocal, $daemonSrc.Replace("`r`n", "`n"))
@@ -133,21 +141,18 @@ try {
     if ($system -eq "recalbox") {
         $TargetDir = "/recalbox/share/userscripts"
         Write-Host "Cleaning up previous install..."
-        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TargetDir/arcadematrix_mqtt.sh" | Out-Null
-        Invoke-RemoteCommand $activeUser "mkdir -p $TargetDir" | Out-Null
+        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TargetDir/arcadematrix_mqtt.sh; mkdir -p $TargetDir" | Out-Null
 
         Write-Host "Uploading daemon (topic: $topic)..."
         Copy-ToRemote $activeUser $daemonLocal "/recalbox/share/arcadematrix_daemon.py"
 
-        $launcherSrc = Get-Content (Join-Path $ScriptDir "arcadematrix_launcher(permanent).sh") -Raw
+        $launcherSrc = Get-Content -LiteralPath (Join-Path $ScriptDir "arcadematrix_launcher(permanent).sh") -Raw -Encoding UTF8
         $launcherLocal = Join-Path $TmpDir "arcadematrix_launcher(permanent).sh"
         [System.IO.File]::WriteAllText($launcherLocal, $launcherSrc.Replace("`r`n", "`n"))
-        Copy-ToRemote $activeUser $launcherLocal "'$TargetDir/arcadematrix_launcher(permanent).sh'"
-
-        Invoke-RemoteCommand $activeUser "chmod +x '$TargetDir/arcadematrix_launcher(permanent).sh'" | Out-Null
+        Copy-ToRemote $activeUser $launcherLocal "$TargetDir/arcadematrix_launcher(permanent).sh"
 
         Write-Host "Rebooting $TargetIp to apply changes..."
-        Invoke-RemoteCommand $activeUser "sleep 1 && reboot" | Out-Null
+        Invoke-RemoteCommand $activeUser "chmod +x '$TargetDir/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" | Out-Null
 
     } elseif ($system -eq "batocera") {
         $TargetDir = "/userdata/system/scripts"
@@ -164,9 +169,10 @@ try {
         Write-Host "Preparing Batocera event hook (dynamic MQTT broker discovery via DMD $DmdIp)..."
         $batoceraTemplate = Join-Path $ScriptDir "arcadematrix_mqtt_batocera.sh"
         $batoceraHookLocal = Join-Path $TmpDir "arcadematrix_mqtt.sh"
-        (Get-Content -Path $batoceraTemplate -Raw) `
+        $batoceraHookSrc = (Get-Content -LiteralPath $batoceraTemplate -Raw -Encoding UTF8) `
             -replace '\{\{DMD_HOST\}\}', $DmdIp `
-            -replace '\{\{BROKER\}\}', $DmdIp | Set-Content -Path $batoceraHookLocal -NoNewline
+            -replace '\{\{BROKER\}\}', $DmdIp
+        [System.IO.File]::WriteAllText($batoceraHookLocal, $batoceraHookSrc.Replace("`r`n", "`n"))
 
         Write-Host "Uploading hook to $TargetDir/arcadematrix_mqtt.sh..."
         Copy-ToRemote $activeUser $batoceraHookLocal "$TargetDir/arcadematrix_mqtt.sh"
@@ -232,7 +238,7 @@ if [ -f /opt/retropie/configs/all/autostart.sh ] && ! grep -q 'arcadematrix_daem
 fi
 nohup python3 /opt/retropie/configs/all/arcadematrix_daemon.py > /opt/retropie/configs/all/daemon.log 2>&1 &
 '@
-        Invoke-RemoteCommand $activeUser $retroCmd | Out-Null
+        Invoke-RemoteCommand $activeUser ($retroCmd.Replace("`r`n", "`n")) | Out-Null
     }
 
     Write-Host ""
@@ -242,5 +248,5 @@ nohup python3 /opt/retropie/configs/all/arcadematrix_daemon.py > /opt/retropie/c
     Write-Host " and publishes game events on topic $topic."
     Write-Host "=============================================="
 } finally {
-    Remove-Item -Recurse -Force $TmpDir -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $TmpDir -Recurse -Force -ErrorAction SilentlyContinue
 }

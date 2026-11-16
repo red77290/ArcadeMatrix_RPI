@@ -13,9 +13,19 @@ RECALBOX_PASS="recalboxroot"
 BATOCERA_PASS="linux"
 RETROPIE_PASS="raspberry"
 SSH_USER=""
+SSH_MUX_SOCK="/tmp/am_ssh_$$"
 SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TMP_DIR="$(mktemp -d)"
+cleanup_installer() {
+    if [ -S "$SSH_MUX_SOCK" ] && [ -n "${ACTIVE_USER:-}" ] && [ -n "${TARGET_IP:-}" ]; then
+        ssh -S "$SSH_MUX_SOCK" -O exit "${ACTIVE_USER}@${TARGET_IP}" >/dev/null 2>&1 || true
+    fi
+    rm -f "$SSH_MUX_SOCK" 2>/dev/null || true
+    rm -rf "$TMP_DIR"
+}
+trap cleanup_installer EXIT
 
 echo "=============================================="
 echo " ArcadeMatrix Gaming OS Daemon Installer"
@@ -57,9 +67,9 @@ have_sshpass=0
 if command -v sshpass >/dev/null 2>&1; then
     have_sshpass=1
 else
+    SSH_OPTS+=(-o ControlMaster=auto -o ControlPath="$SSH_MUX_SOCK" -o ControlPersist=60)
     echo
-    echo "NOTE: 'sshpass' is not installed - you'll be prompted for the SSH password manually."
-    echo "Install sshpass (e.g. 'brew install hudochenkov/sshpass/sshpass' on macOS, 'apt install sshpass' on Debian/Ubuntu) to skip this."
+    echo "NOTE: 'sshpass' is not installed - SSH multiplexing enabled (you will only enter the password once)."
     echo
 fi
 
@@ -156,9 +166,6 @@ fi
 
 echo "Console identified as: $SYSTEM (User: $ACTIVE_USER)"
 
-TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
-
 if [ "$ACTION" = "2" ]; then
     if [ "$SYSTEM" = "recalbox" ]; then
         LOG_PATH="/recalbox/share/userscripts/daemon.log"
@@ -180,21 +187,50 @@ sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$T
 
 if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
+    WAKEUP_HOOK="arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh"
     echo "Cleaning up any previous install..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true; mkdir -p $TARGET_DIR" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "
+        touch /tmp/arcadematrix_daemon.stop
+        if [ -f /tmp/arcadematrix_supervisor.pid ]; then kill -9 \$(cat /tmp/arcadematrix_supervisor.pid 2>/dev/null) 2>/dev/null || true; fi
+        if [ -f /tmp/arcadematrix_daemon.pid ]; then kill \$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null) 2>/dev/null || true; fi
+        pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null || true
+        sleep 0.2
+        pkill -9 -f '[a]rcadematrix_daemon.py' 2>/dev/null || true
+        pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null || true
+        pkill -f '[a]rcadematrix_mqtt.sh' 2>/dev/null || true
+        rm -f /tmp/arcadematrix_daemon.pid /tmp/arcadematrix_supervisor.pid '$TARGET_DIR/arcadematrix_mqtt.sh' || true
+        mkdir -p '$TARGET_DIR' /recalbox/share/system
+    " || true
 
-    echo "Uploading daemon & companion sync (topic: $TOPIC)..."
+    echo "Uploading daemon, watchdog & ES self-healer (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "/recalbox/share/arcadematrix_companion_sync.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "$TARGET_DIR/arcadematrix_launcher(permanent).sh" || { echo "SCP failed!"; exit 1; }
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/$WAKEUP_HOOK" "$TARGET_DIR/$WAKEUP_HOOK" || { echo "SCP failed!"; exit 1; }
 
-    echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x /recalbox/share/arcadematrix_companion_sync.py '$TARGET_DIR/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" || true
+    echo "Configuring Recalbox boot persistence & starting daemon live (no reboot needed)..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "
+        chmod +x /recalbox/share/arcadematrix_companion_sync.py '$TARGET_DIR/arcadematrix_launcher(permanent).sh' '$TARGET_DIR/$WAKEUP_HOOK' 2>/dev/null || true
+        if [ ! -f /recalbox/share/system/custom.sh ]; then
+            printf '#!/bin/sh\ncase \"\$1\" in\n  \"\"|start) sh \"/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh\" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
+        elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then
+            printf '\n# ArcadeMatrix Daemon\ncase \"\$1\" in \"\"|start) sh \"/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh\" -action start >/dev/null 2>&1 & ;; esac\n' >> /recalbox/share/system/custom.sh
+        fi
+        chmod +x /recalbox/share/system/custom.sh 2>/dev/null || true
+        rm -f /tmp/arcadematrix_daemon.stop
+        : > '$TARGET_DIR/daemon.log'
+        sh '$TARGET_DIR/arcadematrix_launcher(permanent).sh' -action start
+        sync
+        sleep 0.6
+        echo 'Active Recalbox processes:'
+        (ps w 2>/dev/null || ps) | grep -E '[a]rcadematrix_daemon.py|[a]rcadematrix_supervisor' || true
+        cat '$TARGET_DIR/daemon.log' 2>/dev/null || true
+    " || true
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"
     echo "Cleaning up legacy daemons..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_companion_sync.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null || true; pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null || true; pkill -f '[a]rcadematrix_mqtt.sh' 2>/dev/null || true" || true
     echo "Removing legacy script files..."
     ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -f /userdata/system/arcadematrix_daemon.py $TARGET_DIR/arcadematrix_hook.sh $TARGET_DIR/arcadematrix_mqtt.sh $TARGET_DIR/arcadematrix_companion_sync.py" || true
     echo "Removing legacy ES event directories..."
@@ -237,7 +273,7 @@ elif [ "$SYSTEM" = "batocera" ]; then
 
 elif [ "$SYSTEM" = "retropie" ]; then
     echo "Installing for RetroPie..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; mkdir -p /opt/retropie/configs/all" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "touch /tmp/arcadematrix_daemon.stop; pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null || true; sleep 0.2; pkill -9 -f '[a]rcadematrix_daemon.py' 2>/dev/null || true; pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null || true; rm -f /tmp/arcadematrix_daemon.stop /tmp/arcadematrix_daemon.pid; mkdir -p /opt/retropie/configs/all" || true
 
     echo "Uploading daemon & companion sync (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/opt/retropie/configs/all/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
@@ -273,13 +309,13 @@ EOF
     chmod +x /opt/retropie/configs/all/runcommand-onend.sh
 
     if [ -f /opt/retropie/configs/all/autostart.sh ] && ! grep -q 'arcadematrix_daemon.py' /opt/retropie/configs/all/autostart.sh; then
-        sed -i '/emulationstation/i python3 /opt/retropie/configs/all/arcadematrix_daemon.py > /opt/retropie/configs/all/daemon.log 2>&1 &' /opt/retropie/configs/all/autostart.sh
+        sed -i '/emulationstation/i python3 /opt/retropie/configs/all/arcadematrix_daemon.py --daemon --log-file /opt/retropie/configs/all/daemon.log' /opt/retropie/configs/all/autostart.sh
     fi
     " || true
 
     echo "Starting RetroPie daemon..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "nohup python3 /opt/retropie/configs/all/arcadematrix_daemon.py > /opt/retropie/configs/all/daemon.log 2>&1 &" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" ": > /opt/retropie/configs/all/daemon.log; python3 /opt/retropie/configs/all/arcadematrix_daemon.py --daemon --log-file /opt/retropie/configs/all/daemon.log; sleep 0.5" || true
 fi
 
 echo
-echo "Installation complete on $SYSTEM!"
+echo "Installation complete on $SYSTEM (active immediately, no reboot required)!"

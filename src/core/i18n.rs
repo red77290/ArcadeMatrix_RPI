@@ -1204,7 +1204,7 @@ pub fn format_agenda_day_banner_buf(
 #[inline]
 pub const fn sync_high_scores_title(lang: Lang) -> &'static str {
     match lang {
-        Lang::Fr => "★ HIGH SCORES ★",
+        Lang::Fr => "★ RECORDS ARCADE ★",
         Lang::En => "★ HIGH SCORES ★",
         Lang::Es => "★ RÉCORDS ★",
     }
@@ -1213,7 +1213,7 @@ pub const fn sync_high_scores_title(lang: Lang) -> &'static str {
 #[inline]
 pub const fn sync_new_record_title(lang: Lang) -> &'static str {
     match lang {
-        Lang::Fr => "NEW RECORD!",
+        Lang::Fr => "NOUVEAU RECORD !",
         Lang::En => "NEW RECORD!",
         Lang::Es => "¡NUEVO RÉCORD!",
     }
@@ -1222,16 +1222,16 @@ pub const fn sync_new_record_title(lang: Lang) -> &'static str {
 #[inline]
 pub const fn sync_achievement_title(lang: Lang) -> &'static str {
     match lang {
-        Lang::Fr => "ACHIEVEMENT!",
+        Lang::Fr => "SUCCÈS RÉTRO !",
         Lang::En => "ACHIEVEMENT!",
-        Lang::Es => "¡LOGRO!",
+        Lang::Es => "¡LOGRO RETRO!",
     }
 }
 
 #[inline]
 pub const fn sync_unlocked_title(lang: Lang) -> &'static str {
     match lang {
-        Lang::Fr => "UNLOCKED!",
+        Lang::Fr => "SUCCÈS DÉBLOQUÉ !",
         Lang::En => "UNLOCKED!",
         Lang::Es => "¡DESBLOQUEADO!",
     }

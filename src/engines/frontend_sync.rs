@@ -1981,12 +1981,15 @@ impl RetroAchievementsCard {
         }
 
         // 3. HD Yoko / Square (64x64, 128x64, 256x64)
-        let _ = lang;
         sprite_bank::blit_sprite(surface, &trophy, 4, 4, false);
-        let hdr = if ra.hardcore {
-            "RETROACHIEVEMENTS • HARDCORE"
+        let hdr = if w >= 192 {
+            if ra.hardcore {
+                "RETROACHIEVEMENTS • HARDCORE"
+            } else {
+                "RETROACHIEVEMENTS"
+            }
         } else {
-            "RETROACHIEVEMENTS"
+            i18n::sync_achievement_title(lang)
         };
         if w >= 192 {
             draw_small_text_clipped_bounds(surface, 20, 5, 20, w - 4, 2, 14, hdr, border_col);
@@ -2208,6 +2211,14 @@ impl Engine for SyncCelebrationEngine {
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        {
+            let s = context.config.settings.read();
+            let new_lang = Lang::from_code(&s.system.lang);
+            if new_lang != self.lang {
+                self.lang = new_lang;
+                self.pending_draw = true;
+            }
+        }
         if self.paused_at.is_some() {
             self.pending_draw = false;
             return;
@@ -2604,6 +2615,14 @@ impl Engine for InGameShowcaseEngine {
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        {
+            let s = context.config.settings.read();
+            let new_lang = Lang::from_code(&s.system.lang);
+            if new_lang != self.lang {
+                self.lang = new_lang;
+                self.pending_draw = true;
+            }
+        }
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
         if self.stage_paused_at.is_some() || self.player.is_paused() {

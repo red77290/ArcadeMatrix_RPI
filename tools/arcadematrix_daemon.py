@@ -130,10 +130,11 @@ def _abort_close_socket(sock):
 
 
 def _http_get_broker_target(host, http_port, timeout_sec=0.45):
-    """Raw HTTP/1.0 GET with strict wall-clock deadline (zero urllib/keep-alive hang risk).
+    """Raw HTTP/1.1 GET with Content-Length early exit & strict wall-clock deadline.
     Returns (resolved_host, resolved_port, connection_refused_bool).
     """
     deadline = time.monotonic() + timeout_sec
+    raw = bytearray()
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         if hasattr(sock, "set_inheritable"):
@@ -154,23 +155,39 @@ def _http_get_broker_target(host, http_port, timeout_sec=0.45):
         sock.connect((host, int(http_port)))
 
         req = (
-            f"GET /api/mqtt/broker-target HTTP/1.0\r\n"
+            f"GET /api/mqtt/broker-target HTTP/1.1\r\n"
             f"Host: {host}:{http_port}\r\n"
             f"Accept: application/json\r\n"
             f"Connection: close\r\n\r\n"
         ).encode("ascii", errors="ignore")
         sock.sendall(req)
 
-        raw = bytearray()
+        sep = -1
+        content_len = None
         while len(raw) < 4096:
             rem = deadline - time.monotonic()
             if rem <= 0.01:
                 break
             sock.settimeout(rem)
-            chunk = sock.recv(1024)
+            try:
+                chunk = sock.recv(1024)
+            except socket.timeout:
+                break
             if not chunk:
                 break
             raw.extend(chunk)
+            if sep < 0:
+                sep = raw.find(b"\r\n\r\n")
+                if sep >= 0:
+                    for hline in raw[:sep].split(b"\r\n")[1:]:
+                        if hline.lower().startswith(b"content-length:"):
+                            try:
+                                content_len = int(hline.split(b":", 1)[1].strip())
+                            except Exception:
+                                content_len = None
+                            break
+            if sep >= 0 and content_len is not None and len(raw) >= (sep + 4 + content_len):
+                break
         try:
             sock.close()
         except Exception:
@@ -180,10 +197,12 @@ def _http_get_broker_target(host, http_port, timeout_sec=0.45):
         return None, None, True
     except OSError as e:
         _abort_close_socket(sock)
-        return None, None, (e.errno == errno.ECONNREFUSED)
+        if not raw:
+            return None, None, (e.errno == errno.ECONNREFUSED)
     except Exception:
         _abort_close_socket(sock)
-        return None, None, False
+        if not raw:
+            return None, None, False
 
     sep = raw.find(b"\r\n\r\n")
     if sep < 0:
@@ -193,7 +212,8 @@ def _http_get_broker_target(host, http_port, timeout_sec=0.45):
     if len(parts) < 2 or parts[1] != b"200":
         return None, None, False
     try:
-        data = json.loads(raw[sep + 4:].decode("utf-8", errors="ignore"))
+        body_bytes = raw[sep + 4:]
+        data = json.loads(body_bytes.decode("utf-8", errors="ignore"))
         b_host = str(data.get("host") or "").strip()
         b_port = int(data.get("port") or 1883)
         if b_host and 0 < b_port <= 65535:

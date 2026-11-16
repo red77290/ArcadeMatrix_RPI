@@ -14,7 +14,7 @@ BATOCERA_PASS="linux"
 RETROPIE_PASS="raspberry"
 SSH_USER=""
 SSH_MUX_SOCK="/tmp/am_ssh_$$"
-SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5)
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP_DIR="$(mktemp -d)"
@@ -192,12 +192,11 @@ if [ "$SYSTEM" = "recalbox" ]; then
     ssh_run "$ACTIVE_USER" "$PASSWORD" "
         touch /tmp/arcadematrix_daemon.stop
         if [ -f /tmp/arcadematrix_supervisor.pid ]; then kill -9 \$(cat /tmp/arcadematrix_supervisor.pid 2>/dev/null) 2>/dev/null || true; fi
-        if [ -f /tmp/arcadematrix_daemon.pid ]; then kill \$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null) 2>/dev/null || true; fi
-        pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null || true
-        sleep 0.2
-        pkill -9 -f '[a]rcadematrix_daemon.py' 2>/dev/null || true
-        pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null || true
-        pkill -f '[a]rcadematrix_mqtt.sh' 2>/dev/null || true
+        if [ -f /tmp/arcadematrix_daemon.pid ]; then kill -9 \$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null) 2>/dev/null || true; fi
+        pkill -9 -f '[a]rcadematrix_launcher.*--supervisor-loop' 2>/dev/null || true
+        pkill -9 -f '[p]ython.*[a]rcadematrix_daemon\.py' 2>/dev/null || true
+        pkill -f '[p]ython.*[a]rcadematrix_companion_sync\.py' 2>/dev/null || true
+        pkill -f '[a]rcadematrix_mqtt\.sh' 2>/dev/null || true
         rm -f /tmp/arcadematrix_daemon.pid /tmp/arcadematrix_supervisor.pid '$TARGET_DIR/arcadematrix_mqtt.sh' || true
         mkdir -p '$TARGET_DIR' /recalbox/share/system
     " || true
@@ -221,16 +220,22 @@ if [ "$SYSTEM" = "recalbox" ]; then
         : > '$TARGET_DIR/daemon.log'
         sh '$TARGET_DIR/arcadematrix_launcher(permanent).sh' -action start
         sync
-        sleep 0.6
+        sleep 0.9
         echo 'Active Recalbox processes:'
-        for _p in /proc/[0-9]*/cmdline; do
-            _s=\$(tr '\\0' ' ' < \"\$_p\" 2>/dev/null || true)
-            case \"\$_s\" in
-                *arcadematrix_daemon.py*|*arcadematrix_supervisor*) echo \"  \$_p: \$_s\" ;;
-            esac
-        done
+        _dpid=\$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
+        _spid=\$(cat /tmp/arcadematrix_supervisor.pid 2>/dev/null || true)
+        if [ -n \"\$_dpid\" ] && kill -0 \"\$_dpid\" 2>/dev/null; then
+            echo \"  Daemon PID \$_dpid: \$(tr '\\0' ' ' < /proc/\$_dpid/cmdline 2>/dev/null)\"
+        else
+            echo '  ERROR: Daemon PID not running!' >&2
+        fi
+        if [ -n \"\$_spid\" ] && kill -0 \"\$_spid\" 2>/dev/null; then
+            echo \"  Supervisor PID \$_spid: \$(tr '\\0' ' ' < /proc/\$_spid/cmdline 2>/dev/null)\"
+        fi
+        echo 'Daemon log:'
         cat '$TARGET_DIR/daemon.log' 2>/dev/null || true
-    " || true
+        [ -n \"\$_dpid\" ] && kill -0 \"\$_dpid\" 2>/dev/null
+    " || { echo "ERROR: ArcadeMatrix daemon failed to start on Recalbox!" >&2; exit 1; }
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"

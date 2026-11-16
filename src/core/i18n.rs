@@ -1128,6 +1128,79 @@ pub const fn agenda_next_prefix(lang: Lang) -> &'static str {
     }
 }
 
+/// Zero-allocation stack formatter for multi-day agenda headers (`TODAY 16/11`, `DEM. 17/11`, `VEN 20/11 (J+4)`).
+#[allow(clippy::too_many_arguments)]
+pub fn format_agenda_day_banner_buf(
+    lang: Lang,
+    diff_days: i64,
+    weekday_sun0: usize,
+    day: u8,
+    month: u8,
+    include_relative: bool,
+    short_form: bool,
+    out: &mut [u8; 32],
+) -> &str {
+    let mut pos = 0usize;
+    let push_bytes = |buf: &mut [u8; 32], pos: &mut usize, bytes: &[u8]| {
+        for &b in bytes {
+            if *pos < buf.len() {
+                buf[*pos] = b;
+                *pos += 1;
+            }
+        }
+    };
+
+    let prefix = if diff_days <= 0 {
+        if short_form {
+            weather_day_label(lang, weekday_sun0, true, false)
+        } else {
+            agenda_today_label(lang)
+        }
+    } else if diff_days == 1 {
+        if short_form {
+            weather_day_label(lang, weekday_sun0, false, true)
+        } else {
+            agenda_tomorrow_label(lang)
+        }
+    } else {
+        weather_day_label(lang, weekday_sun0, false, false)
+    };
+
+    push_bytes(out, &mut pos, prefix.as_bytes());
+    push_bytes(out, &mut pos, b" ");
+    let d = day.clamp(1, 31);
+    let m = month.clamp(1, 12);
+    push_bytes(
+        out,
+        &mut pos,
+        &[
+            b'0' + (d / 10),
+            b'0' + (d % 10),
+            b'/',
+            b'0' + (m / 10),
+            b'0' + (m % 10),
+        ],
+    );
+
+    if include_relative && !short_form && diff_days > 1 {
+        let dd = (diff_days.min(99)) as u8;
+        match lang {
+            Lang::Fr => push_bytes(out, &mut pos, b" (J+"),
+            Lang::En | Lang::Es => push_bytes(out, &mut pos, b" (+"),
+        }
+        if dd >= 10 {
+            push_bytes(out, &mut pos, &[b'0' + (dd / 10)]);
+        }
+        push_bytes(out, &mut pos, &[b'0' + (dd % 10)]);
+        match lang {
+            Lang::Fr => push_bytes(out, &mut pos, b")"),
+            Lang::En | Lang::Es => push_bytes(out, &mut pos, b"D)"),
+        }
+    }
+
+    core::str::from_utf8(&out[..pos]).unwrap_or("TODAY")
+}
+
 #[inline]
 pub const fn sync_high_scores_title(lang: Lang) -> &'static str {
     match lang {

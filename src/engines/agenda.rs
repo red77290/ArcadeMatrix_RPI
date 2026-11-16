@@ -7,7 +7,7 @@ use crate::core::engine_contract::{
 };
 use crate::core::i18n::{
     agenda_free_play_label, agenda_next_prefix, agenda_now_active_label, agenda_today_label,
-    agenda_tomorrow_label, format_agenda_imminent_buf, Lang,
+    agenda_tomorrow_label, format_agenda_day_banner_buf, format_agenda_imminent_buf, Lang,
 };
 use crate::core::matrix::IDrawingSurface;
 use crate::core::registry::ENGINES;
@@ -46,6 +46,98 @@ impl EmptyAgendaBehavior {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgendaViewMode {
+    Auto,
+    MultiDayScroll,
+    Cards,
+    SplitDeck,
+    Ticker,
+}
+
+impl AgendaViewMode {
+    pub fn from_str_opt(s: &str) -> Self {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("multiday_scroll") {
+            Self::MultiDayScroll
+        } else if t.eq_ignore_ascii_case("cards") {
+            Self::Cards
+        } else if t.eq_ignore_ascii_case("split_deck") {
+            Self::SplitDeck
+        } else if t.eq_ignore_ascii_case("ticker") {
+            Self::Ticker
+        } else {
+            Self::Auto
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgendaTheme {
+    CyberArcade,
+    AmberDmd,
+    MatrixGreen,
+    SnesRpg,
+    MinimalClean,
+}
+
+impl AgendaTheme {
+    pub fn from_str_opt(s: &str) -> Self {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("amber_dmd") {
+            Self::AmberDmd
+        } else if t.eq_ignore_ascii_case("matrix_green") {
+            Self::MatrixGreen
+        } else if t.eq_ignore_ascii_case("snes_rpg") {
+            Self::SnesRpg
+        } else if t.eq_ignore_ascii_case("minimal_clean") {
+            Self::MinimalClean
+        } else {
+            Self::CyberArcade
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AgendaScrollSpeed {
+    Slow,
+    Normal,
+    Fast,
+}
+
+impl AgendaScrollSpeed {
+    pub fn from_str_opt(s: &str) -> Self {
+        let t = s.trim();
+        if t.eq_ignore_ascii_case("slow") {
+            Self::Slow
+        } else if t.eq_ignore_ascii_case("fast") {
+            Self::Fast
+        } else {
+            Self::Normal
+        }
+    }
+
+    pub const fn step_ms(self) -> u64 {
+        match self {
+            Self::Slow => 95,
+            Self::Normal => 60,
+            Self::Fast => 35,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct AgendaThemeColors {
+    header_bg: (u8, u8, u8),
+    header_accent: (u8, u8, u8),
+    header_text: (u8, u8, u8),
+    title_text: (u8, u8, u8),
+    dim_text: (u8, u8, u8),
+    divider: (u8, u8, u8),
+    card_bg: Option<(u8, u8, u8)>,
+    override_calendar: Option<(u8, u8, u8)>,
+}
+
 pub struct AgendaEngine {
     instance_id: String,
     custom_cache_path: Option<PathBuf>,
@@ -63,6 +155,12 @@ pub struct AgendaEngine {
     color_2_565: u16,
     label_2_buf: [u8; 20],
 
+    view_mode: AgendaViewMode,
+    theme: AgendaTheme,
+    scroll_speed: AgendaScrollSpeed,
+    slide_duration_sec: u32,
+    show_relative_time: bool,
+    show_badges: bool,
     cache_ttl_min: u32,
     horizon_days: u32,
     events_shown: usize,
@@ -88,6 +186,8 @@ pub struct AgendaEngine {
     cached_lang: Lang,
     anim_tick: u32,
     scroll_offset: i32,
+    current_slide_idx: usize,
+    last_slide_instant: Instant,
     last_anim_instant: Instant,
     last_clock_sec: u32,
     pending_draw: bool,
@@ -120,9 +220,15 @@ impl AgendaEngine {
             ics_color_2: "#FFB300".to_string(),
             color_2_565: parse_hex_color_565("#FFB300", (255, 179, 0)),
             label_2_buf,
+            view_mode: AgendaViewMode::Auto,
+            theme: AgendaTheme::CyberArcade,
+            scroll_speed: AgendaScrollSpeed::Normal,
+            slide_duration_sec: 5,
+            show_relative_time: true,
+            show_badges: true,
             cache_ttl_min: 60,
             horizon_days: 7,
-            events_shown: 3,
+            events_shown: 5,
             empty_behavior: EmptyAgendaBehavior::Chill,
             imminent_min: 15,
             fun_sprites: true,
@@ -139,6 +245,8 @@ impl AgendaEngine {
             cached_lang: Lang::Fr,
             anim_tick: 0,
             scroll_offset: 0,
+            current_slide_idx: 0,
+            last_slide_instant: Instant::now(),
             last_anim_instant: Instant::now(),
             last_clock_sec: 0,
             pending_draw: true,
@@ -225,9 +333,16 @@ impl AgendaEngine {
         self.color_2_565 = parse_hex_color_565(&self.ics_color_2, (255, 179, 0));
         crate::engines::agenda_ics::copy_utf8_truncated(&self.ics_label_2, &mut self.label_2_buf);
 
+        self.view_mode = AgendaViewMode::from_str_opt(&config.get_string("view_mode", "auto"));
+        self.theme = AgendaTheme::from_str_opt(&config.get_string("theme", "cyber_arcade"));
+        self.scroll_speed =
+            AgendaScrollSpeed::from_str_opt(&config.get_string("scroll_speed", "normal"));
+        self.slide_duration_sec = (config.get_int("slide_duration_sec", 5) as u32).clamp(3, 20);
+        self.show_relative_time = config.get_bool("show_relative_time", true);
+        self.show_badges = config.get_bool("show_badges", true);
         self.cache_ttl_min = (config.get_int("cache_ttl_min", 60) as u32).clamp(15, 1440);
         self.horizon_days = (config.get_int("horizon_days", 7) as u32).clamp(1, 30);
-        self.events_shown = (config.get_int("events_shown", 3) as usize).clamp(1, 6);
+        self.events_shown = (config.get_int("events_shown", 5) as usize).clamp(1, 8);
         self.empty_behavior =
             EmptyAgendaBehavior::from_str_opt(&config.get_string("empty_behavior", "chill"));
         self.imminent_min = (config.get_int("imminent_min", 15) as u32).clamp(0, 60);
@@ -374,6 +489,215 @@ impl AgendaEngine {
             crate::core::memory::trim_heap();
             is_fetching.store(false, Ordering::Release);
         });
+    }
+
+    fn resolve_theme_colors(&self) -> AgendaThemeColors {
+        match self.theme {
+            AgendaTheme::AmberDmd => AgendaThemeColors {
+                header_bg: (40, 18, 0),
+                header_accent: (255, 165, 0),
+                header_text: (255, 220, 40),
+                title_text: (255, 175, 20),
+                dim_text: (190, 110, 10),
+                divider: (90, 45, 0),
+                card_bg: None,
+                override_calendar: Some((255, 165, 0)),
+            },
+            AgendaTheme::MatrixGreen => AgendaThemeColors {
+                header_bg: (0, 28, 8),
+                header_accent: (0, 255, 90),
+                header_text: (140, 255, 170),
+                title_text: (40, 255, 110),
+                dim_text: (0, 160, 60),
+                divider: (0, 75, 25),
+                card_bg: None,
+                override_calendar: Some((0, 255, 90)),
+            },
+            AgendaTheme::SnesRpg => AgendaThemeColors {
+                header_bg: (20, 36, 110),
+                header_accent: (255, 215, 0),
+                header_text: (255, 255, 255),
+                title_text: (245, 248, 255),
+                dim_text: (170, 195, 235),
+                divider: (100, 130, 190),
+                card_bg: Some((8, 18, 56)),
+                override_calendar: None,
+            },
+            AgendaTheme::MinimalClean => AgendaThemeColors {
+                header_bg: (18, 22, 28),
+                header_accent: (180, 195, 210),
+                header_text: (255, 255, 255),
+                title_text: (245, 248, 255),
+                dim_text: (140, 155, 175),
+                divider: (45, 55, 70),
+                card_bg: None,
+                override_calendar: None,
+            },
+            AgendaTheme::CyberArcade => AgendaThemeColors {
+                header_bg: (10, 18, 36),
+                header_accent: (0, 180, 255),
+                header_text: (0, 235, 255),
+                title_text: (245, 248, 255),
+                dim_text: (150, 180, 210),
+                divider: (25, 45, 75),
+                card_bg: None,
+                override_calendar: None,
+            },
+        }
+    }
+
+    fn format_event_day_header<'a>(
+        &self,
+        start_ep: u32,
+        now_epoch: u32,
+        short_form: bool,
+        out_buf: &'a mut [u8; 32],
+    ) -> &'a str {
+        let Some(ev_dt) = self.cached_tz.timestamp_opt(start_ep as i64, 0).single() else {
+            return agenda_today_label(self.cached_lang);
+        };
+        let Some(now_dt) = self.cached_tz.timestamp_opt(now_epoch as i64, 0).single() else {
+            return agenda_today_label(self.cached_lang);
+        };
+        let ev_date = ev_dt.date_naive();
+        let today = now_dt.date_naive();
+        let diff_days = (ev_date - today).num_days();
+        let weekday_sun0 = ev_dt.weekday().num_days_from_sunday() as usize;
+        format_agenda_day_banner_buf(
+            self.cached_lang,
+            diff_days,
+            weekday_sun0,
+            ev_dt.day() as u8,
+            ev_dt.month() as u8,
+            self.show_relative_time,
+            short_form,
+            out_buf,
+        )
+    }
+
+    fn render_multiday_vertical_scroll(
+        &self,
+        surface: &mut dyn IDrawingSurface,
+        w: i32,
+        h: i32,
+        now_epoch: u32,
+    ) {
+        let tc = self.resolve_theme_colors();
+        if let Some((br, bg, bb)) = tc.card_bg {
+            surface.fill_rect(0, 0, w, h, br, bg, bb);
+        }
+
+        let shown = self.event_count.min(self.events_shown);
+        if shown == 0 {
+            return;
+        }
+
+        // Calculate total vertical height for smooth wrapping scroll
+        let mut total_h = 0i32;
+        let mut prev_day = i64::MIN;
+        for idx in 0..shown {
+            let ev = &self.events[idx];
+            let day_key = (ev.start_epoch as i64) / 86400;
+            if day_key != prev_day {
+                prev_day = day_key;
+                total_h += 11;
+            }
+            total_h += 14;
+        }
+
+        let max_scroll = (total_h - h + 8).max(0);
+        let y_off = if max_scroll > 0 {
+            let cycle = max_scroll + 24;
+            (self.scroll_offset % cycle.max(1)).min(max_scroll)
+        } else {
+            0
+        };
+
+        let mut cy = 1 - y_off;
+        prev_day = i64::MIN;
+        for idx in 0..shown {
+            let ev = &self.events[idx];
+            let day_key = (ev.start_epoch as i64) / 86400;
+            if day_key != prev_day {
+                prev_day = day_key;
+                if cy + 9 > 0 && cy < h {
+                    surface.fill_rect(
+                        1,
+                        cy.max(0),
+                        w - 2,
+                        (cy + 9).min(h) - cy.max(0),
+                        tc.header_bg.0,
+                        tc.header_bg.1,
+                        tc.header_bg.2,
+                    );
+                    let mut day_buf = [0u8; 32];
+                    let day_hdr = self.format_event_day_header(
+                        ev.start_epoch,
+                        now_epoch,
+                        w < 96,
+                        &mut day_buf,
+                    );
+                    if cy >= 0 && cy + 7 <= h {
+                        draw_tiny_text(surface, day_hdr, 3, cy + 2, 1, w - 1, tc.header_text);
+                    }
+                }
+                cy += 11;
+            }
+
+            if cy + 13 > 0 && cy < h {
+                self.render_event_row(surface, ev, now_epoch, 1, cy, w - 2, 12, false);
+            }
+            cy += 14;
+        }
+    }
+
+    fn render_multiday_ticker(
+        &self,
+        surface: &mut dyn IDrawingSurface,
+        w: i32,
+        h: i32,
+        now_epoch: u32,
+    ) {
+        let tc = self.resolve_theme_colors();
+        if let Some((br, bg, bb)) = tc.card_bg {
+            surface.fill_rect(0, 0, w, h, br, bg, bb);
+        }
+
+        let shown = self.event_count.min(self.events_shown);
+        if shown == 0 {
+            return;
+        }
+
+        let lead_ev = &self.events[0];
+        surface.fill_rect(0, 0, w, 10, tc.header_bg.0, tc.header_bg.1, tc.header_bg.2);
+        surface.fill_rect(
+            0,
+            10,
+            w,
+            1,
+            tc.header_accent.0,
+            tc.header_accent.1,
+            tc.header_accent.2,
+        );
+        let mut hdr_buf = [0u8; 32];
+        let hdr = self.format_event_day_header(lead_ev.start_epoch, now_epoch, false, &mut hdr_buf);
+        draw_tiny_text(surface, hdr, 3, 3, 0, w, tc.header_text);
+
+        let row_y = if h >= 48 { (h + 10) / 2 - 6 } else { 15 };
+        let item_w = 140i32;
+        let total_span = (shown as i32 * item_w).max(w);
+        let base_x = (w / 3) - ((self.scroll_offset * 2) % total_span.max(1));
+
+        for pass in 0..2 {
+            let mut cx = base_x + pass * total_span;
+            for idx in 0..shown {
+                let ev = &self.events[idx];
+                if cx + item_w > 0 && cx < w {
+                    self.render_event_row(surface, ev, now_epoch, cx, row_y, item_w - 8, 14, false);
+                }
+                cx += item_w;
+            }
+        }
     }
 
     /// Formats event time or relative badge into a stack buffer (`0` heap allocations).
@@ -754,10 +1078,21 @@ impl Engine for AgendaEngine {
         }
 
         let now_inst = Instant::now();
-        if now_inst.duration_since(self.last_anim_instant) >= Duration::from_millis(80) {
+        let step_ms = self.scroll_speed.step_ms();
+        if now_inst.duration_since(self.last_anim_instant) >= Duration::from_millis(step_ms) {
             self.last_anim_instant = now_inst;
             self.anim_tick = self.anim_tick.wrapping_add(1);
             self.scroll_offset = self.scroll_offset.wrapping_add(1);
+            self.pending_draw = true;
+        }
+
+        let shown = self.event_count.min(self.events_shown);
+        if shown > 1
+            && now_inst.duration_since(self.last_slide_instant)
+                >= Duration::from_secs(self.slide_duration_sec as u64)
+        {
+            self.last_slide_instant = now_inst;
+            self.current_slide_idx = (self.current_slide_idx + 1) % shown;
             self.pending_draw = true;
         }
 
@@ -800,98 +1135,170 @@ impl Engine for AgendaEngine {
             return;
         }
 
+        let tc = self.resolve_theme_colors();
+        if let Some((br, bg, bb)) = tc.card_bg {
+            surface.fill_rect(0, 0, w, h, br, bg, bb);
+        }
+
+        match self.view_mode {
+            AgendaViewMode::MultiDayScroll => {
+                self.render_multiday_vertical_scroll(surface, w, h, now_epoch);
+                self.pending_draw = false;
+                return;
+            }
+            AgendaViewMode::Ticker => {
+                self.render_multiday_ticker(surface, w, h, now_epoch);
+                self.pending_draw = false;
+                return;
+            }
+            _ => {}
+        }
+
+        let shown = self.event_count.min(self.events_shown).max(1);
+        let start_idx = self.current_slide_idx % shown;
+
         match layout {
             LayoutClass::Portrait | LayoutClass::Tall => {
                 // Tate vertical tower layout (32x64, 64x128, 64x256)
-                surface.fill_rect(0, 0, w, 9, 10, 18, 36);
-                surface.fill_rect(0, 9, w, 1, 0, 180, 255);
-                let hdr = agenda_today_label(self.cached_lang);
-                draw_tiny_text(surface, hdr, 2, 2, 0, w, (0, 235, 255));
+                surface.fill_rect(0, 0, w, 9, tc.header_bg.0, tc.header_bg.1, tc.header_bg.2);
+                surface.fill_rect(
+                    0,
+                    9,
+                    w,
+                    1,
+                    tc.header_accent.0,
+                    tc.header_accent.1,
+                    tc.header_accent.2,
+                );
+                let mut hdr_buf = [0u8; 32];
+                let hdr = self.format_event_day_header(
+                    self.events[start_idx].start_epoch,
+                    now_epoch,
+                    w < 64,
+                    &mut hdr_buf,
+                );
+                draw_tiny_text(surface, hdr, 2, 2, 0, w, tc.header_text);
 
-                let max_cards = ((h - 12) / 18).clamp(1, self.events_shown as i32) as usize;
-                let shown = self.event_count.min(max_cards);
+                let max_cards = ((h - 12) / 18).clamp(1, shown as i32) as usize;
                 let mut cy = 12;
-                for idx in 0..shown {
-                    let ev = &self.events[idx];
-                    self.render_event_row(surface, ev, now_epoch, 1, cy, w - 2, 16, idx == 0);
+                for row in 0..max_cards {
+                    let ev = &self.events[(start_idx + row) % shown];
+                    self.render_event_row(surface, ev, now_epoch, 1, cy, w - 2, 16, row == 0);
                     cy += 18;
                 }
             }
             LayoutClass::Square => {
                 // Square 64x64 layout
-                surface.fill_rect(0, 0, w, 9, 10, 18, 36);
-                surface.fill_rect(0, 9, w, 1, 0, 180, 255);
-                let hdr = agenda_today_label(self.cached_lang);
-                draw_tiny_text(surface, hdr, 2, 2, 0, w, (0, 235, 255));
+                surface.fill_rect(0, 0, w, 9, tc.header_bg.0, tc.header_bg.1, tc.header_bg.2);
+                surface.fill_rect(
+                    0,
+                    9,
+                    w,
+                    1,
+                    tc.header_accent.0,
+                    tc.header_accent.1,
+                    tc.header_accent.2,
+                );
+                let mut hdr_buf = [0u8; 32];
+                let hdr = self.format_event_day_header(
+                    self.events[start_idx].start_epoch,
+                    now_epoch,
+                    true,
+                    &mut hdr_buf,
+                );
+                draw_tiny_text(surface, hdr, 2, 2, 0, w, tc.header_text);
 
-                let shown = self.event_count.min(self.events_shown).min(3);
+                let cards = shown.min(3);
                 let mut cy = 12;
-                for idx in 0..shown {
-                    let ev = &self.events[idx];
-                    self.render_event_row(surface, ev, now_epoch, 1, cy, w - 2, 15, idx == 0);
+                for row in 0..cards {
+                    let ev = &self.events[(start_idx + row) % shown];
+                    self.render_event_row(surface, ev, now_epoch, 1, cy, w - 2, 15, row == 0);
                     cy += 17;
                 }
             }
             LayoutClass::Wide | LayoutClass::Landscape => {
-                if h <= 32 {
-                    // Compact 64x32 / 128x32 two-tier layout:
-                    // Tier 1 (y=1..18): Primary event with sprite icon + time badge + scrolling title
-                    // Tier 2 (y=20..31): Secondary "NEXT:" ticker or calendar pill
-                    let ev0 = &self.events[0];
+                if h <= 32 || self.view_mode == AgendaViewMode::Cards {
+                    // Compact / Sliding Cards two-tier layout across multiple days:
+                    let ev0 = &self.events[start_idx];
                     self.render_event_row(surface, ev0, now_epoch, 1, 2, w - 2, 16, true);
-                    surface.fill_rect(0, 19, w, 1, 25, 45, 75);
+                    surface.fill_rect(0, 19, w, 1, tc.divider.0, tc.divider.1, tc.divider.2);
 
-                    if self.event_count >= 2 && self.events_shown >= 2 {
-                        let ev1 = &self.events[1];
+                    let mut hdr_buf = [0u8; 32];
+                    let day_hdr = self.format_event_day_header(
+                        ev0.start_epoch,
+                        now_epoch,
+                        true,
+                        &mut hdr_buf,
+                    );
+                    draw_tiny_text(surface, day_hdr, 2, 23, 0, w, tc.header_text);
+                    let nx = 2 + tiny_text_width(day_hdr) + 4;
+
+                    if shown >= 2 {
+                        let ev1 = &self.events[(start_idx + 1) % shown];
                         let next_lbl = agenda_next_prefix(self.cached_lang);
-                        draw_tiny_text(surface, next_lbl, 2, 23, 0, w, (150, 180, 210));
-                        let nx = 2 + tiny_text_width(next_lbl) + 3;
+                        draw_tiny_text(surface, next_lbl, nx, 23, 0, w, tc.dim_text);
+                        let nx2 = nx + tiny_text_width(next_lbl) + 3;
                         self.render_event_row(
                             surface,
                             ev1,
                             now_epoch,
-                            nx,
+                            nx2,
                             21,
-                            (w - nx - 1).max(8),
+                            (w - nx2 - 1).max(8),
                             10,
                             false,
                         );
-                    } else {
+                    } else if self.show_badges {
                         let badge = ev0.badge_label_str();
                         let (cr, cg, cb) = rgb565_to_rgb888(ev0.calendar_color_565);
-                        draw_tiny_text(surface, badge, 3, 23, 0, w, (cr, cg, cb));
+                        draw_tiny_text(surface, badge, nx, 23, 0, w, (cr, cg, cb));
                     }
                 } else {
-                    // Wide HD (128x64, 256x64) multi-row dashboard
-                    surface.fill_rect(0, 0, w, 10, 10, 18, 36);
-                    surface.fill_rect(0, 10, w, 1, 0, 180, 255);
-                    let hdr = agenda_today_label(self.cached_lang);
-                    draw_tiny_text(surface, hdr, 3, 3, 0, w, (0, 235, 255));
+                    // Wide HD (128x64, 256x64) multi-day dashboard
+                    surface.fill_rect(0, 0, w, 10, tc.header_bg.0, tc.header_bg.1, tc.header_bg.2);
+                    surface.fill_rect(
+                        0,
+                        10,
+                        w,
+                        1,
+                        tc.header_accent.0,
+                        tc.header_accent.1,
+                        tc.header_accent.2,
+                    );
+                    let mut hdr_buf = [0u8; 32];
+                    let hdr = self.format_event_day_header(
+                        self.events[start_idx].start_epoch,
+                        now_epoch,
+                        false,
+                        &mut hdr_buf,
+                    );
+                    draw_tiny_text(surface, hdr, 3, 3, 0, w, tc.header_text);
 
-                    // Draw calendar legend pills on the right of the header
-                    let l1 = core::str::from_utf8(&self.label_1_buf)
-                        .unwrap_or("Perso")
-                        .trim_end_matches('\0');
-                    let (r1, g1, b1) = rgb565_to_rgb888(self.color_1_565);
-                    let x_l1 = (w - 64).max(48);
-                    surface.fill_rect(x_l1 - 4, 4, 2, 3, r1, g1, b1);
-                    draw_tiny_text(surface, l1, x_l1, 3, 0, w, (r1, g1, b1));
-
-                    if !self.ics_url_2.is_empty() {
-                        let l2 = core::str::from_utf8(&self.label_2_buf)
-                            .unwrap_or("Pro")
+                    if self.show_badges {
+                        let l1 = core::str::from_utf8(&self.label_1_buf)
+                            .unwrap_or("Perso")
                             .trim_end_matches('\0');
-                        let (r2, g2, b2) = rgb565_to_rgb888(self.color_2_565);
-                        let x_l2 = (w - 28).max(x_l1 + 24);
-                        surface.fill_rect(x_l2 - 4, 4, 2, 3, r2, g2, b2);
-                        draw_tiny_text(surface, l2, x_l2, 3, 0, w, (r2, g2, b2));
+                        let (r1, g1, b1) = rgb565_to_rgb888(self.color_1_565);
+                        let x_l1 = (w - 64).max(58);
+                        surface.fill_rect(x_l1 - 4, 4, 2, 3, r1, g1, b1);
+                        draw_tiny_text(surface, l1, x_l1, 3, 0, w, (r1, g1, b1));
+
+                        if !self.ics_url_2.is_empty() {
+                            let l2 = core::str::from_utf8(&self.label_2_buf)
+                                .unwrap_or("Pro")
+                                .trim_end_matches('\0');
+                            let (r2, g2, b2) = rgb565_to_rgb888(self.color_2_565);
+                            let x_l2 = (w - 28).max(x_l1 + 24);
+                            surface.fill_rect(x_l2 - 4, 4, 2, 3, r2, g2, b2);
+                            draw_tiny_text(surface, l2, x_l2, 3, 0, w, (r2, g2, b2));
+                        }
                     }
 
-                    let shown = self.event_count.min(self.events_shown).min(4);
-                    let row_h = ((h - 13) / (shown.max(1) as i32)).clamp(12, 18);
+                    let page_rows = shown.min(4);
+                    let row_h = ((h - 13) / (page_rows.max(1) as i32)).clamp(12, 18);
                     let mut cy = 13;
-                    for idx in 0..shown {
-                        let ev = &self.events[idx];
+                    for row in 0..page_rows {
+                        let ev = &self.events[(start_idx + row) % shown];
                         self.render_event_row(
                             surface,
                             ev,
@@ -900,7 +1307,7 @@ impl Engine for AgendaEngine {
                             cy,
                             w - 4,
                             row_h - 1,
-                            idx == 0,
+                            row == 0,
                         );
                         cy += row_h;
                     }
@@ -1006,6 +1413,106 @@ pub fn register_agenda_engine() -> EngineDescriptor {
                     ..Default::default()
                 },
                 ConfigField {
+                    id: "view_mode",
+                    field_type: ConfigType::Options,
+                    label: "Display Layout Mode",
+                    description: "Visual layout: Auto, Multi-Day Vertical Scroll, Sliding Cards, Split Calendar Deck, or Horizontal Ticker",
+                    default_value: "auto",
+                    required: false,
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "Auto Responsive",
+                            value: "auto",
+                        },
+                        ConfigOption {
+                            label: "Multi-Day Vertical Scroll",
+                            value: "multiday_scroll",
+                        },
+                        ConfigOption {
+                            label: "Sliding Event Cards",
+                            value: "cards",
+                        },
+                        ConfigOption {
+                            label: "Split Calendar Deck",
+                            value: "split_deck",
+                        },
+                        ConfigOption {
+                            label: "Continuous Horizontal Ticker",
+                            value: "ticker",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "theme",
+                    field_type: ConfigType::Options,
+                    label: "Visual Theme",
+                    description: "Color palette and border style for the agenda display",
+                    default_value: "cyber_arcade",
+                    required: false,
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "Cyber Arcade",
+                            value: "cyber_arcade",
+                        },
+                        ConfigOption {
+                            label: "Pinball Amber DMD",
+                            value: "amber_dmd",
+                        },
+                        ConfigOption {
+                            label: "Matrix Phosphor",
+                            value: "matrix_green",
+                        },
+                        ConfigOption {
+                            label: "16-Bit RPG Quest Log",
+                            value: "snes_rpg",
+                        },
+                        ConfigOption {
+                            label: "Minimalist Clean",
+                            value: "minimal_clean",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "scroll_speed",
+                    field_type: ConfigType::Options,
+                    label: "Scroll Speed",
+                    description: "Scrolling speed for multi-day feed, horizontal ticker, and long event titles",
+                    default_value: "normal",
+                    required: false,
+                    options: Some(vec![
+                        ConfigOption {
+                            label: "Slow",
+                            value: "slow",
+                        },
+                        ConfigOption {
+                            label: "Normal",
+                            value: "normal",
+                        },
+                        ConfigOption {
+                            label: "Fast",
+                            value: "fast",
+                        },
+                    ]),
+                    validation_policy: ValidationPolicy::FallbackDefault,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "slide_duration_sec",
+                    field_type: ConfigType::Integer,
+                    label: "Slide / Page Duration (sec)",
+                    description: "Seconds per card or page when cycling through multi-day events (3 to 20)",
+                    default_value: "5",
+                    required: false,
+                    min_val: Some("3"),
+                    max_val: Some("20"),
+                    validation_policy: ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                ConfigField {
                     id: "cache_ttl_min",
                     field_type: ConfigType::Integer,
                     label: "Refresh Interval (min)",
@@ -1033,12 +1540,30 @@ pub fn register_agenda_engine() -> EngineDescriptor {
                     id: "events_shown",
                     field_type: ConfigType::Integer,
                     label: "Max Events Shown",
-                    description: "Maximum number of upcoming events shown (1 to 6)",
-                    default_value: "3",
+                    description: "Maximum number of upcoming events shown across the multi-day horizon (1 to 8)",
+                    default_value: "5",
                     required: false,
                     min_val: Some("1"),
-                    max_val: Some("6"),
+                    max_val: Some("8"),
                     validation_policy: ValidationPolicy::Clamp,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "show_relative_time",
+                    field_type: ConfigType::Boolean,
+                    label: "Show Relative Countdown",
+                    description: "Display relative day/minute countdowns (e.g. IN 12M, J+3 / +3D)",
+                    default_value: "true",
+                    required: false,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "show_badges",
+                    field_type: ConfigType::Boolean,
+                    label: "Show Calendar Badges",
+                    description: "Display calendar source badge pills ([Perso], [Pro]) next to events",
+                    default_value: "true",
+                    required: false,
                     ..Default::default()
                 },
                 ConfigField {

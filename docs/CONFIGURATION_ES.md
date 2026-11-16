@@ -474,9 +474,15 @@ Todo lo demás viene de cada mensaje retained: su `type` (`value`, `table`, `gra
 | `ics_url_2` | `String` | `""` | URL `.ics` / `webcal://` | URL iCal / `.ics` opcional del segundo calendario fusionado cronológicamente. |
 | `ics_label_2` | `String` | `"Pro"` | Texto | Etiqueta corta del segundo calendario. |
 | `ics_color_2` | `String` | `"#FFB300"` | Color Hex | Color de acento del segundo calendario. |
+| `view_mode` | `Options` | `auto` | `auto,multiday_scroll,cards,split_deck,ticker` | Diseño visual: Auto, Desplazamiento Vertical Multidía, Tarjetas Deslizantes, Doble Panel o Ticker Horizontal. |
+| `theme` | `Options` | `cyber_arcade` | `cyber_arcade,amber_dmd,matrix_green,snes_rpg,minimal_clean` | Paleta de colores y estilo de marco para la agenda. |
+| `scroll_speed` | `Options` | `normal` | `slow,normal,fast` | Velocidad de desplazamiento vertical multidía, del ticker horizontal y de títulos largos. |
+| `slide_duration_sec` | `int` | `5` | `3` a `20` | Segundos por tarjeta o página al alternar eventos de varios días. |
 | `cache_ttl_min` | `int` | `60` | `15` a `1440` | Intervalo de sincronización `.ics` en minutos (caché binaria `data/cache/agenda_<id>.bin`). |
 | `horizon_days` | `int` | `7` | `1` a `30` | Horizonte de previsión en días. |
-| `events_shown` | `int` | `3` | `1` a `6` | Número máximo de eventos mostrados. |
+| `events_shown` | `int` | `5` | `1` a `8` | Número máximo de eventos mostrados en el horizonte multidía. |
+| `show_relative_time` | `bool` | `true` | `true`, `false` | Muestra cuentas regresivas relativas (ej. `EN 12 MIN`, `+3D`). |
+| `show_badges` | `bool` | `true` | `true`, `false` | Muestra las insignias de origen (`[Perso]`, `[Pro]`) junto a los eventos. |
 | `empty_behavior` | `Options` | `chill` | `chill`, `skip` | Sin eventos: `chill` muestra la escena `FREE PLAY` con Metool dormido; `skip` salta inmediatamente al siguiente turno. |
 | `imminent_min` | `int` | `15` | `0` a `60` | Minutos antes del inicio de un evento para activar la alerta inminente (`EN X MIN`). |
 | `fun_sprites` | `bool` | `true` | `true`, `false` | Muestra iconos pixel-art contextuales (Cumpleaños, Reunión, Médico, Restaurante, Deporte, Viaje, Gaming). |

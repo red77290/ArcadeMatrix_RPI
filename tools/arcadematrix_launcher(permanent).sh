@@ -23,11 +23,21 @@ is_pid_alive() {
     [ -n "$_pid" ] && kill -0 "$_pid" 2>/dev/null
 }
 
-start_daemon_once() {
+is_daemon_running() {
     if is_pid_alive "$PID_FILE"; then
         return 0
     fi
-    if (ps w 2>/dev/null || ps) | grep -q '[a]rcadematrix_daemon.py'; then
+    for _c in /proc/[0-9]*/cmdline; do
+        [ -r "$_c" ] || continue
+        case "$(tr '\0' ' ' < "$_c" 2>/dev/null)" in
+            *arcadematrix_daemon.py*) return 0 ;;
+        esac
+    done
+    (ps ax 2>/dev/null || ps -ef 2>/dev/null || ps w 2>/dev/null || ps) | grep -q '[a]rcadematrix_daemon.py'
+}
+
+start_daemon_once() {
+    if is_daemon_running; then
         return 0
     fi
     python3 "$DAEMON_PY" --daemon --log-file "$LOG_FILE" </dev/null >/dev/null 2>&1
@@ -36,36 +46,31 @@ start_daemon_once() {
 start_daemon_once
 
 if ! is_pid_alive "$SUP_PID_FILE"; then
+    _sup_body='
+        trap "" HUP TERM INT
+        echo "$$" > "'"$SUP_PID_FILE"'"
+        while [ ! -f "'"$STOP_FILE"'" ]; do
+            _dpid="$(cat "'"$PID_FILE"'" 2>/dev/null)"
+            if [ -z "$_dpid" ] || ! kill -0 "$_dpid" 2>/dev/null; then
+                _found=0
+                for _c in /proc/[0-9]*/cmdline; do
+                    [ -r "$_c" ] || continue
+                    case "$(tr "\0" " " < "$_c" 2>/dev/null)" in
+                        *arcadematrix_daemon.py*) _found=1; break ;;
+                    esac
+                done
+                if [ "$_found" = "0" ]; then
+                    python3 "'"$DAEMON_PY"'" --daemon --log-file "'"$LOG_FILE"'" </dev/null >/dev/null 2>&1
+                fi
+            fi
+            sleep 2
+        done
+        rm -f "'"$SUP_PID_FILE"'"
+    '
     if command -v setsid >/dev/null 2>&1; then
-        setsid sh -c '
-            trap "" HUP TERM INT
-            echo "$$" > "'"$SUP_PID_FILE"'"
-            while [ ! -f "'"$STOP_FILE"'" ]; do
-                _dpid="$(cat "'"$PID_FILE"'" 2>/dev/null)"
-                if [ -z "$_dpid" ] || ! kill -0 "$_dpid" 2>/dev/null; then
-                    if ! (ps w 2>/dev/null || ps) | grep -q "[a]rcadematrix_daemon.py"; then
-                        python3 "'"$DAEMON_PY"'" --daemon --log-file "'"$LOG_FILE"'" </dev/null >/dev/null 2>&1
-                    fi
-                fi
-                sleep 2
-            done
-            rm -f "'"$SUP_PID_FILE"'"
-        ' </dev/null >/dev/null 2>&1 &
+        setsid sh -c "$_sup_body" </dev/null >/dev/null 2>&1 &
     else
-        nohup sh -c '
-            trap "" HUP TERM INT
-            echo "$$" > "'"$SUP_PID_FILE"'"
-            while [ ! -f "'"$STOP_FILE"'" ]; do
-                _dpid="$(cat "'"$PID_FILE"'" 2>/dev/null)"
-                if [ -z "$_dpid" ] || ! kill -0 "$_dpid" 2>/dev/null; then
-                    if ! (ps w 2>/dev/null || ps) | grep -q "[a]rcadematrix_daemon.py"; then
-                        python3 "'"$DAEMON_PY"'" --daemon --log-file "'"$LOG_FILE"'" </dev/null >/dev/null 2>&1
-                    fi
-                fi
-                sleep 2
-            done
-            rm -f "'"$SUP_PID_FILE"'"
-        ' </dev/null >/dev/null 2>&1 &
+        nohup sh -c "$_sup_body" </dev/null >/dev/null 2>&1 &
     fi
 fi
 

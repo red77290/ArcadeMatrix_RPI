@@ -223,7 +223,12 @@ if [ "$SYSTEM" = "recalbox" ]; then
         sync
         sleep 0.6
         echo 'Active Recalbox processes:'
-        (ps w 2>/dev/null || ps) | grep -E '[a]rcadematrix_daemon.py|[a]rcadematrix_supervisor' || true
+        for _p in /proc/[0-9]*/cmdline; do
+            _s=\$(tr '\\0' ' ' < \"\$_p\" 2>/dev/null || true)
+            case \"\$_s\" in
+                *arcadematrix_daemon.py*|*arcadematrix_supervisor*) echo \"  \$_p: \$_s\" ;;
+            esac
+        done
         cat '$TARGET_DIR/daemon.log' 2>/dev/null || true
     " || true
 

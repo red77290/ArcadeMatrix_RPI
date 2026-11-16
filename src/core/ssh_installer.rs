@@ -84,6 +84,7 @@ import time
 import os
 import sys
 import json
+import socket
 import urllib.request
 
 DMD_HOST = "{}"
@@ -117,21 +118,64 @@ def resolve_broker(force=False):
     _cached_at = now
     return _cached_broker
 
+def publish_mqtt_raw(host, port, topic, payload):
+    def enc_len(length):
+        out = bytearray()
+        while True:
+            b = length % 128
+            length //= 128
+            if length > 0:
+                b |= 0x80
+            out.append(b)
+            if length == 0:
+                break
+        return bytes(out)
+
+    cid = f"am_sync_{{os.getpid()}}".encode("utf-8")
+    c_body = b"\x00\x04MQTT\x04\x02\x00\x3c" + len(cid).to_bytes(2, "big") + cid
+    c_pkt = b"\x10" + enc_len(len(c_body)) + c_body
+    t_b = topic.encode("utf-8")
+    m_b = payload.encode("utf-8")
+    p_body = len(t_b).to_bytes(2, "big") + t_b + m_b
+    p_pkt = b"\x30" + enc_len(len(p_body)) + p_body
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(1.5)
+    try:
+        sock.connect((host, int(port)))
+        sock.sendall(c_pkt)
+        sock.recv(4)
+        sock.sendall(p_pkt)
+        sock.sendall(b"\xe0\x00")
+    finally:
+        sock.close()
+
 def publish_mqtt(msg, force_refresh=False):
+    global _cached_at
     host, port = resolve_broker(force=force_refresh)
-    res = subprocess.run(
-        ["mosquitto_pub", "-h", host, "-p", str(port), "-t", TOPIC, "-m", msg],
-        timeout=2,
-        check=False,
-    )
-    if res.returncode != 0 and not force_refresh:
-        host2, port2 = resolve_broker(force=True)
-        if (host2, port2) != (host, port):
-            subprocess.run(
-                ["mosquitto_pub", "-h", host2, "-p", str(port2), "-t", TOPIC, "-m", msg],
+    for attempt in range(2):
+        try:
+            res = subprocess.run(
+                ["mosquitto_pub", "-h", host, "-p", str(port), "-t", TOPIC, "-m", msg],
                 timeout=2,
                 check=False,
             )
+            if res.returncode == 0:
+                return True
+        except FileNotFoundError:
+            break
+        except Exception:
+            pass
+        if attempt == 0 and not force_refresh:
+            host, port = resolve_broker(force=True)
+        else:
+            break
+    try:
+        publish_mqtt_raw(host, port, TOPIC, msg)
+        return True
+    except Exception:
+        _cached_at = 0.0
+        return False
 
 def spawn_companion_sync(action, system="", game="", rom_path="", title=""):
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -199,7 +243,7 @@ def clean_system_name(s):
     if not s:
         return ""
     s_clean = str(s).strip()
-    s_lower = s_clean.lower()
+    s_lower = s_clean.lower().replace("_", " ").replace("-", " ")
     prefixes = [
         "arcade manufacturer ",
         "arcade system ",
@@ -212,30 +256,64 @@ def clean_system_name(s):
     ]
     for p in prefixes:
         if s_lower.startswith(p):
-            return s_clean[len(p):].strip()
+            remainder = s_clean[len(p):]
+            if remainder.startswith("_") or remainder.startswith("-"):
+                remainder = remainder[1:]
+            return remainder.strip()
     return s_clean
 
+_VIRTUAL_SYSTEMS = {{
+    "favorites", "favourite", "favourites", "fav", "favs",
+    "all", "allgames", "lastplayed", "recent", "recentlyplayed",
+    "neverplayed", "multiplayer", "2players", "3players", "4players",
+    "retroachievements", "lightgun", "vertical", "tate", "shmups",
+    "fighting", "beatemup", "platform", "puzzle", "racing", "rpg", "sports",
+}}
+
+def is_virtual_system(sys_name):
+    if not sys_name:
+        return True
+    low = sys_name.strip().lower()
+    if not low:
+        return True
+    if low.startswith(("auto-", "auto_", "custom-", "custom_", "collection")):
+        return True
+    compact = "".join(ch for ch in low if ch.isalnum())
+    return compact in _VIRTUAL_SYSTEMS
+
+def extract_real_system(sys_name, rom_path):
+    if not is_virtual_system(sys_name) or not rom_path:
+        return sys_name
+    norm = rom_path.replace("\\", "/")
+    idx = norm.lower().find("/roms/")
+    if idx >= 0:
+        rest = norm[idx + 6:].lstrip("/")
+        parts = rest.split("/", 1)
+        if len(parts) == 2 and parts[0] and not is_virtual_system(parts[0]):
+            return clean_system_name(parts[0])
+    return sys_name
+
 def main():
-    import socket
     lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         lock_socket.bind(("127.0.0.1", 49132))
     except socket.error:
         print("Another daemon is already running, exiting...")
         sys.exit(1)
-        
+
     print("Daemon started (dynamic broker discovery via DMD)!", flush=True)
     time.sleep(3)
     last_state_key = None
     last_sent_key = None
     last_playing_ctx = None
-    pending_since = 0
+    pending_since = 0.0
+    next_retry_at = 0.0
 
     while True:
         try:
             rom_path, game_title, system, state = parse_statefile()
             if state != "stopped" and not system and not rom_path:
-                time.sleep(0.1)
+                time.sleep(0.06)
                 continue
 
             system = clean_system_name(system)
@@ -246,22 +324,23 @@ def main():
                 is_system = True
                 if rom_path and not os.path.isdir(rom_path):
                     is_system = False
-                
+
                 if is_system:
                     current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, game_title, system, state)
+                    resolved_sys = extract_real_system(system, rom_path)
+                    current_key = (rom_path, game_title, resolved_sys, state)
 
+            now = time.time()
             if current_key != last_state_key:
                 last_state_key = current_key
-                pending_since = time.time()
+                pending_since = now
+                next_retry_at = 0.0
 
-            elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and current_key != last_sent_key:
-                last_sent_key = current_key
+            debounce_sec = 0.0 if current_key[3] in ("playing", "stopped") else 0.08
+            if (now - pending_since) >= debounce_sec and current_key != last_sent_key and now >= next_retry_at:
                 gbase = ""
                 tclean = ""
-
                 if current_key[3] == "stopped":
                     msg = '{{"status": "stopped"}}'
                 elif current_key[0] is None:
@@ -269,40 +348,44 @@ def main():
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    payload_obj = {{"status": current_key[3], "game": gbase, "system": str(current_key[2])}}
+                    payload_obj = {{
+                        "status": current_key[3],
+                        "game": gbase,
+                        "system": str(current_key[2]),
+                        "rom_path": str(current_key[0]),
+                    }}
                     if current_key[1]:
                         tclean = clean_system_name(current_key[1])
                         if tclean and tclean.lower() != gbase.lower():
                             payload_obj["title"] = tclean
                     msg = json.dumps(payload_obj)
 
-                try:
-                    publish_mqtt(msg, force_refresh=(current_key[3] == "playing"))
-                except Exception:
-                    pass
-
-                if current_key[3] == "playing" and gbase:
-                    last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
-                    spawn_companion_sync(
-                        "start",
-                        system=last_playing_ctx[0],
-                        game=last_playing_ctx[1],
-                        rom_path=last_playing_ctx[2],
-                        title=last_playing_ctx[3],
-                    )
-                elif current_key[3] == "stopped" or last_playing_ctx is not None:
-                    ctx = last_playing_ctx or ("", "", "", "")
-                    last_playing_ctx = None
-                    spawn_companion_sync(
-                        "stop",
-                        system=ctx[0],
-                        game=ctx[1],
-                        rom_path=ctx[2],
-                    )
+                if publish_mqtt(msg, force_refresh=(current_key[3] == "playing")):
+                    last_sent_key = current_key
+                    if current_key[3] == "playing" and gbase:
+                        last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
+                        spawn_companion_sync(
+                            "start",
+                            system=last_playing_ctx[0],
+                            game=last_playing_ctx[1],
+                            rom_path=last_playing_ctx[2],
+                            title=last_playing_ctx[3],
+                        )
+                    elif current_key[3] == "stopped" or last_playing_ctx is not None:
+                        ctx = last_playing_ctx or ("", "", "", "")
+                        last_playing_ctx = None
+                        spawn_companion_sync(
+                            "stop",
+                            system=ctx[0],
+                            game=ctx[1],
+                            rom_path=ctx[2],
+                        )
+                else:
+                    next_retry_at = time.time() + 1.0
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
-        time.sleep(0.1)
+        time.sleep(0.06)
 
 if __name__ == "__main__":
     main()
@@ -481,7 +564,7 @@ send_mqtt_debounced() {{
     TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
     echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
     (
-        sleep 0.15
+        sleep 0.08
         CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
         if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
             rm -f "$DEBOUNCE_TOKEN_FILE"
@@ -503,18 +586,34 @@ clean_name() {{
         -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }}
 
+is_virtual_sys() {{
+    _low=$(echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    case "$_low" in
+        ""|favorites|favourite|favourites|fav|favs|all|allgames|all_games|lastplayed|recent|recentlyplayed|neverplayed|multiplayer|2players|3players|4players|retroachievements|lightgun|vertical|tate|auto-*|auto_*|custom-*|custom_*|collection*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}}
+
 extract_system() {{
     _sys="$1"
     _rom="$2"
     _base="$3"
-    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
+    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || is_virtual_sys "$_sys" || echo "$_sys" | grep -qE '/|\.'; then
         if echo "$_rom" | grep -q '/roms/'; then
-            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
-        elif [ -n "$_rom" ]; then
+            _cand=$(echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|')
+            if [ -n "$_cand" ] && ! is_virtual_sys "$_cand"; then
+                echo "$_cand"
+                return
+            fi
+        elif [ -n "$_rom" ] && ! is_virtual_sys "$_sys"; then
             basename "$(dirname "$_rom")"
-        else
-            echo "$_sys"
+            return
         fi
+        echo "$_sys"
     else
         echo "$_sys"
     fi

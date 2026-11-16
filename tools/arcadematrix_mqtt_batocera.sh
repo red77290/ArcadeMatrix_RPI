@@ -170,7 +170,7 @@ send_mqtt_debounced() {
     TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
     echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
     (
-        sleep 0.15
+        sleep 0.08
         CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
         if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
             rm -f "$DEBOUNCE_TOKEN_FILE"
@@ -192,18 +192,34 @@ clean_name() {
         -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+is_virtual_sys() {
+    _low=$(echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    case "$_low" in
+        ""|favorites|favourite|favourites|fav|favs|all|allgames|all_games|lastplayed|recent|recentlyplayed|neverplayed|multiplayer|2players|3players|4players|retroachievements|lightgun|vertical|tate|auto-*|auto_*|custom-*|custom_*|collection*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 extract_system() {
     _sys="$1"
     _rom="$2"
     _base="$3"
-    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
+    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || is_virtual_sys "$_sys" || echo "$_sys" | grep -qE '/|\.'; then
         if echo "$_rom" | grep -q '/roms/'; then
-            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
-        elif [ -n "$_rom" ]; then
+            _cand=$(echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|')
+            if [ -n "$_cand" ] && ! is_virtual_sys "$_cand"; then
+                echo "$_cand"
+                return
+            fi
+        elif [ -n "$_rom" ] && ! is_virtual_sys "$_sys"; then
             basename "$(dirname "$_rom")"
-        else
-            echo "$_sys"
+            return
         fi
+        echo "$_sys"
     else
         echo "$_sys"
     fi

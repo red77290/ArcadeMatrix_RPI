@@ -1067,20 +1067,32 @@ pub fn handle_frontend_sync_payload(
     let raw_system = json["system"].as_str().unwrap_or("").to_string();
     let raw_game = json["game"].as_str().unwrap_or("").to_string();
     let raw_title = json["title"].as_str().unwrap_or("").trim().to_string();
+    let rom_path = json["rom_path"]
+        .as_str()
+        .or_else(|| json["path"].as_str())
+        .unwrap_or("")
+        .trim();
 
-    let clean_sys = crate::core::dmd_cache::clean_system_name(&raw_system);
+    let initial_clean_sys = crate::core::dmd_cache::clean_system_name(&raw_system);
     let clean_game = crate::core::dmd_cache::clean_system_name(&raw_game);
 
     let is_playing = status == "playing";
     let is_system_event = !is_playing
         && (json["type"].as_str() == Some("system")
             || clean_game.is_empty()
-            || clean_game.eq_ignore_ascii_case(&clean_sys));
+            || clean_game.eq_ignore_ascii_case(&initial_clean_sys));
+
+    let effective_raw_sys = if !is_system_event {
+        crate::core::dmd_cache::extract_system_from_rom_path(&raw_system, rom_path)
+    } else {
+        raw_system
+    };
+    let clean_sys = crate::core::dmd_cache::clean_system_name(&effective_raw_sys);
 
     let system = if !clean_sys.is_empty() {
         clean_sys
     } else {
-        raw_system
+        effective_raw_sys
     };
     let game_clean = if !clean_game.is_empty() {
         clean_game
@@ -1194,8 +1206,17 @@ pub fn handle_frontend_sync_payload(
                 let cache_clone = Arc::clone(dmd_cache);
                 let sys_for_dl = system.clone();
                 let game_for_dl = game.clone();
+                let title_for_dl = if raw_title.is_empty() {
+                    None
+                } else {
+                    Some(raw_title.clone())
+                };
                 std::thread::spawn(move || {
-                    if let Some(path) = cache_clone.download_marquee(&sys_for_dl, &game_for_dl) {
+                    if let Some(path) = cache_clone.download_marquee_with_title(
+                        &sys_for_dl,
+                        &game_for_dl,
+                        title_for_dl.as_deref(),
+                    ) {
                         if let Some(img) = open_marquee_image(&path) {
                             if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                                 e2e_telemetry().lock().active_marquee_path =
@@ -2908,12 +2929,17 @@ mod tests {
         let marquee_dir = tmp_dir.join("marquees");
         std::fs::create_dir_all(&marquee_dir).unwrap();
 
-        // Populate a valid cached system marquee (`system_snes.png`) AND negative-cache entries
+        // Populate a valid cached system marquee (`system_snes.png`), game marquee, AND negative-cache entries
         let mut sys_img = image::RgbImage::new(8, 8);
         sys_img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
         sys_img.save(marquee_dir.join("system_snes.png")).unwrap();
+        let mut game_img = image::RgbImage::new(8, 8);
+        game_img.put_pixel(0, 0, image::Rgb([0, 255, 0]));
+        game_img
+            .save(marquee_dir.join("snes_Super Mario World (USA).png"))
+            .unwrap();
         std::fs::write(
-            marquee_dir.join(".negative_cache"),
+            marquee_dir.join(".negative_cache_v2"),
             "snes/homebrew_quest\nsnes/shortg\nsystem/custom_arcade\n",
         )
         .unwrap();
@@ -2978,6 +3004,19 @@ mod tests {
         assert_eq!(msg_sys.color, "#00ffff");
         assert_eq!(msg_sys.text, " Custom Arcade ");
         assert_eq!(msg_sys.direction, "left");
+
+        // 5. Virtual collection ("favorites") with `rom_path` -> extracts real `snes` system and plays cached marquee!
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","game":"Super Mario World (USA)","system":"favorites","rom_path":"/recalbox/share/roms/snes/Super Mario World (USA).sfc"}"#,
+        );
+        assert_eq!(
+            config.producer_snapshot.load().forced_mode,
+            ForcedEngineMode::Marquee
+        );
+        assert_eq!(e2e_telemetry().lock().last_system, "snes");
+        assert!(config.image_obj.lock().is_some());
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

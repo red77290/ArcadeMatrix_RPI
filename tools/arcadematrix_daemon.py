@@ -93,6 +93,7 @@ def publish_mqtt_raw(host, port, topic, payload):
 
 
 def publish_event(msg):
+    global _cached_broker_ts
     broker_host, broker_port = resolve_broker()
     try:
         res = subprocess.run(
@@ -101,18 +102,21 @@ def publish_event(msg):
             check=False,
         )
         if res.returncode == 0:
-            return
+            return True
     except FileNotFoundError:
         pass
     except subprocess.TimeoutExpired:
-        return
+        _cached_broker_ts = 0.0
+        return False
     except Exception:
         pass
 
     try:
         publish_mqtt_raw(broker_host, broker_port, TOPIC, msg)
+        return True
     except Exception:
-        pass
+        _cached_broker_ts = 0.0
+        return False
 
 
 def parse_statefile():
@@ -201,6 +205,40 @@ def spawn_companion_sync(action, system="", game="", rom_path="", title=""):
         pass
 
 
+_VIRTUAL_SYSTEMS = {
+    "favorites", "favourite", "favourites", "fav", "favs",
+    "all", "allgames", "lastplayed", "recent", "recentlyplayed",
+    "neverplayed", "multiplayer", "2players", "3players", "4players",
+    "retroachievements", "lightgun", "vertical", "tate", "shmups",
+    "fighting", "beatemup", "platform", "puzzle", "racing", "rpg", "sports",
+}
+
+
+def is_virtual_system(sys_name):
+    if not sys_name:
+        return True
+    low = sys_name.strip().lower()
+    if not low:
+        return True
+    if low.startswith(("auto-", "auto_", "custom-", "custom_", "collection")):
+        return True
+    compact = "".join(ch for ch in low if ch.isalnum())
+    return compact in _VIRTUAL_SYSTEMS
+
+
+def extract_real_system(sys_name, rom_path):
+    if not is_virtual_system(sys_name) or not rom_path:
+        return sys_name
+    norm = rom_path.replace("\\", "/")
+    idx = norm.lower().find("/roms/")
+    if idx >= 0:
+        rest = norm[idx + 6:].lstrip("/")
+        parts = rest.split("/", 1)
+        if len(parts) == 2 and parts[0] and not is_virtual_system(parts[0]):
+            return clean_system_name(parts[0])
+    return sys_name
+
+
 def main():
     # Single instance lock: guarantee only one daemon runs at a time, even if EmulationStation
     # (re)starts this launcher script multiple times in a row.
@@ -216,13 +254,14 @@ def main():
     last_state_key = None
     last_sent_key = None
     last_playing_ctx = None
-    pending_since = 0
+    pending_since = 0.0
+    next_retry_at = 0.0
 
     while True:
         try:
             rom_path, game_title, system, state = parse_statefile()
             if state != "stopped" and not system and not rom_path:
-                time.sleep(0.1)
+                time.sleep(0.06)
                 continue
 
             system = clean_system_name(system)
@@ -237,18 +276,19 @@ def main():
                 if is_system:
                     current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, game_title, system, state)
+                    resolved_sys = extract_real_system(system, rom_path)
+                    current_key = (rom_path, game_title, resolved_sys, state)
 
+            now = time.time()
             if current_key != last_state_key:
                 last_state_key = current_key
-                pending_since = time.time()
+                pending_since = now
+                next_retry_at = 0.0
 
-            elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and current_key != last_sent_key:
-                last_sent_key = current_key
+            debounce_sec = 0.0 if current_key[3] in ("playing", "stopped") else 0.08
+            if (now - pending_since) >= debounce_sec and current_key != last_sent_key and now >= next_retry_at:
                 gbase = ""
                 tclean = ""
-
                 if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
                 elif current_key[0] is None:
@@ -256,39 +296,46 @@ def main():
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    payload_obj = {"status": current_key[3], "game": gbase, "system": str(current_key[2])}
+                    payload_obj = {
+                        "status": current_key[3],
+                        "game": gbase,
+                        "system": str(current_key[2]),
+                        "rom_path": str(current_key[0]),
+                    }
                     if current_key[1]:
                         tclean = clean_system_name(current_key[1])
                         if tclean and tclean.lower() != gbase.lower():
                             payload_obj["title"] = tclean
                     msg = json.dumps(payload_obj)
 
-                # 1. Always publish the core playing/browsing/stopped event immediately (0ms Marquee guarantee)
-                publish_event(msg)
-
-                # 2. Trigger asynchronous companion sync on game start / stop transitions
-                if current_key[3] == "playing" and gbase:
-                    last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
-                    spawn_companion_sync(
-                        "start",
-                        system=last_playing_ctx[0],
-                        game=last_playing_ctx[1],
-                        rom_path=last_playing_ctx[2],
-                        title=last_playing_ctx[3],
-                    )
-                elif current_key[3] == "stopped" or last_playing_ctx is not None:
-                    ctx = last_playing_ctx or ("", "", "", "")
-                    last_playing_ctx = None
-                    spawn_companion_sync(
-                        "stop",
-                        system=ctx[0],
-                        game=ctx[1],
-                        rom_path=ctx[2],
-                    )
+                # 1. Publish core playing/browsing/stopped event immediately; retry in 1s if broker transient
+                if publish_event(msg):
+                    last_sent_key = current_key
+                    # 2. Trigger asynchronous companion sync on game start / stop transitions
+                    if current_key[3] == "playing" and gbase:
+                        last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
+                        spawn_companion_sync(
+                            "start",
+                            system=last_playing_ctx[0],
+                            game=last_playing_ctx[1],
+                            rom_path=last_playing_ctx[2],
+                            title=last_playing_ctx[3],
+                        )
+                    elif current_key[3] == "stopped" or last_playing_ctx is not None:
+                        ctx = last_playing_ctx or ("", "", "", "")
+                        last_playing_ctx = None
+                        spawn_companion_sync(
+                            "stop",
+                            system=ctx[0],
+                            game=ctx[1],
+                            rom_path=ctx[2],
+                        )
+                else:
+                    next_retry_at = time.time() + 1.0
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
-        time.sleep(0.1)
+        time.sleep(0.06)
 
 
 if __name__ == "__main__":

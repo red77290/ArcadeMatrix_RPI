@@ -1,12 +1,20 @@
 use crate::core::config::{Config, MqttConfig};
 use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
+use crate::core::i18n::{self, Lang};
+use crate::core::matrix::IDrawingSurface;
 use crate::core::types::{
-    DisplayGeometry, ForcedEngineMode, InGameCycleMode, InGameShowcasePayload,
+    copy_str_to_pod, DisplayGeometry, ForcedEngineMode, InGameCycleMode, InGameShowcasePayload,
+    SyncCelebrationPayload, SyncHiscoreEntryPod, SyncMetaPayload, SyncRaSummaryPod,
 };
+use crate::engines::clocks::sprite_bank::{self, CelebrationHeroFamily, SpriteId};
+use crate::engines::dashboard::font::{draw_text_clipped, measure_text as measure_small_text};
+use crate::engines::renderers::fireworks_lut::{FireworksLutRenderer, BOUNCE_LUT};
 use crate::engines::renderers::media_showcase::{
     parse_host_and_port, probe_local_lan_ip, probe_showcase_health_details, resolve_showcase_host,
     resolve_showcase_server_url, rpi_hardware_short_id,
 };
+use crate::engines::renderers::primitives::{draw_fast_hline, draw_round_rect, fill_round_rect};
+use crate::engines::renderers::tiny_font::{draw_tiny_text, tiny_text_width as measure_tiny_text};
 use parking_lot::Mutex;
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
 use serde_json::json;
@@ -19,6 +27,7 @@ pub const MQTT_TOPIC_WILDCARD: &str = "system/playing/#";
 pub const SHOWCASE_COMMAND_TOPIC_WILDCARD: &str = "dmd_showcase/clients/+/command";
 
 static MQTT_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+static CELEBRATION_EVENT_ID: AtomicU64 = AtomicU64::new(0);
 static CONFIG_GENERATION: AtomicU64 = AtomicU64::new(1);
 static LOCAL_MOSQUITTO_STOPPED_BY_SYNC: AtomicBool = AtomicBool::new(false);
 
@@ -440,6 +449,7 @@ fn take_dirty_remote_sync_target(matching_req_id: Option<u64>) -> Option<(String
 
 pub fn cancel_active_ingame_showcase(config: &Config) {
     config.set_ingame_showcase(None);
+    config.set_sync_meta(None);
     if let Some((server_url, sync_client_id)) = take_dirty_remote_sync_target(None) {
         delete_showcase_client_queue_async(server_url, sync_client_id);
     }
@@ -800,7 +810,216 @@ fn spawn_ingame_showcase_request(
     });
 }
 
-fn handle_frontend_sync_payload(
+pub fn parse_sync_meta_from_json(
+    json: &serde_json::Value,
+    session_token: u64,
+    mqtt_cfg: &MqttConfig,
+) -> Option<SyncMetaPayload> {
+    let raw_system = json["system"].as_str().unwrap_or("");
+    let raw_game = json["title"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| json["game"].as_str())
+        .unwrap_or("");
+    let clean_sys = crate::core::dmd_cache::clean_system_name(raw_system);
+    let game_title = format_game_name(raw_game);
+
+    let mut hiscores = [SyncHiscoreEntryPod::EMPTY; 5];
+    let mut hiscore_count = 0u8;
+    if let Some(arr) = json.get("hiscores").and_then(|v| v.as_array()) {
+        for (idx, item) in arr.iter().take(5).enumerate() {
+            let rank = item
+                .get("rank")
+                .and_then(|r| r.as_u64())
+                .map(|r| r.clamp(1, 99) as u8)
+                .unwrap_or((idx + 1) as u8);
+            let player = item
+                .get("tag")
+                .or_else(|| item.get("player"))
+                .or_else(|| item.get("name"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("1UP");
+            let score_owned: String;
+            let score_str = if let Some(s) = item.get("score").and_then(|v| v.as_str()) {
+                s
+            } else if let Some(n) = item
+                .get("score")
+                .or_else(|| item.get("raw"))
+                .and_then(|v| v.as_u64())
+            {
+                score_owned = n.to_string();
+                &score_owned
+            } else {
+                ""
+            };
+            if !score_str.trim().is_empty() {
+                hiscores[hiscore_count as usize] =
+                    SyncHiscoreEntryPod::from_strs(rank, player, score_str);
+                hiscore_count += 1;
+            }
+        }
+    }
+
+    let mut ra = SyncRaSummaryPod::EMPTY;
+    if let Some(ra_obj) = json.get("ra").and_then(|v| v.as_object()) {
+        let total = ra_obj
+            .get("total")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .min(u16::MAX as u64) as u16;
+        if total > 0 {
+            let unlocked = ra_obj
+                .get("unlocked")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                .min(total as u64) as u16;
+            let points_earned = ra_obj
+                .get("points")
+                .or_else(|| ra_obj.get("points_earned"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32;
+            let points_total = ra_obj
+                .get("points_total")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(points_earned as u64)
+                .min(u32::MAX as u64) as u32;
+            let hardcore = ra_obj
+                .get("hardcore")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let recent = ra_obj
+                .get("recent_title")
+                .or_else(|| ra_obj.get("recent_badge"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let ra_game_title = ra_obj
+                .get("game_title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(&game_title);
+            ra = SyncRaSummaryPod {
+                game_title: copy_str_to_pod(ra_game_title.trim()),
+                unlocked,
+                total,
+                points_earned,
+                points_total,
+                hardcore,
+                recent_badge: copy_str_to_pod(recent.trim()),
+                valid: true,
+            };
+        }
+    }
+
+    let payload = SyncMetaPayload {
+        session_token: session_token.max(1),
+        system: copy_str_to_pod(clean_sys.trim()),
+        game_title: copy_str_to_pod(game_title.trim()),
+        hiscore_count,
+        hiscores,
+        ra,
+        show_hiscores: mqtt_cfg.sync_show_hiscores,
+        show_ra: mqtt_cfg.sync_show_ra,
+        card_duration_sec: mqtt_cfg.sync_card_duration_sec.clamp(5, 20),
+    };
+
+    if payload.has_any_card() {
+        Some(payload)
+    } else {
+        None
+    }
+}
+
+pub fn parse_celebration_from_json(
+    json: &serde_json::Value,
+    event_token: u64,
+) -> SyncCelebrationPayload {
+    let kind_str = json
+        .get("kind")
+        .or_else(|| json.get("celebration_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("highscore");
+    let is_achievement =
+        kind_str.eq_ignore_ascii_case("achievement") || kind_str.eq_ignore_ascii_case("ra");
+    let raw_system = json["system"].as_str().unwrap_or("");
+    let clean_sys = crate::core::dmd_cache::clean_system_name(raw_system);
+    let raw_game = json["game"].as_str().unwrap_or("");
+    let game_title = format_game_name(raw_game);
+
+    if is_achievement {
+        let title = json
+            .get("title")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("ACHIEVEMENT");
+        let pts = json.get("points").and_then(|v| v.as_u64()).unwrap_or(0);
+        let pts_label = if pts > 0 {
+            format!("+{} PTS", pts)
+        } else {
+            "UNLOCKED".to_string()
+        };
+        let hardcore = json
+            .get("hardcore")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let duration_ms = json
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(7500)
+            .clamp(1000, 15000) as u32;
+        SyncCelebrationPayload {
+            event_token: event_token.max(1),
+            kind: 1,
+            system: copy_str_to_pod(clean_sys.trim()),
+            title: copy_str_to_pod(title.trim()),
+            subtitle: copy_str_to_pod(game_title.trim()),
+            score_or_pts: copy_str_to_pod(&pts_label),
+            hardcore,
+            duration_ms,
+        }
+    } else {
+        let rank = json
+            .get("rank")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .clamp(1, 99);
+        let tag = json
+            .get("tag")
+            .or_else(|| json.get("player"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("1UP");
+        let score = if let Some(s) = json.get("score").and_then(|v| v.as_str()) {
+            s.to_string()
+        } else if let Some(n) = json.get("score").and_then(|v| v.as_u64()) {
+            n.to_string()
+        } else {
+            "999,999".to_string()
+        };
+        let rank_tag = format!("#{} {}", rank, tag.trim());
+        let title_str = if !game_title.is_empty() {
+            game_title
+        } else {
+            rank_tag.clone()
+        };
+        let duration_ms = json
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(7500)
+            .clamp(1000, 15000) as u32;
+        SyncCelebrationPayload {
+            event_token: event_token.max(1),
+            kind: 0,
+            system: copy_str_to_pod(clean_sys.trim()),
+            title: copy_str_to_pod(&rank_tag),
+            subtitle: copy_str_to_pod(title_str.trim()),
+            score_or_pts: copy_str_to_pod(score.trim()),
+            hardcore: false,
+            duration_ms,
+        }
+    }
+}
+
+pub fn handle_frontend_sync_payload(
     config: &Arc<Config>,
     dmd_cache: &Arc<crate::core::dmd_cache::DmdCache>,
     payload: &str,
@@ -809,12 +1028,35 @@ fn handle_frontend_sync_payload(
     let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
         return;
     };
-    let status = json["status"].as_str().unwrap_or("stopped");
+    let status = json["status"]
+        .as_str()
+        .or_else(|| json["event"].as_str())
+        .unwrap_or("stopped");
     {
         let mut t = e2e_telemetry().lock();
         t.mqtt_events_received += 1;
         t.last_status = status.to_string();
     }
+
+    if status == "celebrate" || json["type"].as_str() == Some("celebrate") {
+        let celebrate_enabled = config.settings.read().mqtt.sync_celebrate_events;
+        if celebrate_enabled {
+            let evt_id = CELEBRATION_EVENT_ID.fetch_add(1, Ordering::AcqRel) + 1;
+            let cel = parse_celebration_from_json(&json, evt_id);
+            config.set_sync_celebration(Some(cel));
+        }
+        return;
+    }
+
+    if status == "sync_meta" {
+        let mqtt_cfg = config.settings.read().mqtt.clone();
+        let active_req_id = MQTT_REQUEST_ID.load(Ordering::Acquire).max(1);
+        if let Some(meta) = parse_sync_meta_from_json(&json, active_req_id, &mqtt_cfg) {
+            config.set_sync_meta(Some(meta));
+        }
+        return;
+    }
+
     if status == "stopped" {
         MQTT_REQUEST_ID.fetch_add(1, Ordering::AcqRel);
         cancel_active_ingame_showcase(config);
@@ -969,6 +1211,10 @@ fn handle_frontend_sync_payload(
 
         // 2. When launching a game (`status == "playing"`), request Showcase sequence in background for Late Preemption
         if is_playing && !game_clean.is_empty() {
+            let mqtt_cfg = config.settings.read().mqtt.clone();
+            if let Some(meta) = parse_sync_meta_from_json(&json, req_id, &mqtt_cfg) {
+                config.set_sync_meta(Some(meta));
+            }
             spawn_ingame_showcase_request(
                 Arc::clone(config),
                 req_id,
@@ -1104,10 +1350,1124 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         .expect("Failed to spawn frontend-sync thread");
 }
 
-/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`).
+// ----------------------------------------------------------------------------
+// Zero-Allocation Stack Formatting & Clipped Text Helpers
+// ----------------------------------------------------------------------------
+
+struct StackStrBuf<const N: usize> {
+    buf: [u8; N],
+    len: usize,
+}
+
+impl<const N: usize> StackStrBuf<N> {
+    #[inline]
+    const fn new() -> Self {
+        Self {
+            buf: [0u8; N],
+            len: 0,
+        }
+    }
+
+    #[inline]
+    fn push_str(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        let avail = N.saturating_sub(self.len);
+        let n = bytes.len().min(avail);
+        if n > 0 {
+            self.buf[self.len..self.len + n].copy_from_slice(&bytes[..n]);
+            self.len += n;
+        }
+    }
+
+    #[inline]
+    fn push_u32(&mut self, mut val: u32) {
+        if val == 0 {
+            self.push_str("0");
+            return;
+        }
+        let mut tmp = [0u8; 10];
+        let mut idx = 10usize;
+        while val > 0 && idx > 0 {
+            idx -= 1;
+            tmp[idx] = b'0' + (val % 10) as u8;
+            val /= 10;
+        }
+        if let Ok(s) = std::str::from_utf8(&tmp[idx..]) {
+            self.push_str(s);
+        }
+    }
+
+    #[inline]
+    fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.buf[..self.len]).unwrap_or("")
+    }
+}
+
+#[inline]
+fn rank_color_rgb(rank: u8) -> (u8, u8, u8) {
+    match rank {
+        1 => (255, 215, 0),  // Gold
+        2 => (0, 229, 255),  // Cyan / Silver
+        3 => (255, 140, 0),  // Bronze / Orange
+        4 => (255, 80, 220), // Neon Magenta
+        _ => (80, 255, 120), // Neon Green
+    }
+}
+
+#[inline]
+fn rank_label_short(rank: u8) -> &'static str {
+    match rank {
+        1 => "1ST",
+        2 => "2ND",
+        3 => "3RD",
+        4 => "4TH",
+        5 => "5TH",
+        _ => "TOP",
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_tiny_text_clipped_bounds(
+    surface: &mut dyn IDrawingSurface,
+    x: i32,
+    y: i32,
+    min_x: i32,
+    max_x: i32,
+    min_y: i32,
+    max_y: i32,
+    text: &str,
+    color: (u8, u8, u8),
+) {
+    if y < min_y || y + 4 > max_y {
+        return;
+    }
+    draw_tiny_text(surface, text, x, y, min_x, max_x + 1, color);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_small_text_clipped_bounds(
+    surface: &mut dyn IDrawingSurface,
+    x: i32,
+    y: i32,
+    min_x: i32,
+    max_x: i32,
+    min_y: i32,
+    max_y: i32,
+    text: &str,
+    color: (u8, u8, u8),
+) {
+    draw_text_clipped(
+        surface,
+        text,
+        x,
+        y,
+        min_x,
+        max_x + 1,
+        min_y,
+        max_y + 1,
+        color,
+    );
+}
+
+// ----------------------------------------------------------------------------
+// HallOfFameCard — Responsive Yoko (128x32, 256x64) & Tate (32x64, 64x128, 64x256)
+// ----------------------------------------------------------------------------
+
+pub struct HallOfFameCard;
+
+impl HallOfFameCard {
+    /// Renders the arcade Hall of Fame leaderboard card with zero heap allocations.
+    pub fn render(
+        surface: &mut dyn IDrawingSurface,
+        meta: &SyncMetaPayload,
+        lang: Lang,
+        elapsed_ms: u64,
+    ) {
+        let w = surface.width() as i32;
+        let h = surface.height() as i32;
+        if w <= 0 || h <= 0 {
+            return;
+        }
+
+        // Deep arcade attract-mode navy background
+        surface.fill_rect(0, 0, w, h, 4, 6, 16);
+        let pulse = ((elapsed_ms / 250) & 1) == 0;
+        let title_col = if pulse {
+            (255, 215, 0)
+        } else {
+            (255, 245, 150)
+        };
+        let count = (meta.hiscore_count as usize).min(meta.hiscores.len());
+
+        // 1. Tate / Portrait layouts (32x64, 64x128, 64x256)
+        if h > w {
+            surface.fill_rect(0, 0, w, 12, 16, 12, 32);
+            draw_fast_hline(surface, 0, 12, w, (255, 180, 0));
+
+            if w >= 64 {
+                let crown = sprite_bank::get_sprite_frame(SpriteId::CrownRecord, 0);
+                sprite_bank::blit_sprite(surface, &crown, 2, 0, false);
+                let title = i18n::sync_high_scores_title(lang);
+                draw_tiny_text_clipped_bounds(surface, 16, 4, 16, w - 2, 0, 11, title, title_col);
+            } else {
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    2,
+                    4,
+                    0,
+                    w - 2,
+                    0,
+                    11,
+                    "HIGH SCORES",
+                    title_col,
+                );
+            }
+
+            let mut y = 15;
+            let game = meta.game_title_str();
+            if !game.is_empty() && h >= 64 {
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    2,
+                    y,
+                    2,
+                    w - 2,
+                    13,
+                    h - 2,
+                    game,
+                    (0, 229, 255),
+                );
+                y += 8;
+                draw_fast_hline(surface, 2, y - 2, w - 4, (24, 34, 60));
+            }
+
+            let max_rows = if h >= 128 { 5 } else { 3 };
+            let row_h = if w >= 64 && h >= 128 { 18 } else { 12 };
+            for idx in 0..count.min(max_rows) {
+                if y + 6 > h {
+                    break;
+                }
+                let entry = &meta.hiscores[idx];
+                let r_col = rank_color_rgb(entry.rank);
+                let r_lbl = rank_label_short(entry.rank);
+
+                if w >= 64 {
+                    draw_tiny_text_clipped_bounds(surface, 2, y, 2, w - 2, 13, h - 1, r_lbl, r_col);
+                    draw_tiny_text_clipped_bounds(
+                        surface,
+                        18,
+                        y,
+                        18,
+                        w - 2,
+                        13,
+                        h - 1,
+                        entry.player_str(),
+                        (255, 255, 255),
+                    );
+                    let score_s = entry.score_str();
+                    let sw = measure_tiny_text(score_s);
+                    let sx = (w - 2 - sw).max(2);
+                    draw_tiny_text_clipped_bounds(
+                        surface,
+                        sx,
+                        y + 7,
+                        2,
+                        w - 2,
+                        13,
+                        h - 1,
+                        score_s,
+                        r_col,
+                    );
+                } else {
+                    let mut top_line = StackStrBuf::<16>::new();
+                    top_line.push_str("#");
+                    top_line.push_u32(entry.rank as u32);
+                    top_line.push_str(" ");
+                    top_line.push_str(entry.player_str());
+                    draw_tiny_text_clipped_bounds(
+                        surface,
+                        1,
+                        y,
+                        1,
+                        w - 1,
+                        13,
+                        h - 1,
+                        top_line.as_str(),
+                        r_col,
+                    );
+                    draw_tiny_text_clipped_bounds(
+                        surface,
+                        1,
+                        y + 6,
+                        1,
+                        w - 1,
+                        13,
+                        h - 1,
+                        entry.score_str(),
+                        (240, 240, 255),
+                    );
+                }
+                y += row_h;
+            }
+            return;
+        }
+
+        // 2. Compact 32px height (64x32, 128x32) -> CPS1 smooth vertical scroll
+        if h <= 32 {
+            surface.fill_rect(0, 0, w, 8, 18, 12, 34);
+            draw_fast_hline(surface, 0, 8, w, (255, 180, 0));
+            let title = i18n::sync_high_scores_title(lang);
+            let tw = measure_tiny_text(title);
+            let tx = ((w - tw) / 2).max(2);
+            draw_tiny_text_clipped_bounds(surface, tx, 2, 1, w - 2, 0, 7, title, title_col);
+
+            let view_top = 10;
+            let view_bot = h - 1;
+            let row_pitch = 8;
+
+            if count <= 2 {
+                for idx in 0..count {
+                    let ry = view_top + (idx as i32) * 10;
+                    Self::draw_yoko_row_compact(
+                        surface,
+                        &meta.hiscores[idx],
+                        w,
+                        ry,
+                        view_top,
+                        view_bot,
+                    );
+                }
+            } else {
+                let cycle_px = (count as i32) * row_pitch;
+                let scroll_px = ((elapsed_ms / 70) as i32) % cycle_px.max(1);
+                for pass in 0..2 {
+                    for idx in 0..count {
+                        let ry = view_top + (idx as i32) * row_pitch + pass * cycle_px - scroll_px;
+                        if ry + 5 >= view_top && ry <= view_bot {
+                            Self::draw_yoko_row_compact(
+                                surface,
+                                &meta.hiscores[idx],
+                                w,
+                                ry,
+                                view_top,
+                                view_bot,
+                            );
+                        }
+                    }
+                }
+            }
+            return;
+        }
+
+        // 3. HD Yoko / Square (64x64, 128x64, 256x64) -> Full Arcade Podium
+        surface.fill_rect(0, 0, w, 12, 18, 12, 36);
+        draw_fast_hline(surface, 0, 12, w, (255, 190, 0));
+        let crown = sprite_bank::get_sprite_frame(SpriteId::CrownRecord, 0);
+        sprite_bank::blit_sprite(surface, &crown, 3, 0, false);
+
+        let title = i18n::sync_high_scores_title(lang);
+        if w >= 192 {
+            draw_small_text_clipped_bounds(surface, 18, 3, 18, w - 4, 0, 11, title, title_col);
+            let game = meta.game_title_str();
+            if !game.is_empty() {
+                let gw = measure_tiny_text(game);
+                let gx = (w - 4 - gw).max(130);
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    gx,
+                    4,
+                    130,
+                    w - 4,
+                    0,
+                    11,
+                    game,
+                    (0, 229, 255),
+                );
+            }
+        } else {
+            draw_tiny_text_clipped_bounds(surface, 17, 4, 17, w - 2, 0, 11, title, title_col);
+        }
+
+        let start_y = 15;
+        let row_h = 9;
+        for idx in 0..count.min(5) {
+            let ry = start_y + (idx as i32) * row_h;
+            if ry + 6 > h {
+                break;
+            }
+            let entry = &meta.hiscores[idx];
+            let r_col = rank_color_rgb(entry.rank);
+            let r_lbl = rank_label_short(entry.rank);
+
+            if idx == 0 {
+                surface.fill_rect(2, ry - 1, w - 4, 8, 28, 22, 10);
+            }
+
+            if w >= 128 {
+                draw_small_text_clipped_bounds(surface, 4, ry, 2, w - 2, 13, h - 1, r_lbl, r_col);
+                draw_small_text_clipped_bounds(
+                    surface,
+                    28,
+                    ry,
+                    28,
+                    w / 2,
+                    13,
+                    h - 1,
+                    entry.player_str(),
+                    (255, 255, 255),
+                );
+                let score_s = entry.score_str();
+                let sw = measure_small_text(score_s);
+                let sx = (w - 4 - sw).max(w / 2 + 4);
+                // Leader dots on wide 256x64 panels
+                if w >= 192 {
+                    let dot_start = 28 + measure_small_text(entry.player_str()) + 6;
+                    let mut dx = dot_start;
+                    while dx + 4 < sx {
+                        surface.set_pixel(dx, ry + 5, 50, 60, 90);
+                        dx += 4;
+                    }
+                }
+                draw_small_text_clipped_bounds(
+                    surface,
+                    sx,
+                    ry,
+                    28,
+                    w - 2,
+                    13,
+                    h - 1,
+                    score_s,
+                    r_col,
+                );
+            } else {
+                draw_tiny_text_clipped_bounds(surface, 2, ry, 2, w - 2, 13, h - 1, r_lbl, r_col);
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    16,
+                    ry,
+                    16,
+                    w - 2,
+                    13,
+                    h - 1,
+                    entry.player_str(),
+                    (255, 255, 255),
+                );
+                let score_s = entry.score_str();
+                let sw = measure_tiny_text(score_s);
+                let sx = (w - 2 - sw).max(30);
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    sx,
+                    ry,
+                    30,
+                    w - 2,
+                    13,
+                    h - 1,
+                    score_s,
+                    r_col,
+                );
+            }
+        }
+    }
+
+    fn draw_yoko_row_compact(
+        surface: &mut dyn IDrawingSurface,
+        entry: &SyncHiscoreEntryPod,
+        w: i32,
+        ry: i32,
+        min_y: i32,
+        max_y: i32,
+    ) {
+        let r_col = rank_color_rgb(entry.rank);
+        let r_lbl = rank_label_short(entry.rank);
+        draw_tiny_text_clipped_bounds(surface, 2, ry, 2, w - 2, min_y, max_y, r_lbl, r_col);
+        draw_tiny_text_clipped_bounds(
+            surface,
+            18,
+            ry,
+            18,
+            w / 2 + 8,
+            min_y,
+            max_y,
+            entry.player_str(),
+            (255, 255, 255),
+        );
+        let score_s = entry.score_str();
+        let sw = measure_tiny_text(score_s);
+        let sx = (w - 2 - sw).max(34);
+        draw_tiny_text_clipped_bounds(surface, sx, ry, 34, w - 2, min_y, max_y, score_s, r_col);
+    }
+}
+
+// ----------------------------------------------------------------------------
+// RetroAchievementsCard — Responsive Yoko & Tate with Beveled RPG XP Bar
+// ----------------------------------------------------------------------------
+
+pub struct RetroAchievementsCard;
+
+impl RetroAchievementsCard {
+    /// Renders the RetroAchievements progress card with zero heap allocations.
+    pub fn render(
+        surface: &mut dyn IDrawingSurface,
+        meta: &SyncMetaPayload,
+        lang: Lang,
+        elapsed_ms: u64,
+    ) {
+        let w = surface.width() as i32;
+        let h = surface.height() as i32;
+        if w <= 0 || h <= 0 {
+            return;
+        }
+
+        let ra = &meta.ra;
+        surface.fill_rect(0, 0, w, h, 6, 8, 18);
+
+        // Hardcore gold border or softcore cyan border
+        let border_col = if ra.hardcore {
+            if ((elapsed_ms / 300) & 1) == 0 {
+                (255, 205, 0)
+            } else {
+                (255, 235, 110)
+            }
+        } else {
+            (0, 150, 210)
+        };
+        draw_round_rect(surface, 0, 0, w, h, 2, border_col);
+
+        let mut progress_buf = StackStrBuf::<24>::new();
+        progress_buf.push_u32(ra.unlocked as u32);
+        progress_buf.push_str("/");
+        progress_buf.push_u32(ra.total.max(1) as u32);
+
+        let pct = ((ra.unlocked as u32).saturating_mul(100)) / (ra.total.max(1) as u32);
+        let mut pts_buf = StackStrBuf::<24>::new();
+        pts_buf.push_u32(ra.points_earned);
+        pts_buf.push_str(" PTS");
+
+        // 1. Tate / Portrait (32x64, 64x128, 64x256)
+        let trophy = sprite_bank::get_sprite_frame(SpriteId::TrophyCup, 0);
+        if h > w {
+            sprite_bank::blit_sprite(surface, &trophy, (w - 12) / 2, 3, false);
+            let hdr = if ra.hardcore {
+                "RA HARDCORE"
+            } else {
+                "RETROACHIEV."
+            };
+            let hw = measure_tiny_text(hdr);
+            draw_tiny_text_clipped_bounds(
+                surface,
+                ((w - hw) / 2).max(2),
+                17,
+                2,
+                w - 3,
+                2,
+                h - 2,
+                hdr,
+                border_col,
+            );
+
+            // Beveled XP bar
+            let bar_x = 3;
+            let bar_w = (w - 6).max(8);
+            let bar_y = 25;
+            let bar_h = if h >= 128 { 8 } else { 6 };
+            Self::draw_beveled_xp_bar(
+                surface,
+                bar_x,
+                bar_y,
+                bar_w,
+                bar_h,
+                ra.unlocked,
+                ra.total,
+                ra.hardcore,
+            );
+
+            let pw = measure_tiny_text(progress_buf.as_str());
+            draw_tiny_text_clipped_bounds(
+                surface,
+                ((w - pw) / 2).max(2),
+                bar_y + bar_h + 3,
+                2,
+                w - 3,
+                2,
+                h - 2,
+                progress_buf.as_str(),
+                (255, 255, 255),
+            );
+
+            let ptw = measure_tiny_text(pts_buf.as_str());
+            draw_tiny_text_clipped_bounds(
+                surface,
+                ((w - ptw) / 2).max(2),
+                bar_y + bar_h + 11,
+                2,
+                w - 3,
+                2,
+                h - 2,
+                pts_buf.as_str(),
+                (0, 229, 255),
+            );
+
+            let badge = ra.recent_badge_str();
+            if !badge.is_empty() && h >= 64 {
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    3,
+                    bar_y + bar_h + 20,
+                    3,
+                    w - 3,
+                    2,
+                    h - 3,
+                    badge,
+                    (255, 220, 120),
+                );
+            }
+            return;
+        }
+
+        // 2. Compact 32px height (64x32, 128x32)
+        if h <= 32 {
+            sprite_bank::blit_sprite(surface, &trophy, 3, 3, false);
+            let title = if w >= 128 {
+                if ra.hardcore {
+                    "RETROACHIEVEMENTS [HC]"
+                } else {
+                    "RETROACHIEVEMENTS"
+                }
+            } else if ra.hardcore {
+                "RA [HC]"
+            } else {
+                "RA"
+            };
+            draw_tiny_text_clipped_bounds(surface, 17, 4, 17, w - 3, 2, 10, title, border_col);
+
+            let bar_x = 17;
+            let bar_w = (w - 21).max(12);
+            Self::draw_beveled_xp_bar(
+                surface,
+                bar_x,
+                12,
+                bar_w,
+                6,
+                ra.unlocked,
+                ra.total,
+                ra.hardcore,
+            );
+
+            draw_tiny_text_clipped_bounds(
+                surface,
+                4,
+                22,
+                2,
+                w - 3,
+                18,
+                h - 2,
+                progress_buf.as_str(),
+                (255, 255, 255),
+            );
+            let ptw = measure_tiny_text(pts_buf.as_str());
+            draw_tiny_text_clipped_bounds(
+                surface,
+                (w - 4 - ptw).max(32),
+                22,
+                32,
+                w - 3,
+                18,
+                h - 2,
+                pts_buf.as_str(),
+                (0, 229, 255),
+            );
+            return;
+        }
+
+        // 3. HD Yoko / Square (64x64, 128x64, 256x64)
+        let _ = lang;
+        sprite_bank::blit_sprite(surface, &trophy, 4, 4, false);
+        let hdr = if ra.hardcore {
+            "RETROACHIEVEMENTS • HARDCORE"
+        } else {
+            "RETROACHIEVEMENTS"
+        };
+        if w >= 192 {
+            draw_small_text_clipped_bounds(surface, 20, 5, 20, w - 4, 2, 14, hdr, border_col);
+        } else {
+            draw_tiny_text_clipped_bounds(surface, 18, 6, 18, w - 4, 2, 14, hdr, border_col);
+        }
+
+        let game = if !ra.game_title_str().is_empty() {
+            ra.game_title_str()
+        } else {
+            meta.game_title_str()
+        };
+        if !game.is_empty() {
+            draw_tiny_text_clipped_bounds(
+                surface,
+                20,
+                16,
+                20,
+                w - 4,
+                14,
+                24,
+                game,
+                (220, 235, 255),
+            );
+        }
+
+        // Beveled RPG XP Bar
+        let bar_x = 6;
+        let bar_w = (w - 12).max(16);
+        Self::draw_beveled_xp_bar(
+            surface,
+            bar_x,
+            25,
+            bar_w,
+            10,
+            ra.unlocked,
+            ra.total,
+            ra.hardcore,
+        );
+
+        let mut stats_line = StackStrBuf::<32>::new();
+        stats_line.push_str(progress_buf.as_str());
+        stats_line.push_str(" (");
+        stats_line.push_u32(pct);
+        stats_line.push_str("%)");
+        draw_small_text_clipped_bounds(
+            surface,
+            6,
+            39,
+            4,
+            w - 4,
+            36,
+            50,
+            stats_line.as_str(),
+            (255, 255, 255),
+        );
+
+        let ptw = measure_small_text(pts_buf.as_str());
+        draw_small_text_clipped_bounds(
+            surface,
+            (w - 6 - ptw).max(w / 2),
+            39,
+            w / 2,
+            w - 4,
+            36,
+            50,
+            pts_buf.as_str(),
+            (255, 215, 0),
+        );
+
+        let badge = ra.recent_badge_str();
+        if !badge.is_empty() {
+            draw_tiny_text_clipped_bounds(
+                surface,
+                6,
+                51,
+                4,
+                w - 4,
+                48,
+                h - 3,
+                badge,
+                (0, 229, 255),
+            );
+        }
+    }
+
+    fn draw_beveled_xp_bar(
+        surface: &mut dyn IDrawingSurface,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        unlocked: u16,
+        total: u16,
+        hardcore: bool,
+    ) {
+        if w <= 4 || h <= 3 {
+            return;
+        }
+        draw_round_rect(surface, x, y, w, h, 1, (70, 85, 120));
+        fill_round_rect(surface, x + 1, y + 1, w - 2, h - 2, 1, (14, 18, 30));
+
+        let inner_w = (w - 2).max(0);
+        let fill_w =
+            ((inner_w as u32).saturating_mul(unlocked as u32) / (total.max(1) as u32)) as i32;
+        let fill_w = fill_w.clamp(0, inner_w);
+        if fill_w > 0 {
+            let (top_col, bot_col) = if hardcore {
+                ((255, 235, 90), (215, 145, 0))
+            } else {
+                ((80, 255, 170), (0, 185, 100))
+            };
+            let top_h = ((h - 2) / 2).max(1);
+            let bot_h = (h - 2 - top_h).max(0);
+            surface.fill_rect(x + 1, y + 1, fill_w, top_h, top_col.0, top_col.1, top_col.2);
+            if bot_h > 0 {
+                surface.fill_rect(
+                    x + 1,
+                    y + 1 + top_h,
+                    fill_w,
+                    bot_h,
+                    bot_col.0,
+                    bot_col.1,
+                    bot_col.2,
+                );
+            }
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// SyncCelebrationEngine — Priority 55 60 FPS Fireworks + Hero Cameo (0 Alloc)
+// ----------------------------------------------------------------------------
+
+pub struct SyncCelebrationEngine {
+    fireworks: FireworksLutRenderer,
+    active_payload: SyncCelebrationPayload,
+    observed_event_token: u64,
+    start_instant: Option<Instant>,
+    paused_at: Option<Instant>,
+    paused_accum_ms: u64,
+    elapsed_ms: u64,
+    last_frame_tick: u32,
+    pending_draw: bool,
+    lang: Lang,
+}
+
+impl SyncCelebrationEngine {
+    pub fn new() -> Self {
+        Self {
+            fireworks: FireworksLutRenderer::new(),
+            active_payload: SyncCelebrationPayload::EMPTY,
+            observed_event_token: 0,
+            start_instant: None,
+            paused_at: None,
+            paused_accum_ms: 0,
+            elapsed_ms: 0,
+            last_frame_tick: u32::MAX,
+            pending_draw: true,
+            lang: Lang::En,
+        }
+    }
+}
+
+impl Default for SyncCelebrationEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Engine for SyncCelebrationEngine {
+    fn initialize(
+        &mut self,
+        context: &mut EngineContext,
+        _config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        let lang_code = context.config.get_sys_string("lang", "en");
+        self.lang = Lang::from_code(&lang_code);
+        Ok(())
+    }
+
+    fn activate(&mut self) {
+        self.fireworks.reset();
+        self.start_instant = Some(Instant::now());
+        self.paused_at = None;
+        self.paused_accum_ms = 0;
+        self.elapsed_ms = 0;
+        self.last_frame_tick = u32::MAX;
+        self.pending_draw = true;
+    }
+
+    fn pause(&mut self) {
+        if self.paused_at.is_none() {
+            self.paused_at = Some(Instant::now());
+        }
+        self.pending_draw = false;
+    }
+
+    fn resume(&mut self) {
+        if let Some(p) = self.paused_at.take() {
+            self.paused_accum_ms = self
+                .paused_accum_ms
+                .saturating_add(p.elapsed().as_millis() as u64);
+        }
+        self.pending_draw = true;
+    }
+
+    fn deactivate(&mut self) {
+        self.fireworks.reset();
+        self.start_instant = None;
+        self.paused_at = None;
+        self.paused_accum_ms = 0;
+        self.elapsed_ms = 0;
+        self.pending_draw = false;
+    }
+
+    fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {
+        self.pending_draw = true;
+    }
+
+    fn update(&mut self, context: &mut EngineContext) {
+        if self.paused_at.is_some() {
+            self.pending_draw = false;
+            return;
+        }
+        let now = Instant::now();
+        let start = *self.start_instant.get_or_insert(now);
+
+        let snap = context.config.producer_snapshot.load();
+        if let Some(ref cel) = snap.sync_celebration {
+            if cel.event_token != self.observed_event_token {
+                self.observed_event_token = cel.event_token;
+                self.active_payload = **cel;
+                self.fireworks.reset();
+                self.start_instant = Some(now);
+                self.paused_accum_ms = 0;
+                self.last_frame_tick = u32::MAX;
+            }
+        }
+
+        let raw_elapsed = now.duration_since(start).as_millis() as u64;
+        self.elapsed_ms = raw_elapsed.saturating_sub(self.paused_accum_ms);
+        let tick = (self.elapsed_ms / 16) as u32;
+        if tick != self.last_frame_tick {
+            self.last_frame_tick = tick;
+            let w = context.surface.width() as i32;
+            let h = context.surface.height() as i32;
+            self.fireworks.update(w, h);
+            self.pending_draw = true;
+        } else {
+            self.pending_draw = false;
+        }
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        let surface = &mut *context.surface;
+        let w = surface.width() as i32;
+        let h = surface.height() as i32;
+        if w <= 0 || h <= 0 {
+            self.pending_draw = false;
+            return;
+        }
+
+        // Layer 1: Celebratory night sky + Q8.8 integer fireworks
+        surface.fill_rect(0, 0, w, h, 4, 4, 14);
+        self.fireworks.render(surface);
+
+        // Layer 2: Bouncing arcade header via BOUNCE_LUT
+        let bounce_idx = ((self.last_frame_tick as usize) / 3) % BOUNCE_LUT.len();
+        let bounce_dy = BOUNCE_LUT[bounce_idx] as i32;
+        let header_y = (3 + bounce_dy / 2).max(1);
+        let flash = ((self.last_frame_tick / 4) & 1) == 0;
+        let hdr_col = if flash {
+            (255, 230, 60)
+        } else {
+            (255, 255, 255)
+        };
+
+        let header_str = if self.active_payload.kind == 1 {
+            i18n::sync_achievement_title(self.lang)
+        } else {
+            i18n::sync_new_record_title(self.lang)
+        };
+        let hw = measure_tiny_text(header_str);
+        let hx = ((w - hw) / 2).max(2);
+        draw_tiny_text_clipped_bounds(
+            surface,
+            hx,
+            header_y,
+            1,
+            w - 2,
+            0,
+            h - 1,
+            header_str,
+            hdr_col,
+        );
+
+        // Layer 3: System-matched Hero Cameo from sprite_bank
+        let hero_family = CelebrationHeroFamily::from_system(self.active_payload.system_str());
+        let anim_step = (self.last_frame_tick / 4) as usize;
+        let stage_y = if h <= 32 { 9 } else { (h / 2) - 8 };
+
+        match hero_family {
+            CelebrationHeroFamily::NintendoMario => {
+                let is_jumping = (anim_step % 8) >= 5;
+                let mario_frame = if is_jumping {
+                    sprite_bank::mario_jump_frame()
+                } else {
+                    sprite_bank::mario_run_frame(anim_step)
+                };
+                let mario_y = if is_jumping { stage_y - 3 } else { stage_y };
+                let mario_x = (w / 2) - 14;
+                sprite_bank::blit_sprite(surface, &mario_frame, mario_x, mario_y, false);
+                let coin_frame = sprite_bank::mario_gold_coin_frame();
+                sprite_bank::blit_sprite(surface, &coin_frame, mario_x + 18, stage_y - 2, false);
+            }
+            CelebrationHeroFamily::SegaSonic => {
+                let sonic_x = (w / 2) - 16;
+                let sonic_frame = if h <= 32 {
+                    sprite_bank::sonic_sms_run_frame(anim_step)
+                } else if (anim_step % 8) >= 5 {
+                    sprite_bank::sonic_ball_frame(anim_step)
+                } else {
+                    sprite_bank::sonic_md_run_frame(anim_step)
+                };
+                sprite_bank::blit_sprite(surface, &sonic_frame, sonic_x, stage_y - 4, false);
+                let ring_frame = sprite_bank::sonic_ring_frame(anim_step);
+                sprite_bank::blit_sprite(surface, &ring_frame, sonic_x + 24, stage_y + 2, false);
+            }
+            CelebrationHeroFamily::CapcomMegaMan => {
+                let mm_x = (w / 2) - 18;
+                let mm_frame = if (anim_step % 8) >= 5 {
+                    sprite_bank::megaman_jump_shoot_frame()
+                } else {
+                    sprite_bank::megaman_run_frame(anim_step)
+                };
+                sprite_bank::blit_sprite(surface, &mm_frame, mm_x, stage_y - 4, false);
+                let bullet_dx = ((self.last_frame_tick as i32) * 2) % 20;
+                let bullet_frame = sprite_bank::megaman_bullet_frame();
+                sprite_bank::blit_sprite(
+                    surface,
+                    &bullet_frame,
+                    mm_x + 24 + bullet_dx,
+                    stage_y + 4,
+                    false,
+                );
+                if bullet_dx >= 14 {
+                    let spark_frame = sprite_bank::megaman_spark_frame();
+                    sprite_bank::blit_sprite(
+                        surface,
+                        &spark_frame,
+                        mm_x + 26 + bullet_dx,
+                        stage_y + 2,
+                        false,
+                    );
+                }
+            }
+            CelebrationHeroFamily::SnkMetalSlug => {
+                let marco_x = (w / 2) - 14;
+                let marco_frame = if (anim_step % 8) >= 4 {
+                    sprite_bank::marco_victory_frame()
+                } else {
+                    sprite_bank::marco_walk_frame(anim_step)
+                };
+                sprite_bank::blit_sprite(surface, &marco_frame, marco_x, stage_y - 6, false);
+            }
+            CelebrationHeroFamily::ArcadePacMan => {
+                let pac_x = (w / 2) - 14;
+                let pac_frame = sprite_bank::pacman_frame(anim_step);
+                sprite_bank::blit_sprite(surface, &pac_frame, pac_x, stage_y, false);
+                sprite_bank::draw_frightened_ghost(
+                    surface,
+                    pac_x + 16,
+                    stage_y,
+                    anim_step,
+                    (anim_step & 2) != 0,
+                );
+            }
+        }
+
+        // Layer 4: Score / Achievement title & points footer
+        let title_s = self.active_payload.title_str();
+        let score_s = self.active_payload.score_or_pts_str();
+        if h <= 32 {
+            let bot_y = h - 6;
+            let mut footer = StackStrBuf::<48>::new();
+            if !title_s.is_empty() {
+                footer.push_str(title_s);
+                if !score_s.is_empty() {
+                    footer.push_str(" ");
+                    footer.push_str(score_s);
+                }
+            } else {
+                footer.push_str(score_s);
+            }
+            let fw = measure_tiny_text(footer.as_str());
+            let fx = ((w - fw) / 2).max(2);
+            draw_tiny_text_clipped_bounds(
+                surface,
+                fx,
+                bot_y,
+                1,
+                w - 2,
+                0,
+                h - 1,
+                footer.as_str(),
+                (0, 229, 255),
+            );
+        } else {
+            if !title_s.is_empty() {
+                let tw = measure_tiny_text(title_s);
+                let tx = ((w - tw) / 2).max(2);
+                draw_tiny_text_clipped_bounds(
+                    surface,
+                    tx,
+                    h - 15,
+                    2,
+                    w - 2,
+                    0,
+                    h - 1,
+                    title_s,
+                    (255, 255, 255),
+                );
+            }
+            if !score_s.is_empty() {
+                let sw = measure_small_text(score_s);
+                let sx = ((w - sw) / 2).max(2);
+                draw_small_text_clipped_bounds(
+                    surface,
+                    sx,
+                    h - 8,
+                    2,
+                    w - 2,
+                    0,
+                    h - 1,
+                    score_s,
+                    (0, 229, 255),
+                );
+            }
+        }
+
+        self.pending_draw = false;
+    }
+
+    fn wants_clear(&self) -> bool {
+        true
+    }
+
+    fn has_new_frame(&self) -> bool {
+        self.paused_at.is_none() && self.pending_draw
+    }
+
+    fn is_realtime(&self) -> bool {
+        self.paused_at.is_none()
+    }
+
+    fn allows_overlay(&self) -> bool {
+        false
+    }
+
+    fn allow_rotation(&self) -> bool {
+        false
+    }
+}
+
+// ----------------------------------------------------------------------------
+// InGameShowcaseEngine — Opportunistic Card + Stream Cycle (Zero Alloc)
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InGameSubStage {
+    HallOfFame,
+    RetroAchievements,
+    ShowcaseStream,
+}
+
+/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`)
+/// and opportunistic `HallOfFameCard` / `RetroAchievementsCard` views.
 ///
 /// Shares [`crate::core::dmd_stream::ShowcaseStreamPlayer`] 1:1 with [`MediaShowcaseRunner`] and
-/// preempts `Marquee` only once the complete sequence is ready (`DisplaySourceId::InGameShowcase`).
+/// preempts `Marquee` only once the complete sequence or sync metadata is ready (`DisplaySourceId::InGameShowcase`).
 pub struct InGameShowcaseEngine {
     session_token: u64,
     stream_width: u32,
@@ -1118,6 +2478,13 @@ pub struct InGameShowcaseEngine {
     pending_draw: bool,
     finished: bool,
     player: crate::core::dmd_stream::ShowcaseStreamPlayer,
+    sub_stage: InGameSubStage,
+    stage_started_at: Option<Instant>,
+    stage_paused_at: Option<Instant>,
+    stage_paused_ms: u64,
+    stage_elapsed_ms: u64,
+    last_card_tick: u32,
+    lang: Lang,
 }
 
 impl InGameShowcaseEngine {
@@ -1132,6 +2499,32 @@ impl InGameShowcaseEngine {
             pending_draw: false,
             finished: false,
             player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
+            sub_stage: InGameSubStage::ShowcaseStream,
+            stage_started_at: None,
+            stage_paused_at: None,
+            stage_paused_ms: 0,
+            stage_elapsed_ms: 0,
+            last_card_tick: u32::MAX,
+            lang: Lang::En,
+        }
+    }
+
+    fn select_initial_stage(
+        meta: Option<&Arc<SyncMetaPayload>>,
+        has_stream: bool,
+    ) -> Option<InGameSubStage> {
+        if let Some(m) = meta {
+            if m.has_active_hiscores() {
+                return Some(InGameSubStage::HallOfFame);
+            }
+            if m.has_active_ra() {
+                return Some(InGameSubStage::RetroAchievements);
+            }
+        }
+        if has_stream {
+            Some(InGameSubStage::ShowcaseStream)
+        } else {
+            None
         }
     }
 }
@@ -1145,26 +2538,45 @@ impl Default for InGameShowcaseEngine {
 impl Engine for InGameShowcaseEngine {
     fn initialize(
         &mut self,
-        _context: &mut EngineContext,
+        context: &mut EngineContext,
         _config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
+        let lang_code = context.config.get_sys_string("lang", "en");
+        self.lang = Lang::from_code(&lang_code);
         Ok(())
     }
 
     fn activate(&mut self) {
+        let now = Instant::now();
         self.finished = false;
         self.pending_draw = true;
-        self.player.start(Instant::now());
+        self.session_token = 0;
+        self.stage_started_at = Some(now);
+        self.stage_paused_at = None;
+        self.stage_paused_ms = 0;
+        self.stage_elapsed_ms = 0;
+        self.last_card_tick = u32::MAX;
+        self.player.start(now);
     }
 
     fn pause(&mut self) {
+        let now = Instant::now();
         self.pending_draw = false;
-        self.player.pause(Instant::now());
+        if self.stage_paused_at.is_none() {
+            self.stage_paused_at = Some(now);
+        }
+        self.player.pause(now);
     }
 
     fn resume(&mut self) {
-        self.player.resume(Instant::now());
-        self.pending_draw = self.has_stream && !self.finished;
+        let now = Instant::now();
+        if let Some(p) = self.stage_paused_at.take() {
+            self.stage_paused_ms = self
+                .stage_paused_ms
+                .saturating_add(now.duration_since(p).as_millis() as u64);
+        }
+        self.player.resume(now);
+        self.pending_draw = !self.finished;
     }
 
     fn deactivate(&mut self) {
@@ -1174,6 +2586,11 @@ impl Engine for InGameShowcaseEngine {
         self.has_stream = false;
         self.pending_draw = false;
         self.finished = false;
+        self.stage_started_at = None;
+        self.stage_paused_at = None;
+        self.stage_paused_ms = 0;
+        self.stage_elapsed_ms = 0;
+        self.last_card_tick = u32::MAX;
         self.player.reset();
     }
 
@@ -1181,7 +2598,7 @@ impl Engine for InGameShowcaseEngine {
         self.surface_width = geometry.width();
         self.surface_height = geometry.height();
         self.player.invalidate_drawn_frame();
-        if self.has_stream && !self.finished && !self.player.is_paused() {
+        if !self.finished && self.stage_paused_at.is_none() {
             self.pending_draw = true;
         }
     }
@@ -1189,45 +2606,146 @@ impl Engine for InGameShowcaseEngine {
     fn update(&mut self, context: &mut EngineContext) {
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
-        if self.player.is_paused() {
+        if self.stage_paused_at.is_some() || self.player.is_paused() {
             self.pending_draw = false;
             return;
         }
+
         let snap = context.config.producer_snapshot.load();
-        let Some(ref ig) = snap.ingame_showcase else {
+        let ig_opt = snap
+            .ingame_showcase
+            .as_ref()
+            .filter(|ig| !ig.stream.is_empty());
+        let meta_opt = snap.sync_meta.as_ref().filter(|m| m.has_any_card());
+
+        if ig_opt.is_none() && meta_opt.is_none() {
             self.has_stream = false;
             self.pending_draw = false;
             self.finished = true;
             return;
-        };
-        if ig.stream.is_empty() {
-            self.has_stream = false;
-            self.pending_draw = false;
-            self.finished = true;
-            return;
-        };
+        }
 
         let now = Instant::now();
-        if self.session_token != ig.session_token {
+        let active_token = ig_opt
+            .map(|ig| ig.session_token)
+            .or_else(|| meta_opt.map(|m| m.session_token))
+            .unwrap_or(0);
+
+        if self.session_token != active_token {
             let prev_token = self.session_token;
-            self.session_token = ig.session_token;
+            self.session_token = active_token;
             self.finished = false;
+            if let Some(first_stage) = Self::select_initial_stage(meta_opt, ig_opt.is_some()) {
+                self.sub_stage = first_stage;
+            }
+            self.stage_started_at = Some(now);
+            self.stage_paused_ms = 0;
+            self.stage_elapsed_ms = 0;
+            self.last_card_tick = u32::MAX;
             if prev_token != 0 || !self.player.is_started() {
                 self.player.start(now);
             }
         }
-
-        self.has_stream = true;
-        self.stream_width = ig.stream.width;
-        self.stream_height = ig.stream.height;
 
         if self.finished {
             self.pending_draw = false;
             return;
         }
 
-        let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop);
-        self.finished = self.player.advance(&ig.stream, now, loop_playback, None);
+        let card_dur_ms = meta_opt
+            .map(|m| (m.card_duration_sec.clamp(5, 20) as u64) * 1000)
+            .unwrap_or(8000);
+
+        match self.sub_stage {
+            InGameSubStage::HallOfFame => {
+                let has_hi = meta_opt.is_some_and(|m| m.has_active_hiscores());
+                let start = *self.stage_started_at.get_or_insert(now);
+                let elapsed = (now.duration_since(start).as_millis() as u64)
+                    .saturating_sub(self.stage_paused_ms);
+                self.stage_elapsed_ms = elapsed;
+                if !has_hi || elapsed >= card_dur_ms {
+                    if meta_opt.is_some_and(|m| m.has_active_ra()) {
+                        self.sub_stage = InGameSubStage::RetroAchievements;
+                        self.stage_started_at = Some(now);
+                        self.stage_paused_ms = 0;
+                        self.stage_elapsed_ms = 0;
+                        self.last_card_tick = u32::MAX;
+                        self.pending_draw = true;
+                        return;
+                    } else if ig_opt.is_some() {
+                        self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.player.start(now);
+                    } else {
+                        self.finished = true;
+                        self.pending_draw = false;
+                        return;
+                    }
+                } else {
+                    let tick = (elapsed / 66) as u32;
+                    if tick != self.last_card_tick {
+                        self.last_card_tick = tick;
+                        self.pending_draw = true;
+                    } else {
+                        self.pending_draw = false;
+                    }
+                    return;
+                }
+            }
+            InGameSubStage::RetroAchievements => {
+                let has_ra = meta_opt.is_some_and(|m| m.has_active_ra());
+                let start = *self.stage_started_at.get_or_insert(now);
+                let elapsed = (now.duration_since(start).as_millis() as u64)
+                    .saturating_sub(self.stage_paused_ms);
+                self.stage_elapsed_ms = elapsed;
+                if !has_ra || elapsed >= card_dur_ms {
+                    if ig_opt.is_some() {
+                        self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.player.start(now);
+                    } else {
+                        self.finished = true;
+                        self.pending_draw = false;
+                        return;
+                    }
+                } else {
+                    let tick = (elapsed / 100) as u32;
+                    if tick != self.last_card_tick {
+                        self.last_card_tick = tick;
+                        self.pending_draw = true;
+                    } else {
+                        self.pending_draw = false;
+                    }
+                    return;
+                }
+            }
+            InGameSubStage::ShowcaseStream => {}
+        }
+
+        let Some(ig) = ig_opt else {
+            self.has_stream = false;
+            self.pending_draw = false;
+            self.finished = true;
+            return;
+        };
+
+        self.has_stream = true;
+        self.stream_width = ig.stream.width;
+        self.stream_height = ig.stream.height;
+
+        let has_cards = meta_opt.is_some();
+        let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop) && !has_cards;
+        let stream_done = self.player.advance(&ig.stream, now, loop_playback, None);
+        if stream_done && matches!(ig.cycle_mode, InGameCycleMode::Loop) && has_cards {
+            if let Some(first_stage) = Self::select_initial_stage(meta_opt, true) {
+                self.sub_stage = first_stage;
+                self.stage_started_at = Some(now);
+                self.stage_paused_ms = 0;
+                self.stage_elapsed_ms = 0;
+                self.last_card_tick = u32::MAX;
+                self.pending_draw = true;
+                return;
+            }
+        }
+        self.finished = stream_done;
         self.pending_draw = self.player.has_new_frame(&ig.stream);
     }
 
@@ -1235,14 +2753,41 @@ impl Engine for InGameShowcaseEngine {
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
         let snap = context.config.producer_snapshot.load();
-        if let Some(ref ig) = snap.ingame_showcase {
-            self.player
-                .render_to_surface(&ig.stream, &mut *context.surface);
+        match self.sub_stage {
+            InGameSubStage::HallOfFame => {
+                if let Some(ref meta) = snap.sync_meta {
+                    HallOfFameCard::render(
+                        &mut *context.surface,
+                        meta,
+                        self.lang,
+                        self.stage_elapsed_ms,
+                    );
+                }
+            }
+            InGameSubStage::RetroAchievements => {
+                if let Some(ref meta) = snap.sync_meta {
+                    RetroAchievementsCard::render(
+                        &mut *context.surface,
+                        meta,
+                        self.lang,
+                        self.stage_elapsed_ms,
+                    );
+                }
+            }
+            InGameSubStage::ShowcaseStream => {
+                if let Some(ref ig) = snap.ingame_showcase {
+                    self.player
+                        .render_to_surface(&ig.stream, &mut *context.surface);
+                }
+            }
         }
         self.pending_draw = false;
     }
 
     fn wants_clear(&self) -> bool {
+        if self.sub_stage != InGameSubStage::ShowcaseStream {
+            return true;
+        }
         !self.has_stream
             || self.stream_width == 0
             || self.stream_height == 0
@@ -1252,11 +2797,14 @@ impl Engine for InGameShowcaseEngine {
     }
 
     fn has_new_frame(&self) -> bool {
-        !self.finished && !self.player.is_paused() && self.pending_draw
+        !self.finished
+            && self.stage_paused_at.is_none()
+            && !self.player.is_paused()
+            && self.pending_draw
     }
 
     fn is_realtime(&self) -> bool {
-        !self.finished && !self.player.is_paused()
+        !self.finished && self.stage_paused_at.is_none() && !self.player.is_paused()
     }
 
     fn is_finished(&self) -> bool {

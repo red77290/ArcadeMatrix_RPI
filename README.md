@@ -4,9 +4,12 @@
 
 [![Telegram Community](https://img.shields.io/badge/Telegram-Join%20Community-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/+DrSdAO8UMUViNmE0)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Project-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/red1l)
+[![Visual Changelog](https://img.shields.io/badge/%F0%9F%93%B0%20Visual%20Changelog-Release%20Notes-00E5FF?style=for-the-badge)](https://red77290.github.io/ArcadeMatrix_RPI/#changelog)
+[![Fleet Dashboard](https://img.shields.io/badge/%F0%9F%93%8A%20Fleet%20Stats-Live%20Telemetry-FFB300?style=for-the-badge)](https://red77290.github.io/ArcadeMatrix_RPI/#stats)
 
 💬 **Telegram Community:** [https://t.me/+DrSdAO8UMUViNmE0](https://t.me/+DrSdAO8UMUViNmE0)  
-📺 **Video Demo / Présentation :** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs
+📺 **Video Demo / Présentation :** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs  
+📰 **Visual Changelog & 📊 Public Fleet Dashboard:** [https://red77290.github.io/ArcadeMatrix_RPI/](https://red77290.github.io/ArcadeMatrix_RPI/)
 
 The original **Rust** implementation of the **ArcadeMatrix** project, specifically designed to run on a **Raspberry Pi** connected to an RGB LED Matrix (HUB75) via the Adafruit HAT or Joy-IT hardware.
 
@@ -60,6 +63,7 @@ Every engine in ArcadeMatrix RPi is engineered in pure, multi-threaded Rust with
 | **Series Showcase**<br>`series_showcase` | <img src="docs/assets/engines/engine_seriesshowcase.png" width="240" alt="Series Showcase Engine"> | TV series showcase displaying show posters, release year, star ratings, localized synopses, and 30 FPS RGB565 trailer streams.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
 | **Anime Showcase**<br>`anime_showcase` | <img src="docs/assets/engines/engine_animeshowcase.png" width="240" alt="Anime Showcase Engine"> | Anime & manga showcase powered by AniList/Jikan/Kitsu metadata with cover art, localized synopses, and 30 FPS RGB565 video previews.<br>⚠️ **Requires [dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** installed on another machine on the same local network. |
 | **Calendar & Date**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Date Engine"> | Large arcade-styled date with 3D Capcom/Nintendo drop shadows, multi-language support (EN, FR, ES), and NTP synchronization. |
+| **Smart Agenda (iCal / .ics)**<br>`agenda` | `agenda` | Dual-calendar RFC 5545 `.ics` / `webcal://` synchronization (Google, Apple iCloud, Outlook, Nextcloud) with persistent SD binary cache (`agenda_<id>.bin`), contextual arcade pixel-art icons, imminent countdown alerts, and sleeping Metool `FREE PLAY` chill mode. |
 
 > [!NOTE]
 > **Hardware Rendering Notice:** The engine preview displays and clock showcase posters shown in this documentation are high-fidelity software simulations designed to illustrate visual layouts, animations, and telemetry widgets. Actual hardware rendering on a physical HUB75 LED matrix panel may differ depending on LED pitch, optical acrylic diffusion, viewing distance, and ambient brightness.
@@ -242,9 +246,9 @@ The 4 Showcase engines (`retro_games`, `movie_showcase`, `series_showcase`, `ani
 
 ---
 
-## 🕹️ Recalbox, Batocera & RetroPie Integration (Pixelcade Marquees + In-Game Showcase)
+## 🕹️ Recalbox, Batocera & RetroPie Integration (Pixelcade Marquees + In-Game Showcase + High Scores & RetroAchievements)
 
-ArcadeMatrix supports instant **Pixelcade-style** marquees while browsing menus AND automatic **In-Game Showcase** presentations (Animated Info Card + Panoramas + Gameplay Video) when you launch a game on your Recalbox, Batocera, or RetroPie console!
+ArcadeMatrix supports instant **Pixelcade-style** marquees while browsing menus, automatic **In-Game Showcase** presentations (Animated Info Card + Panoramas + Gameplay Video), **Arcade High Scores (`Hall of Fame`)**, **RetroAchievements (`RA`) progress cards**, and **60 FPS Fireworks & Hero Celebrations (`SyncCelebration`, Priority 55)** when you unlock an achievement or beat a Top 3 arcade record on your Recalbox, Batocera, or RetroPie console!
 
 > [!IMPORTANT]
 > **Batocera version requirement:** Dynamic marquee switching while browsing games and systems requires **Batocera v33 or newer** (Batocera introduced the EmulationStation `game-selected` and `system-selected` script hooks in v33). On Batocera v32 and earlier, only game launch and stop events (`game-start`, `game-end`) are supported. Recalbox is fully supported across all versions via its native state polling daemon.

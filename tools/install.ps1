@@ -138,13 +138,19 @@ try {
     $daemonLocal = Join-Path $TmpDir "arcadematrix_daemon.py"
     [System.IO.File]::WriteAllText($daemonLocal, $daemonSrc.Replace("`r`n", "`n"))
 
+    $companionSrc = Get-Content -LiteralPath (Join-Path $ScriptDir "arcadematrix_companion_sync.py") -Raw -Encoding UTF8
+    $companionSrc = $companionSrc.Replace("{{DMD_HOST}}", $DmdIp).Replace("{{BROKER}}", $DmdIp).Replace("{{TOPIC}}", $topic)
+    $companionLocal = Join-Path $TmpDir "arcadematrix_companion_sync.py"
+    [System.IO.File]::WriteAllText($companionLocal, $companionSrc.Replace("`r`n", "`n"))
+
     if ($system -eq "recalbox") {
         $TargetDir = "/recalbox/share/userscripts"
         Write-Host "Cleaning up previous install..."
-        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TargetDir/arcadematrix_mqtt.sh; mkdir -p $TargetDir" | Out-Null
+        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TargetDir/arcadematrix_mqtt.sh; mkdir -p $TargetDir" | Out-Null
 
-        Write-Host "Uploading daemon (topic: $topic)..."
+        Write-Host "Uploading daemon & companion sync (topic: $topic)..."
         Copy-ToRemote $activeUser $daemonLocal "/recalbox/share/arcadematrix_daemon.py"
+        Copy-ToRemote $activeUser $companionLocal "/recalbox/share/arcadematrix_companion_sync.py"
 
         $launcherSrc = Get-Content -LiteralPath (Join-Path $ScriptDir "arcadematrix_launcher(permanent).sh") -Raw -Encoding UTF8
         $launcherLocal = Join-Path $TmpDir "arcadematrix_launcher(permanent).sh"
@@ -152,14 +158,14 @@ try {
         Copy-ToRemote $activeUser $launcherLocal "$TargetDir/arcadematrix_launcher(permanent).sh"
 
         Write-Host "Rebooting $TargetIp to apply changes..."
-        Invoke-RemoteCommand $activeUser "chmod +x '$TargetDir/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" | Out-Null
+        Invoke-RemoteCommand $activeUser "chmod +x /recalbox/share/arcadematrix_companion_sync.py '$TargetDir/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" | Out-Null
 
     } elseif ($system -eq "batocera") {
         $TargetDir = "/userdata/system/scripts"
         Write-Host "Cleaning up legacy daemons..."
-        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" | Out-Null
+        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_companion_sync.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" | Out-Null
         Write-Host "Removing legacy script files..."
-        Invoke-RemoteCommand $activeUser "rm -f /userdata/system/arcadematrix_daemon.py $TargetDir/arcadematrix_hook.sh $TargetDir/arcadematrix_mqtt.sh" | Out-Null
+        Invoke-RemoteCommand $activeUser "rm -f /userdata/system/arcadematrix_daemon.py $TargetDir/arcadematrix_hook.sh $TargetDir/arcadematrix_mqtt.sh $TargetDir/arcadematrix_companion_sync.py" | Out-Null
         Write-Host "Removing legacy ES event directories..."
         Invoke-RemoteCommand $activeUser "rm -rf $TargetDir/game-selected $TargetDir/game-start $TargetDir/game-end $TargetDir/system-selected" | Out-Null
         Invoke-RemoteCommand $activeUser "rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected" | Out-Null
@@ -174,9 +180,10 @@ try {
             -replace '\{\{BROKER\}\}', $DmdIp
         [System.IO.File]::WriteAllText($batoceraHookLocal, $batoceraHookSrc.Replace("`r`n", "`n"))
 
-        Write-Host "Uploading hook to $TargetDir/arcadematrix_mqtt.sh..."
+        Write-Host "Uploading hook & companion sync to $TargetDir..."
         Copy-ToRemote $activeUser $batoceraHookLocal "$TargetDir/arcadematrix_mqtt.sh"
-        Invoke-RemoteCommand $activeUser "chmod 755 $TargetDir/arcadematrix_mqtt.sh" | Out-Null
+        Copy-ToRemote $activeUser $companionLocal "$TargetDir/arcadematrix_companion_sync.py"
+        Invoke-RemoteCommand $activeUser "chmod 755 $TargetDir/arcadematrix_mqtt.sh $TargetDir/arcadematrix_companion_sync.py" | Out-Null
 
         Write-Host "Verifying hook deployment..."
         $verifyOutput = & ssh @SshOpts "${activeUser}@${TargetIp}" "test -f $TargetDir/arcadematrix_mqtt.sh && wc -c < $TargetDir/arcadematrix_mqtt.sh && head -1 $TargetDir/arcadematrix_mqtt.sh" 2>$null
@@ -200,11 +207,12 @@ try {
 
     } elseif ($system -eq "retropie") {
         Write-Host "Installing for RetroPie..."
-        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; mkdir -p /opt/retropie/configs/all" | Out-Null
+        Invoke-RemoteCommand $activeUser "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; mkdir -p /opt/retropie/configs/all" | Out-Null
 
-        Write-Host "Uploading daemon (topic: $topic)..."
+        Write-Host "Uploading daemon & companion sync (topic: $topic)..."
         Copy-ToRemote $activeUser $daemonLocal "/opt/retropie/configs/all/arcadematrix_daemon.py"
-        Invoke-RemoteCommand $activeUser "chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py" | Out-Null
+        Copy-ToRemote $activeUser $companionLocal "/opt/retropie/configs/all/arcadematrix_companion_sync.py"
+        Invoke-RemoteCommand $activeUser "chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py /opt/retropie/configs/all/arcadematrix_companion_sync.py" | Out-Null
 
         $retroCmd = @'
 touch /opt/retropie/configs/all/runcommand-onstart.sh

@@ -127,7 +127,7 @@ export function getEngineMeta(descOrMeta) {
     else if (id.includes('stock') || cat.includes('stock') || cat.includes('finance')) icon = '📈';
     else if (id.includes('gif') || cat.includes('animation') || cat.includes('media_anim')) icon = '🎞️';
     else if (id.includes('sys') || cat.includes('system') || cat.includes('info')) icon = '🖥️';
-    else if (id.includes('date') || cat.includes('calendar')) icon = '📅';
+    else if (id === 'agenda' || id.includes('date') || cat.includes('calendar') || cat.includes('productivity')) icon = '🗓️';
     else if (id.includes('spotify')) icon = '🟢';
     else if (id.includes('cast') || id.includes('music') || cat.includes('audio')) icon = '🎵';
     else if (id.includes('marquee')) icon = '📜';

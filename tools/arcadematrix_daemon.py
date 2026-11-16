@@ -157,6 +157,50 @@ def clean_system_name(s):
     return s_clean
 
 
+def spawn_companion_sync(action, system="", game="", rom_path="", title=""):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "arcadematrix_companion_sync.py"),
+        "/recalbox/share/arcadematrix_companion_sync.py",
+        "/opt/retropie/configs/all/arcadematrix_companion_sync.py",
+        "/userdata/system/scripts/arcadematrix_companion_sync.py",
+    ]
+    comp_script = None
+    for c in candidates:
+        if os.path.isfile(c):
+            comp_script = c
+            break
+    if not comp_script:
+        return
+
+    cmd = [
+        sys.executable or "python3",
+        comp_script,
+        action,
+        "--dmd-host",
+        str(DMD_HOST),
+        "--topic",
+        str(TOPIC),
+        "--system",
+        str(system or ""),
+        "--game",
+        str(game or ""),
+        "--rom-path",
+        str(rom_path or ""),
+    ]
+    if title:
+        cmd.extend(["--title", str(title)])
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass
+
+
 def main():
     # Single instance lock: guarantee only one daemon runs at a time, even if EmulationStation
     # (re)starts this launcher script multiple times in a row.
@@ -171,6 +215,7 @@ def main():
     time.sleep(5)
     last_state_key = None
     last_sent_key = None
+    last_playing_ctx = None
     pending_since = 0
 
     while True:
@@ -201,6 +246,8 @@ def main():
             elapsed = time.time() - pending_since
             if elapsed >= 0.15 and current_key != last_sent_key:
                 last_sent_key = current_key
+                gbase = ""
+                tclean = ""
 
                 if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
@@ -216,7 +263,28 @@ def main():
                             payload_obj["title"] = tclean
                     msg = json.dumps(payload_obj)
 
+                # 1. Always publish the core playing/browsing/stopped event immediately (0ms Marquee guarantee)
                 publish_event(msg)
+
+                # 2. Trigger asynchronous companion sync on game start / stop transitions
+                if current_key[3] == "playing" and gbase:
+                    last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
+                    spawn_companion_sync(
+                        "start",
+                        system=last_playing_ctx[0],
+                        game=last_playing_ctx[1],
+                        rom_path=last_playing_ctx[2],
+                        title=last_playing_ctx[3],
+                    )
+                elif current_key[3] == "stopped" or last_playing_ctx is not None:
+                    ctx = last_playing_ctx or ("", "", "", "")
+                    last_playing_ctx = None
+                    spawn_companion_sync(
+                        "stop",
+                        system=ctx[0],
+                        game=ctx[1],
+                        rom_path=ctx[2],
+                    )
         except Exception as e:
             print("Error: " + str(e), flush=True)
 

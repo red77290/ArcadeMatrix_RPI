@@ -14,6 +14,35 @@ LOG_FILE="/userdata/system/scripts/daemon.log"
 DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
 MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
 BROKER_CACHE_FILE="/tmp/arcadematrix_broker_target.cache"
+COMPANION_SCRIPT="/userdata/system/scripts/arcadematrix_companion_sync.py"
+
+spawn_companion_sync() {
+    _ACTION="$1"
+    _SYS="$2"
+    _GAME="$3"
+    _ROM="$4"
+    _TITLE="$5"
+    if [ ! -f "$COMPANION_SCRIPT" ]; then
+        return 0
+    fi
+    _PY=""
+    if command -v python3 >/dev/null 2>&1; then
+        _PY="python3"
+    elif [ -x /usr/bin/python3 ]; then
+        _PY="/usr/bin/python3"
+    elif command -v python >/dev/null 2>&1; then
+        _PY="python"
+    fi
+    if [ -n "$_PY" ]; then
+        "$_PY" "$COMPANION_SCRIPT" "$_ACTION" \
+            --dmd-host "$DMD_HOST" \
+            --topic "$TOPIC" \
+            --system "$_SYS" \
+            --game "$_GAME" \
+            --rom-path "$_ROM" \
+            --title "$_TITLE" >> "$LOG_FILE" 2>&1 &
+    fi
+}
 
 resolve_broker_target() {
     NOW_TS=$(date +%s 2>/dev/null || echo 0)
@@ -219,6 +248,7 @@ case "$EVENT" in
         fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
+        spawn_companion_sync "start" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" "$TITLE_CLEAN"
         ;;
 
     gameStop)
@@ -244,6 +274,7 @@ case "$EVENT" in
         PAYLOAD="{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
+        spawn_companion_sync "stop" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" ""
         ;;
 
     game-selected|gameSelected)
@@ -314,6 +345,7 @@ case "$EVENT" in
         fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
+        spawn_companion_sync "start" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" "$TITLE_CLEAN"
         ;;
 
     game-end)
@@ -334,6 +366,7 @@ case "$EVENT" in
         PAYLOAD="{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD"
+        spawn_companion_sync "stop" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" ""
         ;;
 
     *)

@@ -1082,3 +1082,478 @@ fn test_gnews_serpentine_render_execution_no_panic() {
         "Widescreen 256x64 should render serpentine flow"
     );
 }
+
+// =========================================================================
+// Group 11 — Agenda Engine & RFC 5545 .ics Streaming Parser
+// =========================================================================
+
+#[test]
+fn test_agenda_ics_streaming_parser_utf8_line_folding_and_rrule() {
+    use arcadematrix::engines::agenda_ics::{
+        compute_agenda_config_crc32, normalize_ics_url, parse_ics_stream, resolve_agenda_sprite,
+        AgendaCacheHeader, AgendaEventPod, MAX_AGENDA_EVENTS,
+    };
+    use arcadematrix::engines::clocks::sprite_bank::SpriteId;
+
+    assert_eq!(std::mem::size_of::<AgendaCacheHeader>(), 24);
+    assert_eq!(std::mem::size_of::<AgendaEventPod>(), 96);
+    assert_eq!(
+        normalize_ics_url("webcal://calendar.google.com/private/basic.ics"),
+        "https://calendar.google.com/private/basic.ics"
+    );
+
+    assert_eq!(
+        resolve_agenda_sprite("Anniversaire Léo 🎂"),
+        SpriteId::BirthdayCake
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Daily Standup Zoom Meeting"),
+        SpriteId::CyberCall
+    );
+    assert_eq!(
+        resolve_agenda_sprite("RDV Dentiste Dr Martin"),
+        SpriteId::MedicalHeart
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Soirée Pizza & Burger"),
+        SpriteId::FoodPizza
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Match Padel & Gym"),
+        SpriteId::SportSonic
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Train SNCF Paris -> Lyon"),
+        SpriteId::TravelPlane
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Tournoi Arcade Street Fighter"),
+        SpriteId::GamingPacman
+    );
+    assert_eq!(
+        resolve_agenda_sprite("Courses supermarché"),
+        SpriteId::CalendarDefault
+    );
+
+    // Build an RFC 5545 stream where a multi-byte UTF-8 character ('é' = 0xC3 0xA9)
+    // is split right across a CRLF + space line fold, plus RRULEs and EXDATE.
+    let mut raw_ics = Vec::new();
+    raw_ics.extend_from_slice(
+        b"BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nDTSTART:20260510T090000Z\r\nDTEND:20260510T100000Z\r\nSUMMARY:R",
+    );
+    raw_ics.push(0xC3);
+    raw_ics.extend_from_slice(b"\r\n ");
+    raw_ics.push(0xA9);
+    raw_ics.extend_from_slice(
+        b"union Teams Architecture\\, Sprint 4\r\nEND:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART;VALUE=DATE:20200512\r\n\
+SUMMARY:Anniversaire Mario\r\n\
+RRULE:FREQ=YEARLY\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20260504T180000Z\r\n\
+DURATION:PT1H\r\n\
+SUMMARY:Entrainement Sport Padel\r\n\
+RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR\r\n\
+EXDATE:20260511T180000Z\r\n\
+END:VEVENT\r\n\
+BEGIN:VEVENT\r\n\
+DTSTART:20260510T120000Z\r\n\
+DTEND:20260510T130000Z\r\n\
+STATUS:CANCELLED\r\n\
+SUMMARY:Cancelled Lunch\r\n\
+END:VEVENT\r\n\
+END:VCALENDAR\r\n",
+    );
+
+    // Window start: 2026-05-10 08:00:00 UTC (epoch 1778400000)
+    let window_start = 1_778_400_000u32;
+    let window_end = window_start + 7 * 86400;
+    let mut pods = [AgendaEventPod::empty(); MAX_AGENDA_EVENTS];
+    let mut count = 0usize;
+
+    parse_ics_stream(
+        &raw_ics[..],
+        window_start,
+        window_end,
+        "Perso",
+        0,
+        0x07FF,
+        "UTC",
+        &mut pods,
+        &mut count,
+    );
+
+    assert!(
+        count >= 3,
+        "Expected at least 3 expanded events, got {}",
+        count
+    );
+    assert_eq!(pods[0].title_str(), "Réunion Teams Architecture, Sprint 4");
+    assert_eq!(pods[0].sprite_id, SpriteId::CyberCall as u8);
+    assert!(
+        pods[..count]
+            .iter()
+            .any(|p| p.title_str() == "Anniversaire Mario" && p.is_all_day() && p.is_recurring()),
+        "Yearly birthday RRULE must expand into 2026 window"
+    );
+    assert!(
+        pods[..count]
+            .iter()
+            .all(|p| p.title_str() != "Cancelled Lunch"),
+        "STATUS:CANCELLED events must be ignored"
+    );
+
+    let crc1 = compute_agenda_config_crc32("https://a.ics", "https://b.ics", 7);
+    let crc2 = compute_agenda_config_crc32("https://a.ics", "https://b.ics", 14);
+    assert_ne!(crc1, crc2);
+}
+
+#[test]
+fn test_agenda_header_only_reboot_cache_check() {
+    use arcadematrix::engines::agenda_ics::{
+        compute_agenda_config_crc32, read_cache_header_only, read_cache_records,
+        write_cache_records_atomic, AgendaEventPod, AGENDA_CACHE_MAGIC,
+    };
+
+    let tmp_dir = tempfile::tempdir().expect("tempdir");
+    let cache_path = tmp_dir.path().join("agenda_test.bin");
+    let cfg_crc = compute_agenda_config_crc32("https://example.com/cal.ics", "", 7);
+    let fetch_epoch = 1_778_400_500u32;
+
+    let mut pod = AgendaEventPod::empty();
+    pod.start_epoch = fetch_epoch + 600;
+    pod.end_epoch = fetch_epoch + 4200;
+    pod.calendar_color_565 = 0x07FF;
+    pod.set_title("Tournoi Arcade LAN");
+    pod.set_badge_label("Perso");
+
+    assert!(write_cache_records_atomic(
+        &cache_path,
+        cfg_crc,
+        fetch_epoch,
+        &[pod]
+    ));
+
+    let hdr = read_cache_header_only(&cache_path).expect("valid 24-byte header");
+    let magic = hdr.magic;
+    let rec_cnt = hdr.record_count;
+    let saved_crc = hdr.config_crc32;
+    let saved_epoch = hdr.last_fetch_epoch;
+    assert_eq!(magic, AGENDA_CACHE_MAGIC);
+    assert_eq!(rec_cnt, 1);
+    assert_eq!(saved_crc, cfg_crc);
+    assert_eq!(saved_epoch, fetch_epoch);
+
+    let (_hdr2, pods, cnt) =
+        read_cache_records(&cache_path, cfg_crc).expect("valid payload records");
+    assert_eq!(cnt, 1);
+    assert_eq!(pods[0].title_str(), "Tournoi Arcade LAN");
+}
+
+// =========================================================================
+// Group 12 — Mechanical Zero-Allocation Proof (10,000 Frames) for Agenda & SyncCelebration
+// =========================================================================
+
+#[test]
+fn test_agenda_and_sync_celebration_10000_frames_zero_allocation_proof() {
+    use arcadematrix::core::types::{copy_str_to_pod, SyncCelebrationPayload};
+    use arcadematrix::engines::agenda::AgendaEngine;
+    use arcadematrix::engines::agenda_ics::{write_cache_records_atomic, AgendaEventPod};
+    use arcadematrix::engines::clocks::sprite_bank::SpriteId;
+    use arcadematrix::engines::frontend_sync::SyncCelebrationEngine;
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let temp_cfg_path = temp_dir.path().join("config.json");
+    let _ = std::fs::copy("config.json", &temp_cfg_path);
+    let config = arcadematrix::core::config::Config::new(&temp_cfg_path);
+
+    config.set_sync_celebration(Some(SyncCelebrationPayload {
+        event_token: 1,
+        kind: 0,
+        system: copy_str_to_pod("neogeo"),
+        title: copy_str_to_pod("#1 RED"),
+        subtitle: copy_str_to_pod("Metal Slug X"),
+        score_or_pts: copy_str_to_pod("1,245,800"),
+        hardcore: true,
+        duration_ms: 7500,
+    }));
+
+    let mut matrix = MockSurface::new(128, 64);
+    let empty_cfg = HashMap::new();
+
+    // 1. Setup AgendaEngine with an active event in cache
+    let mut agenda = AgendaEngine::new();
+    agenda.set_instance_name("zero_alloc_test");
+    {
+        let mut ctx = EngineContext {
+            surface: &mut matrix,
+            config: &config,
+        };
+        let hash_cfg = arcadematrix::core::engine_contract::HashConfig { data: &empty_cfg };
+        agenda.initialize(&mut ctx, &hash_cfg).unwrap();
+    }
+    let now_ep = AgendaEngine::current_unix_epoch();
+    let mut ev = AgendaEventPod::empty();
+    ev.start_epoch = now_ep + 300;
+    ev.end_epoch = now_ep + 3900;
+    ev.calendar_color_565 = 0x07FF;
+    ev.sprite_id = SpriteId::CyberCall as u8;
+    ev.set_title("Architecture Review Meeting");
+    ev.set_badge_label("Pro");
+    let _ = write_cache_records_atomic(
+        &agenda.cache_file_path(),
+        agenda.config_crc32(),
+        now_ep,
+        &[ev],
+    );
+    agenda.activate();
+
+    // 2. Setup SyncCelebrationEngine
+    let mut celebration = SyncCelebrationEngine::new();
+    {
+        let mut ctx = EngineContext {
+            surface: &mut matrix,
+            config: &config,
+        };
+        let hash_cfg = arcadematrix::core::engine_contract::HashConfig { data: &empty_cfg };
+        celebration.initialize(&mut ctx, &hash_cfg).unwrap();
+    }
+    celebration.activate();
+
+    // Warmup 1 frame each before arming TrackingAllocator
+    {
+        let mut ctx = EngineContext {
+            surface: &mut matrix,
+            config: &config,
+        };
+        agenda.update(&mut ctx);
+        agenda.render(&mut ctx);
+        celebration.update(&mut ctx);
+        celebration.render(&mut ctx);
+    }
+
+    // Arm thread-local allocation tracker
+    THREAD_ALLOC_COUNT.with(|c| c.set(0));
+    THREAD_DEALLOC_COUNT.with(|c| c.set(0));
+    THREAD_TRACKING.with(|t| t.set(true));
+
+    for _ in 0..10_000 {
+        let mut ctx = EngineContext {
+            surface: &mut matrix,
+            config: &config,
+        };
+        agenda.update(&mut ctx);
+        agenda.render(&mut ctx);
+        celebration.update(&mut ctx);
+        celebration.render(&mut ctx);
+    }
+
+    THREAD_TRACKING.with(|t| t.set(false));
+    let total_allocs = THREAD_ALLOC_COUNT.with(|c| c.get());
+    let _ = std::fs::remove_file(agenda.cache_file_path());
+    assert_eq!(
+        total_allocs, 0,
+        "AgendaEngine + SyncCelebrationEngine violated zero-allocation invariant: {} allocations in 10,000 frames!",
+        total_allocs
+    );
+}
+
+// =========================================================================
+// Group 13 — PreemptionStack<4> SyncCelebration (Prio 55) over InGameShowcase (Prio 45)
+// =========================================================================
+
+#[test]
+fn test_sync_celebration_priority_55_preempts_ingame_showcase_and_resumes() {
+    let mut arbiter = DisplayArbiter::new();
+    let mut runtime = DisplayRuntime::new();
+    let mut engine_runtime = EngineRuntime::new();
+
+    let h_rot = engine_runtime.register_instance_handle("rot_clock", "clock");
+    let h_marq = engine_runtime.register_instance_handle("marquee", "marquee");
+    let h_ingame = engine_runtime.register_instance_handle("ingame_showcase", "frontend_sync");
+    let h_celeb = engine_runtime.register_instance_handle("sync_celebration", "sync_celebration");
+
+    let t0 = Instant::now();
+
+    // 1. Rotation active (Priority 10)
+    arbiter.submit_request(DisplayRequest {
+        source_id: DisplaySourceId::Rotation,
+        request_id: 1,
+        engine_handle: h_rot,
+        priority: DisplaySourceId::Rotation as u8,
+        lifecycle: RequestLifecycle::Persistent,
+        preemptive: false,
+        created_at: t0,
+        duration_ms: 0,
+    });
+    let d1 = arbiter.evaluate(t0);
+    assert_eq!(
+        runtime.transition_session(d1, &arbiter, &mut engine_runtime),
+        TransitionMode::Replace
+    );
+
+    // 2. Marquee preempts Rotation (Priority 30)
+    arbiter.submit_request(DisplayRequest {
+        source_id: DisplaySourceId::Marquee,
+        request_id: 2001,
+        engine_handle: h_marq,
+        priority: DisplaySourceId::Marquee as u8,
+        lifecycle: RequestLifecycle::Persistent,
+        preemptive: true,
+        created_at: t0,
+        duration_ms: 0,
+    });
+    let d2 = arbiter.evaluate(t0);
+    assert_eq!(
+        runtime.transition_session(d2, &arbiter, &mut engine_runtime),
+        TransitionMode::Preempt
+    );
+    assert_eq!(runtime.preemption_depth(), 1);
+
+    // 3. InGameShowcase preempts Marquee (Priority 45)
+    arbiter.submit_request(DisplayRequest {
+        source_id: DisplaySourceId::InGameShowcase,
+        request_id: 3001,
+        engine_handle: h_ingame,
+        priority: DisplaySourceId::InGameShowcase as u8,
+        lifecycle: RequestLifecycle::Persistent,
+        preemptive: true,
+        created_at: t0,
+        duration_ms: 0,
+    });
+    let d3 = arbiter.evaluate(t0);
+    assert_eq!(
+        runtime.transition_session(d3, &arbiter, &mut engine_runtime),
+        TransitionMode::Preempt
+    );
+    assert_eq!(runtime.preemption_depth(), 2);
+    assert_eq!(
+        runtime.active_session().source_id,
+        DisplaySourceId::InGameShowcase
+    );
+
+    // 4. SyncCelebration preempts InGameShowcase (Priority 55, Transient 7500ms)
+    arbiter.submit_request(DisplayRequest {
+        source_id: DisplaySourceId::SyncCelebration,
+        request_id: 4001,
+        engine_handle: h_celeb,
+        priority: DisplaySourceId::SyncCelebration as u8,
+        lifecycle: RequestLifecycle::Transient,
+        preemptive: true,
+        created_at: t0,
+        duration_ms: 7500,
+    });
+    let d4 = arbiter.evaluate(t0);
+    assert_eq!(d4.source_id, DisplaySourceId::SyncCelebration);
+    assert_eq!(d4.priority, 55);
+    assert_eq!(
+        runtime.transition_session(d4, &arbiter, &mut engine_runtime),
+        TransitionMode::Preempt
+    );
+    assert_eq!(runtime.preemption_depth(), 3);
+    assert_eq!(
+        runtime.active_session().source_id,
+        DisplaySourceId::SyncCelebration
+    );
+
+    // 5. After 7.5s, SyncCelebration expires and DisplayRuntime automatically resumes InGameShowcase!
+    let t_after = t0 + std::time::Duration::from_millis(7501);
+    let d5 = arbiter.evaluate(t_after);
+    assert_eq!(d5.source_id, DisplaySourceId::InGameShowcase);
+    assert_eq!(
+        runtime.transition_session(d5, &arbiter, &mut engine_runtime),
+        TransitionMode::Resume
+    );
+    assert_eq!(runtime.preemption_depth(), 2);
+    assert_eq!(
+        runtime.active_session().source_id,
+        DisplaySourceId::InGameShowcase
+    );
+    assert_eq!(runtime.active_session().engine_handle, h_ingame);
+}
+
+#[test]
+fn test_frontend_sync_cards_and_ota_telemetry_helpers() {
+    use arcadematrix::api::ota::{normalize_rpi_model, normalize_rpi_os_label};
+    use arcadematrix::core::config::{generate_uuid_v4, is_valid_uuid_v4, MqttConfig};
+    use arcadematrix::core::i18n::Lang;
+    use arcadematrix::engines::frontend_sync::{
+        parse_celebration_from_json, parse_sync_meta_from_json, HallOfFameCard,
+        RetroAchievementsCard,
+    };
+
+    let uuid = generate_uuid_v4();
+    assert_eq!(uuid.len(), 36);
+    assert!(is_valid_uuid_v4(&uuid));
+    assert!(!is_valid_uuid_v4("not-a-valid-uuid"));
+
+    assert_eq!(
+        normalize_rpi_model("Raspberry Pi 4 Model B Rev 1.5\0"),
+        "rpi4b"
+    );
+    assert_eq!(
+        normalize_rpi_model("Raspberry Pi Zero 2 W Rev 1.0"),
+        "rpizero2w"
+    );
+    assert_eq!(
+        normalize_rpi_os_label("aarch64", "VERSION_CODENAME=bookworm\n"),
+        "64bit-bookworm"
+    );
+
+    let sample_meta: serde_json::Value = serde_json::from_str(
+        r#"{
+            "status": "sync_meta",
+            "system": "neogeo",
+            "game": "mslugx",
+            "hiscores": [
+                {"rank": 1, "tag": "RED", "score": "1,245,800"},
+                {"rank": 2, "tag": "AAA", "score": "980,000"},
+                {"rank": 3, "tag": "SNK", "score": "750,000"}
+            ],
+            "ra": {
+                "unlocked": 18,
+                "total": 45,
+                "points": 240,
+                "hardcore": true,
+                "recent_title": "Metal Slug Master"
+            }
+        }"#,
+    )
+    .unwrap();
+
+    let mqtt_cfg = MqttConfig::default();
+    let meta = parse_sync_meta_from_json(&sample_meta, 77, &mqtt_cfg).expect("valid sync_meta");
+    assert_eq!(meta.hiscore_count, 3);
+    assert!(meta.has_active_hiscores());
+    assert!(meta.has_active_ra());
+    assert_eq!(meta.ra.unlocked, 18);
+    assert_eq!(meta.ra.total, 45);
+    assert!(meta.ra.hardcore);
+
+    for (w, h) in [(128, 32), (256, 64), (32, 64), (64, 128)] {
+        let mut surf = MockSurface::new(w, h);
+        HallOfFameCard::render(&mut surf, &meta, Lang::Fr, 500);
+        assert!(surf
+            .canvas
+            .pixels()
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0));
+        let mut surf_ra = MockSurface::new(w, h);
+        RetroAchievementsCard::render(&mut surf_ra, &meta, Lang::Fr, 500);
+        assert!(surf_ra
+            .canvas
+            .pixels()
+            .any(|p| p[0] > 0 || p[1] > 0 || p[2] > 0));
+    }
+
+    let cel_json: serde_json::Value = serde_json::from_str(
+        r#"{"status":"celebrate","kind":"achievement","system":"snes","game":"smw","title":"Dragon Coin","points":25,"hardcore":true}"#,
+    )
+    .unwrap();
+    let cel = parse_celebration_from_json(&cel_json, 9);
+    assert_eq!(cel.kind, 1);
+    assert_eq!(cel.title_str(), "Dragon Coin");
+    assert_eq!(cel.score_or_pts_str(), "+25 PTS");
+    assert!(cel.hardcore);
+}

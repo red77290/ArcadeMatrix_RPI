@@ -176,25 +176,27 @@ fi
 
 TOPIC="system/playing/$SYSTEM"
 sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_daemon.py" > "$TMP_DIR/arcadematrix_daemon.py"
+sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_companion_sync.py" > "$TMP_DIR/arcadematrix_companion_sync.py"
 
 if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
     echo "Cleaning up any previous install..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true; mkdir -p $TARGET_DIR" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; pkill -f arcadematrix_mqtt.sh || true; rm -f $TARGET_DIR/arcadematrix_mqtt.sh || true; mkdir -p $TARGET_DIR" || true
 
-    echo "Uploading daemon (topic: $TOPIC)..."
+    echo "Uploading daemon & companion sync (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "/recalbox/share/arcadematrix_companion_sync.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "$TARGET_DIR/arcadematrix_launcher(permanent).sh" || { echo "SCP failed!"; exit 1; }
 
     echo "Rebooting $TARGET_IP to apply changes..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x '$TARGET_DIR/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x /recalbox/share/arcadematrix_companion_sync.py '$TARGET_DIR/arcadematrix_launcher(permanent).sh' && sync && sleep 1 && reboot" || true
 
 elif [ "$SYSTEM" = "batocera" ]; then
     TARGET_DIR="/userdata/system/scripts"
     echo "Cleaning up legacy daemons..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_companion_sync.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true" || true
     echo "Removing legacy script files..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -f /userdata/system/arcadematrix_daemon.py $TARGET_DIR/arcadematrix_hook.sh $TARGET_DIR/arcadematrix_mqtt.sh" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -f /userdata/system/arcadematrix_daemon.py $TARGET_DIR/arcadematrix_hook.sh $TARGET_DIR/arcadematrix_mqtt.sh $TARGET_DIR/arcadematrix_companion_sync.py" || true
     echo "Removing legacy ES event directories..."
     ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -rf $TARGET_DIR/game-selected $TARGET_DIR/game-start $TARGET_DIR/game-end $TARGET_DIR/system-selected" || true
     ssh_run "$ACTIVE_USER" "$PASSWORD" "rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected" || true
@@ -204,9 +206,10 @@ elif [ "$SYSTEM" = "batocera" ]; then
     echo "Preparing Batocera event hook (dynamic MQTT broker discovery via DMD $DMD_IP)..."
     sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" > "$TMP_DIR/arcadematrix_mqtt.sh"
 
-    echo "Uploading hook to $TARGET_DIR/arcadematrix_mqtt.sh..."
+    echo "Uploading hook & companion sync to $TARGET_DIR..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_mqtt.sh" "$TARGET_DIR/arcadematrix_mqtt.sh" || { echo "Upload failed!"; exit 1; }
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod 755 $TARGET_DIR/arcadematrix_mqtt.sh" || true
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "$TARGET_DIR/arcadematrix_companion_sync.py" || { echo "Upload failed!"; exit 1; }
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod 755 $TARGET_DIR/arcadematrix_mqtt.sh $TARGET_DIR/arcadematrix_companion_sync.py" || true
 
     echo "Verifying hook deployment..."
     VERIFY=$(ssh_run "$ACTIVE_USER" "$PASSWORD" "test -f $TARGET_DIR/arcadematrix_mqtt.sh && wc -c < $TARGET_DIR/arcadematrix_mqtt.sh && head -1 $TARGET_DIR/arcadematrix_mqtt.sh" 2>/dev/null || true)
@@ -234,11 +237,12 @@ elif [ "$SYSTEM" = "batocera" ]; then
 
 elif [ "$SYSTEM" = "retropie" ]; then
     echo "Installing for RetroPie..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; mkdir -p /opt/retropie/configs/all" || true
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; mkdir -p /opt/retropie/configs/all" || true
 
-    echo "Uploading daemon (topic: $TOPIC)..."
+    echo "Uploading daemon & companion sync (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/opt/retropie/configs/all/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py" || true
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "/opt/retropie/configs/all/arcadematrix_companion_sync.py" || { echo "SCP failed!"; exit 1; }
+    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py /opt/retropie/configs/all/arcadematrix_companion_sync.py" || true
 
     echo "Configuring runcommand hooks..."
     ssh_run "$ACTIVE_USER" "$PASSWORD" "

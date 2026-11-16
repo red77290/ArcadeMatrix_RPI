@@ -1,0 +1,100 @@
+{
+  "project": "rpi",
+  "latest_version": "v3.0.1",
+  "posts": [
+    {
+      "version": "v3.0.1",
+      "date": "2026-11-16",
+      "channel": "stable",
+      "tags": ["NEW", "PERF", "FIX"],
+      "media": "changelog/media/rpi-agenda-celebration.svg",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.1",
+      "title": {
+        "en": "iCal Agenda Engine, RetroAchievements Fireworks & Anonymous OTA Proxy",
+        "fr": "Moteur Agenda iCal, Feux d'Artifice RetroAchievements & Proxy OTA Anonyme",
+        "es": "Motor Agenda iCal, Fuegos Artificiales RetroAchievements y Proxy OTA Anónimo"
+      },
+      "summary": {
+        "en": "Brings native iCal (.ics) schedule synchronization, live RetroAchievements & High Score celebration overlays, and Cloudflare Edge OTA caching to Raspberry Pi.",
+        "fr": "Apporte la synchronisation native d'agendas iCal (.ics), les célébrations RetroAchievements & High Scores en direct, et le cache OTA Cloudflare Edge sur Raspberry Pi.",
+        "es": "Incorpora sincronización nativa de agendas iCal (.ics), celebraciones en vivo de RetroAchievements y High Scores, y caché OTA Cloudflare Edge en Raspberry Pi."
+      },
+      "before_after": {
+        "before": {
+          "en": "Checking for OTA updates queried api.github.com directly without fleet version visibility, and calendar/trophy notifications required custom webhooks.",
+          "fr": "La vérification OTA interrogeait directement api.github.com sans visibilité sur les migrations de versions, et les alertes agenda/trophées nécessitaient des scripts tiers.",
+          "es": "La comprobación OTA consultaba api.github.com directamente sin visibilidad de versiones, y las alertas de agenda/trofeos requerían scripts externos."
+        },
+        "after": {
+          "en": "Built-in 'agenda' engine, preemptive RetroAchievements celebration scenes, and Edge-cached OTA checks with zero-IP UUID v4 migration tracking.",
+          "fr": "Moteur 'agenda' intégré, scènes de célébration RetroAchievements préemptives, et vérification OTA en cache Edge avec suivi UUID v4 zéro-IP.",
+          "es": "Motor 'agenda' integrado, escenas preemptivas de celebración RetroAchievements y comprobación OTA en caché Edge con seguimiento UUID v4 sin IP."
+        }
+      },
+      "highlights": {
+        "en": [
+          "NEW — iCal Agenda Engine ('agenda'): Asynchronous Tokio ICS poller with countdown badges, daily schedule views, and zero render-thread blocking.",
+          "NEW — RetroAchievements & High Score Celebrations: Instant trophy unlock fireworks and scrolling personal best banners from Recalbox, Batocera, and RetroArch.",
+          "PERF — Cloudflare Edge OTA Proxy: 10-minute Edge cache with automatic fallback to GitHub API and anonymous UUID v4 version migration tracking (Pi Models & 64-bit/32-bit OS).",
+          "FIX — Improved Tate (90°/270°) canvas stride alignment for multi-chained HUB75 panels."
+        ],
+        "fr": [
+          "NEW — Moteur Agenda iCal ('agenda') : Poller ICS asynchrone Tokio avec badges de compte à rebours, vue planning et zéro blocage du thread de rendu.",
+          "NEW — Célébrations RetroAchievements & High Scores : Feux d'artifice instantanés de trophées débloqués et bannières de records depuis Recalbox, Batocera et RetroArch.",
+          "PERF — Proxy OTA Cloudflare Edge : Cache Edge 10 min avec repli automatique vers l'API GitHub et suivi anonyme UUID v4 des migrations (modèles de Pi & OS 64-bit/32-bit).",
+          "FIX — Alignement amélioré du canvas en rotation Tate (90°/270°) pour les dalles HUB75 chaînées."
+        ],
+        "es": [
+          "NEW — Motor Agenda iCal ('agenda'): Poller ICS asíncrono en Tokio con insignias de cuenta regresiva y cero bloqueos en el hilo de renderizado.",
+          "NEW — Celebraciones RetroAchievements y High Scores: Fuegos artificiales instantáneos de trofeos y récords desde Recalbox, Batocera y RetroArch.",
+          "PERF — Proxy OTA Cloudflare Edge: Caché Edge de 10 min con respaldo automático a la API de GitHub y seguimiento anónimo UUID v4 (modelos de Pi y SO de 64/32 bits).",
+          "FIX — Alineación mejorada en rotación Tate (90°/270°) para paneles HUB75 encadenados."
+        ]
+      }
+    },
+    {
+      "version": "v3.0.0",
+      "date": "2026-10-25",
+      "channel": "stable",
+      "tags": ["NEW", "PERF"],
+      "media": "changelog/media/rpi-v16-locked.svg",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.0",
+      "title": {
+        "en": "V1.6-FinalLocked Zero-Allocation Rust Runtime & Dual Arch SD Images",
+        "fr": "Runtime Rust V1.6-FinalLocked Zéro Allocation & Images SD Dual-Arch",
+        "es": "Runtime Rust V1.6-FinalLocked Sin Asignaciones e Imágenes SD Dual-Arch"
+      },
+      "summary": {
+        "en": "Complete Rust real-time rendering overhaul delivering deterministic frame pacing across Raspberry Pi Zero, 3B+, 4B, and 5 with pre-built aarch64 & armhf SD images.",
+        "fr": "Refonte complète du moteur de rendu temps réel en Rust offrant un cadencement déterministe sur Raspberry Pi Zero, 3B+, 4B et 5 avec images SD aarch64 & armhf prêtes à flasher.",
+        "es": "Renovación completa del motor en tiempo real en Rust con ritmo de cuadros determinista en Raspberry Pi Zero, 3B+, 4B y 5 e imágenes SD precompiladas aarch64 y armhf."
+      },
+      "before_after": {
+        "before": {
+          "en": "Per-frame buffer clones and lock contention during HTTP API updates could induce subtle PWM flicker on single/quad-core Pi Zero boards.",
+          "fr": "Les copies de buffers par trame et la contention de verrous lors des requêtes HTTP pouvaient induire un léger scintillement PWM sur Pi Zero.",
+          "es": "Las copias de búfer por cuadro y la contención de bloqueos durante peticiones HTTP podían inducir parpadeos PWM en placas Pi Zero."
+        },
+        "after": {
+          "en": "V1.6-FinalLocked zero-allocation render loop with pre-built 64-bit (aarch64) and 32-bit (armhf) plug-and-play SD Card images.",
+          "fr": "Boucle de rendu V1.6-FinalLocked zéro allocation avec images carte SD 64-bit (aarch64) et 32-bit (armhf) prêtes à l'emploi.",
+          "es": "Bucle de renderizado V1.6-FinalLocked sin asignaciones con imágenes de tarjeta SD de 64 bits (aarch64) y 32 bits (armhf) listas para usar."
+        }
+      },
+      "highlights": {
+        "en": [
+          "PERF — V1.6-FinalLocked zero-allocation render loop with wait-free configuration snapshots.",
+          "NEW — Automated CI builds for both 64-bit (aarch64) and 32-bit (armhf) pre-configured Raspberry Pi OS SD images."
+        ],
+        "fr": [
+          "PERF — Boucle de rendu V1.6-FinalLocked zéro allocation avec snapshots de configuration sans attente.",
+          "NEW — Compilation CI automatisée des images carte SD 64-bit (aarch64) et 32-bit (armhf) pré-configurées."
+        ],
+        "es": [
+          "PERF — Bucle de renderizado V1.6-FinalLocked sin asignaciones con instantáneas de configuración sin esperas.",
+          "NEW — Compilación CI automatizada de imágenes SD de 64 bits (aarch64) y 32 bits (armhf) preconfiguradas."
+        ]
+      }
+    }
+  ]
+}

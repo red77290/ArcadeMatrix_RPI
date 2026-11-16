@@ -95,6 +95,8 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `idle_fighter_enabled` | `bool` | Interruptor principal de la superposición decorativa de Luchador sobre las pantallas de rotación inactivas (activación por pantalla mediante cada entrada de rotación). |
 | `idle_fighter_interval` | `int` | Segundos entre dos animaciones de combate (mínimo `1`, por defecto `10`). |
 | `idle_fighter_speed` | `int` | Porcentaje de velocidad de animación para el overlay de Luchador (`25`–`200`, por defecto `100`). |
+| `install_id` | `String` | UUID v4 RFC 4122 anónimo generado automáticamente en el primer arranque (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) para el conteo deduplicado de la flota OTA. |
+| `ota_auto_check` | `bool` | Comprueba automáticamente nuevas versiones al abrir la WebUI (máx. 1 vez cada 12h, por defecto `true`). |
 
 ---
 
@@ -128,6 +130,11 @@ También puedes enviar credenciales en tiempo de ejecución con `POST /api/wifi 
 | `video_fps` | `int` | `15` | (Modo `custom`) Cuadros por segundo objetivo del vídeo (`8`–`60`). |
 | `video_mode` | `String` | `"auto_action"` | (Modo `custom`) Modo de encuadre de vídeo: `"auto_action"`, `"panorama"` o `"center_crop"`. |
 | `color_boost` | `String` | `"auto"` | (Modo `custom`) Perfil de color LED HUB75: `"auto"`, `"pixel_art"`, `"anime"` o `"cinema"`. |
+| `sync_show_hiscores` | `bool` | `true` | Muestra de forma oportunista la tarjeta `HallOfFameCard` (Top 5 de récords arcade) durante `playing` cuando existen puntuaciones `.hi` / `hi2txt` para el juego. |
+| `sync_show_ra` | `bool` | `true` | Muestra de forma oportunista la tarjeta `RetroAchievementsCard` (barra de XP RPG, puntos, borde dorado hardcore, última insignia) durante `playing` cuando existen datos de RA. |
+| `sync_celebrate_events` | `bool` | `true` | Activa la celebración a 60 FPS de 7,5s (`SyncCelebration`, Prioridad 55) con fuegos artificiales Q8.8 y cameos de héroes al desbloquear un logro de RetroAchievements o batir un récord Top 3 arcade. |
+| `sync_card_duration_sec` | `int` | `8` | Duración en pantalla en segundos (`5`–`20`) de las tarjetas `HallOfFameCard` y `RetroAchievementsCard` en el ciclo en juego. |
+| `ra_web_api_key` | `String` | `""` | Clave Web API de RetroAchievements opcional compartida con el script complementario de la consola vía `GET /api/mqtt/broker-target`. |
 | *(auto-suscripción)* | `system/playing/#` | — | Se suscribe automáticamente a todos los sistemas retro compatibles: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
 
 ### Descubrimiento Dinámico del Broker, Aislamiento `{dmd_id}_sync`, Aborto de Conversiones y Vaciado de Caché
@@ -457,6 +464,22 @@ Todo lo demás viene de cada mensaje retained: su `type` (`value`, `table`, `gra
 | `genres` | `List` | `""` | Dinámico (`/api/v1/{domain}/filters`) | Filtrar por géneros obtenidos dinámicamente del servidor Showcase. |
 | `decades` | `List` | `""` | Dinámico (`/api/v1/{domain}/filters`) | Filtrar por décadas obtenidas dinámicamente del servidor Showcase. |
 | `video_type` | `Options` | `any` / `opening` | `any`, `trailer`, `scene`, `opening`, `ending` | (`movie_showcase`, `series_showcase`, `anime_showcase`) Tipo de clip de vídeo preferido. |
+
+### Motor: `agenda` (Agenda Inteligente iCal / `.ics`)
+| Campo | Tipo | Por defecto | Opciones | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `ics_url_1` | `String` | `""` | URL `.ics` / `webcal://` | URL iCal / `.ics` del calendario principal (Google, Apple iCloud, Outlook, Nextcloud). |
+| `ics_label_1` | `String` | `"Perso"` | Texto | Etiqueta corta del calendario principal. |
+| `ics_color_1` | `String` | `"#00E5FF"` | Color Hex | Color de acento del calendario principal. |
+| `ics_url_2` | `String` | `""` | URL `.ics` / `webcal://` | URL iCal / `.ics` opcional del segundo calendario fusionado cronológicamente. |
+| `ics_label_2` | `String` | `"Pro"` | Texto | Etiqueta corta del segundo calendario. |
+| `ics_color_2` | `String` | `"#FFB300"` | Color Hex | Color de acento del segundo calendario. |
+| `cache_ttl_min` | `int` | `60` | `15` a `1440` | Intervalo de sincronización `.ics` en minutos (caché binaria `data/cache/agenda_<id>.bin`). |
+| `horizon_days` | `int` | `7` | `1` a `30` | Horizonte de previsión en días. |
+| `events_shown` | `int` | `3` | `1` a `6` | Número máximo de eventos mostrados. |
+| `empty_behavior` | `Options` | `chill` | `chill`, `skip` | Sin eventos: `chill` muestra la escena `FREE PLAY` con Metool dormido; `skip` salta inmediatamente al siguiente turno. |
+| `imminent_min` | `int` | `15` | `0` a `60` | Minutos antes del inicio de un evento para activar la alerta inminente (`EN X MIN`). |
+| `fun_sprites` | `bool` | `true` | `true`, `false` | Muestra iconos pixel-art contextuales (Cumpleaños, Reunión, Médico, Restaurante, Deporte, Viaje, Gaming). |
 
 ---
 

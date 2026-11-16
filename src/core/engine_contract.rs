@@ -228,6 +228,9 @@ pub trait Engine: Send + Sync {
     // Dynamic Configuration
     fn on_config_changed(&mut self, _config: &dyn EngineConfig) {}
 
+    /// Optional hook called by `EngineRuntime` to inform the instance of its configured `instance_id`.
+    fn set_instance_name(&mut self, _name: &str) {}
+
     // Intrinsic sequence completion signaling
     fn is_finished(&self) -> bool {
         false

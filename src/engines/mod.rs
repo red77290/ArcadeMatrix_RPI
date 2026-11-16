@@ -1,3 +1,5 @@
+pub mod agenda;
+pub mod agenda_ics;
 pub mod anime_showcase;
 pub mod clock;
 pub mod clocks;

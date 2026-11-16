@@ -297,8 +297,98 @@ function initOta() {
   const autoProgress = document.getElementById('ota-auto-progress');
   const autoProgressText = document.getElementById('ota-auto-progress-text');
 
+  const autoCheckCheckbox = document.getElementById('ota-auto-check-enabled');
+  const sidebarOtaBadge = document.getElementById('sidebar-ota-badge');
+
   let latestDownloadUrl = null;
   let targetVersionName = '';
+
+  const applyOtaCheckResponse = (data, isSilent = false) => {
+    if (!data || data.status === 'error') {
+      if (!isSilent && data?.message) {
+        window.showToast(`❌ ${data.message}`, 'error');
+      }
+      return;
+    }
+
+    if (onlineCard) onlineCard.style.display = 'block';
+    targetVersionName = data.latest_version;
+    if (onlineTargetVer) onlineTargetVer.textContent = `v${data.latest_version}`;
+
+    if (onlineSize) {
+      if (data.asset_size) {
+        onlineSize.textContent = `${(data.asset_size / (1024 * 1024)).toFixed(1)} MB (${data.current_arch})`;
+      } else {
+        onlineSize.textContent = data.current_arch;
+      }
+    }
+
+    if (onlineNotes) {
+      if (data.release_notes) {
+        onlineNotes.textContent = data.release_notes;
+        onlineNotes.style.display = 'block';
+      } else {
+        onlineNotes.style.display = 'none';
+      }
+    }
+
+    if (data.update_available && data.download_url) {
+      latestDownloadUrl = data.download_url;
+      if (onlineBadge) {
+        onlineBadge.className = 'badge badge-accent';
+        onlineBadge.textContent = 'New Update Available';
+      }
+      if (btnAutoInstall) {
+        btnAutoInstall.style.display = 'inline-block';
+        btnAutoInstall.textContent = `⬇️ Download & Install v${data.latest_version}`;
+      }
+      if (sidebarOtaBadge) {
+        sidebarOtaBadge.style.display = 'inline-block';
+        sidebarOtaBadge.textContent = `⬆ v${data.latest_version}`;
+      }
+      if (!isSilent) {
+        window.showToast(`🎉 New update v${data.latest_version} available!`, 'success');
+      }
+    } else {
+      latestDownloadUrl = null;
+      if (onlineBadge) {
+        onlineBadge.className = 'badge';
+        onlineBadge.textContent = 'Up to Date';
+      }
+      if (btnAutoInstall) btnAutoInstall.style.display = 'none';
+      if (sidebarOtaBadge) sidebarOtaBadge.style.display = 'none';
+      if (!isSilent) {
+        window.showToast(`✅ You are already on the latest version (v${data.current_version}).`, 'info');
+      }
+    }
+  };
+
+  if (autoCheckCheckbox && !autoCheckCheckbox._boundChange) {
+    autoCheckCheckbox._boundChange = true;
+    autoCheckCheckbox.addEventListener('change', async () => {
+      const enabled = !!autoCheckCheckbox.checked;
+      try {
+        await API.post('/api/system', { ota_auto_check: enabled });
+        if (window.__sysConfig && window.__sysConfig.system) {
+          window.__sysConfig.system.ota_auto_check = enabled;
+        }
+      } catch (_) {}
+    });
+  }
+
+  window.runSilentOtaAutoCheck = async (force = false) => {
+    const autoEnabled = window.__sysConfig?.system?.ota_auto_check !== false;
+    if (!force && !autoEnabled) return;
+    const now = Date.now();
+    const lastTs = parseInt(localStorage.getItem('am_last_ota_auto_check_ts') || '0', 10) || 0;
+    const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+    if (!force && (now - lastTs) < TWELVE_HOURS_MS) return;
+    try {
+      localStorage.setItem('am_last_ota_auto_check_ts', String(now));
+      const data = await API.checkOtaUpdate();
+      applyOtaCheckResponse(data, true);
+    } catch (_) {}
+  };
 
   if (btnCheck) {
     btnCheck.addEventListener('click', async () => {
@@ -308,42 +398,8 @@ function initOta() {
 
       try {
         const data = await API.checkOtaUpdate();
-        if (data.status === 'error') {
-          window.showToast(`❌ ${data.message}`, 'error');
-          return;
-        }
-
-        onlineCard.style.display = 'block';
-        targetVersionName = data.latest_version;
-        onlineTargetVer.textContent = `v${data.latest_version}`;
-
-        if (data.asset_size) {
-          onlineSize.textContent = `${(data.asset_size / (1024 * 1024)).toFixed(1)} MB (${data.current_arch})`;
-        } else {
-          onlineSize.textContent = data.current_arch;
-        }
-
-        if (data.release_notes) {
-          onlineNotes.textContent = data.release_notes;
-          onlineNotes.style.display = 'block';
-        } else {
-          onlineNotes.style.display = 'none';
-        }
-
-        if (data.update_available && data.download_url) {
-          latestDownloadUrl = data.download_url;
-          onlineBadge.className = 'badge badge-accent';
-          onlineBadge.textContent = 'New Update Available';
-          btnAutoInstall.style.display = 'inline-block';
-          btnAutoInstall.textContent = `⬇️ Download & Install v${data.latest_version}`;
-          window.showToast(`🎉 New update v${data.latest_version} available!`, 'success');
-        } else {
-          latestDownloadUrl = null;
-          onlineBadge.className = 'badge';
-          onlineBadge.textContent = 'Up to Date';
-          btnAutoInstall.style.display = 'none';
-          window.showToast(`✅ You are already on the latest version (v${data.current_version}).`, 'info');
-        }
+        localStorage.setItem('am_last_ota_auto_check_ts', String(Date.now()));
+        applyOtaCheckResponse(data, false);
       } catch (err) {
         window.showToast(`❌ Failed to check updates: ${err.message || err.status}`, 'error');
       } finally {
@@ -384,6 +440,7 @@ function initOta() {
           window.showToast(`✅ Firmware successfully updated to v${versionData.version}!`, 'success');
         }
         loadVersion();
+        window.runSilentOtaAutoCheck?.(true);
         if (onlineCard) onlineCard.style.display = 'none';
       } catch (err) {
         window.showToast(`❌ Automatic update failed: ${err.message || err.status}`, 'error');
@@ -428,6 +485,7 @@ function initOta() {
         window.showToast(`✅ Firmware successfully updated to v${versionData.version}!`, 'success');
       }
       loadVersion();
+      window.runSilentOtaAutoCheck?.(true);
     } catch (err) {
       window.showToast(`❌ Update failed: ${err.message || err.status}`, 'error');
     } finally {
@@ -726,6 +784,11 @@ function initNetworkSettings() {
         video_fps: parseInt(document.getElementById('hw-mqtt-video-fps')?.value, 10) || 15,
         video_mode: document.getElementById('hw-mqtt-video-mode')?.value || 'auto_action',
         color_boost: document.getElementById('hw-mqtt-color-boost')?.value || 'auto',
+        sync_show_hiscores: document.getElementById('hw-mqtt-sync-show-hiscores')?.value !== 'false',
+        sync_show_ra: document.getElementById('hw-mqtt-sync-show-ra')?.value !== 'false',
+        sync_celebrate_events: document.getElementById('hw-mqtt-sync-celebrate-events')?.value !== 'false',
+        sync_card_duration_sec: Math.max(5, Math.min(20, parseInt(document.getElementById('hw-mqtt-sync-card-duration')?.value, 10) || 8)),
+        ra_web_api_key: document.getElementById('hw-mqtt-ra-web-api-key')?.value || '',
       };
       try {
         const res = await API.post('/api/system', { mqtt });
@@ -1082,8 +1145,17 @@ async function initSettings() {
     setVal('hw-mqtt-video-fps', String(mqtt.video_fps ?? 15));
     setVal('hw-mqtt-video-mode', mqtt.video_mode || 'auto_action');
     setVal('hw-mqtt-color-boost', mqtt.color_boost || 'auto');
+    setVal('hw-mqtt-sync-show-hiscores', mqtt.sync_show_hiscores !== false ? 'true' : 'false');
+    setVal('hw-mqtt-sync-show-ra', mqtt.sync_show_ra !== false ? 'true' : 'false');
+    setVal('hw-mqtt-sync-celebrate-events', mqtt.sync_celebrate_events !== false ? 'true' : 'false');
+    setVal('hw-mqtt-sync-card-duration', mqtt.sync_card_duration_sec ?? 8);
+    setVal('hw-mqtt-ra-web-api-key', mqtt.ra_web_api_key || '');
+    setChk('ota-auto-check-enabled', sys.ota_auto_check !== false);
     if (typeof window.updateFrontendSyncShowcaseVisibility === 'function') {
       window.updateFrontendSyncShowcaseVisibility();
+    }
+    if (typeof window.runSilentOtaAutoCheck === 'function') {
+      window.runSilentOtaAutoCheck(false);
     }
 
     // Data MQTT (nested data_mqtt.*)

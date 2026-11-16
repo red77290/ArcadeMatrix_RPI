@@ -11,6 +11,7 @@ pub mod pokedex_clock;
 pub mod pong_clock;
 pub mod slot_machine_clock;
 pub mod sonic_clock;
+pub mod sprite_bank;
 pub mod tetris_clock;
 pub mod versus_clock;
 pub mod word_clock;

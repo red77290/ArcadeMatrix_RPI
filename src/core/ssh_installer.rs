@@ -69,11 +69,20 @@ fn detect_os_remotely(sess: &Session) -> Option<TargetOS> {
     }
 }
 
+fn generate_companion_sync_code(matrix_ip: &str, topic: &str) -> String {
+    include_str!("../../tools/arcadematrix_companion_sync.py")
+        .replace('\r', "")
+        .replace("{{DMD_HOST}}", matrix_ip)
+        .replace("{{BROKER}}", matrix_ip)
+        .replace("{{TOPIC}}", topic)
+}
+
 fn generate_daemon_code(matrix_ip: &str, topic: &str) -> String {
     format!(
         r#"import subprocess
 import time
 import os
+import sys
 import json
 import urllib.request
 
@@ -124,6 +133,48 @@ def publish_mqtt(msg, force_refresh=False):
                 check=False,
             )
 
+def spawn_companion_sync(action, system="", game="", rom_path="", title=""):
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "arcadematrix_companion_sync.py"),
+        "/recalbox/share/arcadematrix_companion_sync.py",
+        "/opt/retropie/configs/all/arcadematrix_companion_sync.py",
+        "/userdata/system/scripts/arcadematrix_companion_sync.py",
+    ]
+    comp_script = None
+    for c in candidates:
+        if os.path.isfile(c):
+            comp_script = c
+            break
+    if not comp_script:
+        return
+    cmd = [
+        sys.executable or "python3",
+        comp_script,
+        action,
+        "--dmd-host",
+        str(DMD_HOST),
+        "--topic",
+        str(TOPIC),
+        "--system",
+        str(system or ""),
+        "--game",
+        str(game or ""),
+        "--rom-path",
+        str(rom_path or ""),
+    ]
+    if title:
+        cmd.extend(["--title", str(title)])
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except Exception:
+        pass
+
 def parse_statefile():
     game = None
     title = None
@@ -166,7 +217,6 @@ def clean_system_name(s):
 
 def main():
     import socket
-    import sys
     lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         lock_socket.bind(("127.0.0.1", 49132))
@@ -178,6 +228,7 @@ def main():
     time.sleep(3)
     last_state_key = None
     last_sent_key = None
+    last_playing_ctx = None
     pending_since = 0
 
     while True:
@@ -208,6 +259,8 @@ def main():
             elapsed = time.time() - pending_since
             if elapsed >= 0.15 and current_key != last_sent_key:
                 last_sent_key = current_key
+                gbase = ""
+                tclean = ""
 
                 if current_key[3] == "stopped":
                     msg = '{{"status": "stopped"}}'
@@ -227,6 +280,25 @@ def main():
                     publish_mqtt(msg, force_refresh=(current_key[3] == "playing"))
                 except Exception:
                     pass
+
+                if current_key[3] == "playing" and gbase:
+                    last_playing_ctx = (str(current_key[2]), gbase, str(current_key[0] or ""), tclean)
+                    spawn_companion_sync(
+                        "start",
+                        system=last_playing_ctx[0],
+                        game=last_playing_ctx[1],
+                        rom_path=last_playing_ctx[2],
+                        title=last_playing_ctx[3],
+                    )
+                elif current_key[3] == "stopped" or last_playing_ctx is not None:
+                    ctx = last_playing_ctx or ("", "", "", "")
+                    last_playing_ctx = None
+                    spawn_companion_sync(
+                        "stop",
+                        system=ctx[0],
+                        game=ctx[1],
+                        rom_path=ctx[2],
+                    )
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
@@ -250,6 +322,35 @@ TOPIC="system/playing/batocera"
 LOG_FILE="/userdata/system/scripts/daemon.log"
 DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
 MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
+COMPANION_SCRIPT="/userdata/system/scripts/arcadematrix_companion_sync.py"
+
+spawn_companion_sync() {{
+    _ACTION="$1"
+    _SYS="$2"
+    _GAME="$3"
+    _ROM="$4"
+    _TITLE="$5"
+    if [ ! -f "$COMPANION_SCRIPT" ]; then
+        return 0
+    fi
+    _PY=""
+    if command -v python3 >/dev/null 2>&1; then
+        _PY="python3"
+    elif [ -x /usr/bin/python3 ]; then
+        _PY="/usr/bin/python3"
+    elif command -v python >/dev/null 2>&1; then
+        _PY="python"
+    fi
+    if [ -n "$_PY" ]; then
+        "$_PY" "$COMPANION_SCRIPT" "$_ACTION" \
+            --dmd-host "$DMD_HOST" \
+            --topic "$TOPIC" \
+            --system "$_SYS" \
+            --game "$_GAME" \
+            --rom-path "$_ROM" \
+            --title "$_TITLE" >> "$LOG_FILE" 2>&1 &
+    fi
+}}
 
 resolve_broker() {{
     _FORCE="$1"
@@ -457,6 +558,7 @@ case "$EVENT" in
         fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD" 1
+        spawn_companion_sync "start" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" "$TITLE_CLEAN"
         ;;
 
     gameStop)
@@ -482,6 +584,7 @@ case "$EVENT" in
         PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD" 0
+        spawn_companion_sync "stop" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" ""
         ;;
 
     game-selected|gameSelected)
@@ -552,6 +655,7 @@ case "$EVENT" in
         fi
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD" 1
+        spawn_companion_sync "start" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" "$TITLE_CLEAN"
         ;;
 
     game-end)
@@ -572,6 +676,7 @@ case "$EVENT" in
         PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
         echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Sent: $PAYLOAD" >> "$LOG_FILE"
         send_mqtt "$PAYLOAD" 0
+        spawn_companion_sync "stop" "$SYS_CLEAN" "$GAME_CLEAN" "$ROM_PATH" ""
         ;;
 
     *)
@@ -662,18 +767,20 @@ pub fn install_sync_script(
 
     tracing::info!("Target OS identified as: {}", os.name());
     let daemon_code = generate_daemon_code(matrix_ip, os.topic());
+    let companion_code = generate_companion_sync_code(matrix_ip, os.topic());
 
     match os {
         TargetOS::RetroPie => {
             tracing::info!("Installing for RetroPie...");
             let daemon_path = "/opt/retropie/configs/all/arcadematrix_daemon.py";
+            let companion_path = "/opt/retropie/configs/all/arcadematrix_companion_sync.py";
             let onstart_path = "/opt/retropie/configs/all/runcommand-onstart.sh";
             let onend_path = "/opt/retropie/configs/all/runcommand-onend.sh";
             let autostart_path = "/opt/retropie/configs/all/autostart.sh";
 
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec("pkill -f arcadematrix_daemon.py || true; if ! command -v mosquitto_pub >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y mosquitto-clients || true; fi").ok();
+                channel.exec("pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true; if ! command -v mosquitto_pub >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y mosquitto-clients || true; fi").ok();
                 channel.wait_close().ok();
             }
 
@@ -686,8 +793,18 @@ pub fn install_sync_script(
                 channel.wait_close().ok();
             }
             {
+                use std::io::Write;
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("chmod +x {}", daemon_path)).ok();
+                channel.exec(&format!("cat > {}", companion_path)).ok();
+                channel.write_all(companion_code.as_bytes()).ok();
+                channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel
+                    .exec(&format!("chmod +x {} {}", daemon_path, companion_path))
+                    .ok();
                 channel.wait_close().ok();
             }
 
@@ -757,6 +874,7 @@ EOF
         TargetOS::Batocera => {
             tracing::info!("Installing for Batocera...");
             let hook_path = "/userdata/system/scripts/arcadematrix_mqtt.sh";
+            let companion_path = "/userdata/system/scripts/arcadematrix_companion_sync.py";
 
             // Check Batocera version
             if let Ok(mut channel) = sess.channel_session() {
@@ -786,7 +904,7 @@ EOF
                 let mut channel = sess
                     .channel_session()
                     .map_err(|e| format!("SSH channel error (cleanup kill): {}", e))?;
-                channel.exec("pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true")
+                channel.exec("pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_companion_sync.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true")
                     .map_err(|e| format!("exec failed (cleanup kill): {}", e))?;
                 let mut out = String::new();
                 let _ = channel.read_to_string(&mut out);
@@ -799,7 +917,7 @@ EOF
                 let mut channel = sess
                     .channel_session()
                     .map_err(|e| format!("SSH channel error (cleanup rm): {}", e))?;
-                channel.exec("rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh")
+                channel.exec("rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh /userdata/system/scripts/arcadematrix_companion_sync.py")
                     .map_err(|e| format!("exec failed (cleanup rm files): {}", e))?;
                 let mut out = String::new();
                 let _ = channel.read_to_string(&mut out);
@@ -911,18 +1029,36 @@ EOF
                 }
             }
 
-            // 8. chmod and create ES event directory wrappers (separate commands)
+            // 8. Write companion sync script and chmod both scripts
+            {
+                use std::io::Write;
+                let mut channel = sess
+                    .channel_session()
+                    .map_err(|e| format!("SSH channel error (write companion): {}", e))?;
+                channel
+                    .exec(&format!("cat > {}", companion_path))
+                    .map_err(|e| format!("exec 'cat > {}' failed: {}", companion_path, e))?;
+                channel
+                    .write_all(companion_code.as_bytes())
+                    .map_err(|e| format!("write_all to {} failed: {}", companion_path, e))?;
+                channel.send_eof().map_err(|e| {
+                    format!("send_eof failed after writing {}: {}", companion_path, e)
+                })?;
+                channel.wait_close().ok();
+                tracing::info!("Batocera companion written to {}", companion_path);
+            }
+
             {
                 let mut channel = sess
                     .channel_session()
                     .map_err(|e| format!("SSH channel error (chmod): {}", e))?;
                 channel
-                    .exec(&format!("chmod 755 {}", hook_path))
+                    .exec(&format!("chmod 755 {} {}", hook_path, companion_path))
                     .map_err(|e| format!("chmod 755 {} failed: {}", hook_path, e))?;
                 let mut out = String::new();
                 let _ = channel.read_to_string(&mut out);
                 channel.wait_close().ok();
-                tracing::info!("Batocera chmod hook: done");
+                tracing::info!("Batocera chmod hook + companion: done");
             }
 
             // 9. Create ES event wrapper scripts in separate channels
@@ -986,7 +1122,7 @@ EOF
             {
                 let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
                 channel.exec(&format!(
-                    "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
+                    "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py /recalbox/share/arcadematrix_companion_sync.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true; pkill -f arcadematrix_companion_sync.py || true",
                     target_dir
                 )).ok();
                 channel.wait_close().ok();
@@ -999,6 +1135,21 @@ EOF
                 channel.exec(&format!("cat > {}", daemon_path)).ok();
                 channel.write_all(daemon_code.as_bytes()).ok();
                 channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+
+            let companion_path = "/recalbox/share/arcadematrix_companion_sync.py";
+            {
+                use std::io::Write;
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("cat > {}", companion_path)).ok();
+                channel.write_all(companion_code.as_bytes()).ok();
+                channel.send_eof().ok();
+                channel.wait_close().ok();
+            }
+            {
+                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
+                channel.exec(&format!("chmod +x {}", companion_path)).ok();
                 channel.wait_close().ok();
             }
 
@@ -1154,6 +1305,7 @@ mod tests {
         assert!(code.contains("DMD_HOST = \"192.168.1.42\""));
         assert!(code.contains("/api/mqtt/broker-target"));
         assert!(code.contains("def resolve_broker"));
+        assert!(code.contains("def spawn_companion_sync"));
         assert!(code.contains("payload_obj[\"title\"] = tclean"));
         assert!(!code.contains("BROKER = \"192.168.1.42\""));
     }
@@ -1165,7 +1317,18 @@ mod tests {
         assert!(hook.contains("DMD_HOST=\"192.168.1.42\""));
         assert!(hook.contains("/api/mqtt/broker-target"));
         assert!(hook.contains("resolve_broker()"));
+        assert!(hook.contains("spawn_companion_sync()"));
         assert!(hook.contains("\\\"title\\\": \\\"$TITLE_CLEAN\\\""));
         assert!(!hook.contains("\nBROKER=\"192.168.1.42\""));
+    }
+
+    #[test]
+    fn test_generated_companion_sync_code_substitutes_dmd_host_and_topic() {
+        let comp = generate_companion_sync_code("192.168.1.42", "system/playing/batocera");
+        assert!(comp.contains("DMD_HOST_DEFAULT = \"192.168.1.42\""));
+        assert!(comp.contains("TOPIC_DEFAULT = \"system/playing/batocera\""));
+        assert!(!comp.contains('\r'));
+        assert!(comp.contains("def extract_hiscores"));
+        assert!(comp.contains("def parse_rcheevos_unlock_line"));
     }
 }

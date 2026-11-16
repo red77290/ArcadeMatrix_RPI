@@ -110,13 +110,24 @@ async fn post_system(
     let prev_showcase = serde_json::to_value(&s.showcase).ok();
     let prev_disable_wifi = s.wifi.disable_internal;
     let prev_mqtt_pass = s.mqtt.pass.clone();
+    let prev_ra_web_api_key = s.mqtt.ra_web_api_key.clone();
     let prev_data_mqtt_pass = s.data_mqtt.pass.clone();
     let prev_wifi_pass = s.wifi.password.clone();
     let prev_api_token = s.api_token.clone();
+    let prev_install_id = s.system.install_id.clone();
 
     // Simplified update (normally you'd merge the fields)
     if let Some(sys) = body.get("system") {
-        if let Ok(sys_val) = serde_json::from_value(sys.clone()) {
+        if let Ok(mut sys_val) =
+            serde_json::from_value::<crate::core::config::SystemConfig>(sys.clone())
+        {
+            if !crate::core::config::is_valid_uuid_v4(&sys_val.install_id) {
+                sys_val.install_id = if crate::core::config::is_valid_uuid_v4(&prev_install_id) {
+                    prev_install_id.clone()
+                } else {
+                    crate::core::config::generate_uuid_v4()
+                };
+            }
             s.system = sys_val;
         }
     }
@@ -132,6 +143,10 @@ async fn post_system(
             if mq_val.pass == REDACTED_SECRET {
                 mq_val.pass = prev_mqtt_pass;
             }
+            if mq_val.ra_web_api_key == REDACTED_SECRET {
+                mq_val.ra_web_api_key = prev_ra_web_api_key;
+            }
+            mq_val.sync_card_duration_sec = mq_val.sync_card_duration_sec.clamp(5, 20);
             s.mqtt = mq_val;
         }
     }
@@ -224,6 +239,26 @@ async fn post_system(
     }
     if let Some(v) = body.get("night_brightness").and_then(|v| v.as_u64()) {
         s.system.night_brightness = (v.min(100)) as u32;
+    }
+    if let Some(v) = body.get("ota_auto_check").and_then(|v| v.as_bool()) {
+        s.system.ota_auto_check = v;
+    }
+    if let Some(v) = body.get("sync_show_hiscores").and_then(|v| v.as_bool()) {
+        s.mqtt.sync_show_hiscores = v;
+    }
+    if let Some(v) = body.get("sync_show_ra").and_then(|v| v.as_bool()) {
+        s.mqtt.sync_show_ra = v;
+    }
+    if let Some(v) = body.get("sync_celebrate_events").and_then(|v| v.as_bool()) {
+        s.mqtt.sync_celebrate_events = v;
+    }
+    if let Some(v) = body.get("sync_card_duration_sec").and_then(|v| v.as_u64()) {
+        s.mqtt.sync_card_duration_sec = (v.clamp(5, 20)) as u32;
+    }
+    if let Some(v) = body.get("ra_web_api_key").and_then(|v| v.as_str()) {
+        if v != REDACTED_SECRET {
+            s.mqtt.ra_web_api_key = v.to_string();
+        }
     }
     // Live daytime brightness (0-100), applied immediately without a restart.
     if let Some(v) = body
@@ -1744,6 +1779,22 @@ fn extract_request_target_host(req: &HttpRequest) -> Option<String> {
 #[get("/api/mqtt/broker-target")]
 async fn get_mqtt_broker_target(req: HttpRequest, data: web::Data<AppState>) -> impl Responder {
     let req_host = extract_request_target_host(&req);
+    let (
+        sync_show_hiscores,
+        sync_show_ra,
+        sync_celebrate_events,
+        sync_card_duration_sec,
+        ra_web_api_key,
+    ) = {
+        let s = data.config.settings.read();
+        (
+            s.mqtt.sync_show_hiscores,
+            s.mqtt.sync_show_ra,
+            s.mqtt.sync_celebrate_events,
+            s.mqtt.sync_card_duration_sec.clamp(5, 20),
+            s.mqtt.ra_web_api_key.clone(),
+        )
+    };
     let cfg = Arc::clone(&data.config);
     let res =
         web::block(move || crate::engines::frontend_sync::resolve_broker_target(&cfg, false)).await;
@@ -1762,6 +1813,11 @@ async fn get_mqtt_broker_target(req: HttpRequest, data: web::Data<AppState>) -> 
                 "port": target.port,
                 "source": target.source,
                 "mqtt_enabled": target.mqtt_enabled,
+                "sync_show_hiscores": sync_show_hiscores,
+                "sync_show_ra": sync_show_ra,
+                "sync_celebrate_events": sync_celebrate_events,
+                "sync_card_duration_sec": sync_card_duration_sec,
+                "ra_web_api_key": ra_web_api_key,
             }))
         }
         Err(_) => {
@@ -1771,6 +1827,11 @@ async fn get_mqtt_broker_target(req: HttpRequest, data: web::Data<AppState>) -> 
                 "port": 1883,
                 "source": "local",
                 "mqtt_enabled": true,
+                "sync_show_hiscores": sync_show_hiscores,
+                "sync_show_ra": sync_show_ra,
+                "sync_celebrate_events": sync_celebrate_events,
+                "sync_card_duration_sec": sync_card_duration_sec,
+                "ra_web_api_key": ra_web_api_key,
             }))
         }
     }

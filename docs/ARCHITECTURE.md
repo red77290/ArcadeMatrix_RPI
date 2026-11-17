@@ -578,11 +578,11 @@ sequenceDiagram
 
 ## 11. The Canonical Display Pipeline: Arbiter & DisplayRuntime
 
-The rotation is not the only thing that can own the screen. Marquees (arcade frontends), MQTT alerts, one-shot messages and the GIF player all compete for matrix display output. The `DisplayArbiter` and `DisplayRuntime` strictly separate arbitration intent from execution lifecycle:
+The rotation is not the only thing that can own the screen. Marquees (arcade frontends), In-Game Showcase streams (`45`), 60 FPS Arcade Celebrations (`55`), MQTT alerts (`40`), one-shot messages and the GIF player (`20`) all compete for matrix display output. The `DisplayArbiter` and `DisplayRuntime` strictly separate arbitration intent from execution lifecycle:
 
 ```mermaid
 flowchart TD
-    PROD["Producers (Rotation, MQTT, Marquee, GIF)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
+    PROD["Producers (SyncCelebration 55, InGameShowcase 45, MQTT 40, Marquee 30, GIF 20, Rotation 10)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
     ARB -->|DisplayDecision| DRT["DisplayRuntime (Session Lifecycle, FSM)"]
     DRT -->|EngineHandle (4 bytes)| ERT["EngineRuntime (HandleRegistry, O(1))"]
     ERT -->|Engine instance| ENG["Engine.update() / Engine.render()"]

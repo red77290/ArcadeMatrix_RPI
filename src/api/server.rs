@@ -321,6 +321,7 @@ async fn post_system(
     let new_showcase = serde_json::to_value(&s.showcase).ok();
     let mqtt_or_showcase_changed = prev_mqtt != new_mqtt || prev_showcase != new_showcase;
     let needs_reload = hw_matrix_changed || prev_disable_wifi != s.wifi.disable_internal;
+    data.config.set_system_lang_fast(&s.system.lang);
     drop(s);
     if !data.config.save() {
         return HttpResponse::InternalServerError().json(json!({

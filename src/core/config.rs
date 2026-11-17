@@ -510,7 +510,7 @@ impl Default for ConfigSettings {
 
 use crate::core::types::{ForcedEngineMode, InGameShowcasePayload, ProducerSnapshot};
 use arc_swap::ArcSwap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 pub struct Config {
@@ -521,6 +521,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
     pub matrix_brightness: AtomicU32,
+    pub system_lang_code: AtomicU8,
     pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub image_obj: Mutex<Option<image::RgbImage>>,
     pub image_generation: AtomicU64,
@@ -528,6 +529,32 @@ pub struct Config {
 }
 
 impl Config {
+    #[inline]
+    fn encode_lang_atomic(code: &str) -> u8 {
+        match crate::core::i18n::Lang::from_code(code) {
+            crate::core::i18n::Lang::En => 0,
+            crate::core::i18n::Lang::Fr => 1,
+            crate::core::i18n::Lang::Es => 2,
+        }
+    }
+
+    /// Lock-free read of `system.lang` safe for the realtime H-Core (`matrix-render`) loop.
+    #[inline]
+    pub fn system_lang_fast(&self) -> crate::core::i18n::Lang {
+        match self.system_lang_code.load(Ordering::Acquire) {
+            1 => crate::core::i18n::Lang::Fr,
+            2 => crate::core::i18n::Lang::Es,
+            _ => crate::core::i18n::Lang::En,
+        }
+    }
+
+    /// Atomically publishes a new `system.lang` value for lock-free H-Core consumers.
+    #[inline]
+    pub fn set_system_lang_fast(&self, code: &str) {
+        self.system_lang_code
+            .store(Self::encode_lang_atomic(code), Ordering::Release);
+    }
+
     /// Resolves `path` through any symlink (even if the symlink target does not exist yet)
     /// so atomic `.tmp` writes and `rename()` operate on the underlying target file (e.g.
     /// `data/config.json`) without ever replacing the `config.json` symlink itself.
@@ -729,6 +756,7 @@ impl Config {
         // Seed the live daytime brightness from the persisted value so a user's
         // saved brightness survives restarts instead of resetting to full.
         let initial_brightness = settings.system.day_brightness;
+        let initial_lang_code = Self::encode_lang_atomic(&settings.system.lang);
 
         let cfg = Self {
             config_file: Mutex::new(path_buf),
@@ -738,6 +766,7 @@ impl Config {
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
             matrix_brightness: AtomicU32::new(initial_brightness),
+            system_lang_code: AtomicU8::new(initial_lang_code),
             producer_snapshot: ArcSwap::from_pointee(ProducerSnapshot::default()),
             image_obj: Mutex::new(None),
             image_generation: AtomicU64::new(0),
@@ -898,6 +927,7 @@ impl Config {
         use std::io::Write;
         let _guard = self.save_lock.lock();
         let s = self.settings.read().clone();
+        self.set_system_lang_fast(&s.system.lang);
         let Ok(json_str) = serde_json::to_string_pretty(&s) else {
             return false;
         };

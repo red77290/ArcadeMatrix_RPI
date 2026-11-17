@@ -707,16 +707,26 @@ paths:
               schema:
                 type: object
                 properties:
-                  enabled:
-                    type: boolean
-                  source:
-                    type: string
-                    enum: [showcase, local]
                   host:
                     type: string
                   port:
                     type: integer
-                  user:
+                  source:
+                    type: string
+                    enum: [showcase, local]
+                  mqtt_enabled:
+                    type: boolean
+                  sync_show_hiscores:
+                    type: boolean
+                  sync_show_ra:
+                    type: boolean
+                  sync_celebrate_events:
+                    type: boolean
+                  sync_card_duration_sec:
+                    type: integer
+                    minimum: 5
+                    maximum: 20
+                  ra_web_api_key:
                     type: string
 
   /api/mqtt/install:
@@ -1771,6 +1781,13 @@ components:
           minimum: 25
           maximum: 200
           description: Fighter animation and combat speed percentage (25-200%).
+        install_id:
+          type: string
+          description: Anonymous device installation UUID v4 persisted for opt-in OTA fleet telemetry.
+        ota_auto_check:
+          type: boolean
+          default: true
+          description: Automatically check for OTA updates every 12 hours when opening the WebUI.
 
     MatrixConfig:
       type: object
@@ -1927,6 +1944,23 @@ components:
           type: string
           enum: [auto, pixel_art, anime, cinema]
           default: auto
+        sync_show_hiscores:
+          type: boolean
+          default: true
+        sync_show_ra:
+          type: boolean
+          default: true
+        sync_celebrate_events:
+          type: boolean
+          default: true
+        sync_card_duration_sec:
+          type: integer
+          minimum: 5
+          maximum: 20
+          default: 8
+        ra_web_api_key:
+          type: string
+          default: ""
     DataMqttConfig:
       type: object
       description: Broker credentials for the mqttdata engine (it connects only while its screen is active).
@@ -1952,7 +1986,7 @@ components:
           default: "http://dmdmediashowcase.local:8890"
         transport_mode:
           type: string
-          enum: [mqtt_udp, http_poll]
+          enum: [mqtt_tcp, mqtt_udp, http_poll]
           default: mqtt_udp
         use_showcase_broker:
           type: boolean

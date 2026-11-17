@@ -23,6 +23,36 @@ pub struct MarqueeEngine {
     pub last_drawn_image_gen: Option<u64>,
 }
 
+pub fn rgba_to_rgb_on_black(rgba: &image::RgbaImage) -> RgbImage {
+    let (w, h) = rgba.dimensions();
+    let mut out = RgbImage::new(w, h);
+    for (src, dst) in rgba.pixels().zip(out.pixels_mut()) {
+        let a = src[3] as u16;
+        if a == 255 {
+            *dst = image::Rgb([src[0], src[1], src[2]]);
+        } else if a == 0 {
+            *dst = image::Rgb([0, 0, 0]);
+        } else {
+            *dst = image::Rgb([
+                ((src[0] as u16 * a + 127) / 255) as u8,
+                ((src[1] as u16 * a + 127) / 255) as u8,
+                ((src[2] as u16 * a + 127) / 255) as u8,
+            ]);
+        }
+    }
+    out
+}
+
+pub fn dynamic_image_to_rgb_on_black(img: image::DynamicImage) -> RgbImage {
+    match img {
+        image::DynamicImage::ImageRgb8(rgb) => rgb,
+        other => {
+            let rgba = other.into_rgba8();
+            rgba_to_rgb_on_black(&rgba)
+        }
+    }
+}
+
 impl MarqueeEngine {
     pub fn new() -> Self {
         Self {
@@ -65,7 +95,7 @@ impl MarqueeEngine {
                 for frame in decoded_frames {
                     let delay = Duration::from(frame.delay());
                     let rgba_img = frame.into_buffer();
-                    let rgb_img = image::DynamicImage::ImageRgba8(rgba_img).into_rgb8();
+                    let rgb_img = rgba_to_rgb_on_black(&rgba_img);
                     frames.push((rgb_img, delay));
                 }
             }
@@ -78,7 +108,7 @@ impl MarqueeEngine {
                 return true;
             }
         } else if let Ok(img) = image::open(p) {
-            self.frames = vec![(img.to_rgb8(), Duration::from_secs(3600))];
+            self.frames = vec![(dynamic_image_to_rgb_on_black(img), Duration::from_secs(3600))];
             self.frame_index = 0;
             self.frame_elapsed = Duration::ZERO;
             self.last_update = Some(Instant::now());

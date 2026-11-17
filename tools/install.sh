@@ -318,7 +318,7 @@ elif [ "$SYSTEM" = "batocera" ]; then
     echo "  Hook verified: $VERIFY"
 
     echo "Configuring EmulationStation UI hooks (game-selected, system-selected)..."
-    for evt in game-selected system-selected game-start game-end; do
+    for evt in game-selected system-selected; do
         ssh_run "$ACTIVE_USER" "$PASSWORD" "
             mkdir -p /userdata/system/configs/emulationstation/scripts/$evt && \
             printf '#!/bin/sh\n/userdata/system/scripts/arcadematrix_mqtt.sh $evt \"\$@\"\n' \
@@ -334,49 +334,128 @@ elif [ "$SYSTEM" = "batocera" ]; then
     echo "Batocera one-shot event hooks successfully installed!"
 
 elif [ "$SYSTEM" = "retropie" ]; then
-    echo "Installing for RetroPie..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "touch /tmp/arcadematrix_daemon.stop; pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null || true; sleep 0.2; pkill -9 -f '[a]rcadematrix_daemon.py' 2>/dev/null || true; pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null || true; rm -f /tmp/arcadematrix_daemon.stop /tmp/arcadematrix_daemon.pid; mkdir -p /opt/retropie/configs/all" || true
+    echo "Cleaning up any previous RetroPie install..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" '
+        _pfx="/tmp/arcadematrix_"
+        touch "${_pfx}daemon.stop"
+        for _pf in "${_pfx}supervisor.pid" "${_pfx}daemon.pid"; do
+            if [ -f "$_pf" ]; then
+                _kp=$(cat "$_pf" 2>/dev/null || true)
+                if [ -n "$_kp" ] && [ "$_kp" != "$$" ] && [ "$_kp" != "$PPID" ]; then
+                    kill -9 "$_kp" 2>/dev/null || true
+                fi
+            fi
+        done
+        for _pd in /proc/[0-9]*; do
+            _p=${_pd#/proc/}
+            [ "$_p" = "1" ] || [ "$_p" = "$$" ] || [ "$_p" = "$PPID" ] && continue
+            [ -r "$_pd/cmdline" ] || continue
+            _a0=$(tr "\0" "\n" < "$_pd/cmdline" 2>/dev/null | sed -n "1p")
+            _cl=$(tr "\0" " " < "$_pd/cmdline" 2>/dev/null || true)
+            case "${_a0##*/}" in
+                python*)
+                    case "$_cl" in
+                        *arcadematrix_[d]aemon.py*|*arcadematrix_[c]ompanion_sync.py*)
+                            kill -9 "$_p" 2>/dev/null || true
+                            ;;
+                    esac
+                    ;;
+                sh|ash|dash|bash)
+                    case "$_cl" in
+                        *arcadematrix_[l]auncher*--supervisor-loop*|*arcadematrix_[s]upervisor.pid*)
+                            kill -9 "$_p" 2>/dev/null || true
+                            ;;
+                    esac
+                    ;;
+            esac
+        done
+        rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" || true
+        mkdir -p /opt/retropie/configs/all/emulationstation/scripts/system-select \
+                 /opt/retropie/configs/all/emulationstation/scripts/game-select
+    ' || { echo "ERROR: Cleanup step failed on RetroPie!" >&2; exit 1; }
 
-    echo "Uploading daemon & companion sync (topic: $TOPIC)..."
+    echo "Uploading daemon, watchdog & companion sync (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/opt/retropie/configs/all/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "/opt/retropie/configs/all/arcadematrix_companion_sync.py" || { echo "SCP failed!"; exit 1; }
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py /opt/retropie/configs/all/arcadematrix_companion_sync.py" || true
+    scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "/opt/retropie/configs/all/arcadematrix_launcher.sh" || { echo "SCP failed!"; exit 1; }
 
-    echo "Configuring runcommand hooks..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "
-    touch /opt/retropie/configs/all/runcommand-onstart.sh
-    if ! grep -q 'ArcadeMatrix Runcommand Hook' /opt/retropie/configs/all/runcommand-onstart.sh; then
-        cat >> /opt/retropie/configs/all/runcommand-onstart.sh << 'EOF'
+    echo "Configuring RetroPie EmulationStation browsing hooks, runcommand hooks & watchdog..."
+    ssh_run "$ACTIVE_USER" "$PASSWORD" '
+        chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py \
+                 /opt/retropie/configs/all/arcadematrix_companion_sync.py \
+                 /opt/retropie/configs/all/arcadematrix_launcher.sh 2>/dev/null || true
+
+        cat > /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh << '\''ESEOF'\''
+#!/bin/sh
+[ -z "$1" ] || [ "$1" = "NULL" ] && exit 0
+_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=browsing\nAction=systembrowsing\nSystemId=%s\nGamePath=\nGame=\n" "$1" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+ESEOF
+        chmod 755 /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh
+
+        cat > /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh << '\''ESEOF'\''
+#!/bin/sh
+[ -z "$1" ] || [ "$1" = "NULL" ] && exit 0
+_tmp="/tmp/es_state.inf.tmp.$$"
+if [ -z "$2" ] || [ "$2" = "NULL" ]; then
+    printf "State=browsing\nAction=systembrowsing\nSystemId=%s\nGamePath=\nGame=\n" "$1" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+else
+    printf "State=browsing\nAction=gamelistbrowsing\nSystemId=%s\nGamePath=%s\nGame=%s\n" "$1" "$2" "$3" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+fi
+ESEOF
+        chmod 755 /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh
+
+        if [ -d "$HOME/.emulationstation" ] && [ ! -L "$HOME/.emulationstation" ]; then
+            mkdir -p "$HOME/.emulationstation/scripts/system-select" "$HOME/.emulationstation/scripts/game-select"
+            cp -f /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh "$HOME/.emulationstation/scripts/system-select/arcadematrix_es.sh"
+            cp -f /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh "$HOME/.emulationstation/scripts/game-select/arcadematrix_es.sh"
+            chmod 755 "$HOME/.emulationstation/scripts/system-select/arcadematrix_es.sh" "$HOME/.emulationstation/scripts/game-select/arcadematrix_es.sh"
+        fi
+
+        touch /opt/retropie/configs/all/runcommand-onstart.sh
+        sed -i "/# ArcadeMatrix Runcommand Hook/,/STATEEOF/d" /opt/retropie/configs/all/runcommand-onstart.sh 2>/dev/null || true
+        sed -i "/# ArcadeMatrix Runcommand Hook/,/# End ArcadeMatrix Hook/d" /opt/retropie/configs/all/runcommand-onstart.sh 2>/dev/null || true
+        cat >> /opt/retropie/configs/all/runcommand-onstart.sh << '\''RCEOF'\''
 # ArcadeMatrix Runcommand Hook
-cat > /tmp/es_state.inf << STATEEOF
-SystemId=\$1
-GamePath=\$3
-State=playing
-STATEEOF
-EOF
-    fi
-    chmod +x /opt/retropie/configs/all/runcommand-onstart.sh
+_am_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=playing\nAction=rungame\nSystemId=%s\nGamePath=%s\n" "$1" "$3" > "$_am_tmp" && mv -f "$_am_tmp" /tmp/es_state.inf
+# End ArcadeMatrix Hook
+RCEOF
+        chmod +x /opt/retropie/configs/all/runcommand-onstart.sh
 
-    touch /opt/retropie/configs/all/runcommand-onend.sh
-    if ! grep -q 'ArcadeMatrix Runcommand Hook' /opt/retropie/configs/all/runcommand-onend.sh; then
-        cat >> /opt/retropie/configs/all/runcommand-onend.sh << 'EOF'
+        touch /opt/retropie/configs/all/runcommand-onend.sh
+        sed -i "/# ArcadeMatrix Runcommand Hook/,/STATEEOF/d" /opt/retropie/configs/all/runcommand-onend.sh 2>/dev/null || true
+        sed -i "/# ArcadeMatrix Runcommand Hook/,/# End ArcadeMatrix Hook/d" /opt/retropie/configs/all/runcommand-onend.sh 2>/dev/null || true
+        cat >> /opt/retropie/configs/all/runcommand-onend.sh << '\''RCEOF'\''
 # ArcadeMatrix Runcommand Hook
-cat > /tmp/es_state.inf << STATEEOF
-SystemId=
-GamePath=
-State=stopped
-STATEEOF
-EOF
-    fi
-    chmod +x /opt/retropie/configs/all/runcommand-onend.sh
+_am_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=stopped\nAction=endgame\nSystemId=\nGamePath=\n" > "$_am_tmp" && mv -f "$_am_tmp" /tmp/es_state.inf
+# End ArcadeMatrix Hook
+RCEOF
+        chmod +x /opt/retropie/configs/all/runcommand-onend.sh
 
-    if [ -f /opt/retropie/configs/all/autostart.sh ] && ! grep -q 'arcadematrix_daemon.py' /opt/retropie/configs/all/autostart.sh; then
-        sed -i '/emulationstation/i python3 /opt/retropie/configs/all/arcadematrix_daemon.py --daemon --log-file /opt/retropie/configs/all/daemon.log' /opt/retropie/configs/all/autostart.sh
-    fi
-    " || true
+        if [ -f /opt/retropie/configs/all/autostart.sh ]; then
+            sed -i "/arcadematrix_daemon\.py/d;/arcadematrix_launcher\.sh/d" /opt/retropie/configs/all/autostart.sh 2>/dev/null || true
+            if grep -q "emulationstation" /opt/retropie/configs/all/autostart.sh; then
+                sed -i "/emulationstation/i sh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start >/dev/null 2>&1 &" /opt/retropie/configs/all/autostart.sh
+            else
+                printf "\nsh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start >/dev/null 2>&1 &\n" >> /opt/retropie/configs/all/autostart.sh
+            fi
+        fi
 
-    echo "Starting RetroPie daemon..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" ": > /opt/retropie/configs/all/daemon.log; python3 /opt/retropie/configs/all/arcadematrix_daemon.py --daemon --log-file /opt/retropie/configs/all/daemon.log; sleep 0.5" || true
+        rm -f /tmp/arcadematrix_daemon.stop
+        : > /opt/retropie/configs/all/daemon.log
+        sh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start
+        sync
+        sleep 0.8
+        _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
+        if [ -n "$_dpid" ] && kill -0 "$_dpid" 2>/dev/null; then
+            echo "  RetroPie Daemon PID $_dpid active."
+        else
+            echo "  ERROR: RetroPie Daemon PID not running!" >&2
+            exit 1
+        fi
+    ' || { echo "ERROR: ArcadeMatrix daemon failed to start on RetroPie!" >&2; exit 1; }
 fi
 
 echo

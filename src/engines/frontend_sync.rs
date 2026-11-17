@@ -85,11 +85,12 @@ pub fn read_e2e_sync_telemetry() -> E2eSyncTelemetry {
     e2e_telemetry().lock().clone()
 }
 
-fn open_marquee_image(path: &std::path::Path) -> Option<image::DynamicImage> {
+fn open_marquee_image(path: &std::path::Path) -> Option<image::RgbImage> {
     image::ImageReader::open(path)
         .ok()
         .and_then(|r| r.with_guessed_format().ok())
         .and_then(|r| r.decode().ok())
+        .map(crate::engines::marquee::dynamic_image_to_rgb_on_black)
 }
 
 struct ReadySignalState {
@@ -891,6 +892,7 @@ pub fn parse_sync_meta_from_json(
             let recent = ra_obj
                 .get("recent_title")
                 .or_else(|| ra_obj.get("recent_badge"))
+                .or_else(|| ra_obj.get("recent").and_then(|r| r.get("title")))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
             let ra_game_title = ra_obj
@@ -1114,7 +1116,7 @@ pub fn handle_frontend_sync_payload(
         if let Some(path) = dmd_cache.get_cached_system_path(&system) {
             if let Some(img) = open_marquee_image(&path) {
                 e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
-                config.set_marquee_image(Some(img.to_rgb8()));
+                config.set_marquee_image(Some(img));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 return;
             }
@@ -1127,17 +1129,7 @@ pub fn handle_frontend_sync_payload(
         } else {
             formatted_sys
         };
-        let mut text_to_show = clean_name.clone();
-        if text_to_show.len() > 10 {
-            text_to_show = format!(" {} ", text_to_show);
-        }
-        let msg_payload = crate::engines::message::MessagePayload::new(
-            text_to_show,
-            "#00ffff",
-            1,
-            if clean_name.len() > 8 { "left" } else { "none" },
-            0,
-        );
+        let msg_payload = build_cyan_sync_banner(config, &clean_name);
         config.set_frontend_sync_banner(msg_payload);
 
         if !dmd_cache.is_system_negative_cached(&system) {
@@ -1149,7 +1141,7 @@ pub fn handle_frontend_sync_payload(
                         if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                             e2e_telemetry().lock().active_marquee_path =
                                 path.to_string_lossy().to_string();
-                            config_clone.set_marquee_image(Some(img.to_rgb8()));
+                            config_clone.set_marquee_image(Some(img));
                             config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                         }
                     }
@@ -1180,7 +1172,7 @@ pub fn handle_frontend_sync_payload(
         if let Some(path) = dmd_cache.get_cached_path(&system, &game) {
             if let Some(img) = open_marquee_image(&path) {
                 e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
-                config.set_marquee_image(Some(img.to_rgb8()));
+                config.set_marquee_image(Some(img));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 marquee_shown = true;
             }
@@ -1188,17 +1180,7 @@ pub fn handle_frontend_sync_payload(
 
         if !marquee_shown {
             config.set_marquee_image(None);
-            let mut text_to_show = clean_name.clone();
-            if text_to_show.len() > 10 {
-                text_to_show = format!(" {} ", text_to_show);
-            }
-            let msg_payload = crate::engines::message::MessagePayload::new(
-                text_to_show,
-                "#00ffff",
-                1,
-                if clean_name.len() > 8 { "left" } else { "none" },
-                0,
-            );
+            let msg_payload = build_cyan_sync_banner(config, &clean_name);
             config.set_frontend_sync_banner(msg_payload);
 
             if !dmd_cache.is_negative_cached(&system, &game) {
@@ -1221,7 +1203,7 @@ pub fn handle_frontend_sync_payload(
                             if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                                 e2e_telemetry().lock().active_marquee_path =
                                     path.to_string_lossy().to_string();
-                                config_clone.set_marquee_image(Some(img.to_rgb8()));
+                                config_clone.set_marquee_image(Some(img));
                                 config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                             }
                         }
@@ -1247,6 +1229,65 @@ pub fn handle_frontend_sync_payload(
     }
 }
 
+pub fn build_cyan_sync_banner(
+    config: &Config,
+    clean_name: &str,
+) -> crate::engines::message::MessagePayload {
+    let (eff_w, eff_h) = {
+        let s = config.settings.read();
+        let phys_w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
+        let phys_h = s
+            .matrix
+            .height
+            .saturating_mul(s.matrix.parallel.clamp(1, 3));
+        let rot = crate::app::normalize_rotation(s.matrix.rotation);
+        let geom = DisplayGeometry::new(phys_w, phys_h, rot, 0);
+        (geom.width(), geom.height())
+    };
+    let char_count = clean_name.chars().count();
+    if eff_w >= 192 && eff_h >= 48 {
+        let max_static_2x = (eff_w.saturating_sub(8) / 16) as usize;
+        let max_static_1x = (eff_w.saturating_sub(8) / 8) as usize;
+        if char_count <= max_static_2x {
+            crate::engines::message::MessagePayload::new(
+                clean_name.to_string(),
+                "#00ffff",
+                2,
+                "none",
+                0,
+            )
+        } else if char_count <= max_static_1x {
+            crate::engines::message::MessagePayload::new(
+                clean_name.to_string(),
+                "#00ffff",
+                1,
+                "none",
+                0,
+            )
+        } else {
+            crate::engines::message::MessagePayload::new(
+                format!(" {} ", clean_name),
+                "#00ffff",
+                2,
+                "left",
+                0,
+            )
+        }
+    } else {
+        let mut text_to_show = clean_name.to_string();
+        if char_count > 10 {
+            text_to_show = format!(" {} ", clean_name);
+        }
+        crate::engines::message::MessagePayload::new(
+            text_to_show,
+            "#00ffff",
+            1,
+            if char_count > 8 { "left" } else { "none" },
+            0,
+        )
+    }
+}
+
 pub fn start_mqtt_client(config: Arc<Config>) {
     std::thread::Builder::new()
         .name("frontend-sync".to_string())
@@ -1263,9 +1304,15 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                     continue;
                 }
 
-                let (user, pass) = {
+                let (user, pass, want_showcase_broker) = {
                     let s = config.settings.read();
-                    (s.mqtt.user.clone(), s.mqtt.pass.clone())
+                    (
+                        s.mqtt.user.clone(),
+                        s.mqtt.pass.clone(),
+                        s.showcase.enabled
+                            && s.mqtt.use_showcase_broker
+                            && !s.showcase.server_url.trim().is_empty(),
+                    )
                 };
                 let observed_cfg_gen = CONFIG_GENERATION.load(Ordering::SeqCst);
 
@@ -1295,11 +1342,12 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 let mut mqttoptions =
                     MqttOptions::new(client_id, &target.connect_host, target.port);
                 mqttoptions.set_keep_alive(Duration::from_secs(15));
+                mqttoptions.set_max_packet_size(65536, 65536);
                 if target.source == "local" && !user.is_empty() {
                     mqttoptions.set_credentials(&user, &pass);
                 }
 
-                let (client, mut connection) = Client::new(mqttoptions, 16);
+                let (client, mut connection) = Client::new(mqttoptions, 64);
 
                 if let Err(e) = client.subscribe(MQTT_TOPIC_WILDCARD, QoS::AtMostOnce) {
                     error!(
@@ -1311,43 +1359,69 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 }
                 let _ = client.subscribe(SHOWCASE_COMMAND_TOPIC_WILDCARD, QoS::AtMostOnce);
 
-                let mut last_broker_recheck = Instant::now();
+                // Off-thread config/recovery watcher:
+                // - Disconnects the client immediately (< 50 ms) when Web UI settings change.
+                // - Only probes Showcase HTTP `/api/v1/health` when currently running on local fallback
+                //   while `want_showcase_broker` is true, so an active Showcase MQTT TCP session never
+                //   stalls on HTTP health polling!
+                let session_alive = Arc::new(AtomicBool::new(true));
+                let session_alive_watch = Arc::clone(&session_alive);
+                let client_watch = client.clone();
+                let config_watch = Arc::clone(&config);
+                let target_watch = target.clone();
+                std::thread::spawn(move || {
+                    let mut last_probe = Instant::now();
+                    let (lock, cv) = ready_signal();
+                    while session_alive_watch.load(Ordering::Acquire) {
+                        if CONFIG_GENERATION.load(Ordering::SeqCst) != observed_cfg_gen {
+                            info!("[FrontendSync] MQTT/Showcase configuration changed, reconnecting...");
+                            let _ = client_watch.disconnect();
+                            break;
+                        }
+                        if target_watch.source == "local"
+                            && want_showcase_broker
+                            && last_probe.elapsed() >= Duration::from_secs(12)
+                        {
+                            last_probe = Instant::now();
+                            let refreshed = resolve_broker_target(&config_watch, false);
+                            if !refreshed.mqtt_enabled
+                                || refreshed.connect_host != target_watch.connect_host
+                                || refreshed.port != target_watch.port
+                                || refreshed.source != target_watch.source
+                            {
+                                info!(
+                                    "[FrontendSync] Showcase broker became reachable ({}:{} -> {}:{}), switching...",
+                                    target_watch.connect_host,
+                                    target_watch.port,
+                                    refreshed.connect_host,
+                                    refreshed.port
+                                );
+                                let _ = client_watch.disconnect();
+                                break;
+                            }
+                        }
+                        if let Ok(guard) = lock.lock() {
+                            let _ = cv.wait_timeout(guard, Duration::from_millis(500));
+                        } else {
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                    }
+                });
 
                 for notification in connection.iter() {
                     if CONFIG_GENERATION.load(Ordering::SeqCst) != observed_cfg_gen {
-                        info!("[FrontendSync] MQTT/Showcase configuration changed, reconnecting...");
                         let _ = client.disconnect();
                         break;
-                    }
-                    if last_broker_recheck.elapsed() >= Duration::from_secs(12) {
-                        last_broker_recheck = Instant::now();
-                        let refreshed = resolve_broker_target(&config, false);
-                        if !refreshed.mqtt_enabled
-                            || refreshed.connect_host != target.connect_host
-                            || refreshed.port != target.port
-                            || refreshed.source != target.source
-                        {
-                            info!(
-                                "[FrontendSync] Broker target switched ({}:{} -> {}:{}), reconnecting...",
-                                target.connect_host,
-                                target.port,
-                                refreshed.connect_host,
-                                refreshed.port
-                            );
-                            let _ = client.disconnect();
-                            break;
-                        }
                     }
 
                     match notification {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
-                            if let Ok(payload) = String::from_utf8(publish.payload.to_vec()) {
-                                if publish.topic.starts_with("dmd_showcase/clients/") {
-                                    record_showcase_command_event(&publish.topic, &payload);
-                                } else {
-                                    e2e_telemetry().lock().last_mqtt_topic = publish.topic.clone();
-                                    handle_frontend_sync_payload(&config, &dmd_cache, &payload);
-                                }
+                            let payload = String::from_utf8_lossy(&publish.payload);
+                            if publish.topic.starts_with("dmd_showcase/clients/") {
+                                record_showcase_command_event(&publish.topic, &payload);
+                            } else {
+                                e2e_telemetry().lock().last_mqtt_topic = publish.topic.clone();
+                                handle_frontend_sync_payload(&config, &dmd_cache, &payload);
                             }
                         }
                         Err(e) => {
@@ -1365,6 +1439,8 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                     }
                 }
 
+                session_alive.store(false, Ordering::Release);
+                ready_signal().1.notify_all();
                 std::thread::sleep(Duration::from_secs(2));
             }
         })
@@ -3243,6 +3319,83 @@ mod tests {
         assert!(!recycled.allows_overlay());
         assert!(!recycled.allow_rotation());
         assert!(recycled.self_paced());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_256x64_banner_transparent_png_backdrop_and_nested_ra_recent() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_256x64_sync_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = Config::new(tmp_dir.join("config.json"));
+        {
+            let mut s = config.settings.write();
+            s.matrix.width = 128;
+            s.matrix.height = 64;
+            s.matrix.chain_length = 2;
+            s.matrix.parallel = 1;
+        }
+
+        // 1. 256x64 banner sizing: <= 15 chars -> 2x static, <= 31 chars -> 1x static, > 31 chars -> 2x left scroll
+        let b_short = build_cyan_sync_banner(&config, "Metal Slug X");
+        assert_eq!(b_short.size, 2);
+        assert_eq!(b_short.direction, "none");
+        assert_eq!(b_short.text, "Metal Slug X");
+
+        let b_mid = build_cyan_sync_banner(&config, "Super Street Fighter II Turbo");
+        assert_eq!(b_mid.size, 1);
+        assert_eq!(b_mid.direction, "none");
+        assert_eq!(b_mid.text, "Super Street Fighter II Turbo");
+
+        let b_long =
+            build_cyan_sync_banner(&config, "The King Of Fighters 98 Ultimate Match Hero");
+        assert_eq!(b_long.size, 2);
+        assert_eq!(b_long.direction, "left");
+        assert_eq!(
+            b_long.text,
+            " The King Of Fighters 98 Ultimate Match Hero "
+        );
+
+        // 2. Transparent RGBA pixel with white RGB `(255, 255, 255, 0)` must composite to pure black `(0, 0, 0)`
+        let png_path = tmp_dir.join("transparent_white.png");
+        let mut rgba = image::RgbaImage::new(2, 1);
+        rgba.put_pixel(0, 0, image::Rgba([255, 255, 255, 0]));
+        rgba.put_pixel(1, 0, image::Rgba([200, 100, 0, 128]));
+        rgba.save(&png_path).unwrap();
+        let decoded = open_marquee_image(&png_path).expect("decoded RGBA marquee");
+        assert_eq!(decoded.get_pixel(0, 0).0, [0, 0, 0]);
+        assert!(decoded.get_pixel(1, 0).0[0] > 95 && decoded.get_pixel(1, 0).0[0] < 105);
+
+        // 3. Nested `ra.recent.title` from companion sync is parsed into `recent_badge`
+        let mqtt_cfg = MqttConfig::default();
+        let meta_json = serde_json::json!({
+            "status": "sync_meta",
+            "system": "neogeo",
+            "game": "mslugx",
+            "ra": {
+                "unlocked": 5,
+                "total": 40,
+                "points": 50,
+                "points_total": 400,
+                "hardcore": true,
+                "recent": { "title": "Mission 1 Complete", "pts": 10 }
+            }
+        });
+        let parsed = parse_sync_meta_from_json(&meta_json, 7, &mqtt_cfg).expect("valid RA meta");
+        assert!(parsed.ra.valid);
+        let badge_end = parsed
+            .ra
+            .recent_badge
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(parsed.ra.recent_badge.len());
+        assert_eq!(
+            std::str::from_utf8(&parsed.ra.recent_badge[..badge_end]).unwrap(),
+            "Mission 1 Complete"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

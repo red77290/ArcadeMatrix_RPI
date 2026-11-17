@@ -1,14 +1,24 @@
 #!/bin/sh
-# ArcadeMatrix daemon launcher & persistent watchdog (Recalbox).
+# ArcadeMatrix daemon launcher & persistent watchdog (Recalbox & RetroPie).
 # Ensures arcadematrix_daemon.py is running as a double-forked daemon AND keeps a single
 # lightweight background supervisor alive to auto-restart it within 2s if ever killed.
+
+if [ -d "/opt/retropie/configs/all" ] && [ ! -d "/recalbox/share" ]; then
+    DEFAULT_LOG_FILE="/opt/retropie/configs/all/daemon.log"
+    DEFAULT_DAEMON_PY="/opt/retropie/configs/all/arcadematrix_daemon.py"
+    DEFAULT_SELF_SCRIPT="/opt/retropie/configs/all/arcadematrix_launcher.sh"
+else
+    DEFAULT_LOG_FILE="/recalbox/share/userscripts/daemon.log"
+    DEFAULT_DAEMON_PY="/recalbox/share/arcadematrix_daemon.py"
+    DEFAULT_SELF_SCRIPT="/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh"
+fi
 
 PID_FILE="${AM_PID_FILE:-/tmp/arcadematrix_daemon.pid}"
 SUP_PID_FILE="${AM_SUP_PID_FILE:-/tmp/arcadematrix_supervisor.pid}"
 STOP_FILE="${AM_STOP_FILE:-/tmp/arcadematrix_daemon.stop}"
-LOG_FILE="${AM_LOG_FILE:-/recalbox/share/userscripts/daemon.log}"
-DAEMON_PY="${AM_DAEMON_PY:-/recalbox/share/arcadematrix_daemon.py}"
-SELF_SCRIPT="${AM_SELF_SCRIPT:-/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh}"
+LOG_FILE="${AM_LOG_FILE:-$DEFAULT_LOG_FILE}"
+DAEMON_PY="${AM_DAEMON_PY:-$DEFAULT_DAEMON_PY}"
+SELF_SCRIPT="${AM_SELF_SCRIPT:-$DEFAULT_SELF_SCRIPT}"
 NL='
 '
 

@@ -203,21 +203,7 @@ sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$T
 
 echo "Checking DMD target ($DMD_IP) from console ($TARGET_IP)..."
 ssh_run "$ACTIVE_USER" "$PASSWORD" "
-    ping -c 1 -W 1 '$DMD_IP' >/dev/null 2>&1 || true
-    if command -v arping >/dev/null 2>&1; then
-        _iface=\$(ip route get '$DMD_IP' 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i==\"dev\") {print \$(i+1); exit}}')
-        if [ -n \"\$_iface\" ]; then
-            _arps=\$(arping -I \"\$_iface\" -c 3 -w 2 '$DMD_IP' 2>/dev/null | grep -Eo '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | tr 'A-F' 'a-f' | sort -u)
-            _mac_cnt=\$(printf '%s\n' \"\$_arps\" | sed '/^\$/d' | wc -l | tr -d ' ')
-            if [ \"\${_mac_cnt:-0}\" -gt 1 ]; then
-                echo '  [CRITICAL WARNING] DUPLICATE IP CONFLICT ON $DMD_IP! Multiple MAC addresses replied:'
-                printf '%s\n' \"\$_arps\" | sed 's/^/    - /'
-            fi
-        fi
-    fi
-    _arp_mac=\$(awk '\$1==\"$DMD_IP\" && \$4!=\"00:00:00:00:00:00\" {print \$4; exit}' /proc/net/arp 2>/dev/null || true)
     _bt=\$(curl -s -m 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || wget -qO- -T 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || true)
-    echo \"  Console ARP entry for $DMD_IP -> MAC: \${_arp_mac:-unreachable}\"
     if [ -n \"\$_bt\" ]; then
         echo \"  DMD /api/mqtt/broker-target -> \$_bt\"
     else
@@ -229,18 +215,43 @@ if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
     WAKEUP_HOOK="arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh"
     echo "Cleaning up any previous install..."
-    ssh_run "$ACTIVE_USER" "$PASSWORD" "
-        touch /tmp/arcadematrix_daemon.stop
-        if [ -f /tmp/arcadematrix_supervisor.pid ]; then kill -9 \$(cat /tmp/arcadematrix_supervisor.pid 2>/dev/null) 2>/dev/null || true; fi
-        if [ -f /tmp/arcadematrix_daemon.pid ]; then kill -9 \$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null) 2>/dev/null || true; fi
-        pkill -9 -f '[a]rcadematrix_launcher.*--supervisor-loop' 2>/dev/null || true
-        pkill -9 -f '[a]rcadematrix_supervisor\.pid' 2>/dev/null || true
-        pkill -9 -f '[p]ython.*[a]rcadematrix_daemon\.py' 2>/dev/null || true
-        pkill -f '[p]ython.*[a]rcadematrix_companion_sync\.py' 2>/dev/null || true
-        pkill -f '[a]rcadematrix_mqtt\.sh' 2>/dev/null || true
-        rm -f /tmp/arcadematrix_daemon.pid /tmp/arcadematrix_supervisor.pid /tmp/arcadematrix_daemon.lock '$TARGET_DIR/arcadematrix_mqtt.sh' || true
-        mkdir -p '$TARGET_DIR' /recalbox/share/system
-    " || { echo "ERROR: Cleanup step failed on Recalbox!" >&2; exit 1; }
+    ssh_run "$ACTIVE_USER" "$PASSWORD" '
+        _pfx="/tmp/arcadematrix_"
+        touch "${_pfx}daemon.stop"
+        for _pf in "${_pfx}supervisor.pid" "${_pfx}daemon.pid"; do
+            if [ -f "$_pf" ]; then
+                _kp=$(cat "$_pf" 2>/dev/null || true)
+                if [ -n "$_kp" ] && [ "$_kp" != "$$" ] && [ "$_kp" != "$PPID" ]; then
+                    kill -9 "$_kp" 2>/dev/null || true
+                fi
+            fi
+        done
+        for _pd in /proc/[0-9]*; do
+            _p=${_pd#/proc/}
+            [ "$_p" = "1" ] || [ "$_p" = "$$" ] || [ "$_p" = "$PPID" ] && continue
+            [ -r "$_pd/cmdline" ] || continue
+            _a0=$(tr "\0" "\n" < "$_pd/cmdline" 2>/dev/null | sed -n "1p")
+            _cl=$(tr "\0" " " < "$_pd/cmdline" 2>/dev/null || true)
+            case "${_a0##*/}" in
+                python*)
+                    case "$_cl" in
+                        *arcadematrix_[d]aemon.py*|*arcadematrix_[c]ompanion_sync.py*)
+                            kill -9 "$_p" 2>/dev/null || true
+                            ;;
+                    esac
+                    ;;
+                sh|ash|dash|bash)
+                    case "$_cl" in
+                        *arcadematrix_[l]auncher*--supervisor-loop*|*arcadematrix_[s]upervisor.pid*|*arcadematrix_[m]qtt.sh*)
+                            kill -9 "$_p" 2>/dev/null || true
+                            ;;
+                    esac
+                    ;;
+            esac
+        done
+        rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" "/recalbox/share/userscripts/arcadematrix_"mqtt.sh || true
+        mkdir -p /recalbox/share/userscripts /recalbox/share/system
+    ' || { echo "ERROR: Cleanup step failed on Recalbox!" >&2; exit 1; }
 
     echo "Uploading daemon, watchdog & ES self-healer (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }

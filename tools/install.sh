@@ -165,6 +165,22 @@ if [ -z "$SYSTEM" ] || [ "$SYSTEM" = "unknown" ]; then
 fi
 
 echo "Console identified as: $SYSTEM (User: $ACTIVE_USER)"
+echo "Verifying SSH session to ${ACTIVE_USER}@${TARGET_IP}..."
+SSH_AUTH_OK=0
+for _try in 1 2 3; do
+    if ssh_run "$ACTIVE_USER" "$PASSWORD" "true"; then
+        SSH_AUTH_OK=1
+        break
+    fi
+    if [ "$have_sshpass" = "1" ]; then
+        break
+    fi
+    echo "SSH authentication failed (attempt $_try/3). Please try again." >&2
+done
+if [ "$SSH_AUTH_OK" != "1" ]; then
+    echo "ERROR: Unable to authenticate over SSH to ${ACTIVE_USER}@${TARGET_IP}. Aborting." >&2
+    exit 1
+fi
 
 if [ "$ACTION" = "2" ]; then
     if [ "$SYSTEM" = "recalbox" ]; then
@@ -185,6 +201,30 @@ TOPIC="system/playing/$SYSTEM"
 sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_daemon.py" > "$TMP_DIR/arcadematrix_daemon.py"
 sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_companion_sync.py" > "$TMP_DIR/arcadematrix_companion_sync.py"
 
+echo "Checking DMD target ($DMD_IP) from console ($TARGET_IP)..."
+ssh_run "$ACTIVE_USER" "$PASSWORD" "
+    ping -c 1 -W 1 '$DMD_IP' >/dev/null 2>&1 || true
+    if command -v arping >/dev/null 2>&1; then
+        _iface=\$(ip route get '$DMD_IP' 2>/dev/null | awk '{for(i=1;i<=NF;i++) if(\$i==\"dev\") {print \$(i+1); exit}}')
+        if [ -n \"\$_iface\" ]; then
+            _arps=\$(arping -I \"\$_iface\" -c 3 -w 2 '$DMD_IP' 2>/dev/null | grep -Eo '([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}' | tr 'A-F' 'a-f' | sort -u)
+            _mac_cnt=\$(printf '%s\n' \"\$_arps\" | sed '/^\$/d' | wc -l | tr -d ' ')
+            if [ \"\${_mac_cnt:-0}\" -gt 1 ]; then
+                echo '  [CRITICAL WARNING] DUPLICATE IP CONFLICT ON $DMD_IP! Multiple MAC addresses replied:'
+                printf '%s\n' \"\$_arps\" | sed 's/^/    - /'
+            fi
+        fi
+    fi
+    _arp_mac=\$(awk '\$1==\"$DMD_IP\" && \$4!=\"00:00:00:00:00:00\" {print \$4; exit}' /proc/net/arp 2>/dev/null || true)
+    _bt=\$(curl -s -m 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || wget -qO- -T 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || true)
+    echo \"  Console ARP entry for $DMD_IP -> MAC: \${_arp_mac:-unreachable}\"
+    if [ -n \"\$_bt\" ]; then
+        echo \"  DMD /api/mqtt/broker-target -> \$_bt\"
+    else
+        echo \"  WARNING: Could not reach http://$DMD_IP/api/mqtt/broker-target from console!\"
+    fi
+" || true
+
 if [ "$SYSTEM" = "recalbox" ]; then
     TARGET_DIR="/recalbox/share/userscripts"
     WAKEUP_HOOK="arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh"
@@ -194,12 +234,13 @@ if [ "$SYSTEM" = "recalbox" ]; then
         if [ -f /tmp/arcadematrix_supervisor.pid ]; then kill -9 \$(cat /tmp/arcadematrix_supervisor.pid 2>/dev/null) 2>/dev/null || true; fi
         if [ -f /tmp/arcadematrix_daemon.pid ]; then kill -9 \$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null) 2>/dev/null || true; fi
         pkill -9 -f '[a]rcadematrix_launcher.*--supervisor-loop' 2>/dev/null || true
+        pkill -9 -f '[a]rcadematrix_supervisor\.pid' 2>/dev/null || true
         pkill -9 -f '[p]ython.*[a]rcadematrix_daemon\.py' 2>/dev/null || true
         pkill -f '[p]ython.*[a]rcadematrix_companion_sync\.py' 2>/dev/null || true
         pkill -f '[a]rcadematrix_mqtt\.sh' 2>/dev/null || true
-        rm -f /tmp/arcadematrix_daemon.pid /tmp/arcadematrix_supervisor.pid '$TARGET_DIR/arcadematrix_mqtt.sh' || true
+        rm -f /tmp/arcadematrix_daemon.pid /tmp/arcadematrix_supervisor.pid /tmp/arcadematrix_daemon.lock '$TARGET_DIR/arcadematrix_mqtt.sh' || true
         mkdir -p '$TARGET_DIR' /recalbox/share/system
-    " || true
+    " || { echo "ERROR: Cleanup step failed on Recalbox!" >&2; exit 1; }
 
     echo "Uploading daemon, watchdog & ES self-healer (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }

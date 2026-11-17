@@ -25,11 +25,17 @@ import subprocess
 import sys
 import time
 
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
 DMD_HOST = "{{DMD_HOST}}"
 TOPIC = "{{TOPIC}}"
 BROKER_CACHE_TTL_SEC = 30.0
 
 PID_FILE = "/tmp/arcadematrix_daemon.pid"
+LOCK_FILE = "/tmp/arcadematrix_daemon.lock"
 STOP_FILE = "/tmp/arcadematrix_daemon.stop"
 DEFAULT_RECALBOX_LOG = "/recalbox/share/userscripts/daemon.log"
 MAX_LOG_BYTES = 65536
@@ -39,6 +45,8 @@ _cached_broker_host = None
 _cached_broker_port = 1883
 _cached_broker_ts = 0.0
 _preferred_http_port = None
+_last_arp_host = None
+_last_arp_mac = None
 
 
 def log_msg(msg):
@@ -194,33 +202,71 @@ def _http_get_broker_target(host, http_port, timeout_sec=0.45):
             pass
     except ConnectionRefusedError:
         _abort_close_socket(sock)
-        return None, None, True
+        return None, None, True, ""
     except OSError as e:
         _abort_close_socket(sock)
         if not raw:
-            return None, None, (e.errno == errno.ECONNREFUSED)
+            return None, None, (e.errno == errno.ECONNREFUSED), ""
     except Exception:
         _abort_close_socket(sock)
         if not raw:
-            return None, None, False
+            return None, None, False, ""
 
     sep = raw.find(b"\r\n\r\n")
     if sep < 0:
-        return None, None, False
+        return None, None, False, ""
     head_line = raw[:sep].split(b"\r\n", 1)[0]
     parts = head_line.split()
     if len(parts) < 2 or parts[1] != b"200":
-        return None, None, False
+        return None, None, False, ""
     try:
         body_bytes = raw[sep + 4:]
         data = json.loads(body_bytes.decode("utf-8", errors="ignore"))
         b_host = str(data.get("host") or "").strip()
         b_port = int(data.get("port") or 1883)
+        hw_id = str(data.get("hw_id") or "").strip()
+        dmd_mac = str(data.get("mac") or "").strip().lower()
+        meta_parts = []
+        if dmd_mac:
+            meta_parts.append(f"dmd_mac={dmd_mac}")
+        if hw_id:
+            meta_parts.append(f"hw_id={hw_id}")
         if b_host and 0 < b_port <= 65535:
-            return b_host, b_port, False
+            return b_host, b_port, False, ", ".join(meta_parts)
     except Exception:
         pass
-    return None, None, False
+    return None, None, False, ""
+
+
+def _lookup_arp_mac(ip_str):
+    if not ip_str:
+        return ""
+    try:
+        with open("/proc/net/arp", "r", encoding="utf-8", errors="ignore") as af:
+            for line in af:
+                parts = line.split()
+                if len(parts) >= 4 and parts[0] == ip_str:
+                    mac = parts[3].strip().lower()
+                    if mac and mac != "00:00:00:00:00:00" and ":" in mac:
+                        return mac
+    except Exception:
+        pass
+    return ""
+
+
+def _check_arp_conflict(ip_str):
+    global _last_arp_host, _last_arp_mac
+    mac = _lookup_arp_mac(ip_str)
+    if not mac:
+        return ""
+    if _last_arp_host == ip_str and _last_arp_mac and _last_arp_mac != mac:
+        log_msg(
+            f"ERROR IP CONFLICT DETECTED on {ip_str}: ARP MAC flipped {_last_arp_mac} -> {mac}! "
+            f"Two devices on your LAN share {ip_str}!"
+        )
+    _last_arp_host = ip_str
+    _last_arp_mac = mac
+    return mac
 
 
 def _probe_broker_endpoint():
@@ -232,15 +278,19 @@ def _probe_broker_endpoint():
         ports = (80, 8080)
 
     for idx, http_port in enumerate(ports):
-        host, port, refused = _http_get_broker_target(DMD_HOST, http_port, timeout_sec=0.45)
+        host, port, refused, meta_info = _http_get_broker_target(DMD_HOST, http_port, timeout_sec=0.45)
         if host and port:
+            arp_mac = _check_arp_conflict(host)
             changed = (_cached_broker_host != host or _cached_broker_port != port)
             _cached_broker_host = host
             _cached_broker_port = port
             _cached_broker_ts = now
             _preferred_http_port = http_port
             if changed:
-                log_msg(f"Broker target resolved via HTTP :{http_port} -> {host}:{port}")
+                extra = f"arp_mac={arp_mac or 'unknown'}"
+                if meta_info:
+                    extra += f", {meta_info}"
+                log_msg(f"Broker target resolved via HTTP :{http_port} -> {host}:{port} ({extra})")
             return host, port
         # If the previously working HTTP port simply timed out while ESP32 was busy, don't waste
         # another 450 ms probing the secondary port unless the primary port actively refused TCP.
@@ -250,6 +300,7 @@ def _probe_broker_endpoint():
     if not _cached_broker_host:
         _cached_broker_host = DMD_HOST
         _cached_broker_port = 1883
+    _check_arp_conflict(_cached_broker_host)
     # Retry failed HTTP discovery after 10s (on idle ticks only) rather than every event
     _cached_broker_ts = now - max(0.0, BROKER_CACHE_TTL_SEC - 10.0)
     return _cached_broker_host, _cached_broker_port
@@ -295,13 +346,13 @@ class PersistentMqttClient:
     """Persistent QoS-1 MQTT v3.1.1 TCP client with end-to-end PUBACK & PINGRESP verification.
 
     Guarantees that half-open TCP sockets (e.g. Wi-Fi packet loss, LwIP reset, or ESP32 reboot)
-    are detected within <= 0.8s instead of silently buffering into Linux's 15-minute SO_SNDBUF.
+    are detected within <= 1.2s instead of silently buffering into Linux's 15-minute SO_SNDBUF.
     """
 
     KEEPALIVE_SEC = 60
     PING_INTERVAL_SEC = 20.0
     CONNECT_TIMEOUT_SEC = 1.0
-    ACK_TIMEOUT_SEC = 0.8
+    ACK_TIMEOUT_SEC = 1.2
 
     def __init__(self):
         self.sock = None
@@ -491,8 +542,9 @@ class PersistentMqttClient:
                 while True:
                     resp = self._read_packet(deadline)
                     if resp is None:
+                        arp_mac = _check_arp_conflict(host) or "unknown"
                         if attempt == 0:
-                            log_msg(f"WARN MQTT PUBACK timeout on {host}:{port}; reconnecting...")
+                            log_msg(f"WARN MQTT PUBACK timeout on {host}:{port} (arp_mac={arp_mac}); reconnecting...")
                         self.close(abort=True)
                         break
                     if resp[0] == 0xD0:
@@ -500,12 +552,14 @@ class PersistentMqttClient:
                         continue
                     if resp[0] == 0x40 and len(resp[2]) == 2 and int.from_bytes(resp[2], "big") == pkt_id:
                         self.last_io = time.monotonic()
+                        _check_arp_conflict(host)
                         return True
                     self.close(abort=True)
                     break
             except Exception as e:
+                arp_mac = _check_arp_conflict(host) or "unknown"
                 if attempt == 0:
-                    log_msg(f"WARN MQTT send error ({e}); reconnecting...")
+                    log_msg(f"WARN MQTT send error ({e}, arp_mac={arp_mac}); reconnecting...")
                 self.close(abort=True)
         return False
 
@@ -803,6 +857,27 @@ def main():
             pass
 
     _install_signal_handlers()
+
+    lock_file_handle = None
+    if fcntl is not None:
+        try:
+            lock_file_handle = open(LOCK_FILE, "w", encoding="utf-8")
+            if hasattr(os, "set_inheritable"):
+                os.set_inheritable(lock_file_handle.fileno(), False)
+            locked = False
+            for _ in range(10):
+                try:
+                    fcntl.flock(lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    locked = True
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            if not locked:
+                sys.exit(0)
+        except SystemExit:
+            raise
+        except Exception:
+            pass
 
     # Single-instance TCP lock (non-inheritable so child processes never hold port 49132).
     lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

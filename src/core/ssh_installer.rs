@@ -265,7 +265,11 @@ mkdir -p /recalbox/share/userscripts /recalbox/share/system
 "#;
             ssh_exec(&sess, cleanup_cmd, "Recalbox cleanup")?;
 
-            ssh_write_file(&sess, "/recalbox/share/arcadematrix_daemon.py", &daemon_code)?;
+            ssh_write_file(
+                &sess,
+                "/recalbox/share/arcadematrix_daemon.py",
+                &daemon_code,
+            )?;
             ssh_write_file(
                 &sess,
                 "/recalbox/share/arcadematrix_companion_sync.py",
@@ -418,7 +422,9 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
         }
 
         TargetOS::RetroPie => {
-            tracing::info!("Installing for RetroPie (ES browsing hooks + runcommand + watchdog)...");
+            tracing::info!(
+                "Installing for RetroPie (ES browsing hooks + runcommand + watchdog)..."
+            );
             let cleanup_cmd = r#"
 _pfx="/tmp/arcadematrix_"
 touch "${_pfx}daemon.stop"
@@ -554,7 +560,10 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
                     out.trim()
                 ));
             }
-            Ok("Successfully installed! RetroPie daemon, ES browsing hooks & watchdog are active.".to_string())
+            Ok(
+                "Successfully installed! RetroPie daemon, ES browsing hooks & watchdog are active."
+                    .to_string(),
+            )
         }
     }
 }

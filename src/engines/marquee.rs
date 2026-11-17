@@ -108,7 +108,10 @@ impl MarqueeEngine {
                 return true;
             }
         } else if let Ok(img) = image::open(p) {
-            self.frames = vec![(dynamic_image_to_rgb_on_black(img), Duration::from_secs(3600))];
+            self.frames = vec![(
+                dynamic_image_to_rgb_on_black(img),
+                Duration::from_secs(3600),
+            )];
             self.frame_index = 0;
             self.frame_elapsed = Duration::ZERO;
             self.last_update = Some(Instant::now());

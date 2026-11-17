@@ -3350,14 +3350,10 @@ mod tests {
         assert_eq!(b_mid.direction, "none");
         assert_eq!(b_mid.text, "Super Street Fighter II Turbo");
 
-        let b_long =
-            build_cyan_sync_banner(&config, "The King Of Fighters 98 Ultimate Match Hero");
+        let b_long = build_cyan_sync_banner(&config, "The King Of Fighters 98 Ultimate Match Hero");
         assert_eq!(b_long.size, 2);
         assert_eq!(b_long.direction, "left");
-        assert_eq!(
-            b_long.text,
-            " The King Of Fighters 98 Ultimate Match Hero "
-        );
+        assert_eq!(b_long.text, " The King Of Fighters 98 Ultimate Match Hero ");
 
         // 2. Transparent RGBA pixel with white RGB `(255, 255, 255, 0)` must composite to pure black `(0, 0, 0)`
         let png_path = tmp_dir.join("transparent_white.png");

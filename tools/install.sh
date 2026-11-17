@@ -317,8 +317,8 @@ elif [ "$SYSTEM" = "batocera" ]; then
     fi
     echo "  Hook verified: $VERIFY"
 
-    echo "Configuring EmulationStation UI hooks (game-selected, system-selected)..."
-    for evt in game-selected system-selected; do
+    echo "Configuring EmulationStation UI hooks (game-selected, system-selected, game-start, game-end)..."
+    for evt in game-selected system-selected game-start game-end; do
         ssh_run "$ACTIVE_USER" "$PASSWORD" "
             mkdir -p /userdata/system/configs/emulationstation/scripts/$evt && \
             printf '#!/bin/sh\n/userdata/system/scripts/arcadematrix_mqtt.sh $evt \"\$@\"\n' \

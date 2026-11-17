@@ -246,8 +246,8 @@ sleep 1
         }
         Write-Host "  Hook verified: $verifyOutput"
 
-        Write-Host "Configuring EmulationStation UI hooks (game-selected, system-selected)..."
-        foreach ($evt in @("game-selected", "system-selected")) {
+        Write-Host "Configuring EmulationStation UI hooks (game-selected, system-selected, game-start, game-end)..."
+        foreach ($evt in @("game-selected", "system-selected", "game-start", "game-end")) {
             $esCmd = "mkdir -p /userdata/system/configs/emulationstation/scripts/$evt && printf '#!/bin/sh\n/userdata/system/scripts/arcadematrix_mqtt.sh $evt `"`$@`"`\n' > /userdata/system/configs/emulationstation/scripts/$evt/arcadematrix_mqtt.sh && chmod 755 /userdata/system/configs/emulationstation/scripts/$evt/arcadematrix_mqtt.sh"
             Invoke-RemoteCommand $activeUser $esCmd | Out-Null
         }

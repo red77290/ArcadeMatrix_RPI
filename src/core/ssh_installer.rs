@@ -325,6 +325,16 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
                 let trimmed = version_str.trim();
                 if !trimmed.is_empty() {
                     tracing::info!("Detected Batocera version: {}", trimmed);
+                    if let Some(first_tok) = trimmed.split_whitespace().next() {
+                        if let Ok(ver_num) = first_tok.parse::<u32>() {
+                            if ver_num < 33 {
+                                tracing::warn!(
+                                    "Batocera version {} is < 33. EmulationStation dynamic marquee browsing (game-selected) requires Batocera v33+. Game launch/stop events will still work.",
+                                    ver_num
+                                );
+                            }
+                        }
+                    }
                 }
             }
 
@@ -377,10 +387,16 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
                     hook_path
                 ));
             }
+            if !verify_out.contains("#!/bin/sh") {
+                tracing::warn!(
+                    "Batocera hook verify: file exists but header looks unexpected: {}",
+                    verify_out.trim()
+                );
+            }
 
-            // Install EmulationStation UI hooks strictly for browsing (`game-selected`, `system-selected`).
-            // Game launch/exit (`gameStart`, `gameStop`) are natively dispatched by Batocera via `/userdata/system/scripts/`.
-            for evt in &["game-selected", "system-selected"] {
+            // Install all 4 EmulationStation UI wrappers in individual Dropbear-safe SSH channels
+            // (`game-start` and `game-end` are required for Batocera <= v32 and standalone ES ports).
+            for evt in &["game-selected", "system-selected", "game-start", "game-end"] {
                 let cmd = format!(
                     "mkdir -p /userdata/system/configs/emulationstation/scripts/{evt} && \
                      printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh {evt} \"$@\"\\n' \
@@ -393,9 +409,10 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
 
             ssh_exec(
                 &sess,
-                "chmod -R 755 /userdata/system/configs/emulationstation/scripts && sync",
-                "Batocera sync",
+                "chmod -R 755 /userdata/system/configs/emulationstation/scripts",
+                "Batocera chmod ES",
             )?;
+            ssh_exec(&sess, "sync", "Batocera sync")?;
 
             Ok("Successfully installed! Batocera event hooks are active immediately (no reboot required).".to_string())
         }
@@ -646,14 +663,17 @@ mod tests {
     }
 
     #[test]
-    fn test_generated_batocera_hook_uses_dynamic_broker_target_and_qos1() {
+    fn test_generated_batocera_hook_preserves_socket_hygiene_and_4_es_hooks() {
         let hook = generate_batocera_hook_code("192.168.1.42");
         assert!(hook.starts_with("#!/bin/sh\n"));
         assert!(hook.contains("DMD_HOST=\"192.168.1.42\""));
         assert!(hook.contains("/api/mqtt/broker-target"));
         assert!(hook.contains("resolve_broker_target()"));
         assert!(hook.contains("spawn_companion_sync()"));
-        assert!(hook.contains("-q 1"));
+        assert!(hook.contains("should_emit_lifecycle()"));
+        assert!(hook.contains("game-start)"));
+        assert!(hook.contains("game-end)"));
+        assert!(!hook.contains("-q 1"));
         assert!(hook.contains("build_game_payload"));
         assert!(!hook.contains('\r'));
     }

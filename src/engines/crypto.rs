@@ -1458,7 +1458,8 @@ mod tests {
             },
         );
 
-        let config = crate::core::config::Config::new("config.json");
+        let _tmp_dir = tempfile::tempdir().unwrap();
+        let config = crate::core::config::Config::new(_tmp_dir.path().join("config.json"));
         let mut matrix = MockSurface::new(64, 32);
         let mut context = EngineContext {
             surface: &mut matrix,
@@ -1490,7 +1491,8 @@ mod tests {
             },
         );
 
-        let config = crate::core::config::Config::new("config.json");
+        let _tmp_dir = tempfile::tempdir().unwrap();
+        let config = crate::core::config::Config::new(_tmp_dir.path().join("config.json"));
         let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
             surface: &mut matrix,
@@ -1521,7 +1523,8 @@ mod tests {
             },
         );
 
-        let config = crate::core::config::Config::new("config.json");
+        let _tmp_dir = tempfile::tempdir().unwrap();
+        let config = crate::core::config::Config::new(_tmp_dir.path().join("config.json"));
 
         // 64x64 Square
         let mut matrix_square = MockSurface::new(64, 64);
@@ -1561,7 +1564,8 @@ mod tests {
             },
         );
 
-        let config = crate::core::config::Config::new("config.json");
+        let _tmp_dir = tempfile::tempdir().unwrap();
+        let config = crate::core::config::Config::new(_tmp_dir.path().join("config.json"));
         let mut matrix = MockSurface::new(32, 64);
         let mut context = EngineContext {
             surface: &mut matrix,
@@ -1597,7 +1601,8 @@ mod tests {
         assert!(engine.self_paced());
         assert!(!engine.is_finished());
 
-        let config = crate::core::config::Config::new("config.json");
+        let _tmp_dir = tempfile::tempdir().unwrap();
+        let config = crate::core::config::Config::new(_tmp_dir.path().join("config.json"));
         let mut matrix = MockSurface::new(128, 64);
         let mut context = EngineContext {
             surface: &mut matrix,

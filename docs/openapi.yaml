@@ -844,6 +844,24 @@ paths:
                     type: string
                     description: Short git commit hash of the built source tree (or "unknown").
                     example: cb8723e
+                  install_id:
+                    type: string
+                    description: Locally generated anonymous RFC 4122 UUID v4 persisted in config.json.
+                  res:
+                    type: string
+                    description: Effective HUB75 panel resolution (WxH).
+                    example: "128x32"
+                  hw:
+                    type: string
+                    description: Normalized Raspberry Pi board label (e.g. rpi4b, rpi5, rpizero2w).
+                    example: rpi4b
+                  os:
+                    type: string
+                    description: Normalized OS bitness and Debian codename (e.g. 64bit-bookworm).
+                    example: 64bit-bookworm
+                  ota_auto_check:
+                    type: boolean
+                    description: Whether browser WebClient silent OTA update check-ins are enabled.
 
   /api/update:
     post:

@@ -918,8 +918,16 @@
         after_label: "After",
         dl_release: "View GitHub Release",
         all_models: "All Pi Models",
-        badge_live: "🟢 Live Cloudflare D1 Telemetry",
-        badge_preview: "🟡 Preview Dataset (Awaiting Worker Deployment)"
+        badge_live: "🟢 Live Telemetry (Cloudflare Worker)",
+        badge_gh_only: "🔵 Live GitHub Releases (Worker Offline)",
+        no_checkins_sub: "0 active check-ins yet",
+        worker_pending_sub: "Awaiting Worker telemetry",
+        empty_versions_live: "0 Raspberry Pi matrices have reported an OTA check-in yet. Counts appear automatically as v4.2.0+ instances check for updates from the WebUI.",
+        empty_versions_offline: "Live GitHub Releases downloads shown below.",
+        empty_curve: "30-day migration curve will appear once daily snapshots are recorded.",
+        empty_res: "No active HUB75 panel resolution check-ins yet.",
+        gh_rel_heading: "GitHub Releases Downloads by Version",
+        gh_arch_heading: "GitHub Releases Downloads by Architecture"
       },
       fr: {
         switch_esp32: "Portail ESP32 Web Installer",
@@ -932,9 +940,9 @@
         copy_btn: "Copier la commande",
         copied_btn: "✓ Copié !",
         sd64_title: "Image Carte SD 64-bit Prête à Flasher",
+        sd32_title: "Image Carte SD 32-bit Prête à Flasher",
         sd64_desc: "Recommandée pour Raspberry Pi 5, Pi 4B, Pi 3B+ et Pi Zero 2 W. Image clé en main avec isolation CPU temps réel et ArcadeMatrix pré-installé.",
         sd64_btn: "Télécharger ArcadeMatrix_Release_aarch64.img.xz",
-        sd32_title: "Image Carte SD 32-bit Prête à Flasher",
         sd32_desc: "Conçue pour les systèmes Raspberry Pi OS 32-bit sur Raspberry Pi 2, Pi 3B et distributions 32-bit. Inclut le binaire armv7 pré-compilé.",
         sd32_btn: "Télécharger ArcadeMatrix_Release_armhf.img.xz",
         stats_header: "Télémétrie OTA Anonyme Raspberry Pi & Migrations de Versions",
@@ -944,20 +952,28 @@
         kpi_downloads_sub: "Images SD & Binaires OTA",
         kpi_arch: "Part OS 64-bit (aarch64)",
         mig_title: "Suivi des Migrations de Versions (Migrées vs Anciennes)",
-        mig_sub: "L'UPSERT par UUID v4 garantit qu'une mise à jour v3.0.0 → v3.0.1 transfère le Raspberry Pi sans doublon.",
+        mig_sub: "L'UPSERT par UUID v4 garantit qu'une mise à jour v4.2.0 → v4.2.1 transfère le Raspberry Pi sans doublon.",
         curve_title: "Courbe d'Adoption sur 30 Jours",
         os_title: "Architecture OS (64-bit vs 32-bit)",
         hw_title: "Modèles de Raspberry Pi & Résolutions HUB75",
         hw_sub: "Répartition entre Pi 5, Pi 4B, Pi Zero 2 W, Pi 3B+ et Pi 3B :",
         res_filter_label: "Filtrer les résolutions HUB75 par modèle de Pi :",
         privacy_title: "Garantie Zéro-IP :",
-        privacy_body: "Les statistiques ne sont mises à jour que lorsqu'une instance ArcadeMatrix_RPI vérifie les mises à jour OTA via le Worker Cloudflare. Seuls un UUID v4 aléatoire, la version, le modèle de Pi, l'architecture OS et la résolution HUB75 sont transmis. Aucune adresse IP n'est stockée.",
+        privacy_body: "Les statistiques ne sont mises à jour que depuis le navigateur WebClient lorsqu'une instance ArcadeMatrix_RPI vérifie les mises à jour OTA via le Worker Cloudflare. Seuls un UUID v4 aléatoire, la version, le modèle de Pi, l'architecture OS et la résolution HUB75 sont transmis. Aucune adresse IP n'est stockée.",
         before_label: "Avant",
         after_label: "Après",
         dl_release: "Voir la Release GitHub",
         all_models: "Tous les modèles Pi",
-        badge_live: "🟢 Télémétrie Cloudflare D1 en direct",
-        badge_preview: "🟡 Données d'aperçu (En attente du déploiement Worker)"
+        badge_live: "🟢 Télémétrie en direct (Cloudflare Worker)",
+        badge_gh_only: "🔵 GitHub Releases en direct (Worker hors-ligne)",
+        no_checkins_sub: "0 check-in actif pour l'instant",
+        worker_pending_sub: "En attente de télémétrie Worker",
+        empty_versions_live: "Aucune matrice Raspberry Pi n'a encore effectué de check-in OTA. Les compteurs s'alimenteront automatiquement dès l'ouverture de la WebUI en v4.2.0+.",
+        empty_versions_offline: "Téléchargements réels GitHub Releases affichés ci-dessous.",
+        empty_curve: "La courbe sur 30 jours apparaîtra dès les premiers relevés quotidiens.",
+        empty_res: "Aucune résolution HUB75 remontée pour l'instant.",
+        gh_rel_heading: "Téléchargements GitHub Releases par version",
+        gh_arch_heading: "Téléchargements GitHub Releases par architecture"
       },
       es: {
         switch_esp32: "Portal ESP32 Web Installer",
@@ -982,33 +998,41 @@
         kpi_downloads_sub: "Imágenes SD y Binarios OTA",
         kpi_arch: "Cuota 64 bits (aarch64)",
         mig_title: "Seguimiento de Migración de Versiones",
-        mig_sub: "El UPSERT con UUID v4 asegura que actualizar de v3.0.0 → v3.0.1 migre el conteo sin duplicados.",
+        mig_sub: "El UPSERT con UUID v4 asegura que actualizar migre el conteo existente sin duplicados.",
         curve_title: "Curva de Adopción de 30 Días",
         os_title: "Arquitectura de SO (64 bits vs 32 bits)",
         hw_title: "Modelos de Raspberry Pi y Resoluciones HUB75",
         hw_sub: "Distribución entre Pi 5, Pi 4B, Pi Zero 2 W, Pi 3B+ y Pi 3B:",
         res_filter_label: "Filtrar resoluciones HUB75 por modelo de Pi:",
         privacy_title: "Garantía de Privacidad Cero-IP:",
-        privacy_body: "Las estadísticas se actualizan únicamente cuando una instancia ArcadeMatrix_RPI busca actualizaciones OTA mediante el Worker de Cloudflare. Nunca se leen ni almacenan direcciones IP.",
+        privacy_body: "Las estadísticas se actualizan únicamente desde el navegador WebClient cuando una instancia ArcadeMatrix_RPI busca actualizaciones OTA mediante el Worker de Cloudflare. Nunca se leen ni almacenan direcciones IP.",
         before_label: "Antes",
         after_label: "Después",
         dl_release: "Ver Release en GitHub",
         all_models: "Todos los modelos Pi",
-        badge_live: "🟢 Telemetría Cloudflare D1 en vivo",
-        badge_preview: "🟡 Datos de vista previa (Esperando despliegue del Worker)"
+        badge_live: "🟢 Telemetría en vivo (Cloudflare Worker)",
+        badge_gh_only: "🔵 GitHub Releases en vivo (Worker sin conexión)",
+        no_checkins_sub: "0 check-ins activos por ahora",
+        worker_pending_sub: "Esperando telemetría del Worker",
+        empty_versions_live: "Ninguna matriz Raspberry Pi ha reportado aún un check-in OTA. Los contadores aparecerán automáticamente cuando instancias v4.2.0+ busquen actualizaciones desde la WebUI.",
+        empty_versions_offline: "Descargas reales de GitHub Releases mostradas abajo.",
+        empty_curve: "La curva de 30 días aparecerá cuando se registren instantáneas diarias.",
+        empty_res: "Aún no hay resoluciones HUB75 reportadas.",
+        gh_rel_heading: "Descargas de GitHub Releases por versión",
+        gh_arch_heading: "Descargas de GitHub Releases por arquitectura"
       }
     };
 
     const FALLBACK_POSTS = {
       project: "rpi",
-      latest_version: "v3.0.1",
+      latest_version: "v4.2.0",
       posts: [
         {
-          version: "v3.0.1",
+          version: "v4.2.0",
           date: "2026-11-16",
           tags: ["NEW", "PERF", "FIX"],
           media: "changelog/media/rpi-agenda-celebration.svg",
-          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.1",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases",
           title: {
             en: "iCal Agenda Engine, RetroAchievements Fireworks & Anonymous OTA Proxy",
             fr: "Moteur Agenda iCal, Feux d'Artifice RetroAchievements & Proxy OTA Anonyme",
@@ -1026,9 +1050,9 @@
               es: "La comprobación OTA consultaba api.github.com directamente sin visibilidad de versiones, y las alertas de agenda/trofeos requerían scripts externos."
             },
             after: {
-              en: "Built-in 'agenda' engine, preemptive RetroAchievements celebration scenes, and Edge-cached OTA checks with zero-IP UUID v4 migration tracking.",
-              fr: "Moteur 'agenda' intégré, scènes de célébration RetroAchievements préemptives, et vérification OTA en cache Edge avec suivi UUID v4 zéro-IP.",
-              es: "Motor 'agenda' integrado, escenas preemptivas de celebración RetroAchievements y comprobación OTA en caché Edge con seguimiento UUID v4 sin IP."
+              en: "Built-in 'agenda' engine, preemptive RetroAchievements celebration scenes, and Edge-cached WebClient OTA checks with zero-IP UUID v4 migration tracking.",
+              fr: "Moteur 'agenda' intégré, scènes de célébration RetroAchievements préemptives, et vérification OTA WebClient en cache Edge avec suivi UUID v4 zéro-IP.",
+              es: "Motor 'agenda' integrado, escenas preemptivas de celebración RetroAchievements y comprobación OTA WebClient en caché Edge con seguimiento UUID v4 sin IP."
             }
           },
           highlights: {
@@ -1050,11 +1074,11 @@
           }
         },
         {
-          version: "v3.0.0",
-          date: "2026-10-25",
+          version: "v4.1.2",
+          date: "2026-11-02",
           tags: ["NEW", "PERF"],
           media: "changelog/media/rpi-v16-locked.svg",
-          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.0",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.1.2",
           title: {
             en: "V1.6-FinalLocked Zero-Allocation Rust Runtime & Dual Arch SD Images",
             fr: "Runtime Rust V1.6-FinalLocked Zéro Allocation & Images SD Dual-Arch",
@@ -1095,55 +1119,27 @@
       ]
     };
 
-    const PREVIEW_STATS = {
-      project: "rpi",
-      isPreview: true,
-      kpis: {
-        active_30d: 142,
-        total_known: 168,
-        latest_version: "v3.0.1",
-        latest_adoption_pct: 71.8,
-        github_downloads_total: 1890
-      },
-      versions: [
-        { version: "v3.0.1", active_30d: 102, total: 102, pct: 71.8 },
-        { version: "v3.0.0", active_30d: 31, total: 49, pct: 21.8 },
-        { version: "v2.9.2", active_30d: 9, total: 17, pct: 6.4 }
-      ],
-      hardware: [
-        { hw: "rpi4b", count: 58, pct: 40.8 },
-        { hw: "rpi3b+", count: 36, pct: 25.4 },
-        { hw: "rpizero2w", count: 24, pct: 16.9 },
-        { hw: "rpi5", count: 16, pct: 11.3 },
-        { hw: "rpi3b", count: 8, pct: 5.6 }
-      ],
-      os_arch: [
-        { os: "64bit-bookworm", count: 96, pct: 67.6 },
-        { os: "64bit-bullseye", count: 22, pct: 15.5 },
-        { os: "32bit-bookworm", count: 16, pct: 11.3 },
-        { os: "32bit-bullseye", count: 8, pct: 5.6 }
-      ],
-      resolutions: [
-        { res: "128x64", count: 68, pct: 47.9 },
-        { res: "128x32", count: 34, pct: 23.9 },
-        { res: "256x64", count: 26, pct: 18.3 },
-        { res: "64x32", count: 14, pct: 9.9 }
-      ],
-      hw_by_res: {
-        rpi4b: { "128x64": 31, "256x64": 15, "128x32": 9, "64x32": 3 },
-        "rpi3b+": { "128x64": 18, "128x32": 13, "64x32": 5 },
-        rpizero2w: { "128x32": 10, "128x64": 8, "64x32": 6 },
-        rpi5: { "256x64": 11, "128x64": 5 },
-        rpi3b: { "128x64": 6, "128x32": 2 }
-      },
-      daily_history: [
-        { day: "D-20", versions: { "v3.0.0": 118, "v2.9.2": 16 } },
-        { day: "D-15", versions: { "v3.0.0": 124, "v2.9.2": 14 } },
-        { day: "D-10", versions: { "v3.0.1": 38, "v3.0.0": 92, "v2.9.2": 11 } },
-        { day: "D-5",  versions: { "v3.0.1": 79, "v3.0.0": 52, "v2.9.2": 10 } },
-        { day: "Now",  versions: { "v3.0.1": 102, "v3.0.0": 31, "v2.9.2": 9 } }
-      ]
-    };
+    function createEmptyStats() {
+      return {
+        project: "rpi",
+        isWorkerLive: false,
+        kpis: {
+          active_30d: 0,
+          total_known: 0,
+          latest_version: "v4.2.0",
+          latest_adoption_pct: 0,
+          github_downloads_total: 0
+        },
+        versions: [],
+        hardware: [],
+        os_arch: [],
+        resolutions: [],
+        hw_by_res: {},
+        daily_history: [],
+        github_releases: [],
+        github_hw_downloads: []
+      };
+    }
 
     const HW_LABELS = {
       rpi5: "Raspberry Pi 5",
@@ -1151,14 +1147,16 @@
       "rpi3b+": "Raspberry Pi 3 Model B+",
       rpi3b: "Raspberry Pi 3 Model B",
       rpizero2w: "Raspberry Pi Zero 2 W",
-      rpizero: "Raspberry Pi Zero / W"
+      rpizero: "Raspberry Pi Zero / W",
+      aarch64: "64-bit (aarch64 / arm64)",
+      armhf: "32-bit (armhf / armv7)"
     };
 
     let currentLang = (localStorage.getItem("am_portal_lang") || "en").toLowerCase();
     if (!I18N[currentLang]) currentLang = "en";
 
     let loadedPostsData = FALLBACK_POSTS;
-    let currentStatsData = PREVIEW_STATS;
+    let currentStatsData = createEmptyStats();
     let selectedHwFilter = "all";
 
     function applyLanguage(lang) {
@@ -1245,53 +1243,96 @@
       }).join("");
     }
 
+    function renderEmptyNote(msg) {
+      return `<div style="padding:0.85rem 1rem; border-radius:8px; background:rgba(255,255,255,0.03); border:1px dashed rgba(255,255,255,0.12); color:#9ba1a6; font-size:0.85rem;">${msg}</div>`;
+    }
+
     function renderStatsDashboard() {
       const dict = I18N[currentLang];
-      const data = currentStatsData || PREVIEW_STATS;
+      const data = currentStatsData || createEmptyStats();
+      const isLive = !!data.isWorkerLive;
       const badge = document.getElementById("stats-source-badge");
       if (badge) {
-        badge.className = `source-badge ${data.isPreview ? "source-preview" : "source-live"}`;
-        badge.textContent = data.isPreview ? dict.badge_preview : dict.badge_live;
+        badge.className = `source-badge ${isLive ? "source-live" : "source-preview"}`;
+        badge.textContent = isLive ? dict.badge_live : dict.badge_gh_only;
       }
 
-      document.getElementById("kpi-active-val").textContent = data.kpis.active_30d;
-      document.getElementById("kpi-total-sub").textContent = `Total UUIDs: ${data.kpis.total_known}`;
-      document.getElementById("kpi-adoption-val").textContent = `${data.kpis.latest_adoption_pct}%`;
-      document.getElementById("kpi-latest-ver").textContent = `Target: ${data.kpis.latest_version}`;
+      document.getElementById("kpi-active-val").textContent = isLive ? String(data.kpis.active_30d) : "—";
+      document.getElementById("kpi-total-sub").textContent = isLive
+        ? `Total UUIDs: ${data.kpis.total_known}`
+        : dict.worker_pending_sub;
+      document.getElementById("kpi-adoption-val").textContent = isLive ? `${data.kpis.latest_adoption_pct}%` : "—";
+      document.getElementById("kpi-latest-ver").textContent = `Latest: ${data.kpis.latest_version || "v4.2.0"}`;
       document.getElementById("kpi-downloads-val").textContent = Number(data.kpis.github_downloads_total || 0).toLocaleString();
 
-      const arch64Pct = (data.os_arch || [])
-        .filter((o) => String(o.os).startsWith("64bit"))
-        .reduce((sum, o) => sum + Number(o.pct || 0), 0);
-      document.getElementById("kpi-arch-val").textContent = `${Math.round(arch64Pct * 10) / 10}%`;
+      const osEntries = data.os_arch || [];
+      if (osEntries.length > 0) {
+        const arch64Pct = osEntries
+          .filter((o) => String(o.os).startsWith("64bit"))
+          .reduce((sum, o) => sum + Number(o.pct || 0), 0);
+        document.getElementById("kpi-arch-val").textContent = `${Math.round(arch64Pct * 10) / 10}%`;
+      } else {
+        const ghAarch64 = (data.github_hw_downloads || []).find((i) => i.hw === "aarch64");
+        document.getElementById("kpi-arch-val").textContent = ghAarch64 ? `${ghAarch64.pct}%` : "—";
+      }
 
       const colors = ["#ff0055", "#00f0ff", "#00e676", "#ffcc00"];
       const stackedBar = document.getElementById("version-stacked-bar");
-      stackedBar.innerHTML = (data.versions || []).map((v, idx) => {
-        const c = colors[idx % colors.length];
-        return `<div class="stacked-segment" style="width:${Math.max(v.pct, 2)}%; background:${c}" title="${v.version}: ${v.active_30d} (${v.pct}%)"></div>`;
-      }).join("");
-
       const verList = document.getElementById("version-bars-list");
-      verList.innerHTML = (data.versions || []).map((v, idx) => {
-        const c = colors[idx % colors.length];
-        const statusTag = idx === 0 ? "★ LATEST" : "LEGACY";
-        return `
-          <div class="bar-row">
-            <div class="bar-row-header">
-              <span><strong style="color:${c}; font-family:'JetBrains Mono',monospace;">${v.version}</strong> <small style="color:#9ba1a6">(${statusTag})</small></span>
-              <span><strong>${v.active_30d}</strong> matrices (${v.pct}%)</span>
+      const activeVers = data.versions || [];
+
+      if (activeVers.length > 0) {
+        stackedBar.style.display = "flex";
+        stackedBar.innerHTML = activeVers.map((v, idx) => {
+          const c = colors[idx % colors.length];
+          return `<div class="stacked-segment" style="width:${Math.max(v.pct, 2)}%; background:${c}" title="${v.version}: ${v.active_30d} (${v.pct}%)"></div>`;
+        }).join("");
+
+        verList.innerHTML = activeVers.map((v, idx) => {
+          const c = colors[idx % colors.length];
+          const statusTag = v.version === data.kpis.latest_version ? "★ LATEST" : "LEGACY";
+          return `
+            <div class="bar-row">
+              <div class="bar-row-header">
+                <span><strong style="color:${c}; font-family:'JetBrains Mono',monospace;">${v.version}</strong> <small style="color:#9ba1a6">(${statusTag})</small></span>
+                <span><strong>${v.active_30d}</strong> matrices (${v.pct}%)</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width:${v.pct}%; background:${c}"></div>
+              </div>
             </div>
-            <div class="bar-track">
-              <div class="bar-fill" style="width:${v.pct}%; background:${c}"></div>
-            </div>
-          </div>
-        `;
-      }).join("");
+          `;
+        }).join("");
+      } else {
+        stackedBar.style.display = "none";
+        stackedBar.innerHTML = "";
+        const ghRels = (data.github_releases || []).filter((r) => r.downloads > 0).slice(0, 6);
+        const maxRelDl = ghRels.reduce((m, r) => Math.max(m, r.downloads), 0) || 1;
+        const ghRelHtml = ghRels.length > 0
+          ? `<div class="kpi-label" style="margin-top:0.9rem; margin-bottom:0.45rem;">${dict.gh_rel_heading}</div>` +
+            ghRels.map((r, idx) => {
+              const c = colors[idx % colors.length];
+              const wPct = Math.round((r.downloads / maxRelDl) * 100);
+              return `
+                <div class="bar-row">
+                  <div class="bar-row-header">
+                    <span style="font-family:'JetBrains Mono',monospace; color:${c};"><strong>${r.tag}</strong></span>
+                    <span><strong>${r.downloads}</strong> downloads</span>
+                  </div>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width:${wPct}%; background:${c}"></div>
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : "";
+        verList.innerHTML = renderEmptyNote(isLive ? dict.empty_versions_live : dict.empty_versions_offline) + ghRelHtml;
+      }
 
       // 30-day SVG curve
       const history = data.daily_history || [];
-      const latestVer = data.kpis.latest_version || "v3.0.1";
+      const latestVer = data.kpis.latest_version || "v4.2.0";
+      const curveEl = document.getElementById("migration-curve-svg");
       if (history.length > 0) {
         const w = 460, h = 110, pad = 22;
         const points = history.map((pt, i) => {
@@ -1303,53 +1344,79 @@
           return `${x.toFixed(1)},${y.toFixed(1)}`;
         }).join(" ");
 
-        document.getElementById("migration-curve-svg").innerHTML = `
+        curveEl.innerHTML = `
           <svg viewBox="0 0 ${w} ${h}" width="100%" height="110" style="background:rgba(0,0,0,0.25); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
             <polyline fill="none" stroke="#ff0055" stroke-width="3" points="${points}" />
             <text x="12" y="18" fill="#ff6699" font-family="monospace" font-size="10">${latestVer} share over time</text>
           </svg>
         `;
+      } else {
+        curveEl.innerHTML = renderEmptyNote(dict.empty_curve);
       }
 
-      // OS Architecture breakdown
+      // OS Architecture breakdown (live fleet if >0, else real GitHub Releases arch downloads)
       const osList = document.getElementById("os-bars-list");
-      osList.innerHTML = (data.os_arch || []).map((item) => `
-        <div class="bar-row">
-          <div class="bar-row-header">
-            <span style="font-family:'JetBrains Mono',monospace;">${item.os}</span>
-            <span><strong>${item.count}</strong> (${item.pct}%)</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${item.pct}%; background:#00e676;"></div>
-          </div>
-        </div>
-      `).join("");
-
-      // Pi Models breakdown
-      const hwList = document.getElementById("hw-bars-list");
-      hwList.innerHTML = (data.hardware || []).map((item) => {
-        const label = HW_LABELS[item.hw] || item.hw;
-        return `
+      if (osEntries.length > 0) {
+        osList.innerHTML = osEntries.map((item) => `
           <div class="bar-row">
             <div class="bar-row-header">
-              <span>${label}</span>
+              <span style="font-family:'JetBrains Mono',monospace;">${item.os}</span>
               <span><strong>${item.count}</strong> (${item.pct}%)</span>
             </div>
             <div class="bar-track">
-              <div class="bar-fill" style="width:${item.pct}%; background:linear-gradient(90deg, #ff0055, #00f0ff);"></div>
+              <div class="bar-fill" style="width:${item.pct}%; background:#00e676;"></div>
             </div>
           </div>
-        `;
-      }).join("");
+        `).join("");
+      } else {
+        const ghArch = data.github_hw_downloads || [];
+        osList.innerHTML = ghArch.length > 0
+          ? `<div class="kpi-label" style="margin-bottom:0.45rem;">${dict.gh_arch_heading}</div>` +
+            ghArch.map((item) => `
+              <div class="bar-row">
+                <div class="bar-row-header">
+                  <span>${HW_LABELS[item.hw] || item.hw}</span>
+                  <span><strong>${item.downloads}</strong> downloads (${item.pct}%)</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" style="width:${item.pct}%; background:#00e676;"></div>
+                </div>
+              </div>
+            `).join("")
+          : renderEmptyNote(isLive ? dict.no_checkins_sub : dict.worker_pending_sub);
+      }
+
+      // Pi Models breakdown
+      const hwList = document.getElementById("hw-bars-list");
+      const activeHw = data.hardware || [];
+      hwList.innerHTML = activeHw.length > 0
+        ? activeHw.map((item) => {
+            const label = HW_LABELS[item.hw] || item.hw;
+            return `
+              <div class="bar-row">
+                <div class="bar-row-header">
+                  <span>${label}</span>
+                  <span><strong>${item.count}</strong> (${item.pct}%)</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" style="width:${item.pct}%; background:linear-gradient(90deg, #ff0055, #00f0ff);"></div>
+                </div>
+              </div>
+            `;
+          }).join("")
+        : renderEmptyNote(isLive ? dict.no_checkins_sub : dict.worker_pending_sub);
 
       // Filter pills for Resolutions by Pi Model
       const pillsContainer = document.getElementById("hw-filter-pills");
-      const hwKeys = ["all", ...(data.hardware || []).map((h) => h.hw)];
-      pillsContainer.innerHTML = hwKeys.map((key) => {
-        const label = key === "all" ? dict.all_models : (HW_LABELS[key] || key);
-        const activeClass = selectedHwFilter === key ? "active" : "";
-        return `<button class="filter-pill ${activeClass}" data-hw="${key}">${label}</button>`;
-      }).join("");
+      const hwKeys = ["all", ...activeHw.map((h) => h.hw)];
+      if (!hwKeys.includes(selectedHwFilter)) selectedHwFilter = "all";
+      pillsContainer.innerHTML = activeHw.length > 0
+        ? hwKeys.map((key) => {
+            const label = key === "all" ? dict.all_models : (HW_LABELS[key] || key);
+            const activeClass = selectedHwFilter === key ? "active" : "";
+            return `<button class="filter-pill ${activeClass}" data-hw="${key}">${label}</button>`;
+          }).join("")
+        : "";
 
       pillsContainer.querySelectorAll(".filter-pill").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -1374,17 +1441,19 @@
       }
 
       const resList = document.getElementById("res-bars-list");
-      resList.innerHTML = resEntries.map((r) => `
-        <div class="bar-row">
-          <div class="bar-row-header">
-            <span style="font-family:'JetBrains Mono',monospace;">${r.res}</span>
-            <span><strong>${r.count}</strong> (${r.pct}%)</span>
-          </div>
-          <div class="bar-track">
-            <div class="bar-fill" style="width:${r.pct}%; background:#00f0ff;"></div>
-          </div>
-        </div>
-      `).join("");
+      resList.innerHTML = resEntries.length > 0
+        ? resEntries.map((r) => `
+            <div class="bar-row">
+              <div class="bar-row-header">
+                <span style="font-family:'JetBrains Mono',monospace;">${r.res}</span>
+                <span><strong>${r.count}</strong> (${r.pct}%)</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width:${r.pct}%; background:#00f0ff;"></div>
+              </div>
+            </div>
+          `).join("")
+        : renderEmptyNote(dict.empty_res);
     }
 
     async function loadChangelogJson() {
@@ -1397,45 +1466,80 @@
       } catch (_) {}
     }
 
+    function enrichWithGitHubReleases(target, releases) {
+      if (!Array.isArray(releases) || releases.length === 0) return;
+      let totalDl = 0;
+      const archMap = new Map();
+      const ghReleases = [];
+
+      const latest = releases[0];
+      for (const asset of latest.assets || []) {
+        if (asset.name && asset.name.includes("aarch64") && asset.browser_download_url) {
+          document.getElementById("dl-aarch64-link").href = asset.browser_download_url;
+        }
+        if (asset.name && asset.name.includes("armhf") && asset.browser_download_url) {
+          document.getElementById("dl-armhf-link").href = asset.browser_download_url;
+        }
+      }
+
+      for (const rel of releases) {
+        let relDl = 0;
+        for (const asset of rel.assets || []) {
+          const nl = String(asset.name || "").toLowerCase();
+          if (nl.includes("sdcard")) continue;
+          const dl = Number(asset.download_count || 0);
+          relDl += dl;
+          if (nl.includes("aarch64") || nl.includes("arm64")) {
+            archMap.set("aarch64", (archMap.get("aarch64") || 0) + dl);
+          } else if (nl.includes("armhf") || nl.includes("armv7")) {
+            archMap.set("armhf", (archMap.get("armhf") || 0) + dl);
+          }
+        }
+        totalDl += relDl;
+        ghReleases.push({
+          tag: rel.tag_name || rel.name || "unknown",
+          published_at: rel.published_at || null,
+          downloads: relDl
+        });
+      }
+
+      const archSum = Array.from(archMap.values()).reduce((a, b) => a + b, 0);
+      target.kpis.github_downloads_total = totalDl;
+      if (ghReleases[0]?.tag && (!target.isWorkerLive || !target.kpis.latest_version)) {
+        target.kpis.latest_version = ghReleases[0].tag;
+      }
+      target.github_releases = ghReleases;
+      target.github_hw_downloads = Array.from(archMap.entries())
+        .map(([hw, downloads]) => ({
+          hw,
+          downloads,
+          pct: archSum > 0 ? Math.round((downloads / archSum) * 1000) / 10 : 0
+        }))
+        .sort((a, b) => b.downloads - a.downloads);
+    }
+
     async function loadLiveStatsAndReleaseLinks() {
-      // 1. Try Cloudflare Worker D1 stats
+      // 1. Query live Cloudflare Worker stats (accepts 0 devices cleanly—never synthetic fallback)
       try {
-        const res = await fetch(`${OTA_STATS_WORKER_URL}/v1/stats?p=rpi`);
+        const res = await fetch(`${OTA_STATS_WORKER_URL}/v1/stats?p=rpi`, {
+          signal: AbortSignal.timeout(4500)
+        });
         if (res.ok) {
           const live = await res.json();
-          if (live && live.kpis && live.kpis.total_known > 0) {
-            currentStatsData = { ...live, isPreview: false };
+          if (live && live.kpis && typeof live.kpis.total_known === "number") {
+            currentStatsData = { ...createEmptyStats(), ...live, isWorkerLive: true };
             renderStatsDashboard();
           }
         }
       } catch (_) {}
 
-      // 2. Fetch GitHub Releases to bind direct SD card asset links & live download totals
+      // 2. Fetch GitHub Releases to bind direct SD card asset links & live download breakdown
       try {
         const ghRes = await fetch(GITHUB_RELEASES_API);
         if (ghRes.ok) {
           const releases = await ghRes.json();
-          if (Array.isArray(releases) && releases.length > 0) {
-            let totalDl = 0;
-            const latest = releases[0];
-            for (const asset of latest.assets || []) {
-              if (asset.name && asset.name.includes("aarch64") && asset.browser_download_url) {
-                document.getElementById("dl-aarch64-link").href = asset.browser_download_url;
-              }
-              if (asset.name && asset.name.includes("armhf") && asset.browser_download_url) {
-                document.getElementById("dl-armhf-link").href = asset.browser_download_url;
-              }
-            }
-            for (const rel of releases) {
-              for (const asset of rel.assets || []) {
-                totalDl += Number(asset.download_count || 0);
-              }
-            }
-            if (totalDl > 0 && currentStatsData.isPreview) {
-              currentStatsData.kpis.github_downloads_total = totalDl;
-              renderStatsDashboard();
-            }
-          }
+          enrichWithGitHubReleases(currentStatsData, releases);
+          renderStatsDashboard();
         }
       } catch (_) {}
     }

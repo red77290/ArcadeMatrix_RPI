@@ -327,10 +327,15 @@ pub fn generate_random_token() -> String {
 }
 
 pub fn is_valid_uuid_v4(s: &str) -> bool {
-    let bytes = s.trim().as_bytes();
+    let trimmed = s.trim();
+    let bytes = trimmed.as_bytes();
     if bytes.len() != 36 {
         return false;
     }
+    if trimmed.eq_ignore_ascii_case("a4074101-8139-44a4-920e-0ecddf62503c") {
+        return false;
+    }
+    let mut has_nonzero_random_nibble = false;
     for (idx, &b) in bytes.iter().enumerate() {
         match idx {
             8 | 13 | 18 | 23 => {
@@ -352,10 +357,13 @@ pub fn is_valid_uuid_v4(s: &str) -> bool {
                 if !b.is_ascii_hexdigit() {
                     return false;
                 }
+                if b != b'0' {
+                    has_nonzero_random_nibble = true;
+                }
             }
         }
     }
-    true
+    has_nonzero_random_nibble
 }
 
 pub fn generate_uuid_v4() -> String {

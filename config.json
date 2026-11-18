@@ -96,7 +96,7 @@
     "idle_fighter_enabled": true,
     "idle_fighter_interval": 10,
     "idle_fighter_speed": 100,
-    "install_id": "a4074101-8139-44a4-920e-0ecddf62503c",
+    "install_id": "",
     "ota_auto_check": true
   },
   "instances": [],

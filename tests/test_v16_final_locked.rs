@@ -1488,6 +1488,18 @@ fn test_frontend_sync_cards_and_ota_telemetry_helpers() {
     assert_eq!(uuid.len(), 36);
     assert!(is_valid_uuid_v4(&uuid));
     assert!(!is_valid_uuid_v4("not-a-valid-uuid"));
+    assert!(!is_valid_uuid_v4("00000000-0000-4000-8000-000000000000"));
+    assert!(!is_valid_uuid_v4("a4074101-8139-44a4-920e-0ecddf62503c"));
+
+    let repo_cfg_raw = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/config.json"))
+        .expect("repo config.json must exist");
+    let repo_cfg_json: serde_json::Value =
+        serde_json::from_str(&repo_cfg_raw).expect("valid config.json");
+    assert_eq!(
+        repo_cfg_json["system"]["install_id"].as_str(),
+        Some(""),
+        "Repository template config.json must never ship a hardcoded install_id"
+    );
 
     assert_eq!(
         normalize_rpi_model("Raspberry Pi 4 Model B Rev 1.5\0"),

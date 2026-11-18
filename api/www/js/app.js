@@ -376,6 +376,139 @@ function initOta() {
     });
   }
 
+  const OTA_WORKER_URL = 'https://arcadematrix-ota-stats.red77290.workers.dev/v1/ota/releases';
+  const GITHUB_RPI_RELEASES_URL = 'https://api.github.com/repos/red77290/ArcadeMatrix_RPI/releases';
+
+  function isUsableUuidV4(id) {
+    if (typeof id !== 'string') return false;
+    const s = id.trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s)) return false;
+    if (/^0{8}-0{4}-40{3}-[89ab]0{3}-0{12}$/.test(s)) return false;
+    if (s === 'a4074101-8139-44a4-920e-0ecddf62503c') return false;
+    return true;
+  }
+
+  function resolveInstallUuid(deviceUuid) {
+    if (isUsableUuidV4(deviceUuid)) {
+      const clean = deviceUuid.trim().toLowerCase();
+      try { localStorage.setItem('am_install_id', clean); } catch (_) {}
+      return clean;
+    }
+    try {
+      const cached = localStorage.getItem('am_install_id');
+      if (isUsableUuidV4(cached)) return cached.trim().toLowerCase();
+      if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        const gen = window.crypto.randomUUID().toLowerCase();
+        localStorage.setItem('am_install_id', gen);
+        return gen;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  function parseRpiSemver(raw) {
+    const clean = String(raw || '').trim().replace(/^[vV]/, '');
+    const [mainPart, prePart] = clean.split('-', 2);
+    const nums = (mainPart || '').split('.').map((n) => parseInt(n, 10));
+    if (!nums.length || Number.isNaN(nums[0])) return null;
+    let pre = null;
+    if (prePart) {
+      const lower = prePart.toLowerCase();
+      pre = {
+        name: lower.replace(/[^a-z]/g, ''),
+        num: parseInt(lower.replace(/[^0-9]/g, ''), 10) || 0,
+      };
+    }
+    return { major: nums[0] || 0, minor: nums[1] || 0, patch: nums[2] || 0, pre };
+  }
+
+  function isSemverStrictlyLower(currStr, latStr) {
+    const c = parseRpiSemver(currStr);
+    const l = parseRpiSemver(latStr);
+    if (!c || !l) return false;
+    if (c.major !== l.major) return c.major < l.major;
+    if (c.minor !== l.minor) return c.minor < l.minor;
+    if (c.patch !== l.patch) return c.patch < l.patch;
+    if (!c.pre && !l.pre) return false;
+    if (c.pre && !l.pre) return true;
+    if (!c.pre && l.pre) return false;
+    if (c.pre.name !== l.pre.name) return c.pre.name < l.pre.name;
+    return c.pre.num < l.pre.num;
+  }
+
+  async function checkOtaUpdateViaWebClient(sendMetrics = true) {
+    const verInfo = await API.getVersion();
+    const currentVersion = String(verInfo.version || '0.0.0').replace(/^[vV]/, '');
+    const currentArch = String(verInfo.arch || 'aarch64');
+    const installId = sendMetrics ? resolveInstallUuid(verInfo.install_id) : '';
+    const qs = new URLSearchParams({ p: 'rpi' });
+    if (installId) {
+      qs.set('id', installId);
+      qs.set('v', currentVersion);
+      qs.set('hw', verInfo.hw || 'rpi_other');
+      if (verInfo.os) qs.set('os', verInfo.os);
+      if (verInfo.res) qs.set('res', verInfo.res);
+    }
+
+    let releases = null;
+    try {
+      const wRes = await fetch(`${OTA_WORKER_URL}?${qs.toString()}`, {
+        signal: AbortSignal.timeout(4500),
+      });
+      if (wRes.ok) {
+        const parsed = await wRes.json();
+        if (Array.isArray(parsed) && parsed.length > 0) releases = parsed;
+      }
+    } catch (_) {}
+
+    if (!releases) {
+      try {
+        const ghRes = await fetch(GITHUB_RPI_RELEASES_URL, {
+          headers: { Accept: 'application/vnd.github+json' },
+          signal: AbortSignal.timeout(8000),
+        });
+        if (ghRes.ok) {
+          const parsed = await ghRes.json();
+          if (Array.isArray(parsed) && parsed.length > 0) releases = parsed;
+        }
+      } catch (_) {}
+    }
+
+    if (!releases) {
+      return await API.checkOtaUpdate();
+    }
+
+    const latestRel = releases[0];
+    const latestVersion = String(latestRel.tag_name || '').replace(/^[vV]/, '');
+    const is64 = currentArch.includes('aarch64') || currentArch.includes('arm64');
+    let matchingAsset = null;
+    for (const asset of latestRel.assets || []) {
+      const nl = String(asset.name || '').toLowerCase();
+      if (nl.endsWith('.img.xz') || nl.endsWith('.zip') || nl.endsWith('.tar.gz') || nl.includes('sdcard')) continue;
+      if (is64 && (nl.includes('aarch64') || nl.includes('arm64'))) {
+        matchingAsset = asset;
+        break;
+      }
+      if (!is64 && (nl.includes('armv7') || nl.includes('armhf') || (nl.includes('arm') && !nl.includes('arm64')))) {
+        matchingAsset = asset;
+        break;
+      }
+    }
+
+    return {
+      current_version: currentVersion,
+      current_arch: currentArch,
+      latest_version: latestVersion,
+      update_available: isSemverStrictlyLower(currentVersion, latestVersion),
+      release_name: latestRel.name || latestRel.tag_name || latestVersion,
+      release_notes: latestRel.body || '',
+      published_at: latestRel.published_at || '',
+      download_url: matchingAsset ? matchingAsset.browser_download_url : null,
+      asset_name: matchingAsset ? matchingAsset.name : null,
+      asset_size: matchingAsset ? matchingAsset.size : null,
+    };
+  }
+
   window.runSilentOtaAutoCheck = async (force = false) => {
     const autoEnabled = window.__sysConfig?.system?.ota_auto_check !== false;
     if (!force && !autoEnabled) return;
@@ -385,7 +518,7 @@ function initOta() {
     if (!force && (now - lastTs) < TWELVE_HOURS_MS) return;
     try {
       localStorage.setItem('am_last_ota_auto_check_ts', String(now));
-      const data = await API.checkOtaUpdate();
+      const data = await checkOtaUpdateViaWebClient(autoEnabled);
       applyOtaCheckResponse(data, true);
     } catch (_) {}
   };
@@ -397,7 +530,8 @@ function initOta() {
       window.showToast('Checking GitHub for latest release...', 'info');
 
       try {
-        const data = await API.checkOtaUpdate();
+        const autoEnabled = window.__sysConfig?.system?.ota_auto_check !== false;
+        const data = await checkOtaUpdateViaWebClient(autoEnabled);
         localStorage.setItem('am_last_ota_auto_check_ts', String(Date.now()));
         applyOtaCheckResponse(data, false);
       } catch (err) {

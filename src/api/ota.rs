@@ -221,8 +221,13 @@ pub struct AutoUpdateRequest {
 
 #[get("/api/version")]
 pub async fn get_version(data: web::Data<crate::api::server::AppState>) -> impl Responder {
-    let install_id = data.config.settings.read().system.install_id.clone();
+    let (install_id, ota_auto_check) = {
+        let s = data.config.settings.read();
+        (s.system.install_id.clone(), s.system.ota_auto_check)
+    };
     let res = effective_resolution_label(&data.config);
+    let hw = detect_rpi_hw_label();
+    let os = detect_rpi_os_label();
     HttpResponse::Ok()
         .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
         .insert_header(("Pragma", "no-cache"))
@@ -235,6 +240,9 @@ pub async fn get_version(data: web::Data<crate::api::server::AppState>) -> impl 
             "git_commit": crate::core::build_info::GIT_COMMIT,
             "install_id": install_id,
             "res": res,
+            "hw": hw,
+            "os": os,
+            "ota_auto_check": ota_auto_check,
         }))
 }
 
@@ -262,15 +270,22 @@ pub async fn check_update(
         }
     };
 
-    let install_id = data.config.settings.read().system.install_id.clone();
+    let (install_id, ota_auto_check) = {
+        let s = data.config.settings.read();
+        (s.system.install_id.clone(), s.system.ota_auto_check)
+    };
     let version = crate::core::build_info::VERSION;
     let hw = detect_rpi_hw_label();
     let os = detect_rpi_os_label();
     let res_label = effective_resolution_label(&data.config);
-    let worker_url = format!(
-        "{}?p=rpi&id={}&v={}&hw={}&os={}&res={}",
-        OTA_STATS_WORKER_API, install_id, version, hw, os, res_label
-    );
+    let worker_url = if ota_auto_check && crate::core::config::is_valid_uuid_v4(&install_id) {
+        format!(
+            "{}?p=rpi&id={}&v={}&hw={}&os={}&res={}",
+            OTA_STATS_WORKER_API, install_id, version, hw, os, res_label
+        )
+    } else {
+        format!("{}?p=rpi", OTA_STATS_WORKER_API)
+    };
 
     let mut releases_opt: Option<Vec<GitHubRelease>> = None;
     if let Ok(worker_resp) = client

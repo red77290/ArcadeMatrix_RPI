@@ -2105,7 +2105,8 @@
     async function loadLiveStatsAndReleaseLinks() {
       // 1. Query live Cloudflare Worker stats (accepts 0 devices cleanly—never synthetic fallback)
       try {
-        const res = await fetch(`${OTA_STATS_WORKER_URL}/v1/stats?p=rpi`, {
+        const res = await fetch(`${OTA_STATS_WORKER_URL}/v1/stats?p=rpi&_t=${Date.now()}`, {
+          cache: "no-store",
           signal: AbortSignal.timeout(4500)
         });
         if (res.ok) {

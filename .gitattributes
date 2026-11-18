@@ -4,3 +4,9 @@
 # Enforce LF for scripts that will be run on Linux/Unix environments.
 *.sh text eol=lf
 *.py text eol=lf
+.githooks/* text eol=lf
+
+# Enforce CRLF for Windows batch and PowerShell scripts.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf

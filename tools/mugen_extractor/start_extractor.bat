@@ -1,18 +1,18 @@
 @echo off
 setlocal enabledelayedexpansion
 echo =====================================================
-echo    ArcadeMatrix RPi MUGEN / Sprite Character Extractor
+echo    ArcadeMatrix MUGEN / Sprite Character Extractor   
 echo =====================================================
 
 cd /d "%~dp0"
 
-IF NOT EXIST "venv" (
+IF NOT EXIST "venv\Scripts\activate.bat" (
     echo [INFO] Creating Python Virtual Environment...
     python -m venv venv
     if errorlevel 1 (
         echo [ERROR] Python is not installed or not in PATH!
         pause
-        exit /b
+        exit /b 1
     )
 )
 
@@ -21,16 +21,27 @@ call venv\Scripts\activate.bat
 
 echo [INFO] Installing requirements...
 pip install -r requirements.txt -q
+if errorlevel 1 (
+    echo [ERROR] Failed to install Python dependencies!
+    pause
+    exit /b 1
+)
 
 echo.
 set "default_input=.\chars"
+set "input_folder="
 set /p input_folder="Source MUGEN Folder [default: %default_input%]: "
-if "%input_folder%"=="" set "input_folder=%default_input%"
+set "input_folder=!input_folder:"=!"
+if "!input_folder!"=="" set "input_folder=%default_input%"
+if "!input_folder:~-1!"=="\" set "input_folder=!input_folder!."
 
 echo.
 set "default_output=.\fighters_32"
+set "output_folder="
 set /p output_folder="Output Folder [default: %default_output%]: "
-if "%output_folder%"=="" set "output_folder=%default_output%"
+set "output_folder=!output_folder:"=!"
+if "!output_folder!"=="" set "output_folder=%default_output%"
+if "!output_folder:~-1!"=="\" set "output_folder=!output_folder!."
 
 echo.
 echo -----------------------------------------------------
@@ -42,7 +53,7 @@ echo    * Or enter custom multiplier (e.g. 0.4, 0.75, 1.5)
 echo -----------------------------------------------------
 set "scale_input="
 set /p scale_input="Desired scale [default: 0.5]: "
-if "%scale_input%"=="" set "scale_input=0.5"
+if "!scale_input!"=="" set "scale_input=0.5"
 
 echo.
 echo -----------------------------------------------------
@@ -52,22 +63,24 @@ echo    * y (Yes) : Recommended for Raspberry Pi (-80%% space)
 echo -----------------------------------------------------
 set "compress_input="
 set /p compress_input="Compress to .fgt.gz? (y/n) [default: n]: "
-if "%compress_input%"=="" set "compress_input=n"
+if "!compress_input!"=="" set "compress_input=n"
 
-set "EXTRA_ARGS="
-if "%scale_input%"=="auto" (
-    set "EXTRA_ARGS=--mode SCALED"
-) else (
-    set "EXTRA_ARGS=--scale %scale_input%"
-)
+set "EXTRA_ARGS=--scale !scale_input!"
+if /i "!scale_input!"=="auto" set "EXTRA_ARGS=--mode SCALED"
+if /i "!scale_input!"=="scaled" set "EXTRA_ARGS=--mode SCALED"
+if /i "!scale_input!"=="1.0" set "EXTRA_ARGS=--scale 1.0"
+if /i "!scale_input!"=="full" set "EXTRA_ARGS=--scale 1.0"
+if /i "!scale_input!"=="fullsize" set "EXTRA_ARGS=--scale 1.0"
 
-if /i "%compress_input%"=="y" (
-    set "EXTRA_ARGS=%EXTRA_ARGS% --compress"
+if /i "!compress_input!"=="y" (
+    set "EXTRA_ARGS=!EXTRA_ARGS! --compress"
+) else if /i "!compress_input!"=="yes" (
+    set "EXTRA_ARGS=!EXTRA_ARGS! --compress"
 )
 
 echo.
 echo Starting extraction...
-python mugen_extractor.py -i "%input_folder%" -o "%output_folder%" %EXTRA_ARGS%
+python mugen_extractor.py -i "!input_folder!" -o "!output_folder!" !EXTRA_ARGS!
 
 echo.
 echo [DONE]

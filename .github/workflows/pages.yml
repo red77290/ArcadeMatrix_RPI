@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
   pages: write
   id-token: write
 
@@ -21,12 +22,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-pages:
+  build-portal:
     if: "!github.event.repository.private"
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,6 +39,14 @@ jobs:
         with:
           path: site
 
+  deploy-pages:
+    if: "!github.event.repository.private"
+    needs: build-portal
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

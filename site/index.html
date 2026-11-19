@@ -1,0 +1,2165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ArcadeMatrix Raspberry Pi — SD Images, Auto-Installer, Changelog &amp; Fleet Stats</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #05050a;
+      --text-main: #ffffff;
+      --text-muted: #9ba1a6;
+      --accent-cyan: #00f0ff;
+      --accent-green: #00e676;
+      --accent-magenta: #ff0055;
+      --accent-gold: #ffcc00;
+      --glass-bg: rgba(18, 20, 30, 0.65);
+      --glass-border: rgba(255, 255, 255, 0.09);
+      --card-bg: rgba(255, 255, 255, 0.03);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      margin: 0;
+      padding: 0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      background-image:
+        radial-gradient(circle at 18% 30%, rgba(255, 0, 85, 0.09) 0%, transparent 45%),
+        radial-gradient(circle at 82% 25%, rgba(0, 240, 255, 0.08) 0%, transparent 45%),
+        radial-gradient(circle at 50% 85%, rgba(0, 230, 118, 0.05) 0%, transparent 50%);
+      background-attachment: fixed;
+    }
+
+    .topbar {
+      width: 100%;
+      max-width: 1120px;
+      padding: 1.1rem 1.5rem 0;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+    }
+
+    .brand-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+      padding: 0.45rem 0.9rem;
+      border-radius: 999px;
+      background: rgba(255, 0, 85, 0.1);
+      border: 1px solid rgba(255, 0, 85, 0.32);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: #ff6699;
+      letter-spacing: 0.3px;
+    }
+
+    .topbar-right {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.65rem;
+    }
+
+    .portal-switch-link,
+    .gh-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.45rem 0.85rem;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--text-main);
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      transition: all 0.25s ease;
+    }
+
+    .portal-switch-link:hover {
+      border-color: rgba(0, 240, 255, 0.45);
+      background: rgba(0, 240, 255, 0.12);
+      box-shadow: 0 0 14px rgba(0, 240, 255, 0.25);
+    }
+
+    .gh-link:hover {
+      border-color: rgba(255, 0, 85, 0.45);
+      background: rgba(255, 0, 85, 0.1);
+    }
+
+    .lang-switcher {
+      display: inline-flex;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--glass-border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .lang-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.42rem 0.68rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .lang-btn.active {
+      background: var(--accent-magenta);
+      color: #fff;
+    }
+
+    .container {
+      max-width: 1120px;
+      width: 94%;
+      margin: 1.25rem auto 2rem;
+      padding: 2.25rem;
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 22px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    }
+
+    .hero-header {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+
+    h1 {
+      font-size: 2.4rem;
+      font-weight: 800;
+      margin-top: 0;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #ffffff 0%, #ff0055 50%, #00f0ff 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 1.05rem;
+      margin-bottom: 1.5rem;
+      line-height: 1.6;
+    }
+
+    .nav-tabs {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      margin-bottom: 2rem;
+      padding-bottom: 1.25rem;
+      border-bottom: 1px solid var(--glass-border);
+    }
+
+    .tab-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.7rem 1.35rem;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--glass-border);
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.25s ease;
+    }
+
+    .tab-btn:hover {
+      color: #fff;
+      border-color: rgba(255, 0, 85, 0.4);
+      background: rgba(255, 0, 85, 0.08);
+    }
+
+    .tab-btn.active {
+      color: #fff;
+      background: linear-gradient(135deg, var(--accent-magenta) 0%, #ff3377 100%);
+      border-color: transparent;
+      box-shadow: 0 0 20px rgba(255, 0, 85, 0.35);
+    }
+
+    .tab-panel {
+      display: none;
+      animation: fadeIn 0.25s ease;
+    }
+
+    .tab-panel.active {
+      display: block;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Tab 1: Installation */
+    .terminal-card {
+      background: rgba(8, 10, 18, 0.85);
+      border: 1px solid rgba(0, 240, 255, 0.32);
+      border-radius: 16px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      text-align: left;
+    }
+
+    .terminal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0.85rem;
+    }
+
+    .terminal-dots {
+      display: inline-flex;
+      gap: 6px;
+    }
+
+    .terminal-dots span {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .cmd-box {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      background: #04050a;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 10px;
+      padding: 0.9rem 1.1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      color: var(--accent-cyan);
+    }
+
+    .copy-btn {
+      background: rgba(0, 240, 255, 0.15);
+      border: 1px solid rgba(0, 240, 255, 0.4);
+      color: var(--accent-cyan);
+      border-radius: 8px;
+      padding: 0.48rem 0.95rem;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-cyan);
+      color: #05050a;
+    }
+
+    .sd-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (min-width: 780px) {
+      .sd-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    .sd-card {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 1.85rem;
+      text-align: left;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: all 0.3s ease;
+    }
+
+    .sd-card:hover {
+      transform: translateY(-5px);
+      border-color: rgba(0, 230, 118, 0.35);
+      box-shadow: 0 15px 30px rgba(0, 230, 118, 0.1);
+    }
+
+    .sd-card h2 {
+      margin: 0.4rem 0 0.65rem;
+      font-size: 1.3rem;
+      color: #fff;
+    }
+
+    .sd-card p {
+      color: var(--text-muted);
+      font-size: 0.93rem;
+      line-height: 1.55;
+      margin: 0 0 1.35rem 0;
+    }
+
+    .arch-badge {
+      display: inline-block;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.78rem;
+      font-weight: 700;
+      padding: 0.25rem 0.65rem;
+      border-radius: 6px;
+      background: rgba(0, 230, 118, 0.14);
+      border: 1px solid rgba(0, 230, 118, 0.35);
+      color: var(--accent-green);
+      width: fit-content;
+    }
+
+    .arch-badge.armhf {
+      background: rgba(0, 240, 255, 0.14);
+      border-color: rgba(0, 240, 255, 0.35);
+      color: var(--accent-cyan);
+    }
+
+    .sd-dl-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.8rem 1.25rem;
+      border-radius: 10px;
+      background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 240, 255, 0.18));
+      border: 1px solid rgba(0, 230, 118, 0.45);
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.94rem;
+      text-decoration: none;
+      transition: all 0.25s ease;
+    }
+
+    .sd-dl-btn:hover {
+      background: var(--accent-green);
+      color: #05050a;
+      box-shadow: 0 0 18px rgba(0, 230, 118, 0.45);
+    }
+
+    /* Tab 2: Visual Changelog */
+    .changelog-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1.75rem;
+    }
+
+    .release-post {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      padding: 1.75rem;
+      text-align: left;
+    }
+
+    .post-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .post-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.55rem;
+    }
+
+    .ver-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 700;
+      font-size: 0.95rem;
+      padding: 0.3rem 0.75rem;
+      border-radius: 8px;
+      background: rgba(255, 0, 85, 0.15);
+      border: 1px solid rgba(255, 0, 85, 0.4);
+      color: #ff6699;
+    }
+
+    .date-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--text-muted);
+    }
+
+    .tag-pill {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+    }
+
+    .tag-NEW { background: rgba(0, 240, 255, 0.16); color: var(--accent-cyan); }
+    .tag-PERF { background: rgba(0, 230, 118, 0.16); color: var(--accent-green); }
+    .tag-FIX { background: rgba(255, 0, 85, 0.18); color: #ff6699; }
+
+    .post-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin: 0.3rem 0 0.6rem;
+      color: #fff;
+    }
+
+    .post-summary {
+      color: var(--text-muted);
+      font-size: 0.96rem;
+      line-height: 1.6;
+      margin-bottom: 1.25rem;
+    }
+
+    .post-media {
+      width: 100%;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--glass-border);
+      margin-bottom: 1.25rem;
+      background: #06070f;
+    }
+
+    .post-media img {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .before-after-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (min-width: 760px) {
+      .before-after-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .ba-box {
+      padding: 1rem 1.15rem;
+      border-radius: 12px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .ba-before {
+      background: rgba(255, 0, 85, 0.06);
+      border: 1px solid rgba(255, 0, 85, 0.28);
+    }
+
+    .ba-after {
+      background: rgba(0, 230, 118, 0.06);
+      border: 1px solid rgba(0, 230, 118, 0.28);
+    }
+
+    .ba-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.76rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      margin-bottom: 0.35rem;
+      display: block;
+    }
+
+    .ba-before .ba-label { color: #ff5588; }
+    .ba-after .ba-label { color: var(--accent-green); }
+
+    .highlights-list {
+      margin: 0 0 1.25rem 0;
+      padding-left: 1.2rem;
+      color: #dce2ea;
+      font-size: 0.92rem;
+      line-height: 1.65;
+    }
+
+    .release-dl-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.55rem 1.05rem;
+      border-radius: 9px;
+      background: rgba(255, 0, 85, 0.14);
+      border: 1px solid rgba(255, 0, 85, 0.4);
+      color: #ff6699;
+      text-decoration: none;
+      font-size: 0.86rem;
+      font-weight: 600;
+    }
+
+    /* Tab 3: Stats */
+    .stats-status-bar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+      padding: 0.85rem 1.15rem;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--glass-border);
+    }
+
+    .source-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      padding: 0.3rem 0.7rem;
+      border-radius: 999px;
+    }
+
+    .source-live {
+      background: rgba(0, 230, 118, 0.15);
+      border: 1px solid rgba(0, 230, 118, 0.4);
+      color: var(--accent-green);
+    }
+
+    .source-preview {
+      background: rgba(255, 204, 0, 0.14);
+      border: 1px solid rgba(255, 204, 0, 0.4);
+      color: var(--accent-gold);
+    }
+
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 1.1rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .kpi-card {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 14px;
+      padding: 1.25rem;
+      text-align: left;
+    }
+
+    .kpi-label {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      margin-bottom: 0.45rem;
+    }
+
+    .kpi-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .kpi-sub {
+      font-size: 0.78rem;
+      color: var(--accent-cyan);
+      margin-top: 0.35rem;
+    }
+
+    .stats-grid-2col {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    @media (min-width: 860px) {
+      .stats-grid-2col {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
+
+    .stats-panel-box {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      padding: 1.5rem;
+      text-align: left;
+    }
+
+    .stats-panel-box h3 {
+      margin: 0 0 0.4rem 0;
+      font-size: 1.08rem;
+      color: #fff;
+    }
+
+    .stats-panel-sub {
+      color: var(--text-muted);
+      font-size: 0.83rem;
+      margin-bottom: 1.15rem;
+      line-height: 1.45;
+    }
+
+    .donut-split {
+      display: grid;
+      grid-template-columns: 124px 1fr;
+      gap: 1.15rem;
+      align-items: center;
+      margin-bottom: 1rem;
+    }
+
+    @media (max-width: 520px) {
+      .donut-split {
+        grid-template-columns: 1fr;
+        justify-items: center;
+      }
+      .donut-split > div:last-child {
+        width: 100%;
+      }
+    }
+
+    .stacked-bar {
+      display: flex;
+      height: 18px;
+      border-radius: 8px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.06);
+      margin-bottom: 1rem;
+    }
+
+    .stacked-segment {
+      height: 100%;
+      transition: width 0.4s ease;
+    }
+
+    .bar-row {
+      margin-bottom: 0.78rem;
+    }
+
+    .bar-row-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.5rem;
+      font-size: 0.84rem;
+      margin-bottom: 0.28rem;
+    }
+
+    .bar-track {
+      height: 9px;
+      background: rgba(255, 255, 255, 0.06);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 6px;
+      transition: width 0.35s ease;
+    }
+
+    .mini-ver-stack {
+      display: flex;
+      height: 5px;
+      border-radius: 4px;
+      overflow: hidden;
+      background: rgba(255, 255, 255, 0.04);
+      margin-top: 0.28rem;
+    }
+
+    .chart-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      margin-top: 0.6rem;
+      font-size: 0.76rem;
+      color: var(--text-muted);
+    }
+
+    .chart-legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .chart-legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+
+    .filter-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-bottom: 1rem;
+    }
+
+    .filter-pill {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--glass-border);
+      color: var(--text-muted);
+      border-radius: 8px;
+      padding: 0.32rem 0.65rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .filter-pill.active {
+      background: rgba(255, 0, 85, 0.18);
+      border-color: var(--accent-magenta);
+      color: #ff6699;
+    }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      margin-top: 0.85rem;
+    }
+
+    .cross-matrix-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .cross-matrix-table th,
+    .cross-matrix-table td {
+      padding: 0.48rem 0.6rem;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      text-align: center;
+    }
+
+    .cross-matrix-table th {
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .cross-matrix-table td:first-child,
+    .cross-matrix-table th:first-child {
+      text-align: left;
+    }
+
+    .gh-supplement-details {
+      margin-top: 1.25rem;
+      border-radius: 14px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px dashed rgba(255, 255, 255, 0.14);
+      padding: 0.9rem 1.2rem;
+      text-align: left;
+    }
+
+    .gh-supplement-details summary {
+      cursor: pointer;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.75rem;
+      list-style: none;
+    }
+
+    .gh-supplement-details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .gh-supplement-warn {
+      margin: 0.85rem 0 1rem 0;
+      padding: 0.65rem 0.9rem;
+      border-radius: 8px;
+      background: rgba(255, 204, 0, 0.08);
+      border: 1px solid rgba(255, 204, 0, 0.25);
+      color: #e6c86e;
+      font-size: 0.8rem;
+      line-height: 1.45;
+    }
+
+    .privacy-banner {
+      margin-top: 1.25rem;
+      padding: 1rem 1.25rem;
+      border-radius: 12px;
+      background: rgba(255, 0, 85, 0.05);
+      border: 1px solid rgba(255, 0, 85, 0.22);
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: left;
+      line-height: 1.55;
+    }
+
+    footer {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      text-align: center;
+      padding-bottom: 2.2rem;
+    }
+
+    footer a {
+      color: var(--text-muted);
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div class="brand-pill">🍓 ARCADEMATRIX_RPI • RUST REAL-TIME HUB75</div>
+    <div class="topbar-right">
+      <a class="portal-switch-link" href="https://red77290.github.io/ArcadeMatrix/" target="_blank" rel="noopener">
+        ⚡ <span data-i18n="switch_esp32">ESP32 Web Installer Portal</span> →
+      </a>
+      <a class="gh-link" href="https://github.com/red77290/ArcadeMatrix_RPI" target="_blank" rel="noopener">
+        GitHub
+      </a>
+      <div class="lang-switcher" role="group" aria-label="Language switcher">
+        <button class="lang-btn" data-lang="fr">FR</button>
+        <button class="lang-btn active" data-lang="en">EN</button>
+        <button class="lang-btn" data-lang="es">ES</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="hero-header">
+      <h1 data-i18n="hero_title">ArcadeMatrix Raspberry Pi Portal</h1>
+      <div class="subtitle" data-i18n="hero_sub">
+        Install via one-line script or pre-built SD Card images, explore visual release notes, and track RPi fleet version migrations.
+      </div>
+    </div>
+
+    <div class="nav-tabs" role="tablist">
+      <button class="tab-btn active" data-tab="install" role="tab">
+        🍓 <span data-i18n="tab_install">Installation &amp; SD Images</span>
+      </button>
+      <button class="tab-btn" data-tab="changelog" role="tab">
+        📰 <span data-i18n="tab_changelog">Visual Changelog</span>
+      </button>
+      <button class="tab-btn" data-tab="stats" role="tab">
+        📊 <span data-i18n="tab_stats">RPi Fleet &amp; Migrations</span>
+      </button>
+    </div>
+
+    <!-- TAB 1: INSTALLATION & SD IMAGES -->
+    <section id="panel-install" class="tab-panel active">
+      <div class="terminal-card">
+        <div class="terminal-header">
+          <div>
+            <strong data-i18n="autoinstall_title">Option 1 — One-Line Automated Installer (Raspberry Pi OS)</strong>
+          </div>
+          <div class="terminal-dots">
+            <span style="background:#ff5f56"></span>
+            <span style="background:#ffbd2e"></span>
+            <span style="background:#27c93f"></span>
+          </div>
+        </div>
+        <div class="cmd-box">
+          <code id="install-cmd">curl -fsSL https://raw.githubusercontent.com/red77290/ArcadeMatrix_RPI/main/autoInstall.sh | sudo bash</code>
+          <button id="copy-cmd-btn" class="copy-btn" data-i18n="copy_btn">Copy Command</button>
+        </div>
+      </div>
+
+      <div class="sd-grid">
+        <div class="sd-card">
+          <div>
+            <span class="arch-badge">64-BIT • AARCH64</span>
+            <h2 data-i18n="sd64_title">Pre-Built 64-bit SD Card Image</h2>
+            <p data-i18n="sd64_desc">
+              Recommended for Raspberry Pi 5, Pi 4B, Pi 3B+, and Pi Zero 2 W. Turnkey plug-and-play image with isolated real-time CPU core and ArcadeMatrix pre-installed. Flash with Raspberry Pi Imager or BalenaEtcher.
+            </p>
+          </div>
+          <a id="dl-aarch64-link" class="sd-dl-btn" href="https://github.com/red77290/ArcadeMatrix_RPI/releases/latest" target="_blank" rel="noopener">
+            ⬇ <span data-i18n="sd64_btn">Download ArcadeMatrix_Release_aarch64.img.xz</span>
+          </a>
+        </div>
+
+        <div class="sd-card">
+          <div>
+            <span class="arch-badge armhf">32-BIT • ARMHF (ARMv7)</span>
+            <h2 data-i18n="sd32_title">Pre-Built 32-bit SD Card Image</h2>
+            <p data-i18n="sd32_desc">
+              Designed for 32-bit Raspberry Pi OS setups on Raspberry Pi 2, Pi 3B, and legacy 32-bit distributions. Includes pre-compiled armv7 binary and HUB75 kernel tuning.
+            </p>
+          </div>
+          <a id="dl-armhf-link" class="sd-dl-btn" href="https://github.com/red77290/ArcadeMatrix_RPI/releases/latest" target="_blank" rel="noopener">
+            ⬇ <span data-i18n="sd32_btn">Download ArcadeMatrix_Release_armhf.img.xz</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: VISUAL CHANGELOG BLOG -->
+    <section id="panel-changelog" class="tab-panel">
+      <div id="changelog-container" class="changelog-list"></div>
+    </section>
+
+    <!-- TAB 3: RPI CLOUDFLARE FLEET & VERSION MIGRATIONS DASHBOARD (100% PURE UUID TELEMETRY) -->
+    <section id="panel-stats" class="tab-panel">
+      <div class="stats-status-bar">
+        <div>
+          <strong data-i18n="stats_header">Raspberry Pi Cloudflare OTA Fleet Telemetry (Deduplicated UUID v4)</strong>
+        </div>
+        <div id="stats-source-badge" class="source-badge source-preview">
+          ⏳ Loading telemetry...
+        </div>
+      </div>
+
+      <!-- 4 Primary KPIs: Strictly Cloudflare SQLite UUID Telemetry (Zero GitHub Mixing) -->
+      <div class="kpi-grid">
+        <div class="kpi-card">
+          <div class="kpi-label" data-i18n="kpi_active">Active RPi Matrices (30d)</div>
+          <div class="kpi-value" id="kpi-active-val">—</div>
+          <div class="kpi-sub" id="kpi-active-sub">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label" data-i18n="kpi_known">Known Fleet (Unique UUIDs)</div>
+          <div class="kpi-value" id="kpi-known-val">—</div>
+          <div class="kpi-sub" id="kpi-known-sub">—</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label" data-i18n="kpi_adoption">Latest Release Adoption</div>
+          <div class="kpi-value" id="kpi-adoption-val">—</div>
+          <div class="kpi-sub" id="kpi-latest-ver">Latest: v4.2.0</div>
+        </div>
+        <div class="kpi-card">
+          <div class="kpi-label" data-i18n="kpi_arch">64-bit (aarch64) OS Share</div>
+          <div class="kpi-value" id="kpi-arch-val">—</div>
+          <div class="kpi-sub" id="kpi-arch-sub">—</div>
+        </div>
+      </div>
+
+      <!-- ROW 1: Chart 1 (RPi Versions Donut & Migration) + Chart 2 (30-Day Multi-Version Evolution) -->
+      <div class="stats-grid-2col">
+        <div class="stats-panel-box">
+          <h3 data-i18n="mig_title">1. RPi Versions &amp; Migration Share</h3>
+          <div class="stats-panel-sub" data-i18n="mig_sub">
+            Deduplicated Cloudflare UUID v4 UPSERT: upgrading an RPi matrix migrates its count in place without duplicates.
+          </div>
+          <div class="donut-split">
+            <div id="version-donut-svg"></div>
+            <div>
+              <div id="version-stacked-bar" class="stacked-bar"></div>
+              <div id="version-bars-list"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="stats-panel-box">
+          <h3 data-i18n="curve_title">2. 30-Day Multi-Version Fleet Evolution</h3>
+          <div class="stats-panel-sub" data-i18n="curve_sub">
+            Daily active Raspberry Pi matrices per version recorded by Cloudflare:
+          </div>
+          <div id="migration-curve-svg"></div>
+          <div id="migration-curve-legend" class="chart-legend"></div>
+        </div>
+      </div>
+
+      <!-- ROW 2: Chart 3 (Activity Recency & Retention) + Chart 4 (30-Day New RPi Registrations) -->
+      <div class="stats-grid-2col">
+        <div class="stats-panel-box">
+          <h3 data-i18n="act_title">3. Fleet Check-In Recency &amp; Retention</h3>
+          <div class="stats-panel-sub" data-i18n="act_sub">
+            Breakdown of known RPi UUIDs by last WebUI check-in window (&lt;24h, 1–7d, 8–30d, Dormant &gt;30d):
+          </div>
+          <div class="donut-split">
+            <div id="activity-donut-svg"></div>
+            <div id="activity-bars-list"></div>
+          </div>
+        </div>
+
+        <div class="stats-panel-box">
+          <h3 data-i18n="growth_title">4. New RPi Registrations (Last 30 Days)</h3>
+          <div class="stats-panel-sub" data-i18n="growth_sub">
+            Newly discovered Raspberry Pi UUID v4 installations per day:
+          </div>
+          <div id="new-devices-svg"></div>
+        </div>
+      </div>
+
+      <!-- ROW 3: Chart 5 (Pi Models Donut + Firmware Stack + OS Bitness) + Chart 6 (HUB75 Resolutions & Pi x Panel Matrix) -->
+      <div class="stats-grid-2col">
+        <div class="stats-panel-box">
+          <h3 data-i18n="hw_title">5. Raspberry Pi Models &amp; OS Architecture</h3>
+          <div class="stats-panel-sub" data-i18n="hw_sub">
+            Active Pi 5 / 4B / Zero 2 W / 3B+ distribution with per-model version stack &amp; 64-bit vs 32-bit OS split:
+          </div>
+          <div class="donut-split">
+            <div id="hw-donut-svg"></div>
+            <div id="hw-bars-list"></div>
+          </div>
+          <div class="kpi-label" data-i18n="os_title" style="margin-top:0.85rem;">OS Architecture (64-bit vs 32-bit)</div>
+          <div id="os-bars-list" style="margin-top:0.45rem;"></div>
+        </div>
+
+        <div class="stats-panel-box">
+          <h3 data-i18n="res_title">6. HUB75 Resolutions &amp; Pi Model × Panel Matrix</h3>
+          <div class="stats-panel-sub" data-i18n="res_sub">
+            Filter active HUB75 dimensions by Raspberry Pi model and inspect the cross-matrix:
+          </div>
+          <div id="hw-filter-pills" class="filter-pills"></div>
+          <div class="donut-split">
+            <div id="res-donut-svg"></div>
+            <div id="res-bars-list"></div>
+          </div>
+          <div id="hw-res-matrix"></div>
+        </div>
+      </div>
+
+      <div class="privacy-banner">
+        🔒 <strong data-i18n="privacy_title">Zero-IP Privacy Guarantee:</strong>
+        <span data-i18n="privacy_body">
+          Statistics are updated exclusively from the browser WebClient when an ArcadeMatrix_RPI instance checks for OTA updates via the Cloudflare Worker. Only a random RFC 4122 UUID v4, version, Pi model, OS bitness, and HUB75 resolution are sent. Client IP addresses are never read or stored.
+        </span>
+      </div>
+
+      <!-- OPTIONAL SUPPLEMENTARY ACCORDION: Raw GitHub Release Counters (Never mixed with Cloudflare above) -->
+      <details class="gh-supplement-details">
+        <summary>
+          <span>📦 <span data-i18n="gh_supp_summary">Supplementary Info — Raw GitHub Release Asset Downloads (Separate from Cloudflare Telemetry)</span></span>
+          <span id="gh-supp-total-pill" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--accent-gold);">—</span>
+        </summary>
+        <div class="gh-supplement-warn" data-i18n="gh_supp_disclaimer">
+          Note: Raw GitHub API asset counters include manual SD image downloads, reflashes, and automated crawlers. They are never merged into the Cloudflare UUID fleet charts above.
+        </div>
+        <div class="stats-grid-2col" style="margin-bottom:0;">
+          <div>
+            <div class="kpi-label" data-i18n="gh_rel_heading">Raw Downloads per GitHub Release Tag</div>
+            <div id="gh-supp-releases-list"></div>
+          </div>
+          <div>
+            <div class="kpi-label" data-i18n="gh_arch_heading">Raw Asset Downloads per Target Architecture</div>
+            <div id="gh-supp-hw-list"></div>
+          </div>
+        </div>
+      </details>
+    </section>
+  </div>
+
+  <footer>
+    <a href="https://github.com/red77290/ArcadeMatrix_RPI" target="_blank" rel="noopener">ArcadeMatrix_RPI</a> •
+    <a href="https://github.com/red77290/ArcadeMatrix_RPI/releases" target="_blank" rel="noopener">GitHub Releases</a> •
+    <a href="https://red77290.github.io/ArcadeMatrix/" target="_blank" rel="noopener">ESP32 Portal</a>
+  </footer>
+
+  <script>
+    const OTA_STATS_WORKER_URL = "https://arcadematrix-ota-stats.red77290.workers.dev";
+    const GITHUB_RELEASES_API = "https://api.github.com/repos/red77290/ArcadeMatrix_RPI/releases?per_page=20";
+
+    const I18N = {
+      en: {
+        switch_esp32: "ESP32 Web Installer Portal",
+        hero_title: "ArcadeMatrix Raspberry Pi Portal",
+        hero_sub: "Install via one-line script or pre-built SD Card images, explore visual release notes, and track RPi fleet version migrations.",
+        tab_install: "Installation & SD Images",
+        tab_changelog: "Visual Changelog",
+        tab_stats: "RPi Fleet & Migrations",
+        autoinstall_title: "Option 1 — One-Line Automated Installer (Raspberry Pi OS)",
+        copy_btn: "Copy Command",
+        copied_btn: "✓ Copied!",
+        sd64_title: "Pre-Built 64-bit SD Card Image",
+        sd64_desc: "Recommended for Raspberry Pi 5, Pi 4B, Pi 3B+, and Pi Zero 2 W. Turnkey plug-and-play image with isolated real-time CPU core and ArcadeMatrix pre-installed.",
+        sd64_btn: "Download ArcadeMatrix_Release_aarch64.img.xz",
+        sd32_title: "Pre-Built 32-bit SD Card Image",
+        sd32_desc: "Designed for 32-bit Raspberry Pi OS setups on Raspberry Pi 2, Pi 3B, and legacy 32-bit distributions. Includes pre-compiled armv7 binary and HUB75 kernel tuning.",
+        sd32_btn: "Download ArcadeMatrix_Release_armhf.img.xz",
+        stats_header: "Raspberry Pi Cloudflare OTA Fleet Telemetry (Deduplicated UUID v4)",
+        kpi_active: "Active RPi Matrices (30d)",
+        kpi_known: "Known Fleet (Unique UUIDs)",
+        kpi_adoption: "Latest Release Adoption",
+        kpi_arch: "64-bit (aarch64) OS Share",
+        mig_title: "1. RPi Versions & Migration Share",
+        mig_sub: "Deduplicated Cloudflare UUID v4 UPSERT: upgrading an RPi matrix migrates its count in place without duplicates.",
+        curve_title: "2. 30-Day Multi-Version Fleet Evolution",
+        curve_sub: "Daily active Raspberry Pi matrices per version recorded by Cloudflare:",
+        act_title: "3. Fleet Check-In Recency & Retention",
+        act_sub: "Breakdown of known RPi UUIDs by last WebUI check-in window (<24h, 1–7d, 8–30d, Dormant >30d):",
+        growth_title: "4. New RPi Registrations (Last 30 Days)",
+        growth_sub: "Newly discovered Raspberry Pi UUID v4 installations per day:",
+        hw_title: "5. Raspberry Pi Models & OS Architecture",
+        hw_sub: "Active Pi 5 / 4B / Zero 2 W / 3B+ distribution with per-model version stack & 64-bit vs 32-bit OS split:",
+        os_title: "OS Architecture (64-bit vs 32-bit)",
+        res_title: "6. HUB75 Resolutions & Pi Model × Panel Matrix",
+        res_sub: "Filter active HUB75 dimensions by Raspberry Pi model and inspect the cross-matrix:",
+        privacy_title: "Zero-IP Privacy Guarantee:",
+        privacy_body: "Statistics are updated exclusively from the browser WebClient when an ArcadeMatrix_RPI instance checks for OTA updates via the Cloudflare Worker. Only a random RFC 4122 UUID v4, version, Pi model, OS bitness, and HUB75 resolution are sent. Client IP addresses are never read or stored.",
+        before_label: "Before",
+        after_label: "After",
+        dl_release: "View GitHub Release",
+        all_models: "All Pi Models",
+        badge_live: "🟢 Live Cloudflare Telemetry",
+        badge_offline: "🟠 Cloudflare Worker Unreachable",
+        no_checkins_sub: "0 WebUI check-ins yet",
+        worker_pending_sub: "Cloudflare Worker unreachable",
+        empty_versions_live: "0 Raspberry Pi matrices checked in via WebUI yet (Cloudflare telemetry introduced in v4.2.0).",
+        empty_curve: "Awaiting daily Cloudflare snapshots (populates automatically on first WebUI check-in).",
+        empty_res: "0 HUB75 panel check-ins recorded in Cloudflare yet.",
+        empty_matrix: "Pi Model × Resolution matrix populates automatically from Cloudflare UUID check-ins.",
+        bucket_24h: "Active < 24h",
+        bucket_7d: "Active 1–7d",
+        bucket_30d: "Active 8–30d",
+        bucket_dormant: "Dormant (> 30d)",
+        matrix_board_col: "Pi Model",
+        total_active_line: "Total Active (30d)",
+        new_30d_badge: "new UUIDs in 30d",
+        gh_supp_summary: "Supplementary Info — Raw GitHub Release Asset Downloads (Separate from Cloudflare Telemetry)",
+        gh_supp_disclaimer: "Note: Raw GitHub API asset counters include manual SD image downloads, reflashes, and automated crawlers. They are never merged into the Cloudflare UUID fleet charts above.",
+        gh_rel_heading: "Raw Downloads per GitHub Release Tag",
+        gh_arch_heading: "Raw Asset Downloads per Target Architecture"
+      },
+      fr: {
+        switch_esp32: "Portail ESP32 Web Installer",
+        hero_title: "Portail ArcadeMatrix Raspberry Pi",
+        hero_sub: "Installez en une commande ou via les images carte SD prêtes à flasher, découvrez les nouveautés visuelles et suivez le parc RPi.",
+        tab_install: "Installation & Images SD",
+        tab_changelog: "Nouveautés Visuelles",
+        tab_stats: "Parc RPi & Migrations",
+        autoinstall_title: "Option 1 — Installation Automatique en Une Ligne (Raspberry Pi OS)",
+        copy_btn: "Copier la commande",
+        copied_btn: "✓ Copié !",
+        sd64_title: "Image Carte SD 64-bit Prête à Flasher",
+        sd64_desc: "Recommandée pour Raspberry Pi 5, Pi 4B, Pi 3B+ et Pi Zero 2 W. Image clé en main avec isolation CPU temps réel et ArcadeMatrix pré-installé.",
+        sd64_btn: "Télécharger ArcadeMatrix_Release_aarch64.img.xz",
+        sd32_title: "Image Carte SD 32-bit Prête à Flasher",
+        sd32_desc: "Conçue pour les systèmes Raspberry Pi OS 32-bit sur Raspberry Pi 2, Pi 3B et distributions 32-bit. Inclut le binaire armv7 pré-compilé.",
+        sd32_btn: "Télécharger ArcadeMatrix_Release_armhf.img.xz",
+        stats_header: "Télémétrie Parc OTA Cloudflare Raspberry Pi (UUID v4 Dédupliqués)",
+        kpi_active: "Matrices RPi Actives (30j)",
+        kpi_known: "Parc Connu (UUIDs Uniques)",
+        kpi_adoption: "Adoption Dernière Version",
+        kpi_arch: "Part OS 64-bit (aarch64)",
+        mig_title: "1. Versions RPi & Part de Migration",
+        mig_sub: "UPSERT UUID v4 Cloudflare dédupliqué : une mise à jour transfère le Raspberry Pi sans doublon.",
+        curve_title: "2. Évolution Multi-Versions sur 30 Jours",
+        curve_sub: "Matrices Raspberry Pi actives par jour et par version enregistrées sur Cloudflare :",
+        act_title: "3. Récence d'Activité & Rétention du Parc",
+        act_sub: "Répartition des UUIDs RPi connus selon le dernier check-in WebUI (<24h, 1–7j, 8–30j, Inactives >30j) :",
+        growth_title: "4. Nouveaux RPi Enregistrés (30 Jours)",
+        growth_sub: "Nouveaux UUID v4 Raspberry Pi découverts chaque jour :",
+        hw_title: "5. Modèles Raspberry Pi & Architecture OS",
+        hw_sub: "Répartition active Pi 5 / 4B / Zero 2 W / 3B+ avec pile de versions par modèle et part OS 64-bit vs 32-bit :",
+        os_title: "Architecture OS (64-bit vs 32-bit)",
+        res_title: "6. Résolutions HUB75 & Matrice Modèle Pi × Dalle",
+        res_sub: "Filtrez les résolutions HUB75 par modèle de Raspberry Pi et consultez la matrice croisée :",
+        privacy_title: "Garantie Zéro-IP :",
+        privacy_body: "Les statistiques ne sont mises à jour que depuis le navigateur WebClient lorsqu'une instance ArcadeMatrix_RPI vérifie les mises à jour OTA via le Worker Cloudflare. Seuls un UUID v4 aléatoire, la version, le modèle de Pi, l'architecture OS et la résolution HUB75 sont transmis. Aucune adresse IP n'est stockée.",
+        before_label: "Avant",
+        after_label: "Après",
+        dl_release: "Voir la Release GitHub",
+        all_models: "Tous les modèles Pi",
+        badge_live: "🟢 Télémétrie Cloudflare en direct",
+        badge_offline: "🟠 Worker Cloudflare injoignable",
+        no_checkins_sub: "0 check-in WebUI pour l'instant",
+        worker_pending_sub: "Worker Cloudflare injoignable",
+        empty_versions_live: "Aucune matrice Raspberry Pi enregistrée via la WebUI pour l'instant (télémétrie Cloudflare introduite en v4.2.0).",
+        empty_curve: "En attente des relevés quotidiens Cloudflare (s'alimente dès le premier check-in WebUI).",
+        empty_res: "Aucune résolution HUB75 enregistrée sur Cloudflare pour l'instant.",
+        empty_matrix: "La matrice croisée Modèle Pi × Résolution s'alimente automatiquement via les check-ins UUID Cloudflare.",
+        bucket_24h: "Actives < 24h",
+        bucket_7d: "Actives 1–7j",
+        bucket_30d: "Actives 8–30j",
+        bucket_dormant: "Inactives (> 30j)",
+        matrix_board_col: "Modèle Pi",
+        total_active_line: "Total Actives (30j)",
+        new_30d_badge: "nouveaux UUIDs sur 30j",
+        gh_supp_summary: "Informations complémentaires — Téléchargements bruts GitHub Releases (Hors télémétrie Cloudflare)",
+        gh_supp_disclaimer: "Note : Les compteurs bruts de l'API GitHub incluent les téléchargements manuels d'images SD, les reflashs et les robots/crawlers. Ils ne sont jamais fusionnés aux graphiques Cloudflare ci-dessus.",
+        gh_rel_heading: "Téléchargements bruts par tag GitHub Release",
+        gh_arch_heading: "Téléchargements bruts par architecture"
+      },
+      es: {
+        switch_esp32: "Portal ESP32 Web Installer",
+        hero_title: "Portal ArcadeMatrix Raspberry Pi",
+        hero_sub: "Instala con un comando o imágenes SD precompiladas, explora las novedades visuales y sigue las migraciones de la flota RPi.",
+        tab_install: "Instalación e Imágenes SD",
+        tab_changelog: "Novedades Visuales",
+        tab_stats: "Flota RPi y Migraciones",
+        autoinstall_title: "Opción 1 — Instalador Automático de Una Línea (Raspberry Pi OS)",
+        copy_btn: "Copiar comando",
+        copied_btn: "✓ ¡Copiado!",
+        sd64_title: "Imagen de Tarjeta SD de 64 bits Precompilada",
+        sd64_desc: "Recomendada para Raspberry Pi 5, Pi 4B, Pi 3B+ y Pi Zero 2 W. Imagen lista para usar con núcleo de CPU aislado en tiempo real.",
+        sd64_btn: "Descargar ArcadeMatrix_Release_aarch64.img.xz",
+        sd32_title: "Imagen de Tarjeta SD de 32 bits Precompilada",
+        sd32_desc: "Diseñada para sistemas de 32 bits en Raspberry Pi 2, Pi 3B y distribuciones armhf. Incluye binario armv7 precompilado.",
+        sd32_btn: "Descargar ArcadeMatrix_Release_armhf.img.xz",
+        stats_header: "Telemetría OTA Cloudflare Raspberry Pi (UUID v4 Deduplicados)",
+        kpi_active: "Matrices RPi Activas (30d)",
+        kpi_known: "Flota Conocida (UUIDs Únicos)",
+        kpi_adoption: "Adopción Última Versión",
+        kpi_arch: "Cuota SO 64 bits (aarch64)",
+        mig_title: "1. Versiones RPi y Migración",
+        mig_sub: "UPSERT UUID v4 en Cloudflare: actualizar una matriz RPi migra su versión sin duplicados.",
+        curve_title: "2. Evolución Multiversión de 30 Días",
+        curve_sub: "Matrices Raspberry Pi activas por día y versión registradas por Cloudflare:",
+        act_title: "3. Recencia de Actividad y Retención",
+        act_sub: "Desglose de UUIDs RPi según su último registro WebUI (<24h, 1–7d, 8–30d, Inactivas >30d):",
+        growth_title: "4. Nuevas RPi Registradas (30 Días)",
+        growth_sub: "Nuevos UUID v4 de Raspberry Pi descubiertos por día:",
+        hw_title: "5. Modelos Raspberry Pi y Arquitectura SO",
+        hw_sub: "Distribución activa Pi 5 / 4B / Zero 2 W / 3B+ con versiones por modelo y cuota SO 64 vs 32 bits:",
+        os_title: "Arquitectura de SO (64 bits vs 32 bits)",
+        res_title: "6. Resoluciones HUB75 y Matriz Modelo Pi × Panel",
+        res_sub: "Filtra dimensiones HUB75 por modelo de Raspberry Pi y consulta la tabla cruzada:",
+        privacy_title: "Garantía de Privacidad Cero-IP:",
+        privacy_body: "Las estadísticas se actualizan únicamente desde el navegador WebClient cuando una instancia ArcadeMatrix_RPI busca actualizaciones OTA mediante el Worker de Cloudflare. Nunca se leen ni almacenan direcciones IP.",
+        before_label: "Antes",
+        after_label: "Después",
+        dl_release: "Ver Release en GitHub",
+        all_models: "Todos los modelos Pi",
+        badge_live: "🟢 Telemetría Cloudflare en vivo",
+        badge_offline: "🟠 Worker Cloudflare no disponible",
+        no_checkins_sub: "0 registros WebUI por ahora",
+        worker_pending_sub: "Worker Cloudflare no disponible",
+        empty_versions_live: "0 matrices Raspberry Pi registradas desde la WebUI todavía (telemetría Cloudflare introducida en v4.2.0).",
+        empty_curve: "Esperando instantáneas diarias de Cloudflare (se poblará con el primer registro WebUI).",
+        empty_res: "Aún no hay resoluciones HUB75 registradas en Cloudflare.",
+        empty_matrix: "La matriz Modelo Pi × Resolución se alimenta automáticamente de los registros UUID en Cloudflare.",
+        bucket_24h: "Activas < 24h",
+        bucket_7d: "Activas 1–7d",
+        bucket_30d: "Activas 8–30d",
+        bucket_dormant: "Inactivas (> 30d)",
+        matrix_board_col: "Modelo Pi",
+        total_active_line: "Total Activas (30d)",
+        new_30d_badge: "nuevos UUIDs en 30d",
+        gh_supp_summary: "Información complementaria — Descargas brutas en GitHub Releases (Independiente de Cloudflare)",
+        gh_supp_disclaimer: "Nota: Los contadores brutos de la API de GitHub incluyen descargas manuales de imágenes SD, reflasheos y bots. Nunca se mezclan con los gráficos de Cloudflare.",
+        gh_rel_heading: "Descargas brutas por versión en GitHub",
+        gh_arch_heading: "Descargas brutas por arquitectura"
+      }
+    };
+
+    const FALLBACK_POSTS = {
+      project: "rpi",
+      latest_version: "v4.2.0",
+      posts: [
+        {
+          version: "v4.2.0",
+          date: "2026-11-16",
+          tags: ["NEW", "PERF", "FIX"],
+          media: "changelog/media/rpi-agenda-celebration.svg",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases",
+          title: {
+            en: "iCal Agenda Engine, RetroAchievements Fireworks & Anonymous OTA Proxy",
+            fr: "Moteur Agenda iCal, Feux d'Artifice RetroAchievements & Proxy OTA Anonyme",
+            es: "Motor Agenda iCal, Fuegos Artificiales RetroAchievements y Proxy OTA Anónimo"
+          },
+          summary: {
+            en: "Brings native iCal (.ics) schedule synchronization, live RetroAchievements & High Score celebration overlays, and Cloudflare Edge OTA caching to Raspberry Pi.",
+            fr: "Apporte la synchronisation native d'agendas iCal (.ics), les célébrations RetroAchievements & High Scores en direct, et le cache OTA Cloudflare Edge sur Raspberry Pi.",
+            es: "Incorpora sincronización nativa de agendas iCal (.ics), celebraciones en vivo de RetroAchievements y High Scores, y caché OTA Cloudflare Edge en Raspberry Pi."
+          },
+          before_after: {
+            before: {
+              en: "Checking for OTA updates queried api.github.com directly without fleet version visibility, and calendar/trophy notifications required custom webhooks.",
+              fr: "La vérification OTA interrogeait directement api.github.com sans visibilité sur les migrations de versions, et les alertes agenda/trophées nécessitaient des scripts tiers.",
+              es: "La comprobación OTA consultaba api.github.com directamente sin visibilidad de versiones, y las alertas de agenda/trofeos requerían scripts externos."
+            },
+            after: {
+              en: "Built-in 'agenda' engine, preemptive RetroAchievements celebration scenes, and Edge-cached WebClient OTA checks with zero-IP UUID v4 migration tracking.",
+              fr: "Moteur 'agenda' intégré, scènes de célébration RetroAchievements préemptives, et vérification OTA WebClient en cache Edge avec suivi UUID v4 zéro-IP.",
+              es: "Motor 'agenda' integrado, escenas preemptivas de celebración RetroAchievements y comprobación OTA WebClient en caché Edge con seguimiento UUID v4 sin IP."
+            }
+          },
+          highlights: {
+            en: [
+              "NEW — iCal Agenda Engine ('agenda'): Asynchronous Tokio ICS poller with countdown badges and zero render-thread blocking.",
+              "NEW — RetroAchievements & High Score Celebrations: Instant trophy unlock fireworks and scrolling personal best banners.",
+              "PERF — Cloudflare Edge OTA Proxy: 10-minute Edge cache with automatic fallback to GitHub API and anonymous UUID v4 version migration tracking."
+            ],
+            fr: [
+              "NEW — Moteur Agenda iCal ('agenda') : Poller ICS asynchrone Tokio avec badges de compte à rebours et zéro blocage du thread de rendu.",
+              "NEW — Célébrations RetroAchievements & High Scores : Feux d'artifice instantanés de trophées débloqués et bannières de records.",
+              "PERF — Proxy OTA Cloudflare Edge : Cache Edge 10 min avec repli automatique vers l'API GitHub et suivi anonyme UUID v4."
+            ],
+            es: [
+              "NEW — Motor Agenda iCal ('agenda'): Poller ICS asíncrono en Tokio con insignias de cuenta regresiva.",
+              "NEW — Celebraciones RetroAchievements y High Scores: Fuegos artificiales instantáneos de trofeos y récords.",
+              "PERF — Proxy OTA Cloudflare Edge: Caché Edge de 10 min con respaldo automático a la API de GitHub y seguimiento anónimo UUID v4."
+            ]
+          }
+        },
+        {
+          version: "v4.1.2",
+          date: "2026-11-02",
+          tags: ["NEW", "PERF"],
+          media: "changelog/media/rpi-v16-locked.svg",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.1.2",
+          title: {
+            en: "V1.6-FinalLocked Zero-Allocation Rust Runtime & Dual Arch SD Images",
+            fr: "Runtime Rust V1.6-FinalLocked Zéro Allocation & Images SD Dual-Arch",
+            es: "Runtime Rust V1.6-FinalLocked Sin Asignaciones e Imágenes SD Dual-Arch"
+          },
+          summary: {
+            en: "Complete Rust real-time rendering overhaul delivering deterministic frame pacing across Raspberry Pi Zero, 3B+, 4B, and 5.",
+            fr: "Refonte complète du moteur de rendu temps réel en Rust offrant un cadencement déterministe sur Raspberry Pi Zero, 3B+, 4B et 5.",
+            es: "Renovación completa del motor en tiempo real en Rust con ritmo de cuadros determinista en Raspberry Pi Zero, 3B+, 4B y 5."
+          },
+          before_after: {
+            before: {
+              en: "Per-frame buffer clones and lock contention during HTTP API updates could induce subtle PWM flicker.",
+              fr: "Les copies de buffers par trame et la contention de verrous lors des requêtes HTTP pouvaient induire un léger scintillement PWM.",
+              es: "Las copias de búfer por cuadro y la contención de bloqueos durante peticiones HTTP podían inducir parpadeos PWM."
+            },
+            after: {
+              en: "V1.6-FinalLocked zero-allocation render loop with pre-built 64-bit (aarch64) and 32-bit (armhf) plug-and-play SD Card images.",
+              fr: "Boucle de rendu V1.6-FinalLocked zéro allocation avec images carte SD 64-bit (aarch64) et 32-bit (armhf) prêtes à l'emploi.",
+              es: "Bucle de renderizado V1.6-FinalLocked sin asignaciones con imágenes de tarjeta SD de 64 bits y 32 bits listas para usar."
+            }
+          },
+          highlights: {
+            en: [
+              "PERF — V1.6-FinalLocked zero-allocation render loop with wait-free configuration snapshots.",
+              "NEW — Automated CI builds for both 64-bit (aarch64) and 32-bit (armhf) Raspberry Pi OS SD images."
+            ],
+            fr: [
+              "PERF — Boucle de rendu V1.6-FinalLocked zéro allocation avec snapshots de configuration sans attente.",
+              "NEW — Compilation CI automatisée des images carte SD 64-bit (aarch64) et 32-bit (armhf)."
+            ],
+            es: [
+              "PERF — Bucle de renderizado V1.6-FinalLocked sin asignaciones.",
+              "NEW — Compilación CI automatizada de imágenes SD de 64 bits (aarch64) y 32 bits (armhf)."
+            ]
+          }
+        }
+      ]
+    };
+
+    function createEmptyStats() {
+      return {
+        project: "rpi",
+        isWorkerLive: false,
+        kpis: {
+          active_24h: 0,
+          active_7d: 0,
+          active_30d: 0,
+          inactive_30d: 0,
+          new_7d: 0,
+          new_30d: 0,
+          total_known: 0,
+          latest_version: "v4.2.0",
+          latest_adoption_pct: 0,
+          github_downloads_total: 0,
+          github_latest_downloads: 0
+        },
+        versions: [],
+        hardware: [],
+        os_arch: [],
+        resolutions: [],
+        hw_by_res: {},
+        hw_by_version: {},
+        activity: [
+          { bucket: "24h", count: 0, pct: 0 },
+          { bucket: "7d", count: 0, pct: 0 },
+          { bucket: "30d", count: 0, pct: 0 },
+          { bucket: "dormant", count: 0, pct: 0 }
+        ],
+        new_devices_daily: [],
+        daily_history: [],
+        github_releases: [],
+        github_hw_downloads: []
+      };
+    }
+
+    const HW_LABELS = {
+      rpi5: "Raspberry Pi 5",
+      rpi4b: "Raspberry Pi 4 Model B",
+      "rpi3b+": "Raspberry Pi 3 Model B+",
+      rpi3b: "Raspberry Pi 3 Model B",
+      rpizero2w: "Raspberry Pi Zero 2 W",
+      rpizero: "Raspberry Pi Zero / W",
+      aarch64: "64-bit (aarch64 / arm64)",
+      armhf: "32-bit (armhf / armv7)"
+    };
+
+    const HW_SHORT_LABELS = {
+      rpi5: "Pi 5",
+      rpi4b: "Pi 4B",
+      "rpi3b+": "Pi 3B+",
+      rpi3b: "Pi 3B",
+      rpizero2w: "Pi Zero 2 W",
+      rpizero: "Pi Zero"
+    };
+
+    const CHART_COLORS = ["#ff0055", "#00f0ff", "#00e676", "#ffcc00", "#a855f7", "#38bdf8"];
+
+    let currentLang = (localStorage.getItem("am_portal_lang") || "en").toLowerCase();
+    if (!I18N[currentLang]) currentLang = "en";
+
+    let loadedPostsData = FALLBACK_POSTS;
+    let currentStatsData = createEmptyStats();
+    let selectedHwFilter = "all";
+
+    function applyLanguage(lang) {
+      currentLang = I18N[lang] ? lang : "en";
+      localStorage.setItem("am_portal_lang", currentLang);
+      document.documentElement.lang = currentLang;
+
+      document.querySelectorAll(".lang-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.lang === currentLang);
+      });
+
+      const dict = I18N[currentLang];
+      document.querySelectorAll("[data-i18n]").forEach((el) => {
+        const key = el.getAttribute("data-i18n");
+        if (dict[key]) el.textContent = dict[key];
+      });
+
+      renderChangelog();
+      renderStatsDashboard();
+    }
+
+    function activateTab(tabId, updateHash = true) {
+      const validTabs = ["install", "changelog", "stats"];
+      const target = validTabs.includes(tabId) ? tabId : "install";
+
+      document.querySelectorAll(".tab-btn").forEach((btn) => {
+        btn.classList.toggle("active", btn.dataset.tab === target);
+      });
+      document.querySelectorAll(".tab-panel").forEach((panel) => {
+        panel.classList.toggle("active", panel.id === `panel-${target}`);
+      });
+
+      if (updateHash && history.replaceState) {
+        history.replaceState(null, "", `#${target}`);
+      }
+    }
+
+    function renderChangelog() {
+      const container = document.getElementById("changelog-container");
+      if (!container) return;
+      const dict = I18N[currentLang];
+      const posts = loadedPostsData?.posts || [];
+
+      container.innerHTML = posts.map((post) => {
+        const title = post.title?.[currentLang] || post.title?.en || post.version;
+        const summary = post.summary?.[currentLang] || post.summary?.en || "";
+        const beforeTxt = post.before_after?.before?.[currentLang] || post.before_after?.before?.en || "";
+        const afterTxt = post.before_after?.after?.[currentLang] || post.before_after?.after?.en || "";
+        const highlights = post.highlights?.[currentLang] || post.highlights?.en || [];
+        const tagsHtml = (post.tags || [])
+          .map((t) => `<span class="tag-pill tag-${t}">${t}</span>`)
+          .join("");
+
+        return `
+          <article class="release-post">
+            <div class="post-header">
+              <div class="post-meta">
+                <span class="ver-badge">${post.version}</span>
+                <span class="date-badge">${post.date}</span>
+                ${tagsHtml}
+              </div>
+              <a class="release-dl-btn" href="${post.release_url}" target="_blank" rel="noopener">
+                📦 ${dict.dl_release} (${post.version})
+              </a>
+            </div>
+            <h2 class="post-title">${title}</h2>
+            <p class="post-summary">${summary}</p>
+            ${post.media ? `<div class="post-media"><img src="${post.media}" alt="${title}" loading="lazy" /></div>` : ""}
+            <div class="before-after-grid">
+              <div class="ba-box ba-before">
+                <span class="ba-label">✗ ${dict.before_label}</span>
+                <div>${beforeTxt}</div>
+              </div>
+              <div class="ba-box ba-after">
+                <span class="ba-label">✓ ${dict.after_label}</span>
+                <div>${afterTxt}</div>
+              </div>
+            </div>
+            <ul class="highlights-list">
+              ${highlights.map((h) => `<li>${h}</li>`).join("")}
+            </ul>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function renderEmptyNote(msg) {
+      return `<div style="padding:0.75rem 0.95rem; border-radius:8px; background:rgba(255,255,255,0.025); border:1px dashed rgba(255,255,255,0.12); color:#9ba1a6; font-size:0.82rem;">${msg}</div>`;
+    }
+
+    function renderDonutSvg(segments, centerValue, centerSub) {
+      const r = 44;
+      const cx = 58, cy = 58;
+      const circ = 2 * Math.PI * r;
+      const total = segments.reduce((acc, s) => acc + Math.max(0, Number(s.value || 0)), 0);
+      let offset = 0;
+
+      const arcs = total > 0
+        ? segments
+            .filter((s) => Number(s.value || 0) > 0)
+            .map((s) => {
+              const frac = Number(s.value) / total;
+              const len = frac * circ;
+              const dash = `${Math.max(len - (segments.length > 1 ? 1.5 : 0), 0.5).toFixed(2)} ${circ.toFixed(2)}`;
+              const curOffset = -offset;
+              offset += len;
+              return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="12"
+                stroke-dasharray="${dash}" stroke-dashoffset="${curOffset.toFixed(2)}"
+                transform="rotate(-90 ${cx} ${cy})" stroke-linecap="butt">
+                <title>${s.label}: ${s.value}</title>
+              </circle>`;
+            })
+            .join("")
+        : "";
+
+      return `
+        <svg viewBox="0 0 116 116" width="116" height="116" aria-hidden="true">
+          <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="12" />
+          ${arcs}
+          <text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="#ffffff" font-family="'JetBrains Mono', monospace" font-size="15" font-weight="700">${centerValue}</text>
+          <text x="${cx}" y="${cy + 14}" text-anchor="middle" fill="#8e95a5" font-family="'JetBrains Mono', monospace" font-size="8.5">${centerSub}</text>
+        </svg>
+      `;
+    }
+
+    function renderMultiVersionCurve(history, verColorsMap, dict) {
+      const w = 480, h = 155, padL = 34, padR = 16, padT = 18, padB = 26;
+      const plotW = w - padL - padR;
+      const plotH = h - padT - padB;
+
+      if (!Array.isArray(history) || history.length === 0) {
+        return `
+          <svg viewBox="0 0 ${w} ${h}" width="100%" height="145" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+            <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.14)" stroke-width="1" />
+            <line x1="${padL}" y1="${padT + plotH / 2}" x2="${w - padR}" y2="${padT + plotH / 2}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+            <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#6c7686" font-family="monospace" font-size="9">0</text>
+            <text x="${w / 2}" y="${padT + plotH / 2 + 4}" text-anchor="middle" fill="#8e95a5" font-family="sans-serif" font-size="11">${dict.empty_curve}</text>
+          </svg>
+        `;
+      }
+
+      const verTotals = new Map();
+      let maxTotal = 1;
+      for (const pt of history) {
+        let daySum = 0;
+        for (const [ver, cnt] of Object.entries(pt.versions || {})) {
+          const n = Number(cnt || 0);
+          daySum += n;
+          verTotals.set(ver, (verTotals.get(ver) || 0) + n);
+        }
+        if (daySum > maxTotal) maxTotal = daySum;
+      }
+
+      const topVers = Array.from(verTotals.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 4)
+        .map(([v]) => v);
+
+      const xAt = (i) =>
+        history.length === 1
+          ? padL + plotW / 2
+          : padL + (i / (history.length - 1)) * plotW;
+      const yAt = (val) => padT + plotH - (val / maxTotal) * plotH;
+
+      const totalPts = history.map((pt, i) => {
+        const sum = Object.values(pt.versions || {}).reduce((a, b) => a + Number(b || 0), 0);
+        return { x: xAt(i), y: yAt(sum), val: sum };
+      });
+      const totalLine = totalPts.length > 1
+        ? `<polyline fill="none" stroke="rgba(255,255,255,0.45)" stroke-width="1.5" stroke-dasharray="4 3" points="${totalPts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
+        : "";
+
+      const seriesSvg = topVers.map((ver, idx) => {
+        const c = verColorsMap.get(ver) || CHART_COLORS[idx % CHART_COLORS.length];
+        const pts = history.map((pt, i) => {
+          const val = Number((pt.versions && pt.versions[ver]) || 0);
+          return { x: xAt(i), y: yAt(val), val, day: pt.day };
+        });
+        const poly = pts.length > 1
+          ? `<polyline fill="none" stroke="${c}" stroke-width="2.6" points="${pts.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" />`
+          : "";
+        const dots = pts
+          .map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.2" fill="${c}"><title>${p.day} • ${ver}: ${p.val}</title></circle>`)
+          .join("");
+        return poly + dots;
+      }).join("");
+
+      const firstDay = history[0].day.slice(5);
+      const lastDay = history[history.length - 1].day.slice(5);
+      const midVal = Math.round(maxTotal / 2);
+
+      return {
+        svg: `
+          <svg viewBox="0 0 ${w} ${h}" width="100%" height="155" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+            <line x1="${padL}" y1="${padT}" x2="${w - padR}" y2="${padT}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3 3" />
+            <line x1="${padL}" y1="${padT + plotH / 2}" x2="${w - padR}" y2="${padT + plotH / 2}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3 3" />
+            <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.16)" />
+            <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${maxTotal}</text>
+            <text x="${padL - 6}" y="${padT + plotH / 2 + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${midVal}</text>
+            <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">0</text>
+            <text x="${padL}" y="${h - 7}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="9">${firstDay}</text>
+            <text x="${w - padR}" y="${h - 7}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${lastDay}</text>
+            ${totalLine}
+            ${seriesSvg}
+          </svg>
+        `,
+        legend: [
+          `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:rgba(255,255,255,0.55)"></span>${dict.total_active_line}</span>`,
+          ...topVers.map((ver, idx) => {
+            const c = verColorsMap.get(ver) || CHART_COLORS[idx % CHART_COLORS.length];
+            return `<span class="chart-legend-item"><span class="chart-legend-dot" style="background:${c}"></span>${ver}</span>`;
+          })
+        ].join("")
+      };
+    }
+
+    function renderNewDevicesBarSvg(dailyNew, new30dCount, dict) {
+      const w = 480, h = 148, padL = 30, padR = 14, padT = 24, padB = 24;
+      const plotW = w - padL - padR;
+      const plotH = h - padT - padB;
+
+      const byDay = new Map();
+      for (const item of dailyNew || []) {
+        byDay.set(item.day, Number(item.count || 0));
+      }
+
+      const days = [];
+      const now = new Date();
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - i));
+        const key = d.toISOString().slice(0, 10);
+        days.push({ day: key, count: byDay.get(key) || 0 });
+      }
+
+      const maxCnt = Math.max(1, ...days.map((d) => d.count));
+      const slotW = plotW / 30;
+      const barW = Math.max(4, slotW - 3.5);
+
+      const bars = days.map((d, idx) => {
+        const x = padL + idx * slotW + (slotW - barW) / 2;
+        const barH = d.count > 0 ? Math.max(4, (d.count / maxCnt) * plotH) : 2;
+        const y = padT + plotH - barH;
+        const fill = d.count > 0 ? "#00e676" : "rgba(255,255,255,0.07)";
+        return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" rx="2" fill="${fill}">
+          <title>${d.day}: +${d.count}</title>
+        </rect>`;
+      }).join("");
+
+      return `
+        <svg viewBox="0 0 ${w} ${h}" width="100%" height="148" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+          <text x="${padL}" y="15" fill="#00e676" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="700">+${new30dCount} ${dict.new_30d_badge}</text>
+          <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.14)" />
+          <text x="${padL - 5}" y="${padT + 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${maxCnt}</text>
+          <text x="${padL - 5}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">0</text>
+          ${bars}
+          <text x="${padL}" y="${h - 6}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="9">${days[0].day.slice(5)}</text>
+          <text x="${w - padR}" y="${h - 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${days[29].day.slice(5)}</text>
+        </svg>
+      `;
+    }
+
+    function renderStatsDashboard() {
+      const dict = I18N[currentLang];
+      const data = currentStatsData || createEmptyStats();
+      const isLive = !!data.isWorkerLive;
+      const kpis = data.kpis || {};
+
+      const badge = document.getElementById("stats-source-badge");
+      if (badge) {
+        badge.className = `source-badge ${isLive ? "source-live" : "source-preview"}`;
+        badge.textContent = isLive ? dict.badge_live : dict.badge_offline;
+      }
+
+      // 4 Primary Cloudflare KPIs (strictly Cloudflare SQLite—never GitHub downloads)
+      const active30d = Number(kpis.active_30d || 0);
+      const active24h = Number(kpis.active_24h || 0);
+      const active7d = Number(kpis.active_7d || 0);
+      const inactive30d = Number(kpis.inactive_30d || 0);
+      const totalKnown = Number(kpis.total_known || 0);
+      const new30d = Number(kpis.new_30d || 0);
+      const new7d = Number(kpis.new_7d || 0);
+      const latestVer = kpis.latest_version || "v4.2.0";
+      const adoptionPct = Number(kpis.latest_adoption_pct || 0);
+
+      document.getElementById("kpi-active-val").textContent = isLive ? String(active30d) : "—";
+      document.getElementById("kpi-active-sub").textContent = isLive
+        ? `24h: ${active24h} • 7d: ${active7d} • >30d: ${inactive30d}`
+        : dict.worker_pending_sub;
+
+      document.getElementById("kpi-known-val").textContent = isLive ? String(totalKnown) : "—";
+      document.getElementById("kpi-known-sub").textContent = isLive
+        ? `+${new30d} (30d) • +${new7d} (7d)`
+        : dict.worker_pending_sub;
+
+      document.getElementById("kpi-adoption-val").textContent = isLive ? `${adoptionPct}%` : "—";
+      document.getElementById("kpi-latest-ver").textContent = `Latest: ${latestVer}`;
+
+      const osEntries = data.os_arch || [];
+      if (osEntries.length > 0) {
+        const arch64Pct = osEntries
+          .filter((o) => String(o.os).startsWith("64bit"))
+          .reduce((sum, o) => sum + Number(o.pct || 0), 0);
+        const topHw = data.hardware && data.hardware[0];
+        document.getElementById("kpi-arch-val").textContent = `${Math.round(arch64Pct * 10) / 10}%`;
+        document.getElementById("kpi-arch-sub").textContent = topHw
+          ? `${HW_SHORT_LABELS[topHw.hw] || topHw.hw} (${topHw.pct}%)`
+          : "aarch64";
+      } else {
+        document.getElementById("kpi-arch-val").textContent = "—";
+        document.getElementById("kpi-arch-sub").textContent = isLive ? dict.no_checkins_sub : dict.worker_pending_sub;
+      }
+
+      // Build deterministic version -> color map
+      const activeVers = data.versions || [];
+      const verColorsMap = new Map();
+      activeVers.forEach((v, idx) => {
+        verColorsMap.set(v.version, CHART_COLORS[idx % CHART_COLORS.length]);
+      });
+
+      // CHART 1: RPi Versions Donut + Stacked Bar + List (Pure Cloudflare)
+      document.getElementById("version-donut-svg").innerHTML = renderDonutSvg(
+        activeVers.map((v, idx) => ({
+          label: v.version,
+          value: v.active_30d,
+          color: CHART_COLORS[idx % CHART_COLORS.length]
+        })),
+        isLive ? `${adoptionPct}%` : "—",
+        latestVer
+      );
+
+      const stackedBar = document.getElementById("version-stacked-bar");
+      const verList = document.getElementById("version-bars-list");
+      if (activeVers.length > 0) {
+        stackedBar.style.display = "flex";
+        stackedBar.innerHTML = activeVers.map((v, idx) => {
+          const c = CHART_COLORS[idx % CHART_COLORS.length];
+          return `<div class="stacked-segment" style="width:${Math.max(v.pct, 2)}%; background:${c}" title="${v.version}: ${v.active_30d} (${v.pct}%)"></div>`;
+        }).join("");
+
+        verList.innerHTML = activeVers.map((v, idx) => {
+          const c = CHART_COLORS[idx % CHART_COLORS.length];
+          const statusTag = v.version === latestVer ? "★ LATEST" : "LEGACY";
+          return `
+            <div class="bar-row">
+              <div class="bar-row-header">
+                <span><strong style="color:${c}; font-family:'JetBrains Mono',monospace;">${v.version}</strong> <small style="color:#9ba1a6">(${statusTag})</small></span>
+                <span><strong>${v.active_30d}</strong> / ${v.total} (${v.pct}%)</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width:${v.pct}%; background:${c}"></div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      } else {
+        stackedBar.style.display = "none";
+        stackedBar.innerHTML = "";
+        verList.innerHTML = renderEmptyNote(isLive ? dict.empty_versions_live : dict.worker_pending_sub);
+      }
+
+      // CHART 2: 30-Day Multi-Version Evolution Curve
+      const curveOut = renderMultiVersionCurve(data.daily_history || [], verColorsMap, dict);
+      if (typeof curveOut === "string") {
+        document.getElementById("migration-curve-svg").innerHTML = curveOut;
+        document.getElementById("migration-curve-legend").innerHTML = "";
+      } else {
+        document.getElementById("migration-curve-svg").innerHTML = curveOut.svg;
+        document.getElementById("migration-curve-legend").innerHTML = curveOut.legend;
+      }
+
+      // CHART 3: Activity Recency & Retention (<24h, 1-7d, 8-30d, Dormant >30d)
+      const actBuckets = Array.isArray(data.activity) && data.activity.length === 4
+        ? data.activity
+        : [
+            { bucket: "24h", count: active24h, pct: 0 },
+            { bucket: "7d", count: Math.max(0, active7d - active24h), pct: 0 },
+            { bucket: "30d", count: Math.max(0, active30d - active7d), pct: 0 },
+            { bucket: "dormant", count: inactive30d, pct: 0 }
+          ];
+      const actMeta = {
+        "24h": { label: dict.bucket_24h, color: "#00e676" },
+        "7d": { label: dict.bucket_7d, color: "#00f0ff" },
+        "30d": { label: dict.bucket_30d, color: "#ffcc00" },
+        dormant: { label: dict.bucket_dormant, color: "#6c7686" }
+      };
+
+      document.getElementById("activity-donut-svg").innerHTML = renderDonutSvg(
+        actBuckets.map((b) => ({
+          label: (actMeta[b.bucket] || actMeta["30d"]).label,
+          value: b.count,
+          color: (actMeta[b.bucket] || actMeta["30d"]).color
+        })),
+        isLive ? String(totalKnown) : "—",
+        "UUIDs"
+      );
+
+      document.getElementById("activity-bars-list").innerHTML = actBuckets.map((b) => {
+        const m = actMeta[b.bucket] || actMeta["30d"];
+        return `
+          <div class="bar-row">
+            <div class="bar-row-header">
+              <span><span class="chart-legend-dot" style="background:${m.color}; margin-right:6px;"></span>${m.label}</span>
+              <span><strong>${b.count}</strong> (${b.pct}%)</span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${b.pct}%; background:${m.color}"></div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // CHART 4: 30-Day New RPi Registrations Bar Chart
+      document.getElementById("new-devices-svg").innerHTML = renderNewDevicesBarSvg(
+        data.new_devices_daily || [],
+        new30d,
+        dict
+      );
+
+      // CHART 5: Raspberry Pi Models Donut + Per-Model Firmware Stack + Pure Cloudflare OS Architecture
+      const activeHw = data.hardware || [];
+      document.getElementById("hw-donut-svg").innerHTML = renderDonutSvg(
+        activeHw.map((item, idx) => ({
+          label: HW_SHORT_LABELS[item.hw] || item.hw,
+          value: item.count,
+          color: CHART_COLORS[idx % CHART_COLORS.length]
+        })),
+        isLive ? String(active30d) : "—",
+        "RPi"
+      );
+
+      const hwList = document.getElementById("hw-bars-list");
+      if (activeHw.length > 0) {
+        hwList.innerHTML = activeHw.map((item, idx) => {
+          const label = HW_LABELS[item.hw] || item.hw;
+          const color = CHART_COLORS[idx % CHART_COLORS.length];
+          const verMap = (data.hw_by_version && data.hw_by_version[item.hw]) || {};
+          const verEntries = Object.entries(verMap).sort((a, b) => b[1] - a[1]);
+          const verSum = verEntries.reduce((acc, [, c]) => acc + Number(c || 0), 0) || 1;
+          const miniStack = verEntries.length > 0
+            ? `<div class="mini-ver-stack" title="${verEntries.map(([v, c]) => `${v}: ${c}`).join(" | ")}">` +
+                verEntries.map(([v, c], vIdx) => {
+                  const vc = verColorsMap.get(v) || CHART_COLORS[vIdx % CHART_COLORS.length];
+                  return `<div style="width:${((Number(c) / verSum) * 100).toFixed(1)}%; background:${vc}; height:100%;"></div>`;
+                }).join("") +
+              `</div>`
+            : "";
+
+          return `
+            <div class="bar-row">
+              <div class="bar-row-header">
+                <span><span class="chart-legend-dot" style="background:${color}; margin-right:6px;"></span>${label}</span>
+                <span><strong>${item.count}</strong> (${item.pct}%)</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width:${item.pct}%; background:${color};"></div>
+              </div>
+              ${miniStack}
+            </div>
+          `;
+        }).join("");
+      } else {
+        hwList.innerHTML = renderEmptyNote(isLive ? dict.no_checkins_sub : dict.worker_pending_sub);
+      }
+
+      const osList = document.getElementById("os-bars-list");
+      osList.innerHTML = osEntries.length > 0
+        ? osEntries.map((item) => `
+            <div class="bar-row">
+              <div class="bar-row-header">
+                <span style="font-family:'JetBrains Mono',monospace;">${item.os}</span>
+                <span><strong>${item.count}</strong> (${item.pct}%)</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill" style="width:${item.pct}%; background:#00e676;"></div>
+              </div>
+            </div>
+          `).join("")
+        : renderEmptyNote(isLive ? dict.no_checkins_sub : dict.worker_pending_sub);
+
+      // CHART 6: HUB75 Resolutions Donut + Pi Model Filter Pills + Pi Model × Panel Cross-Matrix
+      const pillsContainer = document.getElementById("hw-filter-pills");
+      const hwKeys = ["all", ...activeHw.map((h) => h.hw)];
+      if (!hwKeys.includes(selectedHwFilter)) selectedHwFilter = "all";
+      pillsContainer.innerHTML = activeHw.length > 0
+        ? hwKeys.map((key) => {
+            const label = key === "all" ? dict.all_models : (HW_SHORT_LABELS[key] || key);
+            const activeClass = selectedHwFilter === key ? "active" : "";
+            return `<button class="filter-pill ${activeClass}" data-hw="${key}">${label}</button>`;
+          }).join("")
+        : "";
+
+      pillsContainer.querySelectorAll(".filter-pill").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          selectedHwFilter = btn.dataset.hw;
+          renderStatsDashboard();
+        });
+      });
+
+      let resEntries = [];
+      if (selectedHwFilter === "all" || !data.hw_by_res?.[selectedHwFilter]) {
+        resEntries = data.resolutions || [];
+      } else {
+        const map = data.hw_by_res[selectedHwFilter];
+        const sum = Object.values(map).reduce((a, b) => a + b, 0) || 1;
+        resEntries = Object.entries(map)
+          .map(([res, count]) => ({
+            res,
+            count,
+            pct: Math.round((count / sum) * 1000) / 10
+          }))
+          .sort((a, b) => b.count - a.count);
+      }
+
+      const resSum = resEntries.reduce((a, r) => a + Number(r.count || 0), 0);
+      document.getElementById("res-donut-svg").innerHTML = renderDonutSvg(
+        resEntries.map((r, idx) => ({
+          label: r.res,
+          value: r.count,
+          color: CHART_COLORS[(idx + 1) % CHART_COLORS.length]
+        })),
+        resEntries[0] ? resEntries[0].res : "—",
+        isLive ? `${resSum} HUB75` : "—"
+      );
+
+      const resList = document.getElementById("res-bars-list");
+      resList.innerHTML = resEntries.length > 0
+        ? resEntries.map((r, idx) => {
+            const c = CHART_COLORS[(idx + 1) % CHART_COLORS.length];
+            return `
+              <div class="bar-row">
+                <div class="bar-row-header">
+                  <span style="font-family:'JetBrains Mono',monospace;"><span class="chart-legend-dot" style="background:${c}; margin-right:6px;"></span>${r.res}</span>
+                  <span><strong>${r.count}</strong> (${r.pct}%)</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" style="width:${r.pct}%; background:${c};"></div>
+                </div>
+              </div>
+            `;
+          }).join("")
+        : renderEmptyNote(dict.empty_res);
+
+      const matrixEl = document.getElementById("hw-res-matrix");
+      const allResCols = (data.resolutions || []).slice(0, 5).map((r) => r.res);
+      if (activeHw.length > 0 && allResCols.length > 0) {
+        let maxCell = 1;
+        for (const h of activeHw) {
+          for (const rc of allResCols) {
+            const v = Number(data.hw_by_res?.[h.hw]?.[rc] || 0);
+            if (v > maxCell) maxCell = v;
+          }
+        }
+        matrixEl.innerHTML = `
+          <div class="table-wrap">
+            <table class="cross-matrix-table">
+              <thead>
+                <tr>
+                  <th>${dict.matrix_board_col}</th>
+                  ${allResCols.map((rc) => `<th>${rc}</th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${activeHw.map((h) => `
+                  <tr>
+                    <td>${HW_SHORT_LABELS[h.hw] || h.hw}</td>
+                    ${allResCols.map((rc) => {
+                      const val = Number(data.hw_by_res?.[h.hw]?.[rc] || 0);
+                      const alpha = val > 0 ? (0.1 + 0.35 * (val / maxCell)).toFixed(2) : "0";
+                      const bg = val > 0 ? `rgba(255, 0, 85, ${alpha})` : "transparent";
+                      return `<td style="background:${bg}; color:${val > 0 ? "#fff" : "#5e6675"};">${val}</td>`;
+                    }).join("")}
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else {
+        matrixEl.innerHTML = `<div style="margin-top:0.65rem;">${renderEmptyNote(dict.empty_matrix)}</div>`;
+      }
+
+      // SUPPLEMENTARY ACCORDION: Raw GitHub Release Counters (100% isolated from Cloudflare)
+      const ghTotal = Number(kpis.github_downloads_total || 0);
+      const ghLatestDl = Number(kpis.github_latest_downloads || (data.github_releases?.[0]?.downloads || 0));
+      const ghPill = document.getElementById("gh-supp-total-pill");
+      if (ghPill) {
+        ghPill.textContent = ghTotal > 0 ? `${latestVer}: ${ghLatestDl} • Total: ${ghTotal}` : "—";
+      }
+
+      const ghRels = (data.github_releases || []).slice(0, 6);
+      const maxRelDl = ghRels.reduce((m, r) => Math.max(m, Number(r.downloads || 0)), 0) || 1;
+      const ghRelEl = document.getElementById("gh-supp-releases-list");
+      if (ghRelEl) {
+        ghRelEl.innerHTML = ghRels.length > 0
+          ? ghRels.map((r) => {
+              const wPct = Math.round((Number(r.downloads || 0) / maxRelDl) * 100);
+              return `
+                <div class="bar-row">
+                  <div class="bar-row-header">
+                    <span style="font-family:'JetBrains Mono',monospace; color:#cbd5e1;">${r.tag}</span>
+                    <span style="color:#9ba1a6;">${r.downloads} dl</span>
+                  </div>
+                  <div class="bar-track">
+                    <div class="bar-fill" style="width:${wPct}%; background:rgba(255,204,0,0.65);"></div>
+                  </div>
+                </div>
+              `;
+            }).join("")
+          : "—";
+      }
+
+      const ghHw = data.github_hw_downloads || [];
+      const ghHwEl = document.getElementById("gh-supp-hw-list");
+      if (ghHwEl) {
+        ghHwEl.innerHTML = ghHw.length > 0
+          ? ghHw.map((item) => `
+              <div class="bar-row">
+                <div class="bar-row-header">
+                  <span style="color:#cbd5e1;">${HW_LABELS[item.hw] || item.hw}</span>
+                  <span style="color:#9ba1a6;">${item.downloads} dl (${item.pct}%)</span>
+                </div>
+                <div class="bar-track">
+                  <div class="bar-fill" style="width:${item.pct}%; background:rgba(255,204,0,0.65);"></div>
+                </div>
+              </div>
+            `).join("")
+          : "—";
+      }
+    }
+
+    async function loadChangelogJson() {
+      try {
+        const res = await fetch("changelog/posts.json");
+        if (res.ok) {
+          loadedPostsData = await res.json();
+          renderChangelog();
+        }
+      } catch (_) {}
+    }
+
+    function enrichWithGitHubReleases(target, releases) {
+      if (!Array.isArray(releases) || releases.length === 0) return;
+      let totalDl = 0;
+      const archMap = new Map();
+      const ghReleases = [];
+
+      const latest = releases[0];
+      for (const asset of latest.assets || []) {
+        if (asset.name && asset.name.includes("aarch64") && asset.browser_download_url) {
+          document.getElementById("dl-aarch64-link").href = asset.browser_download_url;
+        }
+        if (asset.name && asset.name.includes("armhf") && asset.browser_download_url) {
+          document.getElementById("dl-armhf-link").href = asset.browser_download_url;
+        }
+      }
+
+      for (const rel of releases) {
+        let relDl = 0;
+        for (const asset of rel.assets || []) {
+          const nl = String(asset.name || "").toLowerCase();
+          if (nl.includes("sdcard")) continue;
+          const dl = Number(asset.download_count || 0);
+          relDl += dl;
+          if (nl.includes("aarch64") || nl.includes("arm64")) {
+            archMap.set("aarch64", (archMap.get("aarch64") || 0) + dl);
+          } else if (nl.includes("armhf") || nl.includes("armv7")) {
+            archMap.set("armhf", (archMap.get("armhf") || 0) + dl);
+          }
+        }
+        totalDl += relDl;
+        ghReleases.push({
+          tag: rel.tag_name || rel.name || "unknown",
+          published_at: rel.published_at || null,
+          downloads: relDl
+        });
+      }
+
+      const archSum = Array.from(archMap.values()).reduce((a, b) => a + b, 0);
+      target.kpis.github_downloads_total = totalDl;
+      target.kpis.github_latest_downloads = ghReleases[0]?.downloads || 0;
+      if (ghReleases[0]?.tag && (!target.isWorkerLive || !target.kpis.latest_version)) {
+        target.kpis.latest_version = ghReleases[0].tag;
+      }
+      target.github_releases = ghReleases;
+      target.github_hw_downloads = Array.from(archMap.entries())
+        .map(([hw, downloads]) => ({
+          hw,
+          downloads,
+          pct: archSum > 0 ? Math.round((downloads / archSum) * 1000) / 10 : 0
+        }))
+        .sort((a, b) => b.downloads - a.downloads);
+    }
+
+    async function loadLiveStatsAndReleaseLinks() {
+      // 1. Query live Cloudflare Worker stats (accepts 0 devices cleanly—never synthetic fallback)
+      try {
+        const res = await fetch(`${OTA_STATS_WORKER_URL}/v1/stats?p=rpi&_t=${Date.now()}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(4500)
+        });
+        if (res.ok) {
+          const live = await res.json();
+          if (live && live.kpis && typeof live.kpis.total_known === "number") {
+            currentStatsData = { ...createEmptyStats(), ...live, isWorkerLive: true };
+            renderStatsDashboard();
+          }
+        }
+      } catch (_) {}
+
+      // 2. Fetch GitHub Releases to bind direct SD card asset links & supplementary release breakdown
+      try {
+        const ghRes = await fetch(GITHUB_RELEASES_API);
+        if (ghRes.ok) {
+          const releases = await ghRes.json();
+          enrichWithGitHubReleases(currentStatsData, releases);
+          renderStatsDashboard();
+        }
+      } catch (_) {}
+    }
+
+    // Copy terminal command button
+    document.getElementById("copy-cmd-btn").addEventListener("click", async () => {
+      const cmd = document.getElementById("install-cmd").textContent;
+      const btn = document.getElementById("copy-cmd-btn");
+      try {
+        await navigator.clipboard.writeText(cmd);
+        btn.textContent = I18N[currentLang].copied_btn;
+        setTimeout(() => {
+          btn.textContent = I18N[currentLang].copy_btn;
+        }, 2000);
+      } catch (_) {}
+    });
+
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => activateTab(btn.dataset.tab));
+    });
+
+    document.querySelectorAll(".lang-btn").forEach((btn) => {
+      btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));
+    });
+
+    window.addEventListener("hashchange", () => {
+      const h = (location.hash || "").replace("#", "");
+      if (h) activateTab(h, false);
+    });
+
+    const initialHash = (location.hash || "").replace("#", "");
+    if (initialHash) activateTab(initialHash, false);
+    applyLanguage(currentLang);
+    loadChangelogJson();
+    loadLiveStatsAndReleaseLinks();
+  </script>
+</body>
+</html>

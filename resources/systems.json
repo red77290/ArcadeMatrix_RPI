@@ -1,61 +1,73 @@
 {
   "arcade": [
-    "arcade",
     "mame",
-    "-_arcade",
-    "default-_arcade",
-    "default-arcade"
+    "- Arcade",
+    "default-arcade",
+    "arcade",
+    "default-_arcade"
   ],
   "arcadeall": [
-    "arcade",
     "mame",
-    "default-_allgames"
+    "default-all_games",
+    "all_games",
+    "default-arcade"
   ],
   "-_arcade": [
-    "arcade",
     "mame",
+    "- Arcade",
+    "default-arcade",
     "default-_arcade"
   ],
   "- arcade": [
-    "arcade",
     "mame",
+    "- Arcade",
+    "default-arcade",
     "default-_arcade"
   ],
   "-_arcadefavs": [
-    "arcade",
+    "default-favorites",
+    "favorites",
     "mame",
     "default-_arcadefavs"
   ],
   "- arcadefavs": [
-    "arcade",
+    "default-favorites",
+    "favorites",
     "mame",
     "default-_arcadefavs"
   ],
   "favorites": [
-    "default-_favorites",
     "default-favorites",
-    "favorites"
+    "favorites",
+    "default-_favorites"
   ],
   "favs": [
-    "default-_favorites",
-    "default-favorites"
+    "default-favorites",
+    "favorites",
+    "default-_favorites"
   ],
   "allgames": [
+    "default-all_games",
+    "all_games",
     "default-_allgames",
     "default-allgames",
     "all"
   ],
   "all": [
+    "default-all_games",
+    "all_games",
     "default-_allgames",
     "default-allgames"
   ],
   "lastplayed": [
+    "auto-lastplayed",
+    "default-auto-lastplayed",
     "default-_lastplayed",
     "default-lastplayed"
   ],
   "custom": [
-    "default-_custom",
-    "default-custom"
+    "default-custom",
+    "default-_custom"
   ],
   "cave": [
     "cave",
@@ -1302,24 +1314,27 @@
     "default-video_system"
   ],
   "snes": [
-    "snes",
+    "default-snes",
+    "- Super Nintendo",
     "Super Nintendo",
     "Super Nintendo Entertainment System",
-    "- Super Nintendo",
-    "default-snes"
+    "snes"
   ],
   "supernintendo": [
-    "snes",
+    "default-snes",
+    "- Super Nintendo",
     "Super Nintendo",
-    "default-snes"
+    "snes"
   ],
   "super nintendo": [
-    "snes",
+    "default-snes",
+    "- Super Nintendo",
     "Super Nintendo",
-    "default-snes"
+    "snes"
   ],
   "sfc": [
-    "snes",
+    "nintendo_super_famicom",
+    "default-nintendo_super_famicom",
     "default-snes"
   ],
   "nes": [
@@ -1500,8 +1515,10 @@
     "default-ps2"
   ],
   "ps3": [
-    "ps3",
+    "sony_playstation_3",
+    "default-sony_playstation_3",
     "PlayStation 3",
+    "ps3",
     "default-ps3"
   ],
   "psp": [
@@ -1519,14 +1536,18 @@
     "NEC PC Engine",
     "PC Engine",
     "default-pcengine",
-    " nec_supergrafx"
+    "nec_supergrafx"
   ],
   "tg16": [
+    "nec_turbografx-16",
+    "default-nec_turbografx-16",
     "pcengine",
     "turbografx16",
     "default-pcengine"
   ],
   "turbografx16": [
+    "nec_turbografx-16",
+    "default-nec_turbografx-16",
     "pcengine",
     "turbografx16",
     "default-pcengine"
@@ -1617,6 +1638,8 @@
     "default-vic20"
   ],
   "colecovision": [
+    "coleco",
+    "default-coleco",
     "colecovision",
     "default-colecovision"
   ],
@@ -1658,5 +1681,199 @@
     "amstradcpc",
     "amstrad_cpc",
     "default-amstradcpc"
+  ],
+  "fds": [
+    "nintendo_famicom_disk_system",
+    "default-nintendo_famicom_disk_system",
+    "fds",
+    "default-fds"
+  ],
+  "satellaview": [
+    "nintendo_satellaview",
+    "default-nintendo_satellaview",
+    "default-snes"
+  ],
+  "sufami": [
+    "nintendo_sufami_turbo",
+    "default-nintendo_sufami_turbo",
+    "default-snes"
+  ],
+  "virtualboy": [
+    "virtualboy",
+    "default-virtualboy",
+    "nintendo_virtual_boy"
+  ],
+  "32x": [
+    "sega32x",
+    "sega_32x",
+    "default-sega32x"
+  ],
+  "intellivision": [
+    "intellivision",
+    "default-intellivision",
+    "mattel_intellivision"
+  ],
+  "odyssey2": [
+    "odyssey",
+    "magnavox_odyssey_2",
+    "default-magnavox_odyssey_2",
+    "default-odyssey"
+  ],
+  "videopac": [
+    "odyssey",
+    "magnavox_odyssey_2",
+    "default-magnavox_odyssey_2",
+    "default-odyssey"
+  ],
+  "pcfx": [
+    "nec_pc-fx",
+    "nec_pc_fx",
+    "default-nec_pc-fx",
+    "pcfx"
+  ],
+  "supergrafx": [
+    "nec_supergrafx",
+    "supergrafx",
+    "default-nec_supergrafx",
+    "default-supergrafx"
+  ],
+  "pcenginecd": [
+    "nec_pc_engine-cd",
+    "default-nec_pc_engine-cd",
+    "pcengine",
+    "default-pcengine"
+  ],
+  "tg16cd": [
+    "nec_turbografx-cd",
+    "nec_turbografx_cd",
+    "default-nec_turbografx-cd",
+    "pcengine"
+  ],
+  "ngp": [
+    "snk_neo_geo_pocket",
+    "default-snk_neo_geo_pocket",
+    "ngpc",
+    "default-ngpc"
+  ],
+  "ngpc": [
+    "ngpc",
+    "default-ngpc",
+    "snk_neo_geo_pocket_color",
+    "default-snk_neo_geo_pocket_color"
+  ],
+  "wswan": [
+    "wonderswan",
+    "default-wonderswan"
+  ],
+  "wswanc": [
+    "wonderswancolor",
+    "default-wonderswancolor"
+  ],
+  "scummvm": [
+    "scummvm",
+    "default-scummvm"
+  ],
+  "dos": [
+    "dos",
+    "microsoft_ms-dos",
+    "default-dos",
+    "pc"
+  ],
+  "pc": [
+    "pc",
+    "default-pc",
+    "dos",
+    "windows"
+  ],
+  "ports": [
+    "ports",
+    "default-ports",
+    "pc"
+  ],
+  "openbor": [
+    "openbor",
+    "default-openbor"
+  ],
+  "mugen": [
+    "mugen",
+    "default-mugen"
+  ],
+  "vpinball": [
+    "visualpinball",
+    "default-visualpinball",
+    "pinball",
+    "default-pinball"
+  ],
+  "fpinball": [
+    "futurepinball",
+    "default-futurepinball",
+    "pinball",
+    "default-pinball"
+  ],
+  "pinballfx3": [
+    "pinball_fx3",
+    "default-pinball_fx3",
+    "pinball"
+  ],
+  "xbox": [
+    "microsoft_xbox",
+    "default-microsoft_xbox",
+    "xbox"
+  ],
+  "gx4000": [
+    "amstrad_gx4000",
+    "default-amstrad_gx4000",
+    "amstradcpc"
+  ],
+  "neogeocd": [
+    "snk_neo_geo_cd",
+    "default-snk_neo_geo_cd",
+    "neogeo",
+    "default-neogeo"
+  ],
+  "model3": [
+    "sega_model_3",
+    "default-sega_model_3",
+    "sega",
+    "mame"
+  ],
+  "hikaru": [
+    "sega_hikaru",
+    "default-sega_hikaru",
+    "sega",
+    "mame"
+  ],
+  "triforce": [
+    "sega_triforce",
+    "triforce",
+    "default-sega_triforce",
+    "default-triforce"
+  ],
+  "taitotypex": [
+    "taito_type_x",
+    "default-taito_type_x",
+    "taito",
+    "default-ztaito"
+  ],
+  "teknoparrot": [
+    "teknoparrot",
+    "default-teknoparrot",
+    "mame"
+  ],
+  "lightgun": [
+    "gun_games",
+    "default-gun_games",
+    "lightgun",
+    "default-lightgun"
+  ],
+  "singe": [
+    "daphne_singe",
+    "default-daphne_singe",
+    "daphne",
+    "default-daphne"
+  ],
+  "hypseus": [
+    "daphne",
+    "default-daphne"
   ]
 }

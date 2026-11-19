@@ -1,11 +1,17 @@
 use crate::core::config::{Config, MqttConfig};
 use crate::core::engine_contract::{Engine, EngineConfig, EngineContext, EngineError};
+use crate::core::i18n::Lang;
 use crate::core::types::{
-    DisplayGeometry, ForcedEngineMode, InGameCycleMode, InGameShowcasePayload,
+    copy_str_to_pod, DisplayGeometry, ForcedEngineMode, InGameCycleMode, InGameShowcasePayload,
+    SyncCelebrationPayload, SyncHiscoreEntryPod, SyncMetaPayload, SyncRaSummaryPod,
 };
+use crate::engines::renderers::fireworks_lut::FireworksLutRenderer;
 use crate::engines::renderers::media_showcase::{
     parse_host_and_port, probe_local_lan_ip, probe_showcase_health_details, resolve_showcase_host,
     resolve_showcase_server_url, rpi_hardware_short_id,
+};
+pub use crate::engines::renderers::sync_cards::{
+    HallOfFameCard, RetroAchievementsCard, SyncCelebrationRenderer,
 };
 use parking_lot::Mutex;
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
@@ -19,6 +25,7 @@ pub const MQTT_TOPIC_WILDCARD: &str = "system/playing/#";
 pub const SHOWCASE_COMMAND_TOPIC_WILDCARD: &str = "dmd_showcase/clients/+/command";
 
 static MQTT_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+static CELEBRATION_EVENT_ID: AtomicU64 = AtomicU64::new(0);
 static CONFIG_GENERATION: AtomicU64 = AtomicU64::new(1);
 static LOCAL_MOSQUITTO_STOPPED_BY_SYNC: AtomicBool = AtomicBool::new(false);
 
@@ -76,11 +83,12 @@ pub fn read_e2e_sync_telemetry() -> E2eSyncTelemetry {
     e2e_telemetry().lock().clone()
 }
 
-fn open_marquee_image(path: &std::path::Path) -> Option<image::DynamicImage> {
+fn open_marquee_image(path: &std::path::Path) -> Option<image::RgbImage> {
     image::ImageReader::open(path)
         .ok()
         .and_then(|r| r.with_guessed_format().ok())
         .and_then(|r| r.decode().ok())
+        .map(crate::engines::marquee::dynamic_image_to_rgb_on_black)
 }
 
 struct ReadySignalState {
@@ -440,6 +448,7 @@ fn take_dirty_remote_sync_target(matching_req_id: Option<u64>) -> Option<(String
 
 pub fn cancel_active_ingame_showcase(config: &Config) {
     config.set_ingame_showcase(None);
+    config.set_sync_meta(None);
     if let Some((server_url, sync_client_id)) = take_dirty_remote_sync_target(None) {
         delete_showcase_client_queue_async(server_url, sync_client_id);
     }
@@ -800,7 +809,217 @@ fn spawn_ingame_showcase_request(
     });
 }
 
-fn handle_frontend_sync_payload(
+pub fn parse_sync_meta_from_json(
+    json: &serde_json::Value,
+    session_token: u64,
+    mqtt_cfg: &MqttConfig,
+) -> Option<SyncMetaPayload> {
+    let raw_system = json["system"].as_str().unwrap_or("");
+    let raw_game = json["title"]
+        .as_str()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| json["game"].as_str())
+        .unwrap_or("");
+    let clean_sys = crate::core::dmd_cache::clean_system_name(raw_system);
+    let game_title = format_game_name(raw_game);
+
+    let mut hiscores = [SyncHiscoreEntryPod::EMPTY; 5];
+    let mut hiscore_count = 0u8;
+    if let Some(arr) = json.get("hiscores").and_then(|v| v.as_array()) {
+        for (idx, item) in arr.iter().take(5).enumerate() {
+            let rank = item
+                .get("rank")
+                .and_then(|r| r.as_u64())
+                .map(|r| r.clamp(1, 99) as u8)
+                .unwrap_or((idx + 1) as u8);
+            let player = item
+                .get("tag")
+                .or_else(|| item.get("player"))
+                .or_else(|| item.get("name"))
+                .and_then(|s| s.as_str())
+                .unwrap_or("1UP");
+            let score_owned: String;
+            let score_str = if let Some(s) = item.get("score").and_then(|v| v.as_str()) {
+                s
+            } else if let Some(n) = item
+                .get("score")
+                .or_else(|| item.get("raw"))
+                .and_then(|v| v.as_u64())
+            {
+                score_owned = n.to_string();
+                &score_owned
+            } else {
+                ""
+            };
+            if !score_str.trim().is_empty() {
+                hiscores[hiscore_count as usize] =
+                    SyncHiscoreEntryPod::from_strs(rank, player, score_str);
+                hiscore_count += 1;
+            }
+        }
+    }
+
+    let mut ra = SyncRaSummaryPod::EMPTY;
+    if let Some(ra_obj) = json.get("ra").and_then(|v| v.as_object()) {
+        let total = ra_obj
+            .get("total")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0)
+            .min(u16::MAX as u64) as u16;
+        if total > 0 {
+            let unlocked = ra_obj
+                .get("unlocked")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                .min(total as u64) as u16;
+            let points_earned = ra_obj
+                .get("points")
+                .or_else(|| ra_obj.get("points_earned"))
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0)
+                .min(u32::MAX as u64) as u32;
+            let points_total = ra_obj
+                .get("points_total")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(points_earned as u64)
+                .min(u32::MAX as u64) as u32;
+            let hardcore = ra_obj
+                .get("hardcore")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let recent = ra_obj
+                .get("recent_title")
+                .or_else(|| ra_obj.get("recent_badge"))
+                .or_else(|| ra_obj.get("recent").and_then(|r| r.get("title")))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let ra_game_title = ra_obj
+                .get("game_title")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or(&game_title);
+            ra = SyncRaSummaryPod {
+                game_title: copy_str_to_pod(ra_game_title.trim()),
+                unlocked,
+                total,
+                points_earned,
+                points_total,
+                hardcore,
+                recent_badge: copy_str_to_pod(recent.trim()),
+                valid: true,
+            };
+        }
+    }
+
+    let payload = SyncMetaPayload {
+        session_token: session_token.max(1),
+        system: copy_str_to_pod(clean_sys.trim()),
+        game_title: copy_str_to_pod(game_title.trim()),
+        hiscore_count,
+        hiscores,
+        ra,
+        show_hiscores: mqtt_cfg.sync_show_hiscores,
+        show_ra: mqtt_cfg.sync_show_ra,
+        card_duration_sec: mqtt_cfg.sync_card_duration_sec.clamp(5, 20),
+    };
+
+    if payload.has_any_card() {
+        Some(payload)
+    } else {
+        None
+    }
+}
+
+pub fn parse_celebration_from_json(
+    json: &serde_json::Value,
+    event_token: u64,
+) -> SyncCelebrationPayload {
+    let kind_str = json
+        .get("kind")
+        .or_else(|| json.get("celebration_type"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("highscore");
+    let is_achievement =
+        kind_str.eq_ignore_ascii_case("achievement") || kind_str.eq_ignore_ascii_case("ra");
+    let raw_system = json["system"].as_str().unwrap_or("");
+    let clean_sys = crate::core::dmd_cache::clean_system_name(raw_system);
+    let raw_game = json["game"].as_str().unwrap_or("");
+    let game_title = format_game_name(raw_game);
+
+    if is_achievement {
+        let title = json
+            .get("title")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("ACHIEVEMENT");
+        let pts = json.get("points").and_then(|v| v.as_u64()).unwrap_or(0);
+        let pts_label = if pts > 0 {
+            format!("+{} PTS", pts)
+        } else {
+            "UNLOCKED".to_string()
+        };
+        let hardcore = json
+            .get("hardcore")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let duration_ms = json
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(7500)
+            .clamp(1000, 15000) as u32;
+        SyncCelebrationPayload {
+            event_token: event_token.max(1),
+            kind: 1,
+            system: copy_str_to_pod(clean_sys.trim()),
+            title: copy_str_to_pod(title.trim()),
+            subtitle: copy_str_to_pod(game_title.trim()),
+            score_or_pts: copy_str_to_pod(&pts_label),
+            hardcore,
+            duration_ms,
+        }
+    } else {
+        let rank = json
+            .get("rank")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1)
+            .clamp(1, 99);
+        let tag = json
+            .get("tag")
+            .or_else(|| json.get("player"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("1UP");
+        let score = if let Some(s) = json.get("score").and_then(|v| v.as_str()) {
+            s.to_string()
+        } else if let Some(n) = json.get("score").and_then(|v| v.as_u64()) {
+            n.to_string()
+        } else {
+            "999,999".to_string()
+        };
+        let rank_tag = format!("#{} {}", rank, tag.trim());
+        let title_str = if !game_title.is_empty() {
+            game_title
+        } else {
+            rank_tag.clone()
+        };
+        let duration_ms = json
+            .get("duration_ms")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(7500)
+            .clamp(1000, 15000) as u32;
+        SyncCelebrationPayload {
+            event_token: event_token.max(1),
+            kind: 0,
+            system: copy_str_to_pod(clean_sys.trim()),
+            title: copy_str_to_pod(&rank_tag),
+            subtitle: copy_str_to_pod(title_str.trim()),
+            score_or_pts: copy_str_to_pod(score.trim()),
+            hardcore: false,
+            duration_ms,
+        }
+    }
+}
+
+pub fn handle_frontend_sync_payload(
     config: &Arc<Config>,
     dmd_cache: &Arc<crate::core::dmd_cache::DmdCache>,
     payload: &str,
@@ -809,12 +1028,35 @@ fn handle_frontend_sync_payload(
     let Ok(json) = serde_json::from_str::<serde_json::Value>(payload) else {
         return;
     };
-    let status = json["status"].as_str().unwrap_or("stopped");
+    let status = json["status"]
+        .as_str()
+        .or_else(|| json["event"].as_str())
+        .unwrap_or("stopped");
     {
         let mut t = e2e_telemetry().lock();
         t.mqtt_events_received += 1;
         t.last_status = status.to_string();
     }
+
+    if status == "celebrate" || json["type"].as_str() == Some("celebrate") {
+        let celebrate_enabled = config.settings.read().mqtt.sync_celebrate_events;
+        if celebrate_enabled {
+            let evt_id = CELEBRATION_EVENT_ID.fetch_add(1, Ordering::AcqRel) + 1;
+            let cel = parse_celebration_from_json(&json, evt_id);
+            config.set_sync_celebration(Some(cel));
+        }
+        return;
+    }
+
+    if status == "sync_meta" {
+        let mqtt_cfg = config.settings.read().mqtt.clone();
+        let active_req_id = MQTT_REQUEST_ID.load(Ordering::Acquire).max(1);
+        if let Some(meta) = parse_sync_meta_from_json(&json, active_req_id, &mqtt_cfg) {
+            config.set_sync_meta(Some(meta));
+        }
+        return;
+    }
+
     if status == "stopped" {
         MQTT_REQUEST_ID.fetch_add(1, Ordering::AcqRel);
         cancel_active_ingame_showcase(config);
@@ -825,20 +1067,32 @@ fn handle_frontend_sync_payload(
     let raw_system = json["system"].as_str().unwrap_or("").to_string();
     let raw_game = json["game"].as_str().unwrap_or("").to_string();
     let raw_title = json["title"].as_str().unwrap_or("").trim().to_string();
+    let rom_path = json["rom_path"]
+        .as_str()
+        .or_else(|| json["path"].as_str())
+        .unwrap_or("")
+        .trim();
 
-    let clean_sys = crate::core::dmd_cache::clean_system_name(&raw_system);
+    let initial_clean_sys = crate::core::dmd_cache::clean_system_name(&raw_system);
     let clean_game = crate::core::dmd_cache::clean_system_name(&raw_game);
 
     let is_playing = status == "playing";
     let is_system_event = !is_playing
         && (json["type"].as_str() == Some("system")
             || clean_game.is_empty()
-            || clean_game.eq_ignore_ascii_case(&clean_sys));
+            || clean_game.eq_ignore_ascii_case(&initial_clean_sys));
+
+    let effective_raw_sys = if !is_system_event {
+        crate::core::dmd_cache::extract_system_from_rom_path(&raw_system, rom_path)
+    } else {
+        raw_system
+    };
+    let clean_sys = crate::core::dmd_cache::clean_system_name(&effective_raw_sys);
 
     let system = if !clean_sys.is_empty() {
         clean_sys
     } else {
-        raw_system
+        effective_raw_sys
     };
     let game_clean = if !clean_game.is_empty() {
         clean_game
@@ -860,7 +1114,7 @@ fn handle_frontend_sync_payload(
         if let Some(path) = dmd_cache.get_cached_system_path(&system) {
             if let Some(img) = open_marquee_image(&path) {
                 e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
-                config.set_marquee_image(Some(img.to_rgb8()));
+                config.set_marquee_image(Some(img));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 return;
             }
@@ -873,17 +1127,7 @@ fn handle_frontend_sync_payload(
         } else {
             formatted_sys
         };
-        let mut text_to_show = clean_name.clone();
-        if text_to_show.len() > 10 {
-            text_to_show = format!(" {} ", text_to_show);
-        }
-        let msg_payload = crate::engines::message::MessagePayload::new(
-            text_to_show,
-            "#00ffff",
-            1,
-            if clean_name.len() > 8 { "left" } else { "none" },
-            0,
-        );
+        let msg_payload = build_cyan_sync_banner(config, &clean_name);
         config.set_frontend_sync_banner(msg_payload);
 
         if !dmd_cache.is_system_negative_cached(&system) {
@@ -895,7 +1139,7 @@ fn handle_frontend_sync_payload(
                         if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                             e2e_telemetry().lock().active_marquee_path =
                                 path.to_string_lossy().to_string();
-                            config_clone.set_marquee_image(Some(img.to_rgb8()));
+                            config_clone.set_marquee_image(Some(img));
                             config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                         }
                     }
@@ -926,7 +1170,7 @@ fn handle_frontend_sync_payload(
         if let Some(path) = dmd_cache.get_cached_path(&system, &game) {
             if let Some(img) = open_marquee_image(&path) {
                 e2e_telemetry().lock().active_marquee_path = path.to_string_lossy().to_string();
-                config.set_marquee_image(Some(img.to_rgb8()));
+                config.set_marquee_image(Some(img));
                 config.set_forced_engine_mode(ForcedEngineMode::Marquee);
                 marquee_shown = true;
             }
@@ -934,17 +1178,7 @@ fn handle_frontend_sync_payload(
 
         if !marquee_shown {
             config.set_marquee_image(None);
-            let mut text_to_show = clean_name.clone();
-            if text_to_show.len() > 10 {
-                text_to_show = format!(" {} ", text_to_show);
-            }
-            let msg_payload = crate::engines::message::MessagePayload::new(
-                text_to_show,
-                "#00ffff",
-                1,
-                if clean_name.len() > 8 { "left" } else { "none" },
-                0,
-            );
+            let msg_payload = build_cyan_sync_banner(config, &clean_name);
             config.set_frontend_sync_banner(msg_payload);
 
             if !dmd_cache.is_negative_cached(&system, &game) {
@@ -952,13 +1186,22 @@ fn handle_frontend_sync_payload(
                 let cache_clone = Arc::clone(dmd_cache);
                 let sys_for_dl = system.clone();
                 let game_for_dl = game.clone();
+                let title_for_dl = if raw_title.is_empty() {
+                    None
+                } else {
+                    Some(raw_title.clone())
+                };
                 std::thread::spawn(move || {
-                    if let Some(path) = cache_clone.download_marquee(&sys_for_dl, &game_for_dl) {
+                    if let Some(path) = cache_clone.download_marquee_with_title(
+                        &sys_for_dl,
+                        &game_for_dl,
+                        title_for_dl.as_deref(),
+                    ) {
                         if let Some(img) = open_marquee_image(&path) {
                             if MQTT_REQUEST_ID.load(Ordering::Acquire) == req_id {
                                 e2e_telemetry().lock().active_marquee_path =
                                     path.to_string_lossy().to_string();
-                                config_clone.set_marquee_image(Some(img.to_rgb8()));
+                                config_clone.set_marquee_image(Some(img));
                                 config_clone.set_forced_engine_mode(ForcedEngineMode::Marquee);
                             }
                         }
@@ -969,6 +1212,10 @@ fn handle_frontend_sync_payload(
 
         // 2. When launching a game (`status == "playing"`), request Showcase sequence in background for Late Preemption
         if is_playing && !game_clean.is_empty() {
+            let mqtt_cfg = config.settings.read().mqtt.clone();
+            if let Some(meta) = parse_sync_meta_from_json(&json, req_id, &mqtt_cfg) {
+                config.set_sync_meta(Some(meta));
+            }
             spawn_ingame_showcase_request(
                 Arc::clone(config),
                 req_id,
@@ -977,6 +1224,65 @@ fn handle_frontend_sync_payload(
                 raw_title,
             );
         }
+    }
+}
+
+pub fn build_cyan_sync_banner(
+    config: &Config,
+    clean_name: &str,
+) -> crate::engines::message::MessagePayload {
+    let (eff_w, eff_h) = {
+        let s = config.settings.read();
+        let phys_w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
+        let phys_h = s
+            .matrix
+            .height
+            .saturating_mul(s.matrix.parallel.clamp(1, 3));
+        let rot = crate::app::normalize_rotation(s.matrix.rotation);
+        let geom = DisplayGeometry::new(phys_w, phys_h, rot, 0);
+        (geom.width(), geom.height())
+    };
+    let char_count = clean_name.chars().count();
+    if eff_w >= 192 && eff_h >= 48 {
+        let max_static_2x = (eff_w.saturating_sub(8) / 16) as usize;
+        let max_static_1x = (eff_w.saturating_sub(8) / 8) as usize;
+        if char_count <= max_static_2x {
+            crate::engines::message::MessagePayload::new(
+                clean_name.to_string(),
+                "#00ffff",
+                2,
+                "none",
+                0,
+            )
+        } else if char_count <= max_static_1x {
+            crate::engines::message::MessagePayload::new(
+                clean_name.to_string(),
+                "#00ffff",
+                1,
+                "none",
+                0,
+            )
+        } else {
+            crate::engines::message::MessagePayload::new(
+                format!(" {} ", clean_name),
+                "#00ffff",
+                2,
+                "left",
+                0,
+            )
+        }
+    } else {
+        let mut text_to_show = clean_name.to_string();
+        if char_count > 10 {
+            text_to_show = format!(" {} ", clean_name);
+        }
+        crate::engines::message::MessagePayload::new(
+            text_to_show,
+            "#00ffff",
+            1,
+            if char_count > 8 { "left" } else { "none" },
+            0,
+        )
     }
 }
 
@@ -996,9 +1302,15 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                     continue;
                 }
 
-                let (user, pass) = {
+                let (user, pass, want_showcase_broker) = {
                     let s = config.settings.read();
-                    (s.mqtt.user.clone(), s.mqtt.pass.clone())
+                    (
+                        s.mqtt.user.clone(),
+                        s.mqtt.pass.clone(),
+                        s.showcase.enabled
+                            && s.mqtt.use_showcase_broker
+                            && !s.showcase.server_url.trim().is_empty(),
+                    )
                 };
                 let observed_cfg_gen = CONFIG_GENERATION.load(Ordering::SeqCst);
 
@@ -1028,11 +1340,12 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 let mut mqttoptions =
                     MqttOptions::new(client_id, &target.connect_host, target.port);
                 mqttoptions.set_keep_alive(Duration::from_secs(15));
+                mqttoptions.set_max_packet_size(65536, 65536);
                 if target.source == "local" && !user.is_empty() {
                     mqttoptions.set_credentials(&user, &pass);
                 }
 
-                let (client, mut connection) = Client::new(mqttoptions, 16);
+                let (client, mut connection) = Client::new(mqttoptions, 64);
 
                 if let Err(e) = client.subscribe(MQTT_TOPIC_WILDCARD, QoS::AtMostOnce) {
                     error!(
@@ -1044,43 +1357,69 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                 }
                 let _ = client.subscribe(SHOWCASE_COMMAND_TOPIC_WILDCARD, QoS::AtMostOnce);
 
-                let mut last_broker_recheck = Instant::now();
+                // Off-thread config/recovery watcher:
+                // - Disconnects the client immediately (< 50 ms) when Web UI settings change.
+                // - Only probes Showcase HTTP `/api/v1/health` when currently running on local fallback
+                //   while `want_showcase_broker` is true, so an active Showcase MQTT TCP session never
+                //   stalls on HTTP health polling!
+                let session_alive = Arc::new(AtomicBool::new(true));
+                let session_alive_watch = Arc::clone(&session_alive);
+                let client_watch = client.clone();
+                let config_watch = Arc::clone(&config);
+                let target_watch = target.clone();
+                std::thread::spawn(move || {
+                    let mut last_probe = Instant::now();
+                    let (lock, cv) = ready_signal();
+                    while session_alive_watch.load(Ordering::Acquire) {
+                        if CONFIG_GENERATION.load(Ordering::SeqCst) != observed_cfg_gen {
+                            info!("[FrontendSync] MQTT/Showcase configuration changed, reconnecting...");
+                            let _ = client_watch.disconnect();
+                            break;
+                        }
+                        if target_watch.source == "local"
+                            && want_showcase_broker
+                            && last_probe.elapsed() >= Duration::from_secs(12)
+                        {
+                            last_probe = Instant::now();
+                            let refreshed = resolve_broker_target(&config_watch, false);
+                            if !refreshed.mqtt_enabled
+                                || refreshed.connect_host != target_watch.connect_host
+                                || refreshed.port != target_watch.port
+                                || refreshed.source != target_watch.source
+                            {
+                                info!(
+                                    "[FrontendSync] Showcase broker became reachable ({}:{} -> {}:{}), switching...",
+                                    target_watch.connect_host,
+                                    target_watch.port,
+                                    refreshed.connect_host,
+                                    refreshed.port
+                                );
+                                let _ = client_watch.disconnect();
+                                break;
+                            }
+                        }
+                        if let Ok(guard) = lock.lock() {
+                            let _ = cv.wait_timeout(guard, Duration::from_millis(500));
+                        } else {
+                            std::thread::sleep(Duration::from_millis(500));
+                        }
+                    }
+                });
 
                 for notification in connection.iter() {
                     if CONFIG_GENERATION.load(Ordering::SeqCst) != observed_cfg_gen {
-                        info!("[FrontendSync] MQTT/Showcase configuration changed, reconnecting...");
                         let _ = client.disconnect();
                         break;
-                    }
-                    if last_broker_recheck.elapsed() >= Duration::from_secs(12) {
-                        last_broker_recheck = Instant::now();
-                        let refreshed = resolve_broker_target(&config, false);
-                        if !refreshed.mqtt_enabled
-                            || refreshed.connect_host != target.connect_host
-                            || refreshed.port != target.port
-                            || refreshed.source != target.source
-                        {
-                            info!(
-                                "[FrontendSync] Broker target switched ({}:{} -> {}:{}), reconnecting...",
-                                target.connect_host,
-                                target.port,
-                                refreshed.connect_host,
-                                refreshed.port
-                            );
-                            let _ = client.disconnect();
-                            break;
-                        }
                     }
 
                     match notification {
                         Ok(Event::Incoming(Packet::Publish(publish))) => {
-                            if let Ok(payload) = String::from_utf8(publish.payload.to_vec()) {
-                                if publish.topic.starts_with("dmd_showcase/clients/") {
-                                    record_showcase_command_event(&publish.topic, &payload);
-                                } else {
-                                    e2e_telemetry().lock().last_mqtt_topic = publish.topic.clone();
-                                    handle_frontend_sync_payload(&config, &dmd_cache, &payload);
-                                }
+                            let payload = String::from_utf8_lossy(&publish.payload);
+                            if publish.topic.starts_with("dmd_showcase/clients/") {
+                                record_showcase_command_event(&publish.topic, &payload);
+                            } else {
+                                e2e_telemetry().lock().last_mqtt_topic = publish.topic.clone();
+                                handle_frontend_sync_payload(&config, &dmd_cache, &payload);
                             }
                         }
                         Err(e) => {
@@ -1098,16 +1437,191 @@ pub fn start_mqtt_client(config: Arc<Config>) {
                     }
                 }
 
+                session_alive.store(false, Ordering::Release);
+                ready_signal().1.notify_all();
                 std::thread::sleep(Duration::from_secs(2));
             }
         })
         .expect("Failed to spawn frontend-sync thread");
 }
 
-/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`).
+// ----------------------------------------------------------------------------
+// SyncCelebrationEngine — Priority 55 60 FPS Fireworks + Hero Cameo (0 Alloc)
+// ----------------------------------------------------------------------------
+
+pub struct SyncCelebrationEngine {
+    fireworks: FireworksLutRenderer,
+    active_payload: SyncCelebrationPayload,
+    observed_event_token: u64,
+    start_instant: Option<Instant>,
+    paused_at: Option<Instant>,
+    paused_accum_ms: u64,
+    elapsed_ms: u64,
+    last_frame_tick: u32,
+    pending_draw: bool,
+    lang: Lang,
+}
+
+impl SyncCelebrationEngine {
+    pub fn new() -> Self {
+        Self {
+            fireworks: FireworksLutRenderer::new(),
+            active_payload: SyncCelebrationPayload::EMPTY,
+            observed_event_token: 0,
+            start_instant: None,
+            paused_at: None,
+            paused_accum_ms: 0,
+            elapsed_ms: 0,
+            last_frame_tick: u32::MAX,
+            pending_draw: true,
+            lang: Lang::En,
+        }
+    }
+}
+
+impl Default for SyncCelebrationEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Engine for SyncCelebrationEngine {
+    fn initialize(
+        &mut self,
+        context: &mut EngineContext,
+        _config: &dyn EngineConfig,
+    ) -> Result<(), EngineError> {
+        let lang_code = context.config.get_sys_string("lang", "en");
+        self.lang = Lang::from_code(&lang_code);
+        Ok(())
+    }
+
+    fn activate(&mut self) {
+        self.fireworks.reset();
+        self.start_instant = Some(Instant::now());
+        self.paused_at = None;
+        self.paused_accum_ms = 0;
+        self.elapsed_ms = 0;
+        self.last_frame_tick = u32::MAX;
+        self.pending_draw = true;
+    }
+
+    fn pause(&mut self) {
+        if self.paused_at.is_none() {
+            self.paused_at = Some(Instant::now());
+        }
+        self.pending_draw = false;
+    }
+
+    fn resume(&mut self) {
+        if let Some(p) = self.paused_at.take() {
+            self.paused_accum_ms = self
+                .paused_accum_ms
+                .saturating_add(p.elapsed().as_millis() as u64);
+        }
+        self.pending_draw = true;
+    }
+
+    fn deactivate(&mut self) {
+        self.fireworks.reset();
+        self.start_instant = None;
+        self.paused_at = None;
+        self.paused_accum_ms = 0;
+        self.elapsed_ms = 0;
+        self.pending_draw = false;
+    }
+
+    fn on_display_geometry_changed(&mut self, _geometry: &DisplayGeometry) {
+        self.pending_draw = true;
+    }
+
+    fn update(&mut self, context: &mut EngineContext) {
+        let new_lang = context.config.system_lang_fast();
+        if new_lang != self.lang {
+            self.lang = new_lang;
+            self.pending_draw = true;
+        }
+        if self.paused_at.is_some() {
+            self.pending_draw = false;
+            return;
+        }
+        let now = Instant::now();
+        let start = *self.start_instant.get_or_insert(now);
+
+        let snap = context.config.producer_snapshot.load();
+        if let Some(ref cel) = snap.sync_celebration {
+            if cel.event_token != self.observed_event_token {
+                self.observed_event_token = cel.event_token;
+                self.active_payload = **cel;
+                self.fireworks.reset();
+                self.start_instant = Some(now);
+                self.paused_accum_ms = 0;
+                self.last_frame_tick = u32::MAX;
+            }
+        }
+
+        let raw_elapsed = now.duration_since(start).as_millis() as u64;
+        self.elapsed_ms = raw_elapsed.saturating_sub(self.paused_accum_ms);
+        let tick = (self.elapsed_ms / 16) as u32;
+        if tick != self.last_frame_tick {
+            self.last_frame_tick = tick;
+            let w = context.surface.width() as i32;
+            let h = context.surface.height() as i32;
+            self.fireworks.update(w, h);
+            self.pending_draw = true;
+        } else {
+            self.pending_draw = false;
+        }
+    }
+
+    fn render(&mut self, context: &mut EngineContext) {
+        SyncCelebrationRenderer::render(
+            &mut *context.surface,
+            &self.fireworks,
+            &self.active_payload,
+            self.lang,
+            self.last_frame_tick,
+        );
+        self.pending_draw = false;
+    }
+
+    fn wants_clear(&self) -> bool {
+        true
+    }
+
+    fn has_new_frame(&self) -> bool {
+        self.paused_at.is_none() && self.pending_draw
+    }
+
+    fn is_realtime(&self) -> bool {
+        self.paused_at.is_none()
+    }
+
+    fn allows_overlay(&self) -> bool {
+        false
+    }
+
+    fn allow_rotation(&self) -> bool {
+        false
+    }
+}
+
+// ----------------------------------------------------------------------------
+// InGameShowcaseEngine — Opportunistic Card + Stream Cycle (Zero Alloc)
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InGameSubStage {
+    HallOfFame,
+    RetroAchievements,
+    ShowcaseStream,
+}
+
+/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`)
+/// and opportunistic `HallOfFameCard` / `RetroAchievementsCard` views.
 ///
 /// Shares [`crate::core::dmd_stream::ShowcaseStreamPlayer`] 1:1 with [`MediaShowcaseRunner`] and
-/// preempts `Marquee` only once the complete sequence is ready (`DisplaySourceId::InGameShowcase`).
+/// preempts `Marquee` only once the complete sequence or sync metadata is ready (`DisplaySourceId::InGameShowcase`).
 pub struct InGameShowcaseEngine {
     session_token: u64,
     stream_width: u32,
@@ -1118,6 +1632,13 @@ pub struct InGameShowcaseEngine {
     pending_draw: bool,
     finished: bool,
     player: crate::core::dmd_stream::ShowcaseStreamPlayer,
+    sub_stage: InGameSubStage,
+    stage_started_at: Option<Instant>,
+    stage_paused_at: Option<Instant>,
+    stage_paused_ms: u64,
+    stage_elapsed_ms: u64,
+    last_card_tick: u32,
+    lang: Lang,
 }
 
 impl InGameShowcaseEngine {
@@ -1132,6 +1653,32 @@ impl InGameShowcaseEngine {
             pending_draw: false,
             finished: false,
             player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
+            sub_stage: InGameSubStage::ShowcaseStream,
+            stage_started_at: None,
+            stage_paused_at: None,
+            stage_paused_ms: 0,
+            stage_elapsed_ms: 0,
+            last_card_tick: u32::MAX,
+            lang: Lang::En,
+        }
+    }
+
+    fn select_initial_stage(
+        meta: Option<&Arc<SyncMetaPayload>>,
+        has_stream: bool,
+    ) -> Option<InGameSubStage> {
+        if let Some(m) = meta {
+            if m.has_active_hiscores() {
+                return Some(InGameSubStage::HallOfFame);
+            }
+            if m.has_active_ra() {
+                return Some(InGameSubStage::RetroAchievements);
+            }
+        }
+        if has_stream {
+            Some(InGameSubStage::ShowcaseStream)
+        } else {
+            None
         }
     }
 }
@@ -1145,26 +1692,45 @@ impl Default for InGameShowcaseEngine {
 impl Engine for InGameShowcaseEngine {
     fn initialize(
         &mut self,
-        _context: &mut EngineContext,
+        context: &mut EngineContext,
         _config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
+        let lang_code = context.config.get_sys_string("lang", "en");
+        self.lang = Lang::from_code(&lang_code);
         Ok(())
     }
 
     fn activate(&mut self) {
+        let now = Instant::now();
         self.finished = false;
         self.pending_draw = true;
-        self.player.start(Instant::now());
+        self.session_token = 0;
+        self.stage_started_at = Some(now);
+        self.stage_paused_at = None;
+        self.stage_paused_ms = 0;
+        self.stage_elapsed_ms = 0;
+        self.last_card_tick = u32::MAX;
+        self.player.start(now);
     }
 
     fn pause(&mut self) {
+        let now = Instant::now();
         self.pending_draw = false;
-        self.player.pause(Instant::now());
+        if self.stage_paused_at.is_none() {
+            self.stage_paused_at = Some(now);
+        }
+        self.player.pause(now);
     }
 
     fn resume(&mut self) {
-        self.player.resume(Instant::now());
-        self.pending_draw = self.has_stream && !self.finished;
+        let now = Instant::now();
+        if let Some(p) = self.stage_paused_at.take() {
+            self.stage_paused_ms = self
+                .stage_paused_ms
+                .saturating_add(now.duration_since(p).as_millis() as u64);
+        }
+        self.player.resume(now);
+        self.pending_draw = !self.finished;
     }
 
     fn deactivate(&mut self) {
@@ -1174,6 +1740,11 @@ impl Engine for InGameShowcaseEngine {
         self.has_stream = false;
         self.pending_draw = false;
         self.finished = false;
+        self.stage_started_at = None;
+        self.stage_paused_at = None;
+        self.stage_paused_ms = 0;
+        self.stage_elapsed_ms = 0;
+        self.last_card_tick = u32::MAX;
         self.player.reset();
     }
 
@@ -1181,53 +1752,159 @@ impl Engine for InGameShowcaseEngine {
         self.surface_width = geometry.width();
         self.surface_height = geometry.height();
         self.player.invalidate_drawn_frame();
-        if self.has_stream && !self.finished && !self.player.is_paused() {
+        if !self.finished && self.stage_paused_at.is_none() {
             self.pending_draw = true;
         }
     }
 
     fn update(&mut self, context: &mut EngineContext) {
+        let new_lang = context.config.system_lang_fast();
+        if new_lang != self.lang {
+            self.lang = new_lang;
+            self.pending_draw = true;
+        }
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
-        if self.player.is_paused() {
+        if self.stage_paused_at.is_some() || self.player.is_paused() {
             self.pending_draw = false;
             return;
         }
+
         let snap = context.config.producer_snapshot.load();
-        let Some(ref ig) = snap.ingame_showcase else {
+        let ig_opt = snap
+            .ingame_showcase
+            .as_ref()
+            .filter(|ig| !ig.stream.is_empty());
+        let meta_opt = snap.sync_meta.as_ref().filter(|m| m.has_any_card());
+
+        if ig_opt.is_none() && meta_opt.is_none() {
             self.has_stream = false;
             self.pending_draw = false;
             self.finished = true;
             return;
-        };
-        if ig.stream.is_empty() {
-            self.has_stream = false;
-            self.pending_draw = false;
-            self.finished = true;
-            return;
-        };
+        }
 
         let now = Instant::now();
-        if self.session_token != ig.session_token {
+        let active_token = ig_opt
+            .map(|ig| ig.session_token)
+            .or_else(|| meta_opt.map(|m| m.session_token))
+            .unwrap_or(0);
+
+        if self.session_token != active_token {
             let prev_token = self.session_token;
-            self.session_token = ig.session_token;
+            self.session_token = active_token;
             self.finished = false;
+            if let Some(first_stage) = Self::select_initial_stage(meta_opt, ig_opt.is_some()) {
+                self.sub_stage = first_stage;
+            }
+            self.stage_started_at = Some(now);
+            self.stage_paused_ms = 0;
+            self.stage_elapsed_ms = 0;
+            self.last_card_tick = u32::MAX;
             if prev_token != 0 || !self.player.is_started() {
                 self.player.start(now);
             }
         }
-
-        self.has_stream = true;
-        self.stream_width = ig.stream.width;
-        self.stream_height = ig.stream.height;
 
         if self.finished {
             self.pending_draw = false;
             return;
         }
 
-        let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop);
-        self.finished = self.player.advance(&ig.stream, now, loop_playback, None);
+        let card_dur_ms = meta_opt
+            .map(|m| (m.card_duration_sec.clamp(5, 20) as u64) * 1000)
+            .unwrap_or(8000);
+
+        match self.sub_stage {
+            InGameSubStage::HallOfFame => {
+                let has_hi = meta_opt.is_some_and(|m| m.has_active_hiscores());
+                let start = *self.stage_started_at.get_or_insert(now);
+                let elapsed = (now.duration_since(start).as_millis() as u64)
+                    .saturating_sub(self.stage_paused_ms);
+                self.stage_elapsed_ms = elapsed;
+                if !has_hi || elapsed >= card_dur_ms {
+                    if meta_opt.is_some_and(|m| m.has_active_ra()) {
+                        self.sub_stage = InGameSubStage::RetroAchievements;
+                        self.stage_started_at = Some(now);
+                        self.stage_paused_ms = 0;
+                        self.stage_elapsed_ms = 0;
+                        self.last_card_tick = u32::MAX;
+                        self.pending_draw = true;
+                        return;
+                    } else if ig_opt.is_some() {
+                        self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.player.start(now);
+                    } else {
+                        self.finished = true;
+                        self.pending_draw = false;
+                        return;
+                    }
+                } else {
+                    let tick = (elapsed / 66) as u32;
+                    if tick != self.last_card_tick {
+                        self.last_card_tick = tick;
+                        self.pending_draw = true;
+                    } else {
+                        self.pending_draw = false;
+                    }
+                    return;
+                }
+            }
+            InGameSubStage::RetroAchievements => {
+                let has_ra = meta_opt.is_some_and(|m| m.has_active_ra());
+                let start = *self.stage_started_at.get_or_insert(now);
+                let elapsed = (now.duration_since(start).as_millis() as u64)
+                    .saturating_sub(self.stage_paused_ms);
+                self.stage_elapsed_ms = elapsed;
+                if !has_ra || elapsed >= card_dur_ms {
+                    if ig_opt.is_some() {
+                        self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.player.start(now);
+                    } else {
+                        self.finished = true;
+                        self.pending_draw = false;
+                        return;
+                    }
+                } else {
+                    let tick = (elapsed / 100) as u32;
+                    if tick != self.last_card_tick {
+                        self.last_card_tick = tick;
+                        self.pending_draw = true;
+                    } else {
+                        self.pending_draw = false;
+                    }
+                    return;
+                }
+            }
+            InGameSubStage::ShowcaseStream => {}
+        }
+
+        let Some(ig) = ig_opt else {
+            self.has_stream = false;
+            self.pending_draw = false;
+            self.finished = true;
+            return;
+        };
+
+        self.has_stream = true;
+        self.stream_width = ig.stream.width;
+        self.stream_height = ig.stream.height;
+
+        let has_cards = meta_opt.is_some();
+        let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop) && !has_cards;
+        let stream_done = self.player.advance(&ig.stream, now, loop_playback, None);
+        if stream_done && matches!(ig.cycle_mode, InGameCycleMode::Loop) && has_cards {
+            if let Some(first_stage) = Self::select_initial_stage(meta_opt, true) {
+                self.sub_stage = first_stage;
+                self.stage_started_at = Some(now);
+                self.stage_paused_ms = 0;
+                self.stage_elapsed_ms = 0;
+                self.last_card_tick = u32::MAX;
+                self.pending_draw = true;
+                return;
+            }
+        }
+        self.finished = stream_done;
         self.pending_draw = self.player.has_new_frame(&ig.stream);
     }
 
@@ -1235,14 +1912,41 @@ impl Engine for InGameShowcaseEngine {
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
         let snap = context.config.producer_snapshot.load();
-        if let Some(ref ig) = snap.ingame_showcase {
-            self.player
-                .render_to_surface(&ig.stream, &mut *context.surface);
+        match self.sub_stage {
+            InGameSubStage::HallOfFame => {
+                if let Some(ref meta) = snap.sync_meta {
+                    HallOfFameCard::render(
+                        &mut *context.surface,
+                        meta,
+                        self.lang,
+                        self.stage_elapsed_ms,
+                    );
+                }
+            }
+            InGameSubStage::RetroAchievements => {
+                if let Some(ref meta) = snap.sync_meta {
+                    RetroAchievementsCard::render(
+                        &mut *context.surface,
+                        meta,
+                        self.lang,
+                        self.stage_elapsed_ms,
+                    );
+                }
+            }
+            InGameSubStage::ShowcaseStream => {
+                if let Some(ref ig) = snap.ingame_showcase {
+                    self.player
+                        .render_to_surface(&ig.stream, &mut *context.surface);
+                }
+            }
         }
         self.pending_draw = false;
     }
 
     fn wants_clear(&self) -> bool {
+        if self.sub_stage != InGameSubStage::ShowcaseStream {
+            return true;
+        }
         !self.has_stream
             || self.stream_width == 0
             || self.stream_height == 0
@@ -1252,11 +1956,14 @@ impl Engine for InGameShowcaseEngine {
     }
 
     fn has_new_frame(&self) -> bool {
-        !self.finished && !self.player.is_paused() && self.pending_draw
+        !self.finished
+            && self.stage_paused_at.is_none()
+            && !self.player.is_paused()
+            && self.pending_draw
     }
 
     fn is_realtime(&self) -> bool {
-        !self.finished && !self.player.is_paused()
+        !self.finished && self.stage_paused_at.is_none() && !self.player.is_paused()
     }
 
     fn is_finished(&self) -> bool {
@@ -1341,12 +2048,17 @@ mod tests {
         let marquee_dir = tmp_dir.join("marquees");
         std::fs::create_dir_all(&marquee_dir).unwrap();
 
-        // Populate a valid cached system marquee (`system_snes.png`) AND negative-cache entries
+        // Populate a valid cached system marquee (`system_snes.png`), game marquee, AND negative-cache entries
         let mut sys_img = image::RgbImage::new(8, 8);
         sys_img.put_pixel(0, 0, image::Rgb([255, 0, 0]));
         sys_img.save(marquee_dir.join("system_snes.png")).unwrap();
+        let mut game_img = image::RgbImage::new(8, 8);
+        game_img.put_pixel(0, 0, image::Rgb([0, 255, 0]));
+        game_img
+            .save(marquee_dir.join("snes_Super Mario World (USA).png"))
+            .unwrap();
         std::fs::write(
-            marquee_dir.join(".negative_cache"),
+            marquee_dir.join(".negative_cache_v2"),
             "snes/homebrew_quest\nsnes/shortg\nsystem/custom_arcade\n",
         )
         .unwrap();
@@ -1411,6 +2123,19 @@ mod tests {
         assert_eq!(msg_sys.color, "#00ffff");
         assert_eq!(msg_sys.text, " Custom Arcade ");
         assert_eq!(msg_sys.direction, "left");
+
+        // 5. Virtual collection ("favorites") with `rom_path` -> extracts real `snes` system and plays cached marquee!
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"browsing","game":"Super Mario World (USA)","system":"favorites","rom_path":"/recalbox/share/roms/snes/Super Mario World (USA).sfc"}"#,
+        );
+        assert_eq!(
+            config.producer_snapshot.load().forced_mode,
+            ForcedEngineMode::Marquee
+        );
+        assert_eq!(e2e_telemetry().lock().last_system, "snes");
+        assert!(config.image_obj.lock().is_some());
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }
@@ -1637,6 +2362,79 @@ mod tests {
         assert!(!recycled.allows_overlay());
         assert!(!recycled.allow_rotation());
         assert!(recycled.self_paced());
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_256x64_banner_transparent_png_backdrop_and_nested_ra_recent() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_256x64_sync_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let config = Config::new(tmp_dir.join("config.json"));
+        {
+            let mut s = config.settings.write();
+            s.matrix.width = 128;
+            s.matrix.height = 64;
+            s.matrix.chain_length = 2;
+            s.matrix.parallel = 1;
+        }
+
+        // 1. 256x64 banner sizing: <= 15 chars -> 2x static, <= 31 chars -> 1x static, > 31 chars -> 2x left scroll
+        let b_short = build_cyan_sync_banner(&config, "Metal Slug X");
+        assert_eq!(b_short.size, 2);
+        assert_eq!(b_short.direction, "none");
+        assert_eq!(b_short.text, "Metal Slug X");
+
+        let b_mid = build_cyan_sync_banner(&config, "Super Street Fighter II Turbo");
+        assert_eq!(b_mid.size, 1);
+        assert_eq!(b_mid.direction, "none");
+        assert_eq!(b_mid.text, "Super Street Fighter II Turbo");
+
+        let b_long = build_cyan_sync_banner(&config, "The King Of Fighters 98 Ultimate Match Hero");
+        assert_eq!(b_long.size, 2);
+        assert_eq!(b_long.direction, "left");
+        assert_eq!(b_long.text, " The King Of Fighters 98 Ultimate Match Hero ");
+
+        // 2. Transparent RGBA pixel with white RGB `(255, 255, 255, 0)` must composite to pure black `(0, 0, 0)`
+        let png_path = tmp_dir.join("transparent_white.png");
+        let mut rgba = image::RgbaImage::new(2, 1);
+        rgba.put_pixel(0, 0, image::Rgba([255, 255, 255, 0]));
+        rgba.put_pixel(1, 0, image::Rgba([200, 100, 0, 128]));
+        rgba.save(&png_path).unwrap();
+        let decoded = open_marquee_image(&png_path).expect("decoded RGBA marquee");
+        assert_eq!(decoded.get_pixel(0, 0).0, [0, 0, 0]);
+        assert!(decoded.get_pixel(1, 0).0[0] > 95 && decoded.get_pixel(1, 0).0[0] < 105);
+
+        // 3. Nested `ra.recent.title` from companion sync is parsed into `recent_badge`
+        let mqtt_cfg = MqttConfig::default();
+        let meta_json = serde_json::json!({
+            "status": "sync_meta",
+            "system": "neogeo",
+            "game": "mslugx",
+            "ra": {
+                "unlocked": 5,
+                "total": 40,
+                "points": 50,
+                "points_total": 400,
+                "hardcore": true,
+                "recent": { "title": "Mission 1 Complete", "pts": 10 }
+            }
+        });
+        let parsed = parse_sync_meta_from_json(&meta_json, 7, &mqtt_cfg).expect("valid RA meta");
+        assert!(parsed.ra.valid);
+        let badge_end = parsed
+            .ra
+            .recent_badge
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(parsed.ra.recent_badge.len());
+        assert_eq!(
+            std::str::from_utf8(&parsed.ra.recent_badge[..badge_end]).unwrap(),
+            "Mission 1 Complete"
+        );
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

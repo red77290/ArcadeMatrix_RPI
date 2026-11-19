@@ -138,12 +138,12 @@ def publish_mqtt(topic, payload):
             check=False,
         )
         if res.returncode == 0:
-            return
+            return True
     except FileNotFoundError:
         pass
     except Exception:
         _cached_broker_ts = 0.0
-        return
+        return False
 
     try:
         cid = "recalbox_es_{}".format(os.getpid()).encode("utf-8")
@@ -161,8 +161,10 @@ def publish_mqtt(topic, payload):
         s.sendall(p_pkt)
         s.sendall(b"\xe0\x00")
         s.close()
+        return True
     except Exception:
         _cached_broker_ts = 0.0
+        return False
 
 def parse_statefile():
     game, title, system, state = None, None, None, "browsing"
@@ -185,7 +187,7 @@ def clean_system_name(s):
     if not s:
         return ""
     s_clean = str(s).strip()
-    s_lower = s_clean.lower()
+    s_lower = s_clean.lower().replace("_", " ").replace("-", " ")
     prefixes = [
         "arcade manufacturer ",
         "arcade system ",
@@ -198,8 +200,42 @@ def clean_system_name(s):
     ]
     for p in prefixes:
         if s_lower.startswith(p):
-            return s_clean[len(p):].strip()
+            remainder = s_clean[len(p):]
+            if remainder.startswith("_") or remainder.startswith("-"):
+                remainder = remainder[1:]
+            return remainder.strip()
     return s_clean
+
+_VIRTUAL_SYSTEMS = {
+    "favorites", "favourite", "favourites", "fav", "favs",
+    "all", "allgames", "lastplayed", "recent", "recentlyplayed",
+    "neverplayed", "multiplayer", "2players", "3players", "4players",
+    "retroachievements", "lightgun", "vertical", "tate", "shmups",
+    "fighting", "beatemup", "platform", "puzzle", "racing", "rpg", "sports",
+}
+
+def is_virtual_system(sys_name):
+    if not sys_name:
+        return True
+    low = sys_name.strip().lower()
+    if not low:
+        return True
+    if low.startswith(("auto-", "auto_", "custom-", "custom_", "collection")):
+        return True
+    compact = "".join(ch for ch in low if ch.isalnum())
+    return compact in _VIRTUAL_SYSTEMS
+
+def extract_real_system(sys_name, rom_path):
+    if not is_virtual_system(sys_name) or not rom_path:
+        return sys_name
+    norm = rom_path.replace("\\", "/")
+    idx = norm.lower().find("/roms/")
+    if idx >= 0:
+        rest = norm[idx + 6:].lstrip("/")
+        parts = rest.split("/", 1)
+        if len(parts) == 2 and parts[0] and not is_virtual_system(parts[0]):
+            return clean_system_name(parts[0])
+    return sys_name
 
 def main():
     import sys
@@ -213,13 +249,14 @@ def main():
     time.sleep(3)
     last_state_key = None
     last_sent_key = None
-    pending_since = 0
+    pending_since = 0.0
+    next_retry_at = 0.0
 
     while True:
         try:
             rom_path, game_title, system, state = parse_statefile()
             if state != "stopped" and not system and not rom_path:
-                time.sleep(0.1)
+                time.sleep(0.06)
                 continue
 
             system = clean_system_name(system)
@@ -234,16 +271,17 @@ def main():
                 if is_system:
                     current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, game_title, system, state)
+                    resolved_sys = extract_real_system(system, rom_path)
+                    current_key = (rom_path, game_title, resolved_sys, state)
 
+            now = time.time()
             if current_key != last_state_key:
                 last_state_key = current_key
-                pending_since = time.time()
+                pending_since = now
+                next_retry_at = 0.0
 
-            elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and current_key != last_sent_key:
-                last_sent_key = current_key
-
+            debounce_sec = 0.0 if current_key[3] in ("playing", "stopped") else 0.08
+            if (now - pending_since) >= debounce_sec and current_key != last_sent_key and now >= next_retry_at:
                 if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
                 elif current_key[0] is None:
@@ -251,18 +289,26 @@ def main():
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    payload_obj = {"status": current_key[3], "game": gbase, "system": str(current_key[2])}
+                    payload_obj = {
+                        "status": current_key[3],
+                        "game": gbase,
+                        "system": str(current_key[2]),
+                        "rom_path": str(current_key[0]),
+                    }
                     if current_key[1]:
                         tclean = clean_system_name(current_key[1])
                         if tclean and tclean.lower() != gbase.lower():
                             payload_obj["title"] = tclean
                     msg = json.dumps(payload_obj)
 
-                publish_mqtt(TOPIC, msg)
+                if publish_mqtt(TOPIC, msg):
+                    last_sent_key = current_key
+                else:
+                    next_retry_at = time.time() + 1.0
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
-        time.sleep(0.1)
+        time.sleep(0.06)
 
 if __name__ == "__main__":
     main()
@@ -430,7 +476,7 @@ send_mqtt_debounced() {
     TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
     echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
     (
-        sleep 0.15
+        sleep 0.08
         CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
         if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
             rm -f "$DEBOUNCE_TOKEN_FILE"
@@ -452,18 +498,34 @@ clean_name() {
         -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+is_virtual_sys() {
+    _low=$(echo "$1" | tr '[:upper:]' '[:lower:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+    case "$_low" in
+        ""|favorites|favourite|favourites|fav|favs|all|allgames|all_games|lastplayed|recent|recentlyplayed|neverplayed|multiplayer|2players|3players|4players|retroachievements|lightgun|vertical|tate|auto-*|auto_*|custom-*|custom_*|collection*)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
 extract_system() {
     _sys="$1"
     _rom="$2"
     _base="$3"
-    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
+    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || is_virtual_sys "$_sys" || echo "$_sys" | grep -qE '/|\.'; then
         if echo "$_rom" | grep -q '/roms/'; then
-            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
-        elif [ -n "$_rom" ]; then
+            _cand=$(echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|')
+            if [ -n "$_cand" ] && ! is_virtual_sys "$_cand"; then
+                echo "$_cand"
+                return
+            fi
+        elif [ -n "$_rom" ] && ! is_virtual_sys "$_sys"; then
             basename "$(dirname "$_rom")"
-        else
-            echo "$_sys"
+            return
         fi
+        echo "$_sys"
     else
         echo "$_sys"
     fi
@@ -700,12 +762,12 @@ def publish_mqtt(topic, payload):
             check=False,
         )
         if res.returncode == 0:
-            return
+            return True
     except FileNotFoundError:
         pass
     except Exception:
         _cached_broker_ts = 0.0
-        return
+        return False
 
     try:
         cid = "recalbox_es_{}".format(os.getpid()).encode("utf-8")
@@ -723,8 +785,10 @@ def publish_mqtt(topic, payload):
         s.sendall(p_pkt)
         s.sendall(b"\xe0\x00")
         s.close()
+        return True
     except Exception:
         _cached_broker_ts = 0.0
+        return False
 
 def parse_statefile():
     game, title, system, state = None, None, None, "browsing"
@@ -747,7 +811,7 @@ def clean_system_name(s):
     if not s:
         return ""
     s_clean = str(s).strip()
-    s_lower = s_clean.lower()
+    s_lower = s_clean.lower().replace("_", " ").replace("-", " ")
     prefixes = [
         "arcade manufacturer ",
         "arcade system ",
@@ -760,8 +824,42 @@ def clean_system_name(s):
     ]
     for p in prefixes:
         if s_lower.startswith(p):
-            return s_clean[len(p):].strip()
+            remainder = s_clean[len(p):]
+            if remainder.startswith("_") or remainder.startswith("-"):
+                remainder = remainder[1:]
+            return remainder.strip()
     return s_clean
+
+_VIRTUAL_SYSTEMS = {
+    "favorites", "favourite", "favourites", "fav", "favs",
+    "all", "allgames", "lastplayed", "recent", "recentlyplayed",
+    "neverplayed", "multiplayer", "2players", "3players", "4players",
+    "retroachievements", "lightgun", "vertical", "tate", "shmups",
+    "fighting", "beatemup", "platform", "puzzle", "racing", "rpg", "sports",
+}
+
+def is_virtual_system(sys_name):
+    if not sys_name:
+        return True
+    low = sys_name.strip().lower()
+    if not low:
+        return True
+    if low.startswith(("auto-", "auto_", "custom-", "custom_", "collection")):
+        return True
+    compact = "".join(ch for ch in low if ch.isalnum())
+    return compact in _VIRTUAL_SYSTEMS
+
+def extract_real_system(sys_name, rom_path):
+    if not is_virtual_system(sys_name) or not rom_path:
+        return sys_name
+    norm = rom_path.replace("\\", "/")
+    idx = norm.lower().find("/roms/")
+    if idx >= 0:
+        rest = norm[idx + 6:].lstrip("/")
+        parts = rest.split("/", 1)
+        if len(parts) == 2 and parts[0] and not is_virtual_system(parts[0]):
+            return clean_system_name(parts[0])
+    return sys_name
 
 def main():
     import sys
@@ -775,13 +873,14 @@ def main():
     time.sleep(3)
     last_state_key = None
     last_sent_key = None
-    pending_since = 0
+    pending_since = 0.0
+    next_retry_at = 0.0
 
     while True:
         try:
             rom_path, game_title, system, state = parse_statefile()
             if state != "stopped" and not system and not rom_path:
-                time.sleep(0.1)
+                time.sleep(0.06)
                 continue
 
             system = clean_system_name(system)
@@ -796,16 +895,17 @@ def main():
                 if is_system:
                     current_key = (None, None, system, "browsing")
                 else:
-                    current_key = (rom_path, game_title, system, state)
+                    resolved_sys = extract_real_system(system, rom_path)
+                    current_key = (rom_path, game_title, resolved_sys, state)
 
+            now = time.time()
             if current_key != last_state_key:
                 last_state_key = current_key
-                pending_since = time.time()
+                pending_since = now
+                next_retry_at = 0.0
 
-            elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and current_key != last_sent_key:
-                last_sent_key = current_key
-
+            debounce_sec = 0.0 if current_key[3] in ("playing", "stopped") else 0.08
+            if (now - pending_since) >= debounce_sec and current_key != last_sent_key and now >= next_retry_at:
                 if current_key[3] == "stopped":
                     msg = '{"status": "stopped"}'
                 elif current_key[0] is None:
@@ -813,18 +913,26 @@ def main():
                 else:
                     gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
                     gbase = clean_system_name(gbase)
-                    payload_obj = {"status": current_key[3], "game": gbase, "system": str(current_key[2])}
+                    payload_obj = {
+                        "status": current_key[3],
+                        "game": gbase,
+                        "system": str(current_key[2]),
+                        "rom_path": str(current_key[0]),
+                    }
                     if current_key[1]:
                         tclean = clean_system_name(current_key[1])
                         if tclean and tclean.lower() != gbase.lower():
                             payload_obj["title"] = tclean
                     msg = json.dumps(payload_obj)
 
-                publish_mqtt(TOPIC, msg)
+                if publish_mqtt(TOPIC, msg):
+                    last_sent_key = current_key
+                else:
+                    next_retry_at = time.time() + 1.0
         except Exception as e:
             print("Error: " + str(e), flush=True)
 
-        time.sleep(0.1)
+        time.sleep(0.06)
 
 if __name__ == "__main__":
     main()

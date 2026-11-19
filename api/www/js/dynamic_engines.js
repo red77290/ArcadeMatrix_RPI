@@ -127,7 +127,7 @@ export function getEngineMeta(descOrMeta) {
     else if (id.includes('stock') || cat.includes('stock') || cat.includes('finance')) icon = '📈';
     else if (id.includes('gif') || cat.includes('animation') || cat.includes('media_anim')) icon = '🎞️';
     else if (id.includes('sys') || cat.includes('system') || cat.includes('info')) icon = '🖥️';
-    else if (id.includes('date') || cat.includes('calendar')) icon = '📅';
+    else if (id === 'agenda' || id.includes('date') || cat.includes('calendar') || cat.includes('productivity')) icon = '🗓️';
     else if (id.includes('spotify')) icon = '🟢';
     else if (id.includes('cast') || id.includes('music') || cat.includes('audio')) icon = '🎵';
     else if (id.includes('marquee')) icon = '📜';
@@ -456,6 +456,8 @@ export function formatOptLabel(fieldId, val, raw) {
   }
   // 9. Theme names (avoid colliding numeric IDs on non-clock engines when raw label is explicit)
   if (fieldId === 'clock_theme' || fieldId === 'date_theme' || fieldId === 'theme') {
+    const directValKey = `theme_${lower.replace(/[^a-z0-9]/g, '_')}`;
+    if (dict[directValKey]) return dict[directValKey];
     const useExplicitRaw = (fieldId === 'theme' && raw && String(raw).trim() !== v);
     const tName = useExplicitRaw ? String(raw).trim() : (THEME_ID_MAP[v] || raw || v);
     const themeKey = `theme_${tName.toLowerCase().replace(/[^a-z0-9]/g, '_')}`;
@@ -466,10 +468,18 @@ export function formatOptLabel(fieldId, val, raw) {
     const catKey = `cat_${lower}`;
     if (dict[catKey]) return dict[catKey];
   }
-  // 11. Display modes
+  // 11. Display & Agenda view modes
   if (fieldId === 'display_mode') {
     const dmKey = `opt_display_mode_${lower}`;
     if (dict[dmKey]) return dict[dmKey];
+  }
+  if (fieldId === 'view_mode') {
+    const vmKey = `opt_view_mode_${lower}`;
+    if (dict[vmKey]) return dict[vmKey];
+  }
+  if (fieldId === 'empty_behavior') {
+    const ebKey = `opt_empty_behavior_${lower}`;
+    if (dict[ebKey]) return dict[ebKey];
   }
   // 12. Showcase Video Framing & LED Color Boost modes
   if (fieldId === 'video_mode') {
@@ -480,7 +490,7 @@ export function formatOptLabel(fieldId, val, raw) {
     const cbKey = `opt_color_boost_${lower}`;
     if (dict[cbKey]) return dict[cbKey];
   }
-  if (fieldId === 'text_scroll_speed') {
+  if (fieldId === 'text_scroll_speed' || fieldId === 'scroll_speed') {
     const ssKey = `opt_scroll_speed_${lower}`;
     if (dict[ssKey]) return dict[ssKey];
   }

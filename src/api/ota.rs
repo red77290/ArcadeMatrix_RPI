@@ -11,7 +11,83 @@ const EM_AARCH64: u16 = 183;
 const EM_ARM: u16 = 40;
 
 const GITHUB_RELEASES_API: &str = "https://api.github.com/repos/red77290/ArcadeMatrix_RPI/releases";
+const OTA_STATS_WORKER_API: &str =
+    "https://arcadematrix-ota-stats.red77290.workers.dev/v1/ota/releases";
 const MAX_OTA_BYTES: usize = 64 * 1024 * 1024;
+
+pub fn normalize_rpi_model(raw_model: &str) -> &'static str {
+    let lower = raw_model.trim_matches('\0').trim().to_ascii_lowercase();
+    if lower.contains("raspberry pi 5") {
+        "rpi5"
+    } else if lower.contains("raspberry pi 4") {
+        "rpi4b"
+    } else if lower.contains("zero 2") {
+        "rpizero2w"
+    } else if lower.contains("raspberry pi 3 model b plus")
+        || lower.contains("raspberry pi 3 model b+")
+    {
+        "rpi3b+"
+    } else if lower.contains("raspberry pi 3") {
+        "rpi3b"
+    } else if lower.contains("zero") {
+        "rpizero"
+    } else {
+        "rpi_other"
+    }
+}
+
+pub fn detect_rpi_hw_label() -> &'static str {
+    if let Ok(raw) = std::fs::read_to_string("/proc/device-tree/model") {
+        normalize_rpi_model(&raw)
+    } else {
+        "rpi_other"
+    }
+}
+
+pub fn normalize_rpi_os_label(arch: &str, os_release_content: &str) -> String {
+    let bits = if arch.contains("aarch64") || arch.contains("arm64") {
+        "64bit"
+    } else {
+        "32bit"
+    };
+    let mut codename = String::new();
+    for line in os_release_content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("VERSION_CODENAME=") {
+            let clean: String = rest
+                .trim()
+                .trim_matches('"')
+                .trim_matches('\'')
+                .chars()
+                .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
+            if !clean.is_empty() {
+                codename = clean.to_ascii_lowercase();
+                break;
+            }
+        }
+    }
+    if codename.is_empty() {
+        bits.to_string()
+    } else {
+        format!("{}-{}", bits, codename)
+    }
+}
+
+pub fn detect_rpi_os_label() -> String {
+    let os_rel = std::fs::read_to_string("/etc/os-release").unwrap_or_default();
+    normalize_rpi_os_label(crate::core::build_info::ARCH, &os_rel)
+}
+
+pub fn effective_resolution_label(config: &crate::core::config::Config) -> String {
+    let s = config.settings.read();
+    let w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
+    let h = s
+        .matrix
+        .height
+        .saturating_mul(s.matrix.parallel.clamp(1, 3));
+    format!("{}x{}", w, h)
+}
 
 fn is_allowed_ota_download_url(url: &str) -> bool {
     let lower = url.trim().to_ascii_lowercase();
@@ -144,7 +220,14 @@ pub struct AutoUpdateRequest {
 }
 
 #[get("/api/version")]
-pub async fn get_version() -> impl Responder {
+pub async fn get_version(data: web::Data<crate::api::server::AppState>) -> impl Responder {
+    let (install_id, ota_auto_check) = {
+        let s = data.config.settings.read();
+        (s.system.install_id.clone(), s.system.ota_auto_check)
+    };
+    let res = effective_resolution_label(&data.config);
+    let hw = detect_rpi_hw_label();
+    let os = detect_rpi_os_label();
     HttpResponse::Ok()
         .insert_header(("Cache-Control", "no-cache, no-store, must-revalidate"))
         .insert_header(("Pragma", "no-cache"))
@@ -155,6 +238,11 @@ pub async fn get_version() -> impl Responder {
             "arch": crate::core::build_info::ARCH,
             "build_date": crate::core::build_info::BUILD_TIMESTAMP,
             "git_commit": crate::core::build_info::GIT_COMMIT,
+            "install_id": install_id,
+            "res": res,
+            "hw": hw,
+            "os": os,
+            "ota_auto_check": ota_auto_check,
         }))
 }
 
@@ -182,30 +270,68 @@ pub async fn check_update(
         }
     };
 
-    let res = match client.get(GITHUB_RELEASES_API).send().await {
-        Ok(r) => r,
-        Err(e) => {
-            return HttpResponse::BadGateway().json(serde_json::json!({
-                "status": "error",
-                "message": format!("Failed to reach GitHub API: {}", e)
-            }))
-        }
+    let (install_id, ota_auto_check) = {
+        let s = data.config.settings.read();
+        (s.system.install_id.clone(), s.system.ota_auto_check)
+    };
+    let version = crate::core::build_info::VERSION;
+    let hw = detect_rpi_hw_label();
+    let os = detect_rpi_os_label();
+    let res_label = effective_resolution_label(&data.config);
+    let worker_url = if ota_auto_check && crate::core::config::is_valid_uuid_v4(&install_id) {
+        format!(
+            "{}?p=rpi&id={}&v={}&hw={}&os={}&res={}",
+            OTA_STATS_WORKER_API, install_id, version, hw, os, res_label
+        )
+    } else {
+        format!("{}?p=rpi", OTA_STATS_WORKER_API)
     };
 
-    if !res.status().is_success() {
-        return HttpResponse::BadGateway().json(serde_json::json!({
-            "status": "error",
-            "message": format!("GitHub API returned HTTP {}", res.status())
-        }));
+    let mut releases_opt: Option<Vec<GitHubRelease>> = None;
+    if let Ok(worker_resp) = client
+        .get(&worker_url)
+        .timeout(std::time::Duration::from_secs(4))
+        .send()
+        .await
+    {
+        if worker_resp.status().is_success() {
+            if let Ok(rel) = worker_resp.json::<Vec<GitHubRelease>>().await {
+                if !rel.is_empty() {
+                    releases_opt = Some(rel);
+                }
+            }
+        }
     }
 
-    let releases: Vec<GitHubRelease> = match res.json().await {
-        Ok(rel) => rel,
-        Err(e) => {
-            return HttpResponse::BadGateway().json(serde_json::json!({
-                "status": "error",
-                "message": format!("Failed to parse GitHub releases: {}", e)
-            }))
+    let releases: Vec<GitHubRelease> = match releases_opt {
+        Some(rel) => rel,
+        None => {
+            let res = match client.get(GITHUB_RELEASES_API).send().await {
+                Ok(r) => r,
+                Err(e) => {
+                    return HttpResponse::BadGateway().json(serde_json::json!({
+                        "status": "error",
+                        "message": format!("Failed to reach GitHub API: {}", e)
+                    }))
+                }
+            };
+
+            if !res.status().is_success() {
+                return HttpResponse::BadGateway().json(serde_json::json!({
+                    "status": "error",
+                    "message": format!("GitHub API returned HTTP {}", res.status())
+                }));
+            }
+
+            match res.json().await {
+                Ok(rel) => rel,
+                Err(e) => {
+                    return HttpResponse::BadGateway().json(serde_json::json!({
+                        "status": "error",
+                        "message": format!("Failed to parse GitHub releases: {}", e)
+                    }))
+                }
+            }
         }
     };
 

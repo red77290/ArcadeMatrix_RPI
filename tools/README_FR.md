@@ -34,6 +34,7 @@ Ce qu'il installe :
 - Un petit daemon Python (`arcadematrix_daemon.py` ou hook d'événements EmulationStation) qui surveille la navigation, les lancements et les sorties de jeux et publie `{"status": "playing"|"browsing"|"stopped", "game": "<nom de base de la rom>", "system": "<SystemId>", "title": "<titre affiché>"}` via MQTT sur `system/playing/<os>` (`system/playing/recalbox`, `system/playing/batocera` ou `system/playing/retropie`) via `mosquitto_pub` :
   - `"title"` est optionnel et inclus automatiquement lorsque le titre lisible du jeu sur la console (`Game=` dans `/tmp/es_state.inf` sur Recalbox ou l'argument `$5` du hook Batocera) diffère de `"game"`, permettant à `dmd_media_showcase` de résoudre les noms courts de ROMs via `fallback_query`.
   - Publier `"browsing"` ou `"stopped"` en quittant un jeu restaure les marquees de menu en `0 ms` et ordonne à `FrontendSync` d'interrompre immédiatement tout processus de conversion Showcase en cours sur le serveur (`DELETE /api/v1/clients/{sync_id}/queue`, avec `0` requête HTTP `DELETE` pendant la simple navigation dans les menus).
+- `arcadematrix_companion_sync.py` : compagnon de synchro (Recalbox / Batocera / RetroPie) qui extrait les high scores locaux MAME/FBNeo `.hi` / NVRAM (specs par ROM + heuristiques BCD/tuiles) ainsi que la progression et les trophées RetroAchievements `[RCHEEVOS]` en direct.
 - L'intégration au démarrage assurant la persistance après chaque redémarrage.
 
 **Note pour les utilisateurs qui ont aussi un appareil ESP32 ArcadeMatrix** :

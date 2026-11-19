@@ -96,9 +96,10 @@ impl GifEngine {
         use image::AnimationDecoder;
         if let Ok(decoded_frames) = decoder.into_frames().collect_frames() {
             for frame in decoded_frames {
-                // `frame.into_buffer()` returns an RgbaImage. We convert to RgbImage.
+                // `frame.into_buffer()` returns an RgbaImage; composite over black so transparent
+                // pixels with white RGB backing never bleed as solid white.
                 let rgba_img = frame.clone().into_buffer();
-                let rgb_img = image::DynamicImage::ImageRgba8(rgba_img).into_rgb8();
+                let rgb_img = crate::engines::marquee::rgba_to_rgb_on_black(&rgba_img);
 
                 let src_w = rgb_img.width();
                 let src_h = rgb_img.height();

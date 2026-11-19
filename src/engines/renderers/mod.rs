@@ -1,9 +1,12 @@
+pub mod agenda;
 pub mod base_renderer;
 pub mod cyberpunk_renderer;
+pub mod fireworks_lut;
 pub mod flip_renderer;
 pub mod media_showcase;
 pub mod primitives;
 pub mod sparkline;
+pub mod sync_cards;
 pub mod tiny_font;
 pub mod true_matrix_renderer;
 pub mod weather_page;

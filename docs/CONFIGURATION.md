@@ -95,6 +95,8 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 | `idle_fighter_enabled` | `bool` | Master switch for the decorative Fighter overlay composited on top of idle rotation screens (per-screen opt-in via each rotation entry). |
 | `idle_fighter_interval` | `int` | Seconds between two fight animations (minimum `1`, default `10`). |
 | `idle_fighter_speed` | `int` | Animation speed percentage for the Fighter overlay (`25`–`200`, default `100`). |
+| `install_id` | `String` | Anonymous RFC 4122 UUID v4 generated automatically on first boot (`xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx`) for deduplicated OTA release checks. |
+| `ota_auto_check` | `bool` | Automatically check for new releases when opening the WebUI (max once per 12h, default `true`). |
 
 ---
 
@@ -128,6 +130,11 @@ You can also push credentials at runtime with `POST /api/wifi { "ssid": "...", "
 | `video_fps` | `int` | `15` | (`custom` mode) Target video stream frame rate (`8`–`60`). |
 | `video_mode` | `String` | `"auto_action"` | (`custom` mode) Video framing mode: `"auto_action"`, `"panorama"`, or `"center_crop"`. |
 | `color_boost` | `String` | `"auto"` | (`custom` mode) HUB75 LED color profile: `"auto"`, `"pixel_art"`, `"anime"`, or `"cinema"`. |
+| `sync_show_hiscores` | `bool` | `true` | Opportunistically display the `HallOfFameCard` (Top 5 arcade high scores) during `playing` when `.hi` / `hi2txt` scores exist for the game. |
+| `sync_show_ra` | `bool` | `true` | Opportunistically display the `RetroAchievementsCard` (RPG XP bar, points, hardcore border, recent badge) during `playing` when RA data exists. |
+| `sync_celebrate_events` | `bool` | `true` | Trigger the 7.5s 60 FPS `SyncCelebration` preemption (`Priority 55`) with Q8.8 fireworks and system-matched hero cameos when unlocking a RetroAchievement or beating a Top 3 arcade record. |
+| `sync_card_duration_sec` | `int` | `8` | Display duration in seconds (`5`–`20`) for `HallOfFameCard` and `RetroAchievementsCard` in the in-game cycle. |
+| `ra_web_api_key` | `String` | `""` | Optional RetroAchievements Web API key shared with the console companion script via `GET /api/mqtt/broker-target`. |
 | *(auto-subscription)* | `system/playing/#` | — | Subscribes automatically to all supported retro gaming systems: `system/playing/recalbox`, `system/playing/batocera`, `system/playing/retropie`. |
 
 ### Dynamic Broker Discovery, `{dmd_id}_sync` Isolation, Process Abort & Cache Eviction
@@ -457,6 +464,28 @@ Everything else comes from each retained payload: its `type` (`value`, `table`, 
 | `genres` | `List` | `""` | Dynamic (`/api/v1/{domain}/filters`) | Filter by genres dynamically retrieved from the Showcase server referential. |
 | `decades` | `List` | `""` | Dynamic (`/api/v1/{domain}/filters`) | Filter by release decades dynamically retrieved from the Showcase server referential. |
 | `video_type` | `Options` | `any` / `opening` | `any`, `trailer`, `scene`, `opening`, `ending` | (`movie_showcase`, `series_showcase`, `anime_showcase`) Preferred video clip type. |
+
+### Engine: `agenda` (Smart iCal / `.ics` Calendar)
+| Field | Type | Default | Options | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `ics_url_1` | `String` | `""` | `.ics` / `webcal://` URL | Primary iCal / `.ics` calendar URL (Google, Apple iCloud, Outlook, Nextcloud). |
+| `ics_label_1` | `String` | `"Perso"` | Text | Short badge label for the primary calendar. |
+| `ics_color_1` | `String` | `"#00E5FF"` | Hex Color | Accent color for primary calendar events. |
+| `ics_url_2` | `String` | `""` | `.ics` / `webcal://` URL | Optional secondary iCal / `.ics` calendar URL merged chronologically. |
+| `ics_label_2` | `String` | `"Pro"` | Text | Short badge label for the secondary calendar. |
+| `ics_color_2` | `String` | `"#FFB300"` | Hex Color | Accent color for secondary calendar events. |
+| `view_mode` | `Options` | `auto` | `auto,multiday_scroll,cards,split_deck,ticker` | Visual layout: Auto Responsive, Multi-Day Vertical Scroll, Sliding Cards, Split Calendar Deck, or Horizontal Ticker. |
+| `theme` | `Options` | `cyber_arcade` | `cyber_arcade,amber_dmd,matrix_green,snes_rpg,minimal_clean` | Color palette and border style for the agenda display. |
+| `scroll_speed` | `Options` | `normal` | `slow,normal,fast` | Scrolling speed for multi-day vertical feed, horizontal ticker, and long event titles. |
+| `slide_duration_sec` | `int` | `5` | `3` to `20` | Seconds per card or page when cycling through multi-day events. |
+| `cache_ttl_min` | `int` | `60` | `15` to `1440` | Background `.ics` refresh interval in minutes (persisted in `data/cache/agenda_<id>.bin`). |
+| `horizon_days` | `int` | `7` | `1` to `30` | Lookahead horizon in days. |
+| `events_shown` | `int` | `5` | `1` to `8` | Maximum upcoming events displayed across the multi-day horizon. |
+| `show_relative_time` | `bool` | `true` | `true`, `false` | Display relative day/minute countdowns (e.g. `IN 12M`, `J+3` / `+3D`). |
+| `show_badges` | `bool` | `true` | `true`, `false` | Display calendar source badge pills (`[Perso]`, `[Pro]`) next to events. |
+| `empty_behavior` | `Options` | `chill` | `chill`, `skip` | When no events exist: `chill` renders the sleeping Metool `FREE PLAY` scene; `skip` advances rotation immediately. |
+| `imminent_min` | `int` | `15` | `0` to `60` | Minutes before an event starts to trigger the imminent countdown alert (`IN X MIN`). |
+| `fun_sprites` | `bool` | `true` | `true`, `false` | Display contextual arcade pixel-art icons (Birthday, Call, Medical, Resto, Sport, Travel, Gaming). |
 
 ---
 

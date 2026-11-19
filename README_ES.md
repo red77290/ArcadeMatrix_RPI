@@ -4,9 +4,12 @@
 
 [![Comunidad Telegram](https://img.shields.io/badge/Telegram-Unirse%20a%20la%20Comunidad-2CA5E0?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/+DrSdAO8UMUViNmE0)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Apoyar%20el%20Proyecto-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/red1l)
+[![Changelog Visual](https://img.shields.io/badge/%F0%9F%93%B0%20Changelog%20Visual-Notas%20de%20Versi%C3%B3n-00E5FF?style=for-the-badge)](https://red77290.github.io/ArcadeMatrix_RPI/#changelog)
+[![Estadísticas Flota](https://img.shields.io/badge/%F0%9F%93%8A%20Estad%C3%ADsticas%20Flota-Parque%20Activo-FFB300?style=for-the-badge)](https://red77290.github.io/ArcadeMatrix_RPI/#stats)
 
 💬 **Comunidad Telegram:** [https://t.me/+DrSdAO8UMUViNmE0](https://t.me/+DrSdAO8UMUViNmE0)  
-📺 **Demostración en Video / Presentación:** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs
+📺 **Demostración en Video / Presentación:** https://youtu.be/vAK880Io8yo?si=KSieTymlE7fLyZQs  
+📰 **Changelog Visual y 📊 Panel Público de la Flota:** [https://red77290.github.io/ArcadeMatrix_RPI/](https://red77290.github.io/ArcadeMatrix_RPI/)
 
 La implementación original en **Rust** del proyecto **ArcadeMatrix**, diseñada específicamente para ejecutarse en una **Raspberry Pi** conectada a una matriz LED RGB (HUB75) a través del HAT de Adafruit o hardware Joy-IT.
 
@@ -60,14 +63,17 @@ Cada motor en ArcadeMatrix RPi está diseñado en Rust multiproceso con **cero a
 | **Pancarta de Texto Desplazable**<br>`message` | <img src="docs/assets/engines/engine_message.png" width="240" alt="Motor Mensaje"> | Letreros de matriz de puntos personalizables con tipografía ámbar brillante, múltiples direcciones de desplazamiento y activadores de API REST. |
 | **Marquesina de Recreativa Arcade**<br>`marquee` | <img src="docs/assets/engines/engine_marquee.png" width="240" alt="Motor Marquesina"> | Muestra marquesinas oficiales de juegos arcade iluminadas mediante integración Pixelcade para sistemas Batocera, Recalbox y RetroPie. |
 | **Calendario y Fecha**<br>`date` | <img src="docs/assets/engines/engine_date.png" width="240" alt="Motor Fecha"> | Fecha en tamaño grande con diseño arcade, sombras proyectadas 3D estilo Capcom/Nintendo, soporte multilingüe (ES, EN, FR) y sincronización NTP. |
+| **Agenda Inteligente (iCal / .ics)**<br>`agenda` | <img src="docs/assets/engines/engine_agenda.png" width="240" alt="Motor Agenda"> | Sincronización de hasta 2 calendarios RFC 5545 `.ics` / `webcal://` (Google, Apple iCloud, Outlook, Nextcloud) con caché binaria persistente en SD (`agenda_<id>.bin`), iconos pixel-art contextuales, alertas inminentes y modo chill `FREE PLAY` con Metool dormido. |
+| **High Scores y RetroAchievements**<br>`sync_celebration` | <img src="docs/assets/engines/engine_sync_celebration.png" width="240" alt="Motor Sync Celebration"> | Podios de récords arcade `Hall of Fame`, barras de XP `RetroAchievements` estilo RPG y celebraciones preventivas a 60 FPS (`Prioridad 55`) con fuegos artificiales `Q8.8` y cameo de héroe al desbloquear un logro o batir un récord Top 3 en Recalbox, Batocera o RetroPie. |
 
 > [!NOTE]
 > **Aviso sobre el renderizado de hardware:** Las capturas de pantalla, vistas previas de motores y posters de relojes presentados en esta documentación son simulaciones de software de alta fidelidad diseñadas para ilustrar el diseño, las animaciones y la telemetría. El aspecto visual real en un panel físico de matriz LED HUB75 puede variar según el paso de píxel (pitch), el filtro difusor acrílico, el brillo de los LEDs y la iluminación ambiental.
 
 ### 🌟 Puntos Clave de la Arquitectura (Exclusivas de RPi y Alineación ESP32)
 
-* 🎯 **Motor de Arbitraje y Preferencia Canónico (`DisplayArbiter`)** : pipeline de decisión acotado en $O(1)$ sin asignaciones con arbitraje de prioridades (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40), `PreemptionStack<4>`, identidad de intención estricta y limpieza resiliente de sesiones huérfanas.
+* 🎯 **Motor de Arbitraje y Preferencia Canónico (`DisplayArbiter`)** : pipeline de decisión acotado en $O(1)$ sin asignaciones con arbitraje de prioridades (`Rotation` 10 $\to$ `GIF` 20 $\to$ `Marquee` 30 $\to$ `MQTT` 40 $\to$ `InGameShowcase` 45 $\to$ `SyncCelebration` 55), `PreemptionStack<4>`, identidad de intención estricta y limpieza resiliente de sesiones huérfanas.
 * 🧭 **Orientación Dinámica y Modo Tate (`OrientationManager`)** : soporte multiángulo manual (0°, 90°, 180°, 270°) con clasificación geométrica automática (`LayoutClass`) y versionado reactivo (`DisplayGeometry`).
+* 🛡️ **Gobernanza Transparente de Memoria en Tiempo de Ejecución (`core::memory`)** : modelada según la filosofía de ciclo de vida del ESP32 y adaptada a la RAM de Raspberry Pi — ajuste automático de arenas `glibc` (`M_ARENA_MAX = 2` + `malloc_trim`), pools de clientes HTTP compartidos en `EngineContext`, auditoría de retención tras `deactivate()` (`> 15 MB` dispara reciclaje automático de instancia `Drop`) y guardián RSS de dos niveles (`200 MB` desalojo latente / `260 MB` reciclaje activo).
 * 🔄 **Actualización de Firmware OTA (Over-The-Air)** : ¡Actualiza el binario nativo de Rust directamente desde la interfaz web sin tener que volver a flashear la imagen de tu tarjeta SD! *(Recuperación Failsafe: Si una actualización OTA rompe tu sistema, conecta tu tarjeta SD a un PC y suelta un firmware válido llamado `arcadematrix_recovery.bin` en la raíz de la partición `bootfs` O en la partición `DATA`. ¡Se instalará automáticamente en el próximo arranque!)*
 * 🚀 **Rendimiento Nativo en Rust Multiproceso** : motor multiproceso de alto rendimiento basado en Actix-web y procesamiento gráfico en Rust puro con 0% de uso de CPU en reposo.
 * ⚡ **Pipeline Canvas de Copia Cero DirtyBounds (`canvas_single`)** : lienzo único fuera de pantalla con presentación por tramos de filas sin copia y seguimiento de líneas modificadas `DirtyBounds`. ¡Elimina por completo las caídas e interferencias de Wi-Fi SDIO en chips Broadcom!
@@ -243,9 +249,9 @@ Los 4 motores Showcase (`retro_games`, `movie_showcase`, `series_showcase`, `ani
 
 ---
 
-## 🕹️ Integración con Recalbox, Batocera y RetroPie (Pixelcade Marquees + Showcase en Juego)
+## 🕹️ Integración con Recalbox, Batocera y RetroPie (Pixelcade Marquees + Showcase en Juego + Récords y RetroAchievements)
 
-ArcadeMatrix es compatible con marquees instantáneos **estilo Pixelcade** al navegar por los menús Y presentaciones automáticas **Showcase en Juego** (Ficha Informativa Animada + Panoramas + Vídeo de Gameplay) al lanzar un juego en tu consola Recalbox, Batocera o RetroPie.
+ArcadeMatrix es compatible con marquees instantáneos **estilo Pixelcade** al navegar por los menús, presentaciones automáticas **Showcase en Juego** (Ficha Informativa Animada + Panoramas + Vídeo de Gameplay), **Récords Arcade (`Hall of Fame`)**, **tarjetas de progreso de RetroAchievements (`RA`)** y **celebraciones a 60 FPS con fuegos artificiales y héroes (`SyncCelebration`, Prioridad 55)** al desbloquear un logro o batir un récord Top 3 en tu consola Recalbox, Batocera o RetroPie.
 
 > [!IMPORTANT]
 > **Requisito de versión de Batocera:** La sincronización dinámica de marquesinas durante la navegación por los juegos y sistemas requiere **Batocera v33 o superior** (Batocera introdujo los hooks de script de EmulationStation `game-selected` y `system-selected` en la versión 33). En Batocera v32 y versiones anteriores, solo se admiten los eventos de inicio y parada del juego (`game-start`, `game-end`). Recalbox es totalmente compatible en todas sus versiones a través de su daemon de monitorización de estado nativo.

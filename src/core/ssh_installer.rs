@@ -1,5 +1,5 @@
 use ssh2::Session;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::time::Duration;
 
@@ -46,14 +46,9 @@ impl TargetOS {
 }
 
 fn detect_os_remotely(sess: &Session) -> Option<TargetOS> {
-    let mut channel = match sess.channel_session() {
-        Ok(c) => c,
-        Err(_) => return None,
-    };
+    let mut channel = sess.channel_session().ok()?;
     let cmd = "if [ -d /opt/retropie ]; then echo RETROPIE; elif [ -d /userdata/system ]; then echo BATOCERA; elif [ -d /recalbox/share ]; then echo RECALBOX; else echo UNKNOWN; fi";
-    if channel.exec(cmd).is_err() {
-        return None;
-    }
+    channel.exec(cmd).ok()?;
     let mut out = String::new();
     channel.read_to_string(&mut out).ok();
     channel.wait_close().ok();
@@ -69,549 +64,172 @@ fn detect_os_remotely(sess: &Session) -> Option<TargetOS> {
     }
 }
 
+fn generate_companion_sync_code(matrix_ip: &str, topic: &str) -> String {
+    include_str!("../../tools/arcadematrix_companion_sync.py")
+        .replace('\r', "")
+        .replace("{{DMD_HOST}}", matrix_ip)
+        .replace("{{BROKER}}", matrix_ip)
+        .replace("{{TOPIC}}", topic)
+}
+
 fn generate_daemon_code(matrix_ip: &str, topic: &str) -> String {
-    format!(
-        r#"import subprocess
-import time
-import os
-import json
-import urllib.request
+    include_str!("../../tools/arcadematrix_daemon.py")
+        .replace('\r', "")
+        .replace("{{DMD_HOST}}", matrix_ip)
+        .replace("{{BROKER}}", matrix_ip)
+        .replace("{{TOPIC}}", topic)
+}
 
-DMD_HOST = "{}"
-DMD_HTTP_PORTS = (8080, 80)
-TOPIC = "{}"
-BROKER_TTL_SEC = 15.0
+fn generate_launcher_code() -> String {
+    include_str!("../../tools/arcadematrix_launcher(permanent).sh").replace('\r', "")
+}
 
-_cached_broker = None
-_cached_at = 0.0
-
-def resolve_broker(force=False):
-    global _cached_broker, _cached_at
-    now = time.time()
-    if not force and _cached_broker is not None and (now - _cached_at) < BROKER_TTL_SEC:
-        return _cached_broker
-    for http_port in DMD_HTTP_PORTS:
-        url = f"http://{{DMD_HOST}}:{{http_port}}/api/mqtt/broker-target"
-        try:
-            req = urllib.request.Request(url, headers={{"Accept": "application/json"}})
-            with urllib.request.urlopen(req, timeout=0.8) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-                host = str(data.get("host") or "").strip()
-                port = int(data.get("port") or 1883)
-                if host:
-                    _cached_broker = (host, port)
-                    _cached_at = now
-                    return _cached_broker
-        except Exception:
-            continue
-    _cached_broker = (DMD_HOST, 1883)
-    _cached_at = now
-    return _cached_broker
-
-def publish_mqtt(msg, force_refresh=False):
-    host, port = resolve_broker(force=force_refresh)
-    res = subprocess.run(
-        ["mosquitto_pub", "-h", host, "-p", str(port), "-t", TOPIC, "-m", msg],
-        timeout=2,
-        check=False,
+fn generate_recalbox_wakeup_code() -> String {
+    include_str!(
+        "../../tools/arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh"
     )
-    if res.returncode != 0 and not force_refresh:
-        host2, port2 = resolve_broker(force=True)
-        if (host2, port2) != (host, port):
-            subprocess.run(
-                ["mosquitto_pub", "-h", host2, "-p", str(port2), "-t", TOPIC, "-m", msg],
-                timeout=2,
-                check=False,
-            )
-
-def parse_statefile():
-    game = None
-    title = None
-    system = None
-    state = "browsing"
-    try:
-        with open("/tmp/es_state.inf", "r") as f:
-            for line in f:
-                if line.startswith("GamePath="):
-                    game = line.split("=", 1)[1].strip()
-                elif line.startswith("Game="):
-                    title = line.split("=", 1)[1].strip()
-                elif line.startswith("SystemId="):
-                    system = line.split("=", 1)[1].strip()
-                elif line.startswith("State="):
-                    state = line.split("=", 1)[1].strip()
-    except Exception:
-        pass
-    return game, title, system, state
-
-def clean_system_name(s):
-    if not s:
-        return ""
-    s_clean = str(s).strip()
-    s_lower = s_clean.lower()
-    prefixes = [
-        "arcade manufacturer ",
-        "arcade system ",
-        "arcade genre ",
-        "arcade collection ",
-        "manufacturer ",
-        "system ",
-        "genre ",
-        "collection ",
-    ]
-    for p in prefixes:
-        if s_lower.startswith(p):
-            return s_clean[len(p):].strip()
-    return s_clean
-
-def main():
-    import socket
-    import sys
-    lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        lock_socket.bind(("127.0.0.1", 49132))
-    except socket.error:
-        print("Another daemon is already running, exiting...")
-        sys.exit(1)
-        
-    print("Daemon started (dynamic broker discovery via DMD)!", flush=True)
-    time.sleep(3)
-    last_state_key = None
-    last_sent_key = None
-    pending_since = 0
-
-    while True:
-        try:
-            rom_path, game_title, system, state = parse_statefile()
-            if state != "stopped" and not system and not rom_path:
-                time.sleep(0.1)
-                continue
-
-            system = clean_system_name(system)
-
-            if state == "stopped":
-                current_key = (None, None, None, "stopped")
-            else:
-                is_system = True
-                if rom_path and not os.path.isdir(rom_path):
-                    is_system = False
-                
-                if is_system:
-                    current_key = (None, None, system, "browsing")
-                else:
-                    current_key = (rom_path, game_title, system, state)
-
-            if current_key != last_state_key:
-                last_state_key = current_key
-                pending_since = time.time()
-
-            elapsed = time.time() - pending_since
-            if elapsed >= 0.15 and current_key != last_sent_key:
-                last_sent_key = current_key
-
-                if current_key[3] == "stopped":
-                    msg = '{{"status": "stopped"}}'
-                elif current_key[0] is None:
-                    msg = json.dumps({{"status": "browsing", "system": str(current_key[2]), "type": "system"}})
-                else:
-                    gbase = os.path.splitext(os.path.basename(current_key[0]))[0]
-                    gbase = clean_system_name(gbase)
-                    payload_obj = {{"status": current_key[3], "game": gbase, "system": str(current_key[2])}}
-                    if current_key[1]:
-                        tclean = clean_system_name(current_key[1])
-                        if tclean and tclean.lower() != gbase.lower():
-                            payload_obj["title"] = tclean
-                    msg = json.dumps(payload_obj)
-
-                try:
-                    publish_mqtt(msg, force_refresh=(current_key[3] == "playing"))
-                except Exception:
-                    pass
-        except Exception as e:
-            print("Error: " + str(e), flush=True)
-
-        time.sleep(0.1)
-
-if __name__ == "__main__":
-    main()
-"#,
-        matrix_ip, topic
-    )
+    .replace('\r', "")
 }
 
 fn generate_batocera_hook_code(matrix_ip: &str) -> String {
-    format!(
-        r#"#!/bin/sh
-DMD_HOST="{dmd_host}"
-BROKER_CACHE="/tmp/arcadematrix_broker.cache"
-BROKER_HOST="$DMD_HOST"
-BROKER_PORT="1883"
-TOPIC="system/playing/batocera"
-LOG_FILE="/userdata/system/scripts/daemon.log"
-DEBOUNCE_TOKEN_FILE="/tmp/arcadematrix_debounce_token"
-MQTT_PUB_PID_FILE="/tmp/arcadematrix_mqtt_pub.pid"
-
-resolve_broker() {{
-    _FORCE="$1"
-    _NOW=$(date +%s 2>/dev/null || echo 0)
-    if [ "$_FORCE" != "1" ] && [ -f "$BROKER_CACHE" ]; then
-        read _TS _H _P < "$BROKER_CACHE" 2>/dev/null || true
-        if [ -n "$_H" ] && [ -n "$_P" ] && [ $((_NOW - _TS)) -lt 15 ] 2>/dev/null; then
-            BROKER_HOST="$_H"
-            BROKER_PORT="$_P"
-            return 0
-        fi
-    fi
-
-    _JSON=""
-    for _HTTP_PORT in 8080 80; do
-        _URL="http://$DMD_HOST:$_HTTP_PORT/api/mqtt/broker-target"
-        if command -v curl >/dev/null 2>&1; then
-            _JSON=$(curl -fsS --connect-timeout 0.5 --max-time 0.9 "$_URL" 2>/dev/null || true)
-        elif command -v wget >/dev/null 2>&1; then
-            _JSON=$(wget -qO- -T 1 "$_URL" 2>/dev/null || true)
-        fi
-        if [ -n "$_JSON" ]; then
-            _H=$(printf '%s' "$_JSON" | sed -n 's/.*"host"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-            _P=$(printf '%s' "$_JSON" | sed -n 's/.*"port"[[:space:]]*:[[:space:]]*\([0-9][0-9]*\).*/\1/p')
-            if [ -n "$_H" ]; then
-                BROKER_HOST="$_H"
-                BROKER_PORT="${{_P:-1883}}"
-                echo "$_NOW $BROKER_HOST $BROKER_PORT" > "$BROKER_CACHE" 2>/dev/null || true
-                return 0
-            fi
-        fi
-    done
-
-    BROKER_HOST="$DMD_HOST"
-    BROKER_PORT="1883"
-    echo "$_NOW $BROKER_HOST $BROKER_PORT" > "$BROKER_CACHE" 2>/dev/null || true
-    return 0
-}}
-
-publish_once() {{
-    _PAYLOAD="$1"
-    _MOSQ=""
-    if command -v mosquitto_pub >/dev/null 2>&1; then
-        _MOSQ="mosquitto_pub"
-    else
-        for p in /usr/bin/mosquitto_pub /usr/local/bin/mosquitto_pub /bin/mosquitto_pub; do
-            if [ -x "$p" ]; then
-                _MOSQ="$p"
-                break
-            fi
-        done
-    fi
-
-    if [ -n "$_MOSQ" ]; then
-        "$_MOSQ" -h "$BROKER_HOST" -p "$BROKER_PORT" -t "$TOPIC" -i "batocera_es_$$" -m "$_PAYLOAD"
-        return $?
-    fi
-
-    PYTHON_BIN=""
-    if command -v python3 >/dev/null 2>&1; then
-        PYTHON_BIN="python3"
-    elif command -v python >/dev/null 2>&1; then
-        PYTHON_BIN="python"
-    elif [ -x /usr/bin/python3 ]; then
-        PYTHON_BIN="/usr/bin/python3"
-    fi
-    if [ -n "$PYTHON_BIN" ]; then
-        "$PYTHON_BIN" -c "
-import sys, socket, os
-broker, port, topic, payload = sys.argv[1], int(sys.argv[2]), sys.argv[3], sys.argv[4]
-def enc(l):
-    r = bytearray()
-    while True:
-        b = l % 128
-        l //= 128
-        if l > 0: b |= 0x80
-        r.append(b)
-        if l == 0: break
-    return bytes(r)
-cid = f'batocera_es_{{os.getpid()}}'.encode('utf-8')
-c_body = b'\x00\x04MQTT\x04\x02\x00\x3c' + len(cid).to_bytes(2, 'big') + cid
-c_pkt = b'\x10' + enc(len(c_body)) + c_body
-t_b = topic.encode('utf-8')
-m_b = payload.encode('utf-8')
-p_body = len(t_b).to_bytes(2, 'big') + t_b + m_b
-p_pkt = b'\x30' + enc(len(p_body)) + p_body
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(2.0)
-s.connect((broker, port))
-s.sendall(c_pkt)
-s.recv(4)
-s.sendall(p_pkt)
-s.sendall(b'\xe0\x00')
-s.close()
-" "$BROKER_HOST" "$BROKER_PORT" "$TOPIC" "$_PAYLOAD"
-        return $?
-    fi
-    echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] ERROR: Neither mosquitto_pub nor python3 found" >> "$LOG_FILE"
-    return 1
-}}
-
-send_mqtt() {{
-    _PAYLOAD="$1"
-    _FORCE_RESOLVE="${{2:-0}}"
-
-    # Terminate any previously running publication to avoid concurrent socket accumulation
-    if [ -f "$MQTT_PUB_PID_FILE" ]; then
-        OLD_PID=$(cat "$MQTT_PUB_PID_FILE" 2>/dev/null)
-        if [ -n "$OLD_PID" ]; then
-            kill "$OLD_PID" 2>/dev/null || true
-        fi
-        rm -f "$MQTT_PUB_PID_FILE"
-    fi
-
-    (
-        resolve_broker "$_FORCE_RESOLVE"
-        if ! publish_once "$_PAYLOAD"; then
-            resolve_broker 1
-            publish_once "$_PAYLOAD" || true
-        fi
-    ) >> "$LOG_FILE" 2>&1 &
-    echo $! > "$MQTT_PUB_PID_FILE"
-    return 0
-}}
-
-send_mqtt_debounced() {{
-    _PAYLOAD="$1"
-    TOKEN="$(date +%s%N 2>/dev/null || date +%s)_$$"
-    echo "$TOKEN" > "$DEBOUNCE_TOKEN_FILE"
-    (
-        sleep 0.15
-        CURRENT_TOKEN="$(cat "$DEBOUNCE_TOKEN_FILE" 2>/dev/null)"
-        if [ "$CURRENT_TOKEN" = "$TOKEN" ]; then
-            rm -f "$DEBOUNCE_TOKEN_FILE"
-            send_mqtt "$_PAYLOAD" 0
-        fi
-    ) &
-}}
-
-clean_name() {{
-    echo "$1" | sed -E \
-        -e 's/^[Aa]rcade [Mm]anufacturer //' \
-        -e 's/^[Aa]rcade [Ss]ystem //' \
-        -e 's/^[Aa]rcade [Gg]enre //' \
-        -e 's/^[Aa]rcade [Cc]ollection //' \
-        -e 's/^[Mm]anufacturer //' \
-        -e 's/^[Ss]ystem //' \
-        -e 's/^[Gg]enre //' \
-        -e 's/^[Cc]ollection //' \
-        -e 's/"//g' | sed -E 's/^[_-]//' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
-}}
-
-extract_system() {{
-    _sys="$1"
-    _rom="$2"
-    _base="$3"
-    if [ -z "$_sys" ] || [ "$_sys" = "$_base" ] || [ "$_sys" = "$_rom" ] || echo "$_sys" | grep -qE '/|\.'; then
-        if echo "$_rom" | grep -q '/roms/'; then
-            echo "$_rom" | sed -E 's|.*/roms/([^/]+)/.*|\1|'
-        elif [ -n "$_rom" ]; then
-            basename "$(dirname "$_rom")"
-        else
-            echo "$_sys"
-        fi
-    else
-        echo "$_sys"
-    fi
-}}
-
-EVENT="$1"
-shift
-
-if [ -z "$EVENT" ] || [ ! -z "${{EVENT##game*}}" -a ! -z "${{EVENT##system*}}" ]; then
-    PARENT_DIR="$(basename "$(dirname "$0")")"
-    case "$PARENT_DIR" in
-        game-selected|system-selected|game-start|game-end)
-            exec /userdata/system/scripts/arcadematrix_mqtt.sh "$PARENT_DIR" "$EVENT" "$@"
-            ;;
-    esac
-fi
-
-case "$EVENT" in
-    gameStart)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        if [ -n "$4" ]; then
-            ROM_PATH="$4"
-        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
-            ROM_PATH="$2"
-        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        else
-            ROM_PATH="$1"
-        fi
-        GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        TITLE_CLEAN=$(clean_name "$5")
-        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
-            PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        else
-            PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        fi
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStart | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD" 1
-        ;;
-
-    gameStop)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        if [ -n "$4" ]; then
-            ROM_PATH="$4"
-        elif [ -n "$2" ] && echo "$2" | grep -qE '/|\.'; then
-            ROM_PATH="$2"
-        elif [ -n "$1" ] && echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        else
-            ROM_PATH="$1"
-        fi
-        GAME_BASENAME=""
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: gameStop | Rom: $ROM_PATH | Sys: $SYS_NAME | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD" 0
-        ;;
-
-    game-selected|gameSelected)
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        TITLE="$3"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-            TITLE="$3"
-        fi
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        elif [ -n "$TITLE" ]; then
-            GAME_BASENAME=""
-            GAME_CLEAN=$(clean_name "$TITLE")
-        else
-            GAME_BASENAME=""
-            GAME_CLEAN=""
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        TITLE_CLEAN=$(clean_name "$TITLE")
-        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
-            PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        else
-            PAYLOAD="{{\"status\": \"browsing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        fi
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-selected | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt_debounced "$PAYLOAD"
-        ;;
-
-    system-selected|systemSelected)
-        SYS_CLEAN=$(clean_name "$1")
-        PAYLOAD="{{\"status\": \"browsing\", \"system\": \"$SYS_CLEAN\", \"type\": \"system\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: system-selected | Sys: $1 | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt_debounced "$PAYLOAD"
-        ;;
-
-    game-start)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        TITLE="$3"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-            TITLE="$3"
-        fi
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-            GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        elif [ -n "$TITLE" ]; then
-            GAME_BASENAME=""
-            GAME_CLEAN=$(clean_name "$TITLE")
-        else
-            GAME_BASENAME=""
-            GAME_CLEAN=""
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        TITLE_CLEAN=$(clean_name "$TITLE")
-        if [ -n "$TITLE_CLEAN" ] && [ "$TITLE_CLEAN" != "$GAME_CLEAN" ]; then
-            PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"title\": \"$TITLE_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        else
-            PAYLOAD="{{\"status\": \"playing\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        fi
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-start | Rom: $ROM_PATH | Sys: $SYS_NAME | Title: $TITLE | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD" 1
-        ;;
-
-    game-end)
-        rm -f "$DEBOUNCE_TOKEN_FILE"
-        SYS_NAME="$1"
-        ROM_PATH="$2"
-        if echo "$1" | grep -qE '/|\.'; then
-            ROM_PATH="$1"
-            SYS_NAME="$2"
-        fi
-        GAME_BASENAME=""
-        if [ -n "$ROM_PATH" ]; then
-            GAME_BASENAME=$(basename "$ROM_PATH" | sed 's/\.[^.]*$//')
-        fi
-        SYS_NAME=$(extract_system "$SYS_NAME" "$ROM_PATH" "$GAME_BASENAME")
-        GAME_CLEAN=$(clean_name "$GAME_BASENAME")
-        SYS_CLEAN=$(clean_name "$SYS_NAME")
-        PAYLOAD="{{\"status\": \"stopped\", \"game\": \"$GAME_CLEAN\", \"system\": \"$SYS_CLEAN\"}}"
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Event: game-end | Sent: $PAYLOAD" >> "$LOG_FILE"
-        send_mqtt "$PAYLOAD" 0
-        ;;
-
-    *)
-        echo "$(date '+%Y-%m-%d %H:%M:%S') [arcadematrix] Unhandled Event: $EVENT | Args: $*" >> "$LOG_FILE"
-        ;;
-esac
-"#,
-        dmd_host = matrix_ip
-    )
+    include_str!("../../tools/arcadematrix_mqtt_batocera.sh")
+        .replace('\r', "")
+        .replace("{{DMD_HOST}}", matrix_ip)
+        .replace("{{BROKER}}", matrix_ip)
 }
 
-pub fn install_sync_script(
-    target_ip: &str,
-    matrix_ip: &str,
+fn ssh_exec(sess: &Session, cmd: &str, step_label: &str) -> Result<(i32, String), String> {
+    let mut channel = sess
+        .channel_session()
+        .map_err(|e| format!("SSH channel error ({}): {}", step_label, e))?;
+    channel
+        .exec(cmd)
+        .map_err(|e| format!("SSH exec failed ({}): {}", step_label, e))?;
+    let mut out = String::new();
+    let _ = channel.read_to_string(&mut out);
+    let mut err_out = String::new();
+    let _ = channel.stderr().read_to_string(&mut err_out);
+    channel.wait_close().ok();
+    let status = channel.exit_status().unwrap_or(0);
+    if !err_out.trim().is_empty() {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(err_out.trim());
+    }
+    Ok((status, out))
+}
+
+fn normalize_host_input(raw: &str) -> String {
+    let mut s = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if let Some(rest) = s
+        .strip_prefix("http://")
+        .or_else(|| s.strip_prefix("HTTP://"))
+        .or_else(|| s.strip_prefix("https://"))
+        .or_else(|| s.strip_prefix("HTTPS://"))
+    {
+        s = rest;
+    }
+    if let Some(before_slash) = s.split('/').next() {
+        s = before_slash.trim();
+    }
+    if let Some(rest) = s.strip_prefix('[') {
+        if let Some((ipv6_inner, after_bracket)) = rest.split_once(']') {
+            let after = after_bracket.trim();
+            if after.is_empty()
+                || after
+                    .strip_prefix(':')
+                    .is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+            {
+                return ipv6_inner.trim().to_string();
+            }
+        }
+    }
+    if s.matches(':').count() == 1 {
+        if let Some((host, port)) = s.rsplit_once(':') {
+            if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+                return host.trim().to_string();
+            }
+        }
+    }
+    s.to_string()
+}
+
+fn validate_safe_host(host: &str, label: &str) -> Result<(), String> {
+    if host.is_empty() {
+        return Err(format!("{} is required.", label));
+    }
+    let valid = host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'));
+    if !valid {
+        return Err(format!(
+            "{} contains invalid characters: '{}'. Provide a valid IP address or hostname.",
+            label, host
+        ));
+    }
+    Ok(())
+}
+
+fn build_auth_candidates(
+    explicit_os: Option<TargetOS>,
     custom_user: Option<String>,
     custom_pass: Option<String>,
-    target_os: Option<String>,
-) -> Result<String, String> {
-    use std::net::ToSocketAddrs;
-    let addr = (target_ip.trim(), 22)
-        .to_socket_addrs()
-        .map_err(|e| format!("Invalid target IP or hostname '{}': {}", target_ip, e))?
-        .next()
-        .ok_or_else(|| format!("Could not resolve target host '{}'", target_ip))?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
-        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+) -> Vec<(&'static str, String, String)> {
+    let mut auth_candidates: Vec<(&'static str, String, String)> = Vec::new();
+    let u_opt = custom_user
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let p_opt = custom_pass.filter(|s| !s.is_empty());
 
-    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake()
-        .map_err(|e| format!("SSH handshake failed: {}", e))?;
-
-    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
-
-    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
-
-    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        if !u.is_empty() && !p.is_empty() {
+    match (u_opt, p_opt) {
+        (Some(u), Some(p)) => {
             auth_candidates.push(("Custom", u, p));
         }
+        (Some(u), None) => match explicit_os {
+            Some(TargetOS::RetroPie) => {
+                auth_candidates.push((
+                    "Custom User (RetroPie)",
+                    u.clone(),
+                    "raspberry".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Root)", u, "root".to_string()));
+            }
+            Some(TargetOS::Batocera) => {
+                auth_candidates.push(("Custom User (Batocera)", u, "linux".to_string()));
+            }
+            Some(TargetOS::Recalbox) => {
+                auth_candidates.push(("Custom User (Recalbox)", u, "recalboxroot".to_string()));
+            }
+            None => {
+                auth_candidates.push((
+                    "Custom User (Recalbox)",
+                    u.clone(),
+                    "recalboxroot".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Batocera)", u.clone(), "linux".to_string()));
+                auth_candidates.push((
+                    "Custom User (RetroPie)",
+                    u.clone(),
+                    "raspberry".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Root)", u, "root".to_string()));
+            }
+        },
+        (None, Some(p)) => match explicit_os {
+            Some(TargetOS::RetroPie) => {
+                auth_candidates.push(("Custom Pass (pi)", "pi".to_string(), p.clone()));
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p));
+            }
+            Some(TargetOS::Recalbox) | Some(TargetOS::Batocera) => {
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p));
+            }
+            None => {
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p.clone()));
+                auth_candidates.push(("Custom Pass (pi)", "pi".to_string(), p));
+            }
+        },
+        (None, None) => {}
     }
 
     match explicit_os {
@@ -633,9 +251,116 @@ pub fn install_sync_script(
         }
     }
 
+    auth_candidates
+}
+
+const RECALBOX_START_CMD: &str = r#"
+chmod 755 /recalbox/share/arcadematrix_daemon.py \
+          /recalbox/share/arcadematrix_companion_sync.py \
+          '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' \
+          '/recalbox/share/userscripts/arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh' 2>/dev/null || true
+_ra_ovr='/recalbox/share/roms/.retroarch.cfg'
+touch "$_ra_ovr" 2>/dev/null || true
+if [ -w "$_ra_ovr" ]; then
+    for _kv in \
+        'log_verbosity = "true"' \
+        'log_to_file = "true"' \
+        'log_to_file_timestamp = "false"' \
+        'log_dir = "/tmp"' \
+        'frontend_log_level = "1"' \
+        'libretro_log_level = "2"'; do
+        _k=${_kv%% *}
+        if ! grep -Eq "^[[:space:]]*${_k}[[:space:]]*=" "$_ra_ovr" 2>/dev/null; then
+            printf '%s\n' "$_kv" >> "$_ra_ovr"
+        fi
+    done
+fi
+if [ ! -f /recalbox/share/system/custom.sh ]; then
+    printf '#!/bin/sh\ncase "$1" in\n  ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
+elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then
+    printf '\n# ArcadeMatrix Daemon\ncase "$1" in ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;; esac\n' >> /recalbox/share/system/custom.sh
+fi
+chmod +x /recalbox/share/system/custom.sh 2>/dev/null || true
+rm -f /tmp/arcadematrix_daemon.stop
+: > /recalbox/share/userscripts/daemon.log
+sh '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' -action start
+sync
+sleep 0.6
+_dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
+[ -n "$_dpid" ] && kill -0 "$_dpid" 2>/dev/null
+"#;
+
+fn ssh_write_file(sess: &Session, remote_path: &str, content: &str) -> Result<(), String> {
+    let escaped = remote_path.replace('\'', "'\\''");
+    let mut channel = sess
+        .channel_session()
+        .map_err(|e| format!("SSH channel error writing {}: {}", remote_path, e))?;
+    let write_cmd = format!(
+        "cat > '{escaped}.amtmp.$$' && mv -f '{escaped}.amtmp.$$' '{escaped}'",
+        escaped = escaped
+    );
+    channel
+        .exec(&write_cmd)
+        .map_err(|e| format!("SSH exec atomic write to {} failed: {}", remote_path, e))?;
+    channel
+        .write_all(content.as_bytes())
+        .map_err(|e| format!("SSH write_all to {} failed: {}", remote_path, e))?;
+    channel
+        .send_eof()
+        .map_err(|e| format!("SSH send_eof to {} failed: {}", remote_path, e))?;
+    let mut out = String::new();
+    let _ = channel.read_to_string(&mut out);
+    let mut err_out = String::new();
+    let _ = channel.stderr().read_to_string(&mut err_out);
+    channel.wait_close().ok();
+    let rc = channel.exit_status().unwrap_or(0);
+    if rc != 0 {
+        return Err(format!(
+            "Failed writing remote file {} (rc={}): {}",
+            remote_path,
+            rc,
+            err_out.trim()
+        ));
+    }
+    Ok(())
+}
+
+pub fn install_sync_script(
+    target_ip: &str,
+    matrix_ip: &str,
+    custom_user: Option<String>,
+    custom_pass: Option<String>,
+    target_os: Option<String>,
+) -> Result<String, String> {
+    let clean_target = normalize_host_input(target_ip);
+    let clean_matrix = normalize_host_input(matrix_ip);
+    validate_safe_host(&clean_target, "Target console IP address")?;
+    validate_safe_host(&clean_matrix, "ArcadeMatrix IP address")?;
+
+    let addr = (clean_target.as_str(), 22)
+        .to_socket_addrs()
+        .map_err(|e| format!("Invalid target IP or hostname '{}': {}", clean_target, e))?
+        .next()
+        .ok_or_else(|| format!("Could not resolve target host '{}'", clean_target))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
+        .map_err(|e| format!("Failed to connect to {}: {}", clean_target, e))?;
+
+    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH handshake failed: {}", e))?;
+
+    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
+    let auth_candidates = build_auth_candidates(explicit_os, custom_user, custom_pass);
+
     let mut authenticated = false;
     for (label, user, pwd) in &auth_candidates {
-        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
+        tracing::info!(
+            "Trying to connect to {} as {} ({})",
+            clean_target,
+            user,
+            label
+        );
         if sess.userauth_password(user, pwd).is_ok() {
             authenticated = true;
             break;
@@ -661,275 +386,171 @@ pub fn install_sync_script(
     };
 
     tracing::info!("Target OS identified as: {}", os.name());
-    let daemon_code = generate_daemon_code(matrix_ip, os.topic());
+    let daemon_code = generate_daemon_code(&clean_matrix, os.topic());
+    let companion_code = generate_companion_sync_code(&clean_matrix, os.topic());
 
     match os {
-        TargetOS::RetroPie => {
-            tracing::info!("Installing for RetroPie...");
-            let daemon_path = "/opt/retropie/configs/all/arcadematrix_daemon.py";
-            let onstart_path = "/opt/retropie/configs/all/runcommand-onstart.sh";
-            let onend_path = "/opt/retropie/configs/all/runcommand-onend.sh";
-            let autostart_path = "/opt/retropie/configs/all/autostart.sh";
-
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec("pkill -f arcadematrix_daemon.py || true; if ! command -v mosquitto_pub >/dev/null 2>&1; then sudo apt-get update -y && sudo apt-get install -y mosquitto-clients || true; fi").ok();
-                channel.wait_close().ok();
-            }
-
-            {
-                use std::io::Write;
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("cat > {}", daemon_path)).ok();
-                channel.write_all(daemon_code.as_bytes()).ok();
-                channel.send_eof().ok();
-                channel.wait_close().ok();
-            }
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("chmod +x {}", daemon_path)).ok();
-                channel.wait_close().ok();
-            }
-
-            let onstart_hook = r#"
-# ArcadeMatrix Runcommand Hook
-SYSTEM="$1"
-EMULATOR="$2"
-ROMPATH="$3"
-cat > /tmp/es_state.inf << EOF
-SystemId=$SYSTEM
-GamePath=$ROMPATH
-State=playing
-EOF
+        TargetOS::Recalbox => {
+            tracing::info!("Installing for Recalbox (live start, no reboot required)...");
+            let target_dir = "/recalbox/share/userscripts";
+            let wakeup_hook =
+                "arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh";
+            let cleanup_cmd = r#"
+_pfx="/tmp/arcadematrix_"
+touch "${_pfx}daemon.stop"
+for _pf in "${_pfx}supervisor.pid" "${_pfx}daemon.pid"; do
+    if [ -f "$_pf" ]; then
+        _kp=$(cat "$_pf" 2>/dev/null || true)
+        if [ -n "$_kp" ] && [ "$_kp" != "$$" ] && [ "$_kp" != "$PPID" ]; then
+            kill -9 "$_kp" 2>/dev/null || true
+        fi
+    fi
+done
+for _pd in /proc/[0-9]*; do
+    _p=${_pd#/proc/}
+    [ "$_p" = "1" ] || [ "$_p" = "$$" ] || [ "$_p" = "$PPID" ] && continue
+    [ -r "$_pd/cmdline" ] || continue
+    _a0=$(tr "\0" "\n" < "$_pd/cmdline" 2>/dev/null | sed -n "1p")
+    _cl=$(tr "\0" " " < "$_pd/cmdline" 2>/dev/null || true)
+    case "${_a0##*/}" in
+        python*)
+            case "$_cl" in
+                *arcadematrix_[d]aemon.py*|*arcadematrix_[c]ompanion_sync.py*)
+                    kill -9 "$_p" 2>/dev/null || true
+                    ;;
+            esac
+            ;;
+        sh|ash|dash|bash)
+            case "$_cl" in
+                *arcadematrix_[l]auncher*--supervisor-loop*|*arcadematrix_[s]upervisor.pid*|*arcadematrix_[m]qtt.sh*)
+                    kill -9 "$_p" 2>/dev/null || true
+                    ;;
+            esac
+            ;;
+    esac
+done
+rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" "/recalbox/share/userscripts/arcadematrix_"mqtt.sh || true
+mkdir -p /recalbox/share/userscripts /recalbox/share/system /recalbox/share/roms
 "#;
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                let cmd = format!(
-                    "touch {path} && if ! grep -q 'ArcadeMatrix Runcommand Hook' {path}; then cat >> {path} << 'EOF'\n{hook}\nEOF\nfi\nchmod +x {path}\n",
-                    path = onstart_path,
-                    hook = onstart_hook
-                );
-                channel.exec(&cmd).ok();
-                channel.wait_close().ok();
-            }
+            ssh_exec(&sess, cleanup_cmd, "Recalbox cleanup")?;
 
-            let onend_hook = r#"
-# ArcadeMatrix Runcommand Hook
-cat > /tmp/es_state.inf << EOF
-SystemId=
-GamePath=
-State=stopped
-EOF
-"#;
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                let cmd = format!(
-                    "touch {path} && if ! grep -q 'ArcadeMatrix Runcommand Hook' {path}; then cat >> {path} << 'EOF'\n{hook}\nEOF\nfi\nchmod +x {path}\n",
-                    path = onend_path,
-                    hook = onend_hook
-                );
-                channel.exec(&cmd).ok();
-                channel.wait_close().ok();
-            }
+            ssh_write_file(
+                &sess,
+                "/recalbox/share/arcadematrix_daemon.py",
+                &daemon_code,
+            )?;
+            ssh_write_file(
+                &sess,
+                "/recalbox/share/arcadematrix_companion_sync.py",
+                &companion_code,
+            )?;
+            ssh_write_file(
+                &sess,
+                &format!("{}/arcadematrix_launcher(permanent).sh", target_dir),
+                &generate_launcher_code(),
+            )?;
+            ssh_write_file(
+                &sess,
+                &format!("{}/{}", target_dir, wakeup_hook),
+                &generate_recalbox_wakeup_code(),
+            )?;
 
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                let cmd = format!(
-                    "if [ -f {auto} ] && ! grep -q 'arcadematrix_daemon.py' {auto}; then sed -i '/emulationstation/i python3 {daemon} > /opt/retropie/configs/all/daemon.log 2>&1 &' {auto}; fi\n",
-                    auto = autostart_path,
-                    daemon = daemon_path
-                );
-                channel.exec(&cmd).ok();
-                channel.wait_close().ok();
+            let (rc, out) = ssh_exec(&sess, RECALBOX_START_CMD, "Recalbox start")?;
+            if rc != 0 {
+                return Err(format!(
+                    "Recalbox daemon failed to start (rc={}): {}",
+                    rc,
+                    out.trim()
+                ));
             }
-
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!(
-                        "nohup python3 {} > /opt/retropie/configs/all/daemon.log 2>&1 &",
-                        daemon_path
-                    ))
-                    .ok();
-                channel.wait_close().ok();
-            }
+            Ok("Successfully installed! Recalbox daemon & watchdog are active immediately (no reboot required).".to_string())
         }
-        TargetOS::Batocera => {
-            tracing::info!("Installing for Batocera...");
-            let hook_path = "/userdata/system/scripts/arcadematrix_mqtt.sh";
 
-            // Check Batocera version
-            if let Ok(mut channel) = sess.channel_session() {
-                if channel.exec("cat /usr/share/batocera/batocera.version 2>/dev/null || cat /etc/batocera-version 2>/dev/null || true").is_ok() {
-                    let mut version_str = String::new();
-                    let _ = channel.read_to_string(&mut version_str);
-                    let _ = channel.wait_close();
-                    let trimmed = version_str.trim();
-                    if !trimmed.is_empty() {
-                        tracing::info!("Detected Batocera version: {}", trimmed);
-                        if let Some(first_tok) = trimmed.split_whitespace().next() {
-                            if let Ok(ver_num) = first_tok.parse::<u32>() {
-                                if ver_num < 33 {
-                                    tracing::warn!(
-                                        "Batocera version {} is < 33. EmulationStation dynamic marquee browsing (game-selected) requires Batocera v33+. Game launch/stop events will still work.",
-                                        ver_num
-                                    );
-                                }
+        TargetOS::Batocera => {
+            tracing::info!("Installing for Batocera (live hooks, no reboot required)...");
+            let hook_path = "/userdata/system/scripts/arcadematrix_mqtt.sh";
+            let companion_path = "/userdata/system/scripts/arcadematrix_companion_sync.py";
+
+            if let Ok((_, version_str)) = ssh_exec(
+                &sess,
+                "cat /usr/share/batocera/batocera.version 2>/dev/null || cat /etc/batocera-version 2>/dev/null || true",
+                "Batocera version",
+            ) {
+                let trimmed = version_str.trim();
+                if !trimmed.is_empty() {
+                    tracing::info!("Detected Batocera version: {}", trimmed);
+                    if let Some(first_tok) = trimmed.split_whitespace().next() {
+                        if let Ok(ver_num) = first_tok.parse::<u32>() {
+                            if ver_num < 33 {
+                                tracing::warn!(
+                                    "Batocera version {} is < 33. EmulationStation dynamic marquee browsing (game-selected) requires Batocera v33+. Game launch/stop events will still work.",
+                                    ver_num
+                                );
                             }
                         }
                     }
                 }
             }
 
-            // 1. Clean up legacy daemons (separate commands to avoid Dropbear CMD_LEN issues)
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (cleanup kill): {}", e))?;
-                channel.exec("pkill -f arcadematrix_daemon.py 2>/dev/null; pkill -f arcadematrix_mqtt.sh 2>/dev/null; true")
-                    .map_err(|e| format!("exec failed (cleanup kill): {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera cleanup kill: done");
-            }
+            ssh_exec(
+                &sess,
+                "pkill -f '[a]rcadematrix_daemon.py' 2>/dev/null; pkill -f '[a]rcadematrix_companion_sync.py' 2>/dev/null; pkill -f '[a]rcadematrix_mqtt.sh' 2>/dev/null; true",
+                "Batocera cleanup kill",
+            )?;
+            ssh_exec(
+                &sess,
+                "rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh /userdata/system/scripts/arcadematrix_companion_sync.py",
+                "Batocera cleanup files",
+            )?;
+            ssh_exec(
+                &sess,
+                "rm -rf /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected",
+                "Batocera cleanup script dirs",
+            )?;
+            ssh_exec(
+                &sess,
+                "rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected",
+                "Batocera cleanup ES dirs",
+            )?;
+            ssh_exec(
+                &sess,
+                "if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts",
+                "Batocera mkdir scripts",
+            )?;
 
-            // 2. Remove legacy script files
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (cleanup rm): {}", e))?;
-                channel.exec("rm -f /userdata/system/arcadematrix_daemon.py /userdata/system/scripts/arcadematrix_hook.sh /userdata/system/scripts/arcadematrix_mqtt.sh")
-                    .map_err(|e| format!("exec failed (cleanup rm files): {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera cleanup rm files: done");
-            }
+            let hook_code = generate_batocera_hook_code(&clean_matrix);
+            ssh_write_file(&sess, hook_path, &hook_code)?;
+            ssh_write_file(&sess, companion_path, &companion_code)?;
+            ssh_exec(
+                &sess,
+                &format!("chmod 755 {} {}", hook_path, companion_path),
+                "Batocera chmod",
+            )?;
 
-            // 3. Remove legacy ES event directories
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (cleanup rm dirs): {}", e))?;
-                channel.exec("rm -rf /userdata/system/scripts/game-selected /userdata/system/scripts/game-start /userdata/system/scripts/game-end /userdata/system/scripts/system-selected")
-                    .map_err(|e| format!("exec failed (cleanup rm script dirs): {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera cleanup rm script dirs: done");
-            }
-
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (cleanup rm ES dirs): {}", e))?;
-                channel.exec("rm -rf /userdata/system/configs/emulationstation/scripts/game-selected /userdata/system/configs/emulationstation/scripts/game-start /userdata/system/configs/emulationstation/scripts/game-end /userdata/system/configs/emulationstation/scripts/system-selected")
-                    .map_err(|e| format!("exec failed (cleanup rm ES dirs): {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera cleanup rm ES dirs: done");
-            }
-
-            // 4. Clean custom.sh and ensure scripts directory exists
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (cleanup custom.sh): {}", e))?;
-                channel.exec("if [ -f /userdata/system/custom.sh ]; then sed -i '/arcadematrix_daemon.py/d' /userdata/system/custom.sh; fi; mkdir -p /userdata/system/scripts")
-                    .map_err(|e| format!("exec failed (cleanup custom.sh + mkdir): {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera cleanup custom.sh + mkdir: done");
-            }
-
-            // 5. Install one-shot shell hook publishing via mosquitto_pub or python3 raw socket
-            let hook_code = generate_batocera_hook_code(matrix_ip);
-
-            let expected_size = hook_code.len();
-            tracing::info!("Batocera hook_code size: {} bytes", expected_size);
-
-            // 6. Write hook script via stdin pipe (bypasses Dropbear MAX_CMD_LEN)
-            {
-                use std::io::Write;
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (write hook): {}", e))?;
-                channel
-                    .exec(&format!("cat > {}", hook_path))
-                    .map_err(|e| format!("exec 'cat > {}' failed: {}", hook_path, e))?;
-                channel.write_all(hook_code.as_bytes()).map_err(|e| {
-                    format!(
-                        "write_all to {} failed ({} bytes): {}",
-                        hook_path, expected_size, e
-                    )
-                })?;
-                channel
-                    .send_eof()
-                    .map_err(|e| format!("send_eof failed after writing {}: {}", hook_path, e))?;
-                channel.wait_close().ok();
-                tracing::info!(
-                    "Batocera hook written: {} bytes to {}",
-                    expected_size,
+            let (_, verify_out) = ssh_exec(
+                &sess,
+                &format!(
+                    "test -f {} && wc -c < {} && head -1 {}",
+                    hook_path, hook_path, hook_path
+                ),
+                "Batocera verify",
+            )?;
+            if verify_out.trim().is_empty() {
+                return Err(format!(
+                    "CRITICAL: Hook script {} was NOT written to the Batocera filesystem.",
                     hook_path
+                ));
+            }
+            if !verify_out.contains("#!/bin/sh") {
+                tracing::warn!(
+                    "Batocera hook verify: file exists but header looks unexpected: {}",
+                    verify_out.trim()
                 );
             }
 
-            // 7. Verify the script was actually written
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (verify): {}", e))?;
-                channel
-                    .exec(&format!(
-                        "test -f {} && wc -c < {} && head -1 {}",
-                        hook_path, hook_path, hook_path
-                    ))
-                    .map_err(|e| format!("exec verify failed: {}", e))?;
-                let mut verify_out = String::new();
-                let _ = channel.read_to_string(&mut verify_out);
-                channel.wait_close().ok();
-                let trimmed = verify_out.trim();
-                tracing::info!("Batocera verify hook: output={}", trimmed);
-                if trimmed.is_empty() {
-                    return Err(format!(
-                        "CRITICAL: Hook script {} was NOT written to the Batocera filesystem. \
-                         The file does not exist after write_all. This typically means Dropbear \
-                         did not pipe stdin to the 'cat' command. Batocera version or SSH server \
-                         may not support exec+stdin piping.",
-                        hook_path
-                    ));
-                }
-                // Check first line starts with shebang
-                if !trimmed.contains("#!/bin/sh") {
-                    tracing::warn!(
-                        "Batocera hook verify: file exists but may be empty or corrupt. Output: {}",
-                        trimmed
-                    );
-                }
-            }
-
-            // 8. chmod and create ES event directory wrappers (separate commands)
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (chmod): {}", e))?;
-                channel
-                    .exec(&format!("chmod 755 {}", hook_path))
-                    .map_err(|e| format!("chmod 755 {} failed: {}", hook_path, e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera chmod hook: done");
-            }
-
-            // 9. Create ES event wrapper scripts in separate channels
+            // Install all 4 EmulationStation UI wrappers in individual Dropbear-safe SSH channels
+            // (`game-start` and `game-end` are required for Batocera <= v32 and standalone ES ports).
             for evt in &["game-selected", "system-selected", "game-start", "game-end"] {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (ES dir {}): {}", evt, e))?;
                 let cmd = format!(
                     "mkdir -p /userdata/system/configs/emulationstation/scripts/{evt} && \
                      printf '#!/bin/sh\\n/userdata/system/scripts/arcadematrix_mqtt.sh {evt} \"$@\"\\n' \
@@ -937,116 +558,163 @@ EOF
                      chmod 755 /userdata/system/configs/emulationstation/scripts/{evt}/arcadematrix_mqtt.sh",
                     evt = evt
                 );
-                channel
-                    .exec(&cmd)
-                    .map_err(|e| format!("exec ES wrapper {} failed: {}", evt, e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera ES wrapper {}: done", evt);
+                ssh_exec(&sess, &cmd, &format!("Batocera ES wrapper {}", evt))?;
             }
 
-            // 10. Final chmod on ES scripts root
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (chmod ES): {}", e))?;
-                channel
-                    .exec("chmod -R 755 /userdata/system/configs/emulationstation/scripts")
-                    .map_err(|e| format!("chmod -R ES scripts failed: {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera chmod -R ES scripts: done");
-            }
+            ssh_exec(
+                &sess,
+                "chmod -R 755 /userdata/system/configs/emulationstation/scripts",
+                "Batocera chmod ES",
+            )?;
+            ssh_exec(&sess, "sync", "Batocera sync")?;
 
-            // 11. Sync filesystem before reboot to flush all pending writes
-            {
-                let mut channel = sess
-                    .channel_session()
-                    .map_err(|e| format!("SSH channel error (sync): {}", e))?;
-                channel
-                    .exec("sync")
-                    .map_err(|e| format!("sync failed: {}", e))?;
-                let mut out = String::new();
-                let _ = channel.read_to_string(&mut out);
-                channel.wait_close().ok();
-                tracing::info!("Batocera sync: done");
-            }
+            Ok("Successfully installed! Batocera event hooks are active immediately (no reboot required).".to_string())
         }
-        TargetOS::Recalbox => {
-            tracing::info!("Installing for Recalbox...");
-            let target_dir = "/recalbox/share/userscripts";
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("mkdir -p {}", target_dir)).ok();
-                channel.wait_close().ok();
-            }
 
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!(
-                    "cd {} && for f in *.sh; do case \"$f\" in 'arcadematrix_launcher(permanent).sh') ;; *) rm -f \"$f\" ;; esac; done; rm -f /recalbox/share/arcadematrix_daemon.py; pkill -f recalbox_mqtt_status || true; pkill -f arcadematrix_mqtt || true; pkill -f arcadematrix_daemon.py || true",
-                    target_dir
-                )).ok();
-                channel.wait_close().ok();
-            }
-
-            let daemon_path = "/recalbox/share/arcadematrix_daemon.py";
-            {
-                use std::io::Write;
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("cat > {}", daemon_path)).ok();
-                channel.write_all(daemon_code.as_bytes()).ok();
-                channel.send_eof().ok();
-                channel.wait_close().ok();
-            }
-
-            let launcher_code = r#"#!/bin/sh
-if [ -z "$1" ] || [ "$1" = "-action" -a "$2" = "start" ]; then
-    pkill -f arcadematrix_daemon.py || true
-    python3 /recalbox/share/arcadematrix_daemon.py > /recalbox/share/userscripts/daemon.log 2>&1 &
-fi
+        TargetOS::RetroPie => {
+            tracing::info!(
+                "Installing for RetroPie (ES browsing hooks + runcommand + watchdog)..."
+            );
+            let cleanup_cmd = r#"
+_pfx="/tmp/arcadematrix_"
+touch "${_pfx}daemon.stop"
+for _pf in "${_pfx}supervisor.pid" "${_pfx}daemon.pid"; do
+    if [ -f "$_pf" ]; then
+        _kp=$(cat "$_pf" 2>/dev/null || true)
+        if [ -n "$_kp" ] && [ "$_kp" != "$$" ] && [ "$_kp" != "$PPID" ]; then
+            kill -9 "$_kp" 2>/dev/null || true
+        fi
+    fi
+done
+for _pd in /proc/[0-9]*; do
+    _p=${_pd#/proc/}
+    [ "$_p" = "1" ] || [ "$_p" = "$$" ] || [ "$_p" = "$PPID" ] && continue
+    [ -r "$_pd/cmdline" ] || continue
+    _a0=$(tr "\0" "\n" < "$_pd/cmdline" 2>/dev/null | sed -n "1p")
+    _cl=$(tr "\0" " " < "$_pd/cmdline" 2>/dev/null || true)
+    case "${_a0##*/}" in
+        python*)
+            case "$_cl" in
+                *arcadematrix_[d]aemon.py*|*arcadematrix_[c]ompanion_sync.py*)
+                    kill -9 "$_p" 2>/dev/null || true
+                    ;;
+            esac
+            ;;
+        sh|ash|dash|bash)
+            case "$_cl" in
+                *arcadematrix_[l]auncher*--supervisor-loop*|*arcadematrix_[s]upervisor.pid*)
+                    kill -9 "$_p" 2>/dev/null || true
+                    ;;
+            esac
+            ;;
+    esac
+done
+rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" || true
+mkdir -p /opt/retropie/configs/all/emulationstation/scripts/system-select \
+         /opt/retropie/configs/all/emulationstation/scripts/game-select
 "#;
-            let launcher_path = format!("{}/arcadematrix_launcher(permanent).sh", target_dir);
-            {
-                use std::io::Write;
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("cat > '{}'", launcher_path)).ok();
-                channel.write_all(launcher_code.as_bytes()).ok();
-                channel.send_eof().ok();
-                channel.wait_close().ok();
-            }
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel.exec(&format!("chmod +x '{}'", launcher_path)).ok();
-                channel.wait_close().ok();
-            }
+            ssh_exec(&sess, cleanup_cmd, "RetroPie cleanup")?;
 
-            {
-                let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-                channel
-                    .exec(&format!("rm -f {}/arcadematrix_mqtt.sh", target_dir))
-                    .ok();
-                channel.wait_close().ok();
+            ssh_write_file(
+                &sess,
+                "/opt/retropie/configs/all/arcadematrix_daemon.py",
+                &daemon_code,
+            )?;
+            ssh_write_file(
+                &sess,
+                "/opt/retropie/configs/all/arcadematrix_companion_sync.py",
+                &companion_code,
+            )?;
+            ssh_write_file(
+                &sess,
+                "/opt/retropie/configs/all/arcadematrix_launcher.sh",
+                &generate_launcher_code(),
+            )?;
+
+            let retro_setup_cmd = r#"
+chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py \
+         /opt/retropie/configs/all/arcadematrix_companion_sync.py \
+         /opt/retropie/configs/all/arcadematrix_launcher.sh 2>/dev/null || true
+
+cat > /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh << 'ESEOF'
+#!/bin/sh
+[ -z "$1" ] || [ "$1" = "NULL" ] && exit 0
+_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=browsing\nAction=systembrowsing\nSystemId=%s\nGamePath=\nGame=\n" "$1" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+ESEOF
+chmod 755 /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh
+
+cat > /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh << 'ESEOF'
+#!/bin/sh
+[ -z "$1" ] || [ "$1" = "NULL" ] && exit 0
+_tmp="/tmp/es_state.inf.tmp.$$"
+if [ -z "$2" ] || [ "$2" = "NULL" ]; then
+    printf "State=browsing\nAction=systembrowsing\nSystemId=%s\nGamePath=\nGame=\n" "$1" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+else
+    printf "State=browsing\nAction=gamelistbrowsing\nSystemId=%s\nGamePath=%s\nGame=%s\n" "$1" "$2" "$3" > "$_tmp" && mv -f "$_tmp" /tmp/es_state.inf
+fi
+ESEOF
+chmod 755 /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh
+
+if [ -d "$HOME/.emulationstation" ] && [ ! -L "$HOME/.emulationstation" ]; then
+    mkdir -p "$HOME/.emulationstation/scripts/system-select" "$HOME/.emulationstation/scripts/game-select"
+    cp -f /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh "$HOME/.emulationstation/scripts/system-select/arcadematrix_es.sh"
+    cp -f /opt/retropie/configs/all/emulationstation/scripts/game-select/arcadematrix_es.sh "$HOME/.emulationstation/scripts/game-select/arcadematrix_es.sh"
+    chmod 755 "$HOME/.emulationstation/scripts/system-select/arcadematrix_es.sh" "$HOME/.emulationstation/scripts/game-select/arcadematrix_es.sh"
+fi
+
+touch /opt/retropie/configs/all/runcommand-onstart.sh
+sed -i '/# ArcadeMatrix Runcommand Hook/,/EOF/d' /opt/retropie/configs/all/runcommand-onstart.sh 2>/dev/null || true
+sed -i '/# ArcadeMatrix Runcommand Hook/,/# End ArcadeMatrix Hook/d' /opt/retropie/configs/all/runcommand-onstart.sh 2>/dev/null || true
+cat >> /opt/retropie/configs/all/runcommand-onstart.sh << 'RCEOF'
+# ArcadeMatrix Runcommand Hook
+_am_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=playing\nAction=rungame\nSystemId=%s\nGamePath=%s\n" "$1" "$3" > "$_am_tmp" && mv -f "$_am_tmp" /tmp/es_state.inf
+# End ArcadeMatrix Hook
+RCEOF
+chmod +x /opt/retropie/configs/all/runcommand-onstart.sh
+
+touch /opt/retropie/configs/all/runcommand-onend.sh
+sed -i '/# ArcadeMatrix Runcommand Hook/,/EOF/d' /opt/retropie/configs/all/runcommand-onend.sh 2>/dev/null || true
+sed -i '/# ArcadeMatrix Runcommand Hook/,/# End ArcadeMatrix Hook/d' /opt/retropie/configs/all/runcommand-onend.sh 2>/dev/null || true
+cat >> /opt/retropie/configs/all/runcommand-onend.sh << 'RCEOF'
+# ArcadeMatrix Runcommand Hook
+_am_tmp="/tmp/es_state.inf.tmp.$$"
+printf "State=stopped\nAction=endgame\nSystemId=\nGamePath=\n" > "$_am_tmp" && mv -f "$_am_tmp" /tmp/es_state.inf
+# End ArcadeMatrix Hook
+RCEOF
+chmod +x /opt/retropie/configs/all/runcommand-onend.sh
+
+if [ -f /opt/retropie/configs/all/autostart.sh ]; then
+    sed -i '/arcadematrix_daemon\.py/d;/arcadematrix_launcher\.sh/d' /opt/retropie/configs/all/autostart.sh 2>/dev/null || true
+    if grep -q 'emulationstation' /opt/retropie/configs/all/autostart.sh; then
+        sed -i '/emulationstation/i sh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start >/dev/null 2>&1 &' /opt/retropie/configs/all/autostart.sh
+    else
+        printf '\nsh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start >/dev/null 2>&1 &\n' >> /opt/retropie/configs/all/autostart.sh
+    fi
+fi
+
+rm -f /tmp/arcadematrix_daemon.stop
+: > /opt/retropie/configs/all/daemon.log
+sh /opt/retropie/configs/all/arcadematrix_launcher.sh -action start
+sync
+sleep 0.6
+_dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
+[ -n "$_dpid" ] && kill -0 "$_dpid" 2>/dev/null
+"#;
+            let (rc, out) = ssh_exec(&sess, retro_setup_cmd, "RetroPie setup")?;
+            if rc != 0 {
+                return Err(format!(
+                    "RetroPie daemon failed to start (rc={}): {}",
+                    rc,
+                    out.trim()
+                ));
             }
+            Ok(
+                "Successfully installed! RetroPie daemon, ES browsing hooks & watchdog are active."
+                    .to_string(),
+            )
         }
-    }
-
-    if os != TargetOS::RetroPie {
-        tracing::info!("Rebooting target system...");
-        let mut channel = sess.channel_session().map_err(|e| e.to_string())?;
-        channel.exec("sleep 1 && reboot").ok();
-        channel.wait_close().ok();
-        Ok(format!(
-            "Successfully installed! {} is now rebooting...",
-            os.name()
-        ))
-    } else {
-        Ok(format!(
-            "Successfully installed! {} daemon is running.",
-            os.name()
-        ))
     }
 }
 
@@ -1056,13 +724,16 @@ pub fn fetch_sync_logs(
     custom_pass: Option<String>,
     target_os: Option<String>,
 ) -> Result<String, String> {
-    let addr = format!("{}:22", target_ip)
+    let clean_target = normalize_host_input(target_ip);
+    validate_safe_host(&clean_target, "Target console IP address")?;
+
+    let addr = (clean_target.as_str(), 22)
         .to_socket_addrs()
-        .map_err(|e| format!("Invalid target address '{}': {}", target_ip, e))?
+        .map_err(|e| format!("Invalid target address '{}': {}", clean_target, e))?
         .next()
-        .ok_or_else(|| format!("Could not resolve target address '{}'", target_ip))?;
+        .ok_or_else(|| format!("Could not resolve target address '{}'", clean_target))?;
     let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
-        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+        .map_err(|e| format!("Failed to connect to {}: {}", clean_target, e))?;
 
     let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
     sess.set_tcp_stream(tcp);
@@ -1070,37 +741,16 @@ pub fn fetch_sync_logs(
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
     let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
-
-    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
-
-    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        if !u.is_empty() && !p.is_empty() {
-            auth_candidates.push(("Custom", u, p));
-        }
-    }
-
-    match explicit_os {
-        Some(TargetOS::RetroPie) => {
-            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
-            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
-        }
-        Some(TargetOS::Recalbox) => {
-            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
-        }
-        Some(TargetOS::Batocera) => {
-            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
-        }
-        None => {
-            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
-            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
-            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
-            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
-        }
-    }
+    let auth_candidates = build_auth_candidates(explicit_os, custom_user, custom_pass);
 
     let mut authenticated = false;
     for (label, user, pwd) in &auth_candidates {
-        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
+        tracing::info!(
+            "Trying to connect to {} as {} ({})",
+            clean_target,
+            user,
+            label
+        );
         if sess.userauth_password(user, pwd).is_ok() {
             authenticated = true;
             break;
@@ -1120,22 +770,14 @@ pub fn fetch_sync_logs(
     };
 
     let log_path = os.log_path();
-
-    let mut channel = sess
-        .channel_session()
-        .map_err(|_| "Failed to open SSH channel")?;
-    channel
-        .exec(&format!(
+    let (_, logs) = ssh_exec(
+        &sess,
+        &format!(
             "tail -n 100 {} 2>/dev/null || echo 'Log file not found or empty'",
             log_path
-        ))
-        .map_err(|_| "Failed to execute command on target")?;
-
-    let mut logs = String::new();
-    channel
-        .read_to_string(&mut logs)
-        .map_err(|_| "Failed to read output")?;
-    channel.wait_close().ok();
+        ),
+        "fetch logs",
+    )?;
 
     if logs.trim().is_empty() {
         Ok("Log file is empty.".to_string())
@@ -1149,23 +791,111 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_generated_recalbox_daemon_uses_dynamic_broker_target() {
-        let code = generate_daemon_code("192.168.1.42", "system/playing/recalbox");
-        assert!(code.contains("DMD_HOST = \"192.168.1.42\""));
-        assert!(code.contains("/api/mqtt/broker-target"));
-        assert!(code.contains("def resolve_broker"));
-        assert!(code.contains("payload_obj[\"title\"] = tclean"));
-        assert!(!code.contains("BROKER = \"192.168.1.42\""));
+    fn test_normalize_and_validate_host_input() {
+        assert_eq!(normalize_host_input("  192.168.1.130  "), "192.168.1.130");
+        assert_eq!(
+            normalize_host_input("http://192.168.1.26:8080/api"),
+            "192.168.1.26"
+        );
+        assert_eq!(
+            normalize_host_input("\"https://recalbox.local:22/\""),
+            "recalbox.local"
+        );
+        assert_eq!(normalize_host_input("[fe80::1]:22"), "fe80::1");
+        assert_eq!(normalize_host_input("fe80::1"), "fe80::1");
+
+        assert!(validate_safe_host("192.168.1.130", "Target").is_ok());
+        assert!(validate_safe_host("recalbox-01.local", "Target").is_ok());
+        assert!(validate_safe_host("fe80::1", "Target").is_ok());
+        assert!(validate_safe_host("", "Target").is_err());
+        assert!(validate_safe_host("192.168.1.1;rm -rf /", "Target").is_err());
     }
 
     #[test]
-    fn test_generated_batocera_hook_uses_dynamic_broker_target() {
+    fn test_build_auth_candidates_supports_partial_custom_credentials() {
+        let pass_only = build_auth_candidates(
+            Some(TargetOS::Recalbox),
+            Some("   ".to_string()),
+            Some("mysecret".to_string()),
+        );
+        assert_eq!(pass_only[0].1, "root");
+        assert_eq!(pass_only[0].2, "mysecret");
+
+        let user_only = build_auth_candidates(
+            Some(TargetOS::Batocera),
+            Some("arcade".to_string()),
+            Some(String::new()),
+        );
+        assert_eq!(user_only[0].1, "arcade");
+        assert_eq!(user_only[0].2, "linux");
+
+        let both =
+            build_auth_candidates(None, Some("admin".to_string()), Some("pw123".to_string()));
+        assert_eq!(both[0].1, "admin");
+        assert_eq!(both[0].2, "pw123");
+    }
+
+    #[test]
+    fn test_recalbox_start_cmd_configures_ram_retroarch_rcheevos_logging() {
+        assert!(RECALBOX_START_CMD.contains("/recalbox/share/roms/.retroarch.cfg"));
+        assert!(RECALBOX_START_CMD.contains("log_dir = \"/tmp\""));
+        assert!(RECALBOX_START_CMD.contains("log_to_file = \"true\""));
+        assert!(RECALBOX_START_CMD.contains("log_to_file_timestamp = \"false\""));
+    }
+
+    #[test]
+    fn test_generated_recalbox_daemon_uses_dynamic_broker_target_and_persistent_qos1() {
+        let code = generate_daemon_code("192.168.1.42", "system/playing/recalbox");
+        assert!(code.contains("DMD_HOST = \"192.168.1.42\""));
+        assert!(code.contains("TOPIC = \"system/playing/recalbox\""));
+        assert!(!code.contains("{{DMD_HOST}}"));
+        assert!(!code.contains("{{TOPIC}}"));
+        assert!(code.contains("/api/mqtt/broker-target"));
+        assert!(code.contains("class PersistentMqttClient"));
+        assert!(code.contains("def spawn_companion_sync"));
+        assert!(!code.contains('\r'));
+    }
+
+    #[test]
+    fn test_generated_batocera_hook_preserves_socket_hygiene_and_4_es_hooks() {
         let hook = generate_batocera_hook_code("192.168.1.42");
         assert!(hook.starts_with("#!/bin/sh\n"));
         assert!(hook.contains("DMD_HOST=\"192.168.1.42\""));
         assert!(hook.contains("/api/mqtt/broker-target"));
-        assert!(hook.contains("resolve_broker()"));
-        assert!(hook.contains("\\\"title\\\": \\\"$TITLE_CLEAN\\\""));
-        assert!(!hook.contains("\nBROKER=\"192.168.1.42\""));
+        assert!(hook.contains("resolve_broker_target()"));
+        assert!(hook.contains("spawn_companion_sync()"));
+        assert!(hook.contains("should_emit_lifecycle()"));
+        assert!(hook.contains("game-start)"));
+        assert!(hook.contains("game-end)"));
+        assert!(!hook.contains("-q 1"));
+        assert!(hook.contains("build_game_payload"));
+        assert!(!hook.contains('\r'));
+    }
+
+    #[test]
+    fn test_generated_launcher_and_wakeup_scripts_support_recalbox_and_retropie() {
+        let launcher = generate_launcher_code();
+        assert!(launcher.starts_with("#!/bin/sh\n"));
+        assert!(launcher.contains("/opt/retropie/configs/all"));
+        assert!(launcher.contains("/recalbox/share"));
+        assert!(launcher.contains("--supervisor-loop"));
+
+        let wakeup = generate_recalbox_wakeup_code();
+        assert!(wakeup.starts_with("#!/bin/sh\n"));
+        assert!(wakeup.contains("arcadematrix_launcher(permanent).sh"));
+    }
+
+    #[test]
+    fn test_generated_companion_sync_code_substitutes_dmd_host_and_topic() {
+        let comp = generate_companion_sync_code("192.168.1.42", "system/playing/batocera");
+        assert!(comp.contains("DMD_HOST_DEFAULT = \"192.168.1.42\""));
+        assert!(comp.contains("TOPIC_DEFAULT = \"system/playing/batocera\""));
+        assert!(!comp.contains('\r'));
+        assert!(comp.contains("def extract_hiscores"));
+        assert!(comp.contains("def parse_hi_binary"));
+        assert!(comp.contains("def _decode_namco_tile_hi"));
+        assert!(comp.contains("def _decode_dkong_hi"));
+        assert!(comp.contains("def parse_rcheevos_unlock_line"));
+        assert!(comp.contains("API_GetUserRecentlyPlayedGames.php"));
     }
 }

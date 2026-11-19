@@ -54,6 +54,8 @@ impl EngineRegistry {
             "movie_showcase" => 18,
             "series_showcase" => 19,
             "anime_showcase" => 20,
+            "agenda" => 21,
+            "sync_celebration" => 22,
             _ => 0,
         }
     }
@@ -80,6 +82,8 @@ impl EngineRegistry {
             18 => Some("movie_showcase"),
             19 => Some("series_showcase"),
             20 => Some("anime_showcase"),
+            21 => Some("agenda"),
+            22 => Some("sync_celebration"),
             _ => None,
         }
     }
@@ -123,6 +127,22 @@ impl EngineRuntime {
         }
     }
 
+    fn instantiate_engine(engine_id_str: &str, instance_id_str: &str) -> Option<Box<dyn Engine>> {
+        let mut engine: Box<dyn Engine> = if engine_id_str == "frontend_sync" {
+            Box::new(crate::engines::frontend_sync::InGameShowcaseEngine::new())
+        } else if engine_id_str == "sync_celebration" {
+            Box::new(crate::engines::frontend_sync::SyncCelebrationEngine::new())
+        } else {
+            let desc = EngineRegistry::get_descriptor(engine_id_str)?;
+            if !desc.available {
+                return None;
+            }
+            (desc.factory)()
+        };
+        engine.set_instance_name(instance_id_str);
+        Some(engine)
+    }
+
     /// Registers or retrieves an interned EngineHandle for the given instance and engine IDs.
     /// This is a cold-path operation performed during initialization and config updates.
     pub fn register_instance_handle(
@@ -147,20 +167,7 @@ impl EngineRuntime {
         }
 
         if self.id_to_registered[idx].is_none() {
-            let engine = if engine_id_str == "frontend_sync" {
-                Some(
-                    Box::new(crate::engines::frontend_sync::InGameShowcaseEngine::new())
-                        as Box<dyn Engine>,
-                )
-            } else if let Some(desc) = EngineRegistry::get_descriptor(engine_id_str) {
-                if desc.available {
-                    Some((desc.factory)())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let engine = Self::instantiate_engine(engine_id_str, instance_id_str);
             let ready = false;
 
             self.id_to_registered[idx] = Some(RegisteredInstance {
@@ -297,15 +304,7 @@ impl EngineRuntime {
             return None;
         }
         if entry.engine.is_none() {
-            if entry.engine_name == "frontend_sync" {
-                entry.engine = Some(Box::new(
-                    crate::engines::frontend_sync::InGameShowcaseEngine::new(),
-                ));
-            } else if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
-                if desc.available {
-                    entry.engine = Some((desc.factory)());
-                }
-            }
+            entry.engine = Self::instantiate_engine(&entry.engine_name, &entry.instance_name);
         }
         if let Some(engine) = entry.engine.as_mut() {
             if !entry.ready {
@@ -351,15 +350,7 @@ impl EngineRuntime {
                 drop(old_eng);
             }
             crate::core::memory::trim_heap();
-            entry.engine = if entry.engine_name == "frontend_sync" {
-                Some(Box::new(
-                    crate::engines::frontend_sync::InGameShowcaseEngine::new(),
-                ))
-            } else {
-                EngineRegistry::get_descriptor(&entry.engine_name)
-                    .filter(|d| d.available)
-                    .map(|d| (d.factory)())
-            };
+            entry.engine = Self::instantiate_engine(&entry.engine_name, &entry.instance_name);
             entry.ready = false;
             entry.needs_activate = reactivate_on_next_update;
             entry.recycle_count = entry.recycle_count.saturating_add(1);
@@ -543,15 +534,7 @@ impl EngineRuntime {
                 return false;
             }
             if entry.engine.is_none() {
-                if entry.engine_name == "frontend_sync" {
-                    entry.engine = Some(Box::new(
-                        crate::engines::frontend_sync::InGameShowcaseEngine::new(),
-                    ));
-                } else if let Some(desc) = EngineRegistry::get_descriptor(&entry.engine_name) {
-                    if desc.available {
-                        entry.engine = Some((desc.factory)());
-                    }
-                }
+                entry.engine = Self::instantiate_engine(&entry.engine_name, &entry.instance_name);
             }
             if let Some(engine) = entry.engine.as_mut() {
                 if !entry.ready {

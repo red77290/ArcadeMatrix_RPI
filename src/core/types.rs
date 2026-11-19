@@ -44,12 +44,236 @@ impl PartialEq for InGameShowcasePayload {
 
 impl Eq for InGameShowcasePayload {}
 
+/// Copies a UTF-8 string into a fixed-size POD byte buffer, truncating safely on a char boundary.
+#[inline]
+pub fn copy_str_to_pod<const N: usize>(src: &str) -> [u8; N] {
+    let mut dst = [0u8; N];
+    if N == 0 {
+        return dst;
+    }
+    let max_len = N - 1;
+    let bytes = src.as_bytes();
+    if bytes.len() <= max_len {
+        dst[..bytes.len()].copy_from_slice(bytes);
+    } else {
+        let mut end = max_len;
+        while end > 0 && !src.is_char_boundary(end) {
+            end -= 1;
+        }
+        dst[..end].copy_from_slice(&bytes[..end]);
+    }
+    dst
+}
+
+/// Returns a zero-allocation `&str` slice from a null-padded UTF-8 POD byte buffer.
+#[inline]
+pub fn pod_bytes_to_str(buf: &[u8]) -> &str {
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    std::str::from_utf8(&buf[..len]).unwrap_or("")
+}
+
+/// Fixed-size POD entry for a single arcade high score row (zero H-Core allocation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncHiscoreEntryPod {
+    pub rank: u8,
+    pub player: [u8; 16],
+    pub score: [u8; 16],
+}
+
+impl SyncHiscoreEntryPod {
+    pub const EMPTY: Self = Self {
+        rank: 0,
+        player: [0u8; 16],
+        score: [0u8; 16],
+    };
+
+    pub fn from_strs(rank: u8, player: &str, score: &str) -> Self {
+        Self {
+            rank,
+            player: copy_str_to_pod(player.trim()),
+            score: copy_str_to_pod(score.trim()),
+        }
+    }
+
+    #[inline]
+    pub fn player_str(&self) -> &str {
+        pod_bytes_to_str(&self.player)
+    }
+
+    #[inline]
+    pub fn score_str(&self) -> &str {
+        pod_bytes_to_str(&self.score)
+    }
+}
+
+impl Default for SyncHiscoreEntryPod {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Fixed-size POD summary for RetroAchievements progress on the active game (zero H-Core allocation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncRaSummaryPod {
+    pub game_title: [u8; 48],
+    pub unlocked: u16,
+    pub total: u16,
+    pub points_earned: u32,
+    pub points_total: u32,
+    pub hardcore: bool,
+    pub recent_badge: [u8; 48],
+    pub valid: bool,
+}
+
+impl SyncRaSummaryPod {
+    pub const EMPTY: Self = Self {
+        game_title: [0u8; 48],
+        unlocked: 0,
+        total: 0,
+        points_earned: 0,
+        points_total: 0,
+        hardcore: false,
+        recent_badge: [0u8; 48],
+        valid: false,
+    };
+
+    #[inline]
+    pub fn game_title_str(&self) -> &str {
+        pod_bytes_to_str(&self.game_title)
+    }
+
+    #[inline]
+    pub fn recent_badge_str(&self) -> &str {
+        pod_bytes_to_str(&self.recent_badge)
+    }
+}
+
+impl Default for SyncRaSummaryPod {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Pre-parsed fixed-size POD metadata for `HallOfFameCard` & `RetroAchievementsCard` during `playing`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyncMetaPayload {
+    pub session_token: u64,
+    pub system: [u8; 24],
+    pub game_title: [u8; 48],
+    pub hiscore_count: u8,
+    pub hiscores: [SyncHiscoreEntryPod; 5],
+    pub ra: SyncRaSummaryPod,
+    pub show_hiscores: bool,
+    pub show_ra: bool,
+    pub card_duration_sec: u32,
+}
+
+impl SyncMetaPayload {
+    pub const EMPTY: Self = Self {
+        session_token: 0,
+        system: [0u8; 24],
+        game_title: [0u8; 48],
+        hiscore_count: 0,
+        hiscores: [SyncHiscoreEntryPod::EMPTY; 5],
+        ra: SyncRaSummaryPod::EMPTY,
+        show_hiscores: true,
+        show_ra: true,
+        card_duration_sec: 8,
+    };
+
+    #[inline]
+    pub fn system_str(&self) -> &str {
+        pod_bytes_to_str(&self.system)
+    }
+
+    #[inline]
+    pub fn game_title_str(&self) -> &str {
+        pod_bytes_to_str(&self.game_title)
+    }
+
+    #[inline]
+    pub fn has_active_hiscores(&self) -> bool {
+        self.show_hiscores && self.hiscore_count > 0
+    }
+
+    #[inline]
+    pub fn has_active_ra(&self) -> bool {
+        self.show_ra && self.ra.valid && self.ra.total > 0
+    }
+
+    #[inline]
+    pub fn has_any_card(&self) -> bool {
+        self.has_active_hiscores() || self.has_active_ra()
+    }
+}
+
+impl Default for SyncMetaPayload {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
+/// Fixed-size POD celebration payload for Priority 55 60 FPS celebration preemption.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SyncCelebrationPayload {
+    pub event_token: u64,
+    /// `0` = New High Score Record, `1` = RetroAchievement Unlocked
+    pub kind: u8,
+    pub system: [u8; 24],
+    pub title: [u8; 48],
+    pub subtitle: [u8; 48],
+    pub score_or_pts: [u8; 24],
+    pub hardcore: bool,
+    pub duration_ms: u32,
+}
+
+impl SyncCelebrationPayload {
+    pub const EMPTY: Self = Self {
+        event_token: 0,
+        kind: 0,
+        system: [0u8; 24],
+        title: [0u8; 48],
+        subtitle: [0u8; 48],
+        score_or_pts: [0u8; 24],
+        hardcore: false,
+        duration_ms: 7500,
+    };
+
+    #[inline]
+    pub fn system_str(&self) -> &str {
+        pod_bytes_to_str(&self.system)
+    }
+
+    #[inline]
+    pub fn title_str(&self) -> &str {
+        pod_bytes_to_str(&self.title)
+    }
+
+    #[inline]
+    pub fn subtitle_str(&self) -> &str {
+        pod_bytes_to_str(&self.subtitle)
+    }
+
+    #[inline]
+    pub fn score_or_pts_str(&self) -> &str {
+        pod_bytes_to_str(&self.score_or_pts)
+    }
+}
+
+impl Default for SyncCelebrationPayload {
+    fn default() -> Self {
+        Self::EMPTY
+    }
+}
+
 /// Immutable lock-free snapshot published atomically by Control Plane to Realtime Plane
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProducerSnapshot {
     pub forced_mode: ForcedEngineMode,
     pub message_payload: Option<Arc<crate::engines::message::MessagePayload>>,
     pub ingame_showcase: Option<Arc<InGameShowcasePayload>>,
+    pub sync_meta: Option<Arc<SyncMetaPayload>>,
+    pub sync_celebration: Option<Arc<SyncCelebrationPayload>>,
     pub generation: u32,
 }
 
@@ -59,6 +283,8 @@ impl Default for ProducerSnapshot {
             forced_mode: ForcedEngineMode::None,
             message_payload: None,
             ingame_showcase: None,
+            sync_meta: None,
+            sync_celebration: None,
             generation: 0,
         }
     }
@@ -100,6 +326,7 @@ pub enum DisplaySourceId {
     Marquee = 30,
     Mqtt = 40,
     InGameShowcase = 45,
+    SyncCelebration = 55,
 }
 
 /// Request lifecycle duration contract

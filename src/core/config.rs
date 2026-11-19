@@ -186,6 +186,24 @@ pub struct MqttConfig {
     pub video_fps: u32,
     pub video_mode: String,
     pub color_boost: String,
+    #[serde(default = "default_true")]
+    pub sync_show_hiscores: bool,
+    #[serde(default = "default_true")]
+    pub sync_show_ra: bool,
+    #[serde(default = "default_true")]
+    pub sync_celebrate_events: bool,
+    #[serde(default = "default_sync_card_duration_sec")]
+    pub sync_card_duration_sec: u32,
+    #[serde(default)]
+    pub ra_web_api_key: String,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_sync_card_duration_sec() -> u32 {
+    8
 }
 
 /// Broker credentials for the MQTT Data engine. Separate
@@ -222,6 +240,10 @@ pub struct SystemConfig {
     pub idle_fighter_interval: u32,
     #[serde(default = "default_fighter_speed")]
     pub idle_fighter_speed: u32,
+    #[serde(default)]
+    pub install_id: String,
+    #[serde(default = "default_true")]
+    pub ota_auto_check: bool,
 }
 
 fn default_fighter_enabled() -> bool {
@@ -304,6 +326,62 @@ pub fn generate_random_token() -> String {
     out
 }
 
+pub fn is_valid_uuid_v4(s: &str) -> bool {
+    let trimmed = s.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() != 36 {
+        return false;
+    }
+    if trimmed.eq_ignore_ascii_case("a4074101-8139-44a4-920e-0ecddf62503c") {
+        return false;
+    }
+    let mut has_nonzero_random_nibble = false;
+    for (idx, &b) in bytes.iter().enumerate() {
+        match idx {
+            8 | 13 | 18 | 23 => {
+                if b != b'-' {
+                    return false;
+                }
+            }
+            14 => {
+                if b != b'4' {
+                    return false;
+                }
+            }
+            19 => {
+                if !matches!(b, b'8' | b'9' | b'a' | b'b' | b'A' | b'B') {
+                    return false;
+                }
+            }
+            _ => {
+                if !b.is_ascii_hexdigit() {
+                    return false;
+                }
+                if b != b'0' {
+                    has_nonzero_random_nibble = true;
+                }
+            }
+        }
+    }
+    has_nonzero_random_nibble
+}
+
+pub fn generate_uuid_v4() -> String {
+    use rand::Rng;
+    let mut rng = rand::thread_rng();
+    let mut bytes: [u8; 16] = rng.gen();
+    bytes[6] = (bytes[6] & 0x0F) | 0x40;
+    bytes[8] = (bytes[8] & 0x3F) | 0x80;
+    format!(
+        "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+        bytes[0], bytes[1], bytes[2], bytes[3],
+        bytes[4], bytes[5],
+        bytes[6], bytes[7],
+        bytes[8], bytes[9],
+        bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
+}
+
 impl Default for MatrixConfig {
     fn default() -> Self {
         Self {
@@ -380,6 +458,11 @@ impl Default for MqttConfig {
             video_fps: 15,
             video_mode: "auto_action".to_string(),
             color_boost: "auto".to_string(),
+            sync_show_hiscores: true,
+            sync_show_ra: true,
+            sync_celebrate_events: true,
+            sync_card_duration_sec: 8,
+            ra_web_api_key: "".to_string(),
         }
     }
 }
@@ -410,6 +493,8 @@ impl Default for SystemConfig {
             idle_fighter_enabled: default_fighter_enabled(),
             idle_fighter_interval: default_fighter_interval(),
             idle_fighter_speed: default_fighter_speed(),
+            install_id: String::new(),
+            ota_auto_check: true,
         }
     }
 }
@@ -433,7 +518,7 @@ impl Default for ConfigSettings {
 
 use crate::core::types::{ForcedEngineMode, InGameShowcasePayload, ProducerSnapshot};
 use arc_swap::ArcSwap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
 pub struct Config {
@@ -444,6 +529,7 @@ pub struct Config {
     pub reset_rotation: AtomicBool,
     pub matrix_power: AtomicBool,
     pub matrix_brightness: AtomicU32,
+    pub system_lang_code: AtomicU8,
     pub producer_snapshot: ArcSwap<ProducerSnapshot>,
     pub image_obj: Mutex<Option<image::RgbImage>>,
     pub image_generation: AtomicU64,
@@ -451,6 +537,32 @@ pub struct Config {
 }
 
 impl Config {
+    #[inline]
+    fn encode_lang_atomic(code: &str) -> u8 {
+        match crate::core::i18n::Lang::from_code(code) {
+            crate::core::i18n::Lang::En => 0,
+            crate::core::i18n::Lang::Fr => 1,
+            crate::core::i18n::Lang::Es => 2,
+        }
+    }
+
+    /// Lock-free read of `system.lang` safe for the realtime H-Core (`matrix-render`) loop.
+    #[inline]
+    pub fn system_lang_fast(&self) -> crate::core::i18n::Lang {
+        match self.system_lang_code.load(Ordering::Acquire) {
+            1 => crate::core::i18n::Lang::Fr,
+            2 => crate::core::i18n::Lang::Es,
+            _ => crate::core::i18n::Lang::En,
+        }
+    }
+
+    /// Atomically publishes a new `system.lang` value for lock-free H-Core consumers.
+    #[inline]
+    pub fn set_system_lang_fast(&self, code: &str) {
+        self.system_lang_code
+            .store(Self::encode_lang_atomic(code), Ordering::Release);
+    }
+
     /// Resolves `path` through any symlink (even if the symlink target does not exist yet)
     /// so atomic `.tmp` writes and `rename()` operate on the underlying target file (e.g.
     /// `data/config.json`) without ever replacing the `config.json` symlink itself.
@@ -636,11 +748,23 @@ impl Config {
             needs_save = true;
         }
 
+        if !is_valid_uuid_v4(&settings.system.install_id) {
+            settings.system.install_id = generate_uuid_v4();
+            needs_save = true;
+        }
+
+        let clamped_card_dur = settings.mqtt.sync_card_duration_sec.clamp(5, 20);
+        if settings.mqtt.sync_card_duration_sec != clamped_card_dur {
+            settings.mqtt.sync_card_duration_sec = clamped_card_dur;
+            needs_save = true;
+        }
+
         let _ = crate::core::config_sanitizer::ConfigSanitizer::sanitize_instances(&mut settings);
 
         // Seed the live daytime brightness from the persisted value so a user's
         // saved brightness survives restarts instead of resetting to full.
         let initial_brightness = settings.system.day_brightness;
+        let initial_lang_code = Self::encode_lang_atomic(&settings.system.lang);
 
         let cfg = Self {
             config_file: Mutex::new(path_buf),
@@ -650,6 +774,7 @@ impl Config {
             reset_rotation: AtomicBool::new(false),
             matrix_power: AtomicBool::new(true),
             matrix_brightness: AtomicU32::new(initial_brightness),
+            system_lang_code: AtomicU8::new(initial_lang_code),
             producer_snapshot: ArcSwap::from_pointee(ProducerSnapshot::default()),
             image_obj: Mutex::new(None),
             image_generation: AtomicU64::new(0),
@@ -740,6 +865,31 @@ impl Config {
         });
     }
 
+    /// Atomically updates and publishes High Score & RetroAchievements POD metadata in the lock-free snapshot.
+    pub fn set_sync_meta(&self, payload: Option<crate::core::types::SyncMetaPayload>) {
+        let meta_arc = payload.map(Arc::new);
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.sync_meta = meta_arc.clone();
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
+    /// Atomically updates and publishes a Priority 55 Celebration POD payload in the lock-free snapshot.
+    pub fn set_sync_celebration(
+        &self,
+        payload: Option<crate::core::types::SyncCelebrationPayload>,
+    ) {
+        let cel_arc = payload.map(Arc::new);
+        self.producer_snapshot.rcu(|current| {
+            let mut next = (**current).clone();
+            next.sync_celebration = cel_arc.clone();
+            next.generation = next.generation.wrapping_add(1);
+            next
+        });
+    }
+
     /// Atomically clears any forced engine override.
     pub fn clear_forced_engine(&self) {
         self.producer_snapshot.rcu(|current| {
@@ -747,6 +897,7 @@ impl Config {
             next.forced_mode = ForcedEngineMode::None;
             next.message_payload = None;
             next.ingame_showcase = None;
+            next.sync_meta = None;
             next.generation = next.generation.wrapping_add(1);
             next
         });
@@ -784,6 +935,7 @@ impl Config {
         use std::io::Write;
         let _guard = self.save_lock.lock();
         let s = self.settings.read().clone();
+        self.set_system_lang_fast(&s.system.lang);
         let Ok(json_str) = serde_json::to_string_pretty(&s) else {
             return false;
         };

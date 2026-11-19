@@ -578,11 +578,11 @@ sequenceDiagram
 
 ## 11. Pipeline d'Affichage Canonique : Arbiter & DisplayRuntime
 
-La rotation n'est pas la seule source à pouvoir occuper la matrice. Les marquees (frontends d'arcade), alertes MQTT, messages one-shot et le lecteur GIF se disputent l'affichage. Le `DisplayArbiter` et le `DisplayRuntime` séparent strictement l'intention d'arbitrage du cycle de vie d'exécution :
+La rotation n'est pas la seule source à pouvoir occuper la matrice. Les marquees (frontends d'arcade), séquences In-Game Showcase (`45`), célébrations d'arcade 60 FPS (`55`), alertes MQTT (`40`), messages one-shot et le lecteur GIF (`20`) se disputent l'affichage. Le `DisplayArbiter` et le `DisplayRuntime` séparent strictement l'intention d'arbitrage du cycle de vie d'exécution :
 
 ```mermaid
 flowchart TD
-    PROD["Producteurs (Rotation, MQTT, Marquee, GIF)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
+    PROD["Producteurs (SyncCelebration 55, InGameShowcase 45, MQTT 40, Marquee 30, GIF 20, Rotation 10)"] -->|DisplayRequest POD| ARB["DisplayArbiter [Option<DisplayRequest>; 8]"]
     ARB -->|DisplayDecision| DRT["DisplayRuntime (Cycle de vie, FSM)"]
     DRT -->|EngineHandle (4 octets)| ERT["EngineRuntime (HandleRegistry, O(1))"]
     ERT -->|Instance moteur| ENG["Engine.update() / Engine.render()"]

@@ -26,6 +26,7 @@
       <div class="logo">
         <h2>🎮 ArcadeMatrix</h2>
         <span id="version-tag" class="version-badge">--</span>
+        <span id="sidebar-ota-badge" class="badge badge-accent" style="display: none; cursor: pointer; margin-left: 0.35rem; font-size: 0.7rem;" onclick="switchPage('system'); switchSystemTab('ota');" data-i18n="ota_update_available">Update Available</span>
       </div>
       <ul class="nav-links">
         <li class="nav-item active" data-page="dashboard">
@@ -773,6 +774,45 @@
                 </div>
               </div>
 
+              <div id="group-fsync-hiscores-ra" style="margin-top: 1rem; padding: 1rem; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);">
+                <div style="margin-bottom: 0.75rem;">
+                  <strong style="font-size: 0.95rem;" data-i18n="fsync_companion_title">🏆 High Scores, RetroAchievements & Celebrations</strong>
+                </div>
+                <div class="form-grid col-2">
+                  <div class="form-group">
+                    <label data-i18n="fsync_show_hiscores">Show Arcade High Scores (Hall of Fame)</label>
+                    <select id="hw-mqtt-sync-show-hiscores" class="input">
+                      <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                      <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="fsync_show_ra">Show RetroAchievements Progress Card</label>
+                    <select id="hw-mqtt-sync-show-ra" class="input">
+                      <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                      <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="form-grid col-2" style="margin-top: 0.75rem;">
+                  <div class="form-group">
+                    <label data-i18n="fsync_celebrate_events">60 FPS Fireworks & Hero Celebrations</label>
+                    <select id="hw-mqtt-sync-celebrate-events" class="input">
+                      <option value="true" data-i18n="mqtt_opt_enabled">Enabled</option>
+                      <option value="false" data-i18n="mqtt_opt_disabled">Disabled</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label data-i18n="fsync_card_duration_sec">High Score / RA Card Duration (5-20s)</label>
+                    <input type="number" id="hw-mqtt-sync-card-duration" class="input" min="5" max="20" value="8">
+                  </div>
+                </div>
+                <div class="form-group" style="margin-top: 0.75rem;">
+                  <label data-i18n="fsync_ra_web_api_key">RetroAchievements Web API Key (Optional)</label>
+                  <input type="password" id="hw-mqtt-ra-web-api-key" class="input" placeholder="Optional" data-i18n-placeholder="ph_optional">
+                </div>
+              </div>
+
               <button id="btn-save-mqtt" class="btn btn-primary" style="margin-top: 1rem; width: 100%;" data-i18n="mqtt_save_btn">Save MQTT Settings</button>
               
               <hr style="margin: 2rem 0; border-color: rgba(255,255,255,0.1);">
@@ -944,6 +984,17 @@
             <div class="ota-info-box" style="margin-bottom: 1rem;">
               <div><span data-i18n="ota_cur_ver">Current Version:</span> <strong id="ota-current-version">--</strong></div>
               <div><span data-i18n="ota_sys_arch">System Architecture:</span> <strong id="ota-current-arch">--</strong></div>
+            </div>
+
+            <div class="form-group" style="margin-bottom: 1rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+              <label style="display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; cursor: pointer;">
+                <input type="checkbox" id="ota-auto-check-enabled" checked style="accent-color: var(--accent-primary);">
+                <span data-i18n="ota_auto_check_label">Automatically check for updates on WebUI startup (every 12h)</span>
+              </label>
+              <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                <a href="https://red77290.github.io/ArcadeMatrix_RPI/#changelog" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; padding: 0.35rem 0.75rem;" data-i18n="ota_visual_changelog_btn">📰 Visual Changelog</a>
+                <a href="https://red77290.github.io/ArcadeMatrix_RPI/#stats" target="_blank" rel="noopener noreferrer" class="btn btn-sm" style="text-decoration: none; padding: 0.35rem 0.75rem;" data-i18n="ota_fleet_stats_btn">📊 Public Fleet Stats</a>
+              </div>
             </div>
 
             <div id="ota-online-card" style="display: none; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">

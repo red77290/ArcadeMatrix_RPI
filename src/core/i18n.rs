@@ -10,10 +10,13 @@ pub enum Lang {
 
 impl Lang {
     pub fn from_code(code: &str) -> Self {
-        match code.trim().to_lowercase().as_str() {
-            "en" => Lang::En,
-            "es" => Lang::Es,
-            _ => Lang::Fr,
+        let trimmed = code.trim();
+        if trimmed.eq_ignore_ascii_case("en") {
+            Lang::En
+        } else if trimmed.eq_ignore_ascii_case("es") {
+            Lang::Es
+        } else {
+            Lang::Fr
         }
     }
 
@@ -952,10 +955,13 @@ pub fn gnews_category_short(lang: Lang, category: &str) -> &'static str {
 
 /// Lookup localized UI/engine string by language code and key.
 pub fn t(lang_code: &str, key: &str) -> &'static str {
-    let lang = match lang_code.trim().to_lowercase().as_str() {
-        "fr" => Lang::Fr,
-        "es" => Lang::Es,
-        _ => Lang::En,
+    let trimmed = lang_code.trim();
+    let lang = if trimmed.eq_ignore_ascii_case("fr") {
+        Lang::Fr
+    } else if trimmed.eq_ignore_ascii_case("es") {
+        Lang::Es
+    } else {
+        Lang::En
     };
     match (key, lang) {
         ("no_api_key", Lang::Fr) => "Cle API manquante",
@@ -990,7 +996,244 @@ pub fn t(lang_code: &str, key: &str) -> &'static str {
         ("showcase_warming", Lang::Es) => "PREPARANDO VIDEO...",
         ("showcase_warming", Lang::En) => "WARMING VIDEO...",
 
+        ("agenda_today_label", Lang::Fr) => "AUJOURD'HUI",
+        ("agenda_today_label", Lang::En) => "TODAY",
+        ("agenda_today_label", Lang::Es) => "HOY",
+
+        ("agenda_tomorrow_label", Lang::Fr) => "DEMAIN",
+        ("agenda_tomorrow_label", Lang::En) => "TOMORROW",
+        ("agenda_tomorrow_label", Lang::Es) => "MAÑANA",
+
+        ("agenda_now_active_label", Lang::Fr) => "EN COURS",
+        ("agenda_now_active_label", Lang::En) => "NOW",
+        ("agenda_now_active_label", Lang::Es) => "EN CURSO",
+
+        ("agenda_free_play_label", Lang::Fr) => "FREE PLAY • RIEN DE PRÉVU",
+        ("agenda_free_play_label", Lang::En) => "FREE PLAY • NO EVENTS",
+        ("agenda_free_play_label", Lang::Es) => "FREE PLAY • SIN EVENTOS",
+
+        ("agenda_next_prefix", Lang::Fr) => "SUIV:",
+        ("agenda_next_prefix", Lang::En) => "NEXT:",
+        ("agenda_next_prefix", Lang::Es) => "SIG:",
+
+        ("sync_high_scores_title", Lang::Fr) => "★ HIGH SCORES ★",
+        ("sync_high_scores_title", Lang::En) => "★ HIGH SCORES ★",
+        ("sync_high_scores_title", Lang::Es) => "★ RÉCORDS ★",
+
+        ("sync_new_record_title", Lang::Fr) => "NEW RECORD!",
+        ("sync_new_record_title", Lang::En) => "NEW RECORD!",
+        ("sync_new_record_title", Lang::Es) => "¡NUEVO RÉCORD!",
+
+        ("sync_achievement_title", Lang::Fr) => "ACHIEVEMENT!",
+        ("sync_achievement_title", Lang::En) => "ACHIEVEMENT!",
+        ("sync_achievement_title", Lang::Es) => "¡LOGRO!",
+
+        ("sync_unlocked_title", Lang::Fr) => "UNLOCKED!",
+        ("sync_unlocked_title", Lang::En) => "UNLOCKED!",
+        ("sync_unlocked_title", Lang::Es) => "¡DESBLOQUEADO!",
+
         _ => "",
+    }
+}
+
+// ----------------------------------------------------------------------------
+// 11. Agenda & Console Sync Celebration / High Scores / RetroAchievements
+// ----------------------------------------------------------------------------
+#[inline]
+pub const fn agenda_today_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "AUJOURD'HUI",
+        Lang::En => "TODAY",
+        Lang::Es => "HOY",
+    }
+}
+
+#[inline]
+pub const fn agenda_tomorrow_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "DEMAIN",
+        Lang::En => "TOMORROW",
+        Lang::Es => "MAÑANA",
+    }
+}
+
+#[inline]
+pub const fn agenda_now_active_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "EN COURS",
+        Lang::En => "NOW",
+        Lang::Es => "EN CURSO",
+    }
+}
+
+#[inline]
+pub const fn agenda_imminent_fmt(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "DANS {} MIN",
+        Lang::En => "IN {} MIN",
+        Lang::Es => "EN {} MIN",
+    }
+}
+
+/// Zero-allocation stack formatter for `"DANS {} MIN"` / `"IN {} MIN"` / `"EN {} MIN"`.
+pub fn format_agenda_imminent_buf(lang: Lang, mins: u32, out: &mut [u8; 24]) -> &str {
+    let prefix: &[u8] = match lang {
+        Lang::Fr => b"DANS ",
+        Lang::En => b"IN ",
+        Lang::Es => b"EN ",
+    };
+    let suffix: &[u8] = b" MIN";
+    let mut pos = 0usize;
+    for &b in prefix {
+        if pos < out.len() {
+            out[pos] = b;
+            pos += 1;
+        }
+    }
+    let m = mins.min(999);
+    if m >= 100 {
+        out[pos] = b'0' + ((m / 100) as u8);
+        pos += 1;
+    }
+    if m >= 10 {
+        out[pos] = b'0' + (((m / 10) % 10) as u8);
+        pos += 1;
+    }
+    out[pos] = b'0' + ((m % 10) as u8);
+    pos += 1;
+    for &b in suffix {
+        if pos < out.len() {
+            out[pos] = b;
+            pos += 1;
+        }
+    }
+    core::str::from_utf8(&out[..pos]).unwrap_or("SOON")
+}
+
+#[inline]
+pub const fn agenda_free_play_label(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "FREE PLAY • RIEN DE PRÉVU",
+        Lang::En => "FREE PLAY • NO EVENTS",
+        Lang::Es => "FREE PLAY • SIN EVENTOS",
+    }
+}
+
+#[inline]
+pub const fn agenda_next_prefix(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "SUIV:",
+        Lang::En => "NEXT:",
+        Lang::Es => "SIG:",
+    }
+}
+
+/// Zero-allocation stack formatter for multi-day agenda headers (`TODAY 16/11`, `DEM. 17/11`, `VEN 20/11 (J+4)`).
+#[allow(clippy::too_many_arguments)]
+pub fn format_agenda_day_banner_buf(
+    lang: Lang,
+    diff_days: i64,
+    weekday_sun0: usize,
+    day: u8,
+    month: u8,
+    include_relative: bool,
+    short_form: bool,
+    out: &mut [u8; 32],
+) -> &str {
+    let mut pos = 0usize;
+    let push_bytes = |buf: &mut [u8; 32], pos: &mut usize, bytes: &[u8]| {
+        for &b in bytes {
+            if *pos < buf.len() {
+                buf[*pos] = b;
+                *pos += 1;
+            }
+        }
+    };
+
+    let prefix = if diff_days <= 0 {
+        if short_form {
+            weather_day_label(lang, weekday_sun0, true, false)
+        } else {
+            agenda_today_label(lang)
+        }
+    } else if diff_days == 1 {
+        if short_form {
+            weather_day_label(lang, weekday_sun0, false, true)
+        } else {
+            agenda_tomorrow_label(lang)
+        }
+    } else {
+        weather_day_label(lang, weekday_sun0, false, false)
+    };
+
+    push_bytes(out, &mut pos, prefix.as_bytes());
+    push_bytes(out, &mut pos, b" ");
+    let d = day.clamp(1, 31);
+    let m = month.clamp(1, 12);
+    push_bytes(
+        out,
+        &mut pos,
+        &[
+            b'0' + (d / 10),
+            b'0' + (d % 10),
+            b'/',
+            b'0' + (m / 10),
+            b'0' + (m % 10),
+        ],
+    );
+
+    if include_relative && !short_form && diff_days > 1 {
+        let dd = (diff_days.min(99)) as u8;
+        match lang {
+            Lang::Fr => push_bytes(out, &mut pos, b" (J+"),
+            Lang::En | Lang::Es => push_bytes(out, &mut pos, b" (+"),
+        }
+        if dd >= 10 {
+            push_bytes(out, &mut pos, &[b'0' + (dd / 10)]);
+        }
+        push_bytes(out, &mut pos, &[b'0' + (dd % 10)]);
+        match lang {
+            Lang::Fr => push_bytes(out, &mut pos, b")"),
+            Lang::En | Lang::Es => push_bytes(out, &mut pos, b"D)"),
+        }
+    }
+
+    core::str::from_utf8(&out[..pos]).unwrap_or("TODAY")
+}
+
+#[inline]
+pub const fn sync_high_scores_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "★ RECORDS ARCADE ★",
+        Lang::En => "★ HIGH SCORES ★",
+        Lang::Es => "★ RÉCORDS ★",
+    }
+}
+
+#[inline]
+pub const fn sync_new_record_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "NOUVEAU RECORD !",
+        Lang::En => "NEW RECORD!",
+        Lang::Es => "¡NUEVO RÉCORD!",
+    }
+}
+
+#[inline]
+pub const fn sync_achievement_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "SUCCÈS RÉTRO !",
+        Lang::En => "ACHIEVEMENT!",
+        Lang::Es => "¡LOGRO RETRO!",
+    }
+}
+
+#[inline]
+pub const fn sync_unlocked_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::Fr => "SUCCÈS DÉBLOQUÉ !",
+        Lang::En => "UNLOCKED!",
+        Lang::Es => "¡DESBLOQUEADO!",
     }
 }
 

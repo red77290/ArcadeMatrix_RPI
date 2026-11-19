@@ -59,13 +59,13 @@
       <circle cx="16" cy="15" r="3" fill="#ffcc00"/>
     </g>
 
-    <text x="96" y="64" fill="#ffffff" font-family="monospace" font-size="13" font-weight="bold">METAL SLUG X — 1CC CLEAR!</text>
-    <text x="96" y="84" fill="#ffcc00" font-family="monospace" font-size="11">HI-SCORE: 4,210,900 PTS</text>
-    <text x="96" y="102" fill="#9ba1a6" font-family="monospace" font-size="10">RECALBOX / BATOCERA / RETROARCH</text>
+    <text x="84" y="64" fill="#ffffff" font-family="monospace" font-size="11.5" font-weight="bold">METAL SLUG X — 1CC CLEAR!</text>
+    <text x="84" y="84" fill="#ffcc00" font-family="monospace" font-size="11">HI-SCORE: 4,210,900 PTS</text>
+    <text x="84" y="102" fill="#9ba1a6" font-family="monospace" font-size="9.5">RECALBOX / BATOCERA / RETROARCH</text>
 
     <rect x="16" y="120" width="256" height="22" rx="5" fill="url(#berryGrad)">
       <animate attributeName="opacity" values="0.8;1;0.8" dur="1.8s" repeatCount="indefinite"/>
     </rect>
-    <text x="144" y="135" fill="#080612" font-family="monospace" font-size="10" font-weight="bold" text-anchor="middle">120 HZ HZ-LOCKED CELEBRATION SCENE</text>
+    <text x="144" y="135" fill="#080612" font-family="monospace" font-size="10" font-weight="bold" text-anchor="middle">120 HZ LOCKED CELEBRATION SCENE</text>
   </g>
 </svg>

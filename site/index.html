@@ -25,6 +25,12 @@
       box-sizing: border-box;
     }
 
+    html {
+      max-width: 100%;
+      overflow-x: hidden;
+      -webkit-text-size-adjust: 100%;
+    }
+
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       background-color: var(--bg-color);
@@ -32,6 +38,9 @@
       margin: 0;
       padding: 0;
       min-height: 100vh;
+      max-width: 100%;
+      overflow-x: hidden;
+      overflow-wrap: break-word;
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -45,7 +54,7 @@
     .topbar {
       width: 100%;
       max-width: 1120px;
-      padding: 1.1rem 1.5rem 0;
+      padding: 1.1rem 1.25rem 0;
       display: flex;
       flex-wrap: wrap;
       align-items: center;
@@ -56,15 +65,21 @@
     .brand-pill {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.6rem;
       padding: 0.45rem 0.9rem;
+      max-width: 100%;
+      min-width: 0;
       border-radius: 999px;
       background: rgba(255, 0, 85, 0.1);
       border: 1px solid rgba(255, 0, 85, 0.32);
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.82rem;
+      line-height: 1.35;
       color: #ff6699;
       letter-spacing: 0.3px;
+      text-align: center;
+      overflow-wrap: anywhere;
     }
 
     .topbar-right {
@@ -72,14 +87,19 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 0.65rem;
+      max-width: 100%;
+      min-width: 0;
     }
 
     .portal-switch-link,
     .gh-link {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.45rem;
       padding: 0.45rem 0.85rem;
+      max-width: 100%;
+      min-width: 0;
       border-radius: 10px;
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid var(--glass-border);
@@ -87,6 +107,9 @@
       text-decoration: none;
       font-size: 0.85rem;
       font-weight: 500;
+      line-height: 1.3;
+      text-align: center;
+      overflow-wrap: anywhere;
       transition: all 0.25s ease;
     }
 
@@ -103,6 +126,7 @@
 
     .lang-switcher {
       display: inline-flex;
+      flex-shrink: 0;
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--glass-border);
       border-radius: 10px;
@@ -127,7 +151,8 @@
 
     .container {
       max-width: 1120px;
-      width: 94%;
+      width: calc(100% - 2rem);
+      min-width: 0;
       margin: 1.25rem auto 2rem;
       padding: 2.25rem;
       background: var(--glass-bg);
@@ -141,10 +166,13 @@
     .hero-header {
       text-align: center;
       margin-bottom: 1.75rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     h1 {
-      font-size: 2.4rem;
+      font-size: clamp(1.45rem, 5.2vw, 2.4rem);
+      line-height: 1.2;
       font-weight: 800;
       margin-top: 0;
       margin-bottom: 0.5rem;
@@ -152,13 +180,16 @@
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       letter-spacing: -0.5px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .subtitle {
       color: var(--text-muted);
-      font-size: 1.05rem;
+      font-size: clamp(0.92rem, 2.4vw, 1.05rem);
       margin-bottom: 1.5rem;
       line-height: 1.6;
+      overflow-wrap: anywhere;
     }
 
     .nav-tabs {
@@ -169,19 +200,27 @@
       margin-bottom: 2rem;
       padding-bottom: 1.25rem;
       border-bottom: 1px solid var(--glass-border);
+      min-width: 0;
+      max-width: 100%;
     }
 
     .tab-btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.5rem;
       padding: 0.7rem 1.35rem;
+      max-width: 100%;
+      min-width: 0;
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.04);
       border: 1px solid var(--glass-border);
       color: var(--text-muted);
       font-size: 0.95rem;
       font-weight: 600;
+      line-height: 1.3;
+      text-align: center;
+      overflow-wrap: anywhere;
       cursor: pointer;
       transition: all 0.25s ease;
     }
@@ -201,6 +240,8 @@
 
     .tab-panel {
       display: none;
+      min-width: 0;
+      max-width: 100%;
       animation: fadeIn 0.25s ease;
     }
 
@@ -221,17 +262,30 @@
       padding: 1.5rem;
       margin-bottom: 2rem;
       text-align: left;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .terminal-header {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
+      gap: 0.75rem;
       margin-bottom: 0.85rem;
+      min-width: 0;
+    }
+
+    .terminal-header > div:first-child {
+      min-width: 0;
+      flex: 1 1 180px;
+      line-height: 1.4;
+      overflow-wrap: anywhere;
     }
 
     .terminal-dots {
       display: inline-flex;
+      flex-shrink: 0;
       gap: 6px;
     }
 
@@ -253,19 +307,33 @@
       border-radius: 10px;
       padding: 0.9rem 1.1rem;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 0.9rem;
+      font-size: 0.88rem;
       color: var(--accent-cyan);
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    #install-cmd {
+      min-width: 0;
+      max-width: 100%;
+      flex: 1 1 260px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .copy-btn {
+      flex-shrink: 0;
+      max-width: 100%;
       background: rgba(0, 240, 255, 0.15);
       border: 1px solid rgba(0, 240, 255, 0.4);
       color: var(--accent-cyan);
       border-radius: 8px;
-      padding: 0.48rem 0.95rem;
+      padding: 0.5rem 0.95rem;
       font-family: 'Inter', sans-serif;
       font-size: 0.84rem;
       font-weight: 600;
+      text-align: center;
       cursor: pointer;
       transition: all 0.2s ease;
     }
@@ -277,14 +345,14 @@
 
     .sd-grid {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: 1.5rem;
       margin-bottom: 1.5rem;
     }
 
     @media (min-width: 780px) {
       .sd-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -298,6 +366,13 @@
       flex-direction: column;
       justify-content: space-between;
       transition: all 0.3s ease;
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .sd-card > div {
+      min-width: 0;
+      max-width: 100%;
     }
 
     .sd-card:hover {
@@ -308,8 +383,10 @@
 
     .sd-card h2 {
       margin: 0.4rem 0 0.65rem;
-      font-size: 1.3rem;
+      font-size: 1.25rem;
+      line-height: 1.3;
       color: #fff;
+      overflow-wrap: anywhere;
     }
 
     .sd-card p {
@@ -317,6 +394,7 @@
       font-size: 0.93rem;
       line-height: 1.55;
       margin: 0 0 1.35rem 0;
+      overflow-wrap: anywhere;
     }
 
     .arch-badge {
@@ -330,6 +408,8 @@
       border: 1px solid rgba(0, 230, 118, 0.35);
       color: var(--accent-green);
       width: fit-content;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     .arch-badge.armhf {
@@ -343,15 +423,28 @@
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
-      padding: 0.8rem 1.25rem;
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      padding: 0.8rem 1rem;
       border-radius: 10px;
       background: linear-gradient(135deg, rgba(0, 230, 118, 0.18), rgba(0, 240, 255, 0.18));
       border: 1px solid rgba(0, 230, 118, 0.45);
       color: #fff;
       font-weight: 600;
-      font-size: 0.94rem;
+      font-size: 0.92rem;
+      line-height: 1.35;
+      text-align: center;
       text-decoration: none;
+      overflow-wrap: anywhere;
+      word-break: break-word;
       transition: all 0.25s ease;
+    }
+
+    .sd-dl-btn > span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .sd-dl-btn:hover {
@@ -365,6 +458,8 @@
       display: flex;
       flex-direction: column;
       gap: 1.75rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .release-post {
@@ -373,6 +468,8 @@
       border-radius: 18px;
       padding: 1.75rem;
       text-align: left;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .post-header {
@@ -382,6 +479,8 @@
       justify-content: space-between;
       gap: 0.75rem;
       margin-bottom: 1rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .post-meta {
@@ -389,6 +488,8 @@
       flex-wrap: wrap;
       align-items: center;
       gap: 0.55rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .ver-badge {
@@ -421,10 +522,13 @@
     .tag-FIX { background: rgba(255, 0, 85, 0.18); color: #ff6699; }
 
     .post-title {
-      font-size: 1.35rem;
+      font-size: clamp(1.1rem, 3.6vw, 1.35rem);
+      line-height: 1.3;
       font-weight: 700;
       margin: 0.3rem 0 0.6rem;
       color: #fff;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .post-summary {
@@ -432,10 +536,13 @@
       font-size: 0.96rem;
       line-height: 1.6;
       margin-bottom: 1.25rem;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .post-media {
       width: 100%;
+      max-width: 100%;
       border-radius: 12px;
       overflow: hidden;
       border: 1px solid var(--glass-border);
@@ -451,14 +558,14 @@
 
     .before-after-grid {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: 1rem;
       margin-bottom: 1.25rem;
     }
 
     @media (min-width: 760px) {
       .before-after-grid {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -467,6 +574,10 @@
       border-radius: 12px;
       font-size: 0.9rem;
       line-height: 1.5;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
 
     .ba-before {
@@ -493,17 +604,28 @@
 
     .highlights-list {
       margin: 0 0 1.25rem 0;
-      padding-left: 1.2rem;
+      padding-left: 1.15rem;
       color: #dce2ea;
       font-size: 0.92rem;
       line-height: 1.65;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .highlights-list li {
+      margin-bottom: 0.4rem;
     }
 
     .release-dl-btn {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.45rem;
       padding: 0.55rem 1.05rem;
+      max-width: 100%;
+      min-width: 0;
       border-radius: 9px;
       background: rgba(255, 0, 85, 0.14);
       border: 1px solid rgba(255, 0, 85, 0.4);
@@ -511,6 +633,14 @@
       text-decoration: none;
       font-size: 0.86rem;
       font-weight: 600;
+      line-height: 1.35;
+      text-align: center;
+      overflow-wrap: anywhere;
+    }
+
+    .release-dl-btn:hover {
+      background: var(--accent-magenta);
+      color: #fff;
     }
 
     /* Tab 3: Stats */
@@ -525,16 +655,29 @@
       border-radius: 12px;
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid var(--glass-border);
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    .stats-status-bar > div {
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     .source-badge {
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 0.45rem;
+      max-width: 100%;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.8rem;
+      line-height: 1.35;
       padding: 0.3rem 0.7rem;
       border-radius: 999px;
+      text-align: center;
+      overflow-wrap: anywhere;
     }
 
     .source-live {
@@ -551,9 +694,21 @@
 
     .kpi-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 1.1rem;
       margin-bottom: 1.75rem;
+    }
+
+    @media (min-width: 480px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (min-width: 920px) {
+      .kpi-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
     }
 
     .kpi-card {
@@ -562,37 +717,43 @@
       border-radius: 14px;
       padding: 1.25rem;
       text-align: left;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .kpi-label {
       font-size: 0.82rem;
       color: var(--text-muted);
       margin-bottom: 0.45rem;
+      overflow-wrap: anywhere;
     }
 
     .kpi-value {
       font-family: 'JetBrains Mono', monospace;
-      font-size: 1.85rem;
+      font-size: clamp(1.4rem, 3.8vw, 1.85rem);
+      line-height: 1.2;
       font-weight: 700;
       color: #fff;
+      overflow-wrap: anywhere;
     }
 
     .kpi-sub {
       font-size: 0.78rem;
       color: var(--accent-cyan);
       margin-top: 0.35rem;
+      overflow-wrap: anywhere;
     }
 
     .stats-grid-2col {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr);
       gap: 1.5rem;
       margin-bottom: 1.5rem;
     }
 
-    @media (min-width: 860px) {
+    @media (min-width: 960px) {
       .stats-grid-2col {
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
@@ -602,12 +763,16 @@
       border-radius: 16px;
       padding: 1.5rem;
       text-align: left;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .stats-panel-box h3 {
       margin: 0 0 0.4rem 0;
       font-size: 1.08rem;
+      line-height: 1.35;
       color: #fff;
+      overflow-wrap: anywhere;
     }
 
     .stats-panel-sub {
@@ -615,19 +780,27 @@
       font-size: 0.83rem;
       margin-bottom: 1.15rem;
       line-height: 1.45;
+      overflow-wrap: anywhere;
     }
 
     .donut-split {
       display: grid;
-      grid-template-columns: 124px 1fr;
-      gap: 1.15rem;
+      grid-template-columns: 116px minmax(0, 1fr);
+      gap: 1rem;
       align-items: center;
       margin-bottom: 1rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
-    @media (max-width: 520px) {
+    .donut-split > * {
+      min-width: 0;
+      max-width: 100%;
+    }
+
+    @media (max-width: 560px) {
       .donut-split {
-        grid-template-columns: 1fr;
+        grid-template-columns: minmax(0, 1fr);
         justify-items: center;
       }
       .donut-split > div:last-child {
@@ -651,14 +824,32 @@
 
     .bar-row {
       margin-bottom: 0.78rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .bar-row-header {
       display: flex;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 0.5rem;
-      font-size: 0.84rem;
+      gap: 0.6rem;
+      font-size: 0.83rem;
       margin-bottom: 0.28rem;
+      min-width: 0;
+    }
+
+    .bar-row-header > span:first-child {
+      min-width: 0;
+      flex: 1 1 auto;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .bar-row-header > span:last-child {
+      flex-shrink: 0;
+      white-space: nowrap;
+      text-align: right;
+      line-height: 1.35;
     }
 
     .bar-track {
@@ -690,6 +881,7 @@
       margin-top: 0.6rem;
       font-size: 0.76rem;
       color: var(--text-muted);
+      min-width: 0;
     }
 
     .chart-legend-item {
@@ -697,11 +889,14 @@
       align-items: center;
       gap: 0.35rem;
       font-family: 'JetBrains Mono', monospace;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     .chart-legend-dot {
       width: 8px;
       height: 8px;
+      flex-shrink: 0;
       border-radius: 50%;
       display: inline-block;
     }
@@ -711,6 +906,7 @@
       flex-wrap: wrap;
       gap: 0.45rem;
       margin-bottom: 1rem;
+      min-width: 0;
     }
 
     .filter-pill {
@@ -721,6 +917,8 @@
       padding: 0.32rem 0.65rem;
       font-size: 0.78rem;
       font-weight: 600;
+      max-width: 100%;
+      overflow-wrap: anywhere;
       cursor: pointer;
     }
 
@@ -732,22 +930,26 @@
 
     .table-wrap {
       width: 100%;
+      max-width: 100%;
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
       margin-top: 0.85rem;
+      border-radius: 8px;
     }
 
     .cross-matrix-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       font-family: 'JetBrains Mono', monospace;
     }
 
     .cross-matrix-table th,
     .cross-matrix-table td {
-      padding: 0.48rem 0.6rem;
+      padding: 0.38rem 0.42rem;
       border: 1px solid rgba(255, 255, 255, 0.08);
       text-align: center;
+      white-space: nowrap;
     }
 
     .cross-matrix-table th {
@@ -768,18 +970,44 @@
       border: 1px dashed rgba(255, 255, 255, 0.14);
       padding: 0.9rem 1.2rem;
       text-align: left;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+    }
+
+    .gh-supplement-details > .stats-grid-2col > div {
+      min-width: 0;
+      max-width: 100%;
     }
 
     .gh-supplement-details summary {
       cursor: pointer;
       font-size: 0.88rem;
       font-weight: 600;
+      line-height: 1.4;
       color: var(--text-muted);
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 0.75rem;
+      gap: 0.65rem;
       list-style: none;
+    }
+
+    .gh-supplement-details summary > span:first-child {
+      min-width: 0;
+      flex: 1 1 220px;
+      overflow-wrap: anywhere;
+    }
+
+    #gh-supp-total-pill {
+      flex-shrink: 0;
+      max-width: 100%;
+      padding: 0.22rem 0.6rem;
+      border-radius: 6px;
+      background: rgba(255, 204, 0, 0.08);
+      border: 1px solid rgba(255, 204, 0, 0.24);
+      overflow-wrap: anywhere;
     }
 
     .gh-supplement-details summary::-webkit-details-marker {
@@ -795,6 +1023,7 @@
       color: #e6c86e;
       font-size: 0.8rem;
       line-height: 1.45;
+      overflow-wrap: anywhere;
     }
 
     .privacy-banner {
@@ -807,19 +1036,164 @@
       color: var(--text-muted);
       text-align: left;
       line-height: 1.55;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
     }
 
     footer {
+      width: 100%;
+      max-width: 1120px;
       margin-top: 0.5rem;
+      padding: 0 1rem 2.2rem;
       font-size: 0.85rem;
       color: var(--text-muted);
       text-align: center;
-      padding-bottom: 2.2rem;
+      overflow-wrap: anywhere;
     }
 
     footer a {
       color: var(--text-muted);
       text-decoration: underline;
+    }
+
+    /* Mobile & Small Tablet Responsive Refinements */
+    @media (max-width: 768px) {
+      .container {
+        width: calc(100% - 1.5rem);
+        padding: 1.5rem 1.2rem;
+        border-radius: 18px;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .topbar {
+        padding: 0.85rem 0.75rem 0;
+        justify-content: center;
+        gap: 0.55rem;
+      }
+
+      .brand-pill {
+        width: 100%;
+        border-radius: 12px;
+        font-size: 0.76rem;
+        padding: 0.45rem 0.75rem;
+      }
+
+      .topbar-right {
+        width: 100%;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .portal-switch-link,
+      .gh-link {
+        font-size: 0.8rem;
+        padding: 0.42rem 0.72rem;
+      }
+
+      .cmd-box {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0.8rem 0.9rem;
+        gap: 0.65rem;
+      }
+
+      #install-cmd {
+        flex: 1 1 auto;
+        font-size: 0.8rem;
+      }
+
+      .copy-btn {
+        width: 100%;
+        padding: 0.58rem 0.9rem;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .nav-tabs {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+        margin-bottom: 1.4rem;
+        padding-bottom: 1rem;
+      }
+
+      .tab-btn {
+        width: 100%;
+        padding: 0.65rem 1rem;
+        font-size: 0.9rem;
+      }
+
+      .terminal-card {
+        padding: 1.15rem 1rem;
+        margin-bottom: 1.35rem;
+      }
+
+      .sd-card {
+        padding: 1.3rem 1.05rem;
+      }
+
+      .sd-card h2 {
+        font-size: 1.15rem;
+      }
+
+      .sd-dl-btn {
+        font-size: 0.78rem;
+        padding: 0.72rem 0.65rem;
+      }
+
+      .release-post {
+        padding: 1.2rem 1rem;
+        border-radius: 14px;
+      }
+
+      .ba-box {
+        padding: 0.85rem 0.95rem;
+        font-size: 0.86rem;
+      }
+
+      .stats-status-bar {
+        padding: 0.75rem 0.95rem;
+      }
+
+      .source-badge {
+        width: 100%;
+        border-radius: 10px;
+      }
+
+      .kpi-card {
+        padding: 1rem;
+      }
+
+      .stats-panel-box {
+        padding: 1.15rem 0.95rem;
+        border-radius: 14px;
+      }
+
+      .privacy-banner {
+        padding: 0.85rem 1rem;
+        font-size: 0.82rem;
+      }
+
+      .gh-supplement-details {
+        padding: 0.85rem 0.95rem;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .release-dl-btn {
+        width: 100%;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .container {
+        width: calc(100% - 1rem);
+        padding: 1.15rem 0.85rem;
+        margin-top: 0.9rem;
+        border-radius: 16px;
+      }
     }
   </style>
 </head>
@@ -1496,7 +1870,7 @@
     }
 
     function renderEmptyNote(msg) {
-      return `<div style="padding:0.75rem 0.95rem; border-radius:8px; background:rgba(255,255,255,0.025); border:1px dashed rgba(255,255,255,0.12); color:#9ba1a6; font-size:0.82rem;">${msg}</div>`;
+      return `<div style="padding:0.75rem 0.95rem; border-radius:8px; background:rgba(255,255,255,0.025); border:1px dashed rgba(255,255,255,0.12); color:#9ba1a6; font-size:0.82rem; line-height:1.45; overflow-wrap:anywhere;">${msg}</div>`;
     }
 
     function renderDonutSvg(segments, centerValue, centerSub) {
@@ -1505,6 +1879,11 @@
       const circ = 2 * Math.PI * r;
       const total = segments.reduce((acc, s) => acc + Math.max(0, Number(s.value || 0)), 0);
       let offset = 0;
+
+      const valStr = String(centerValue ?? "—");
+      const subStr = String(centerSub ?? "");
+      const valFontSize = valStr.length > 9 ? 10 : valStr.length > 6 ? 12 : 15;
+      const subFontSize = subStr.length > 12 ? 7 : 8.5;
 
       const arcs = total > 0
         ? segments
@@ -1525,11 +1904,11 @@
         : "";
 
       return `
-        <svg viewBox="0 0 116 116" width="116" height="116" aria-hidden="true">
+        <svg viewBox="0 0 116 116" width="116" height="116" style="display:block; max-width:100%; height:auto;" aria-hidden="true">
           <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="12" />
           ${arcs}
-          <text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="#ffffff" font-family="'JetBrains Mono', monospace" font-size="15" font-weight="700">${centerValue}</text>
-          <text x="${cx}" y="${cy + 14}" text-anchor="middle" fill="#8e95a5" font-family="'JetBrains Mono', monospace" font-size="8.5">${centerSub}</text>
+          <text x="${cx}" y="${cy - 2}" text-anchor="middle" fill="#ffffff" font-family="'JetBrains Mono', monospace" font-size="${valFontSize}" font-weight="700">${valStr}</text>
+          <text x="${cx}" y="${cy + 14}" text-anchor="middle" fill="#8e95a5" font-family="'JetBrains Mono', monospace" font-size="${subFontSize}">${subStr}</text>
         </svg>
       `;
     }
@@ -1540,13 +1919,16 @@
       const plotH = h - padT - padB;
 
       if (!Array.isArray(history) || history.length === 0) {
+        const emptyH = 92;
+        const emptyPlotH = emptyH - 16 - 18;
         return `
-          <svg viewBox="0 0 ${w} ${h}" width="100%" height="145" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
-            <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.14)" stroke-width="1" />
-            <line x1="${padL}" y1="${padT + plotH / 2}" x2="${w - padR}" y2="${padT + plotH / 2}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
-            <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#6c7686" font-family="monospace" font-size="9">0</text>
-            <text x="${w / 2}" y="${padT + plotH / 2 + 4}" text-anchor="middle" fill="#8e95a5" font-family="sans-serif" font-size="11">${dict.empty_curve}</text>
+          <svg viewBox="0 0 ${w} ${emptyH}" style="width:100%; height:auto; display:block; margin-bottom:0.65rem; background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);" aria-hidden="true">
+            <line x1="${padL}" y1="16" x2="${w - padR}" y2="16" stroke="rgba(255,255,255,0.05)" stroke-dasharray="4 4" />
+            <line x1="${padL}" y1="${16 + emptyPlotH / 2}" x2="${w - padR}" y2="${16 + emptyPlotH / 2}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="4 4" />
+            <line x1="${padL}" y1="${16 + emptyPlotH}" x2="${w - padR}" y2="${16 + emptyPlotH}" stroke="rgba(255,255,255,0.14)" stroke-width="1" />
+            <text x="${padL - 6}" y="${16 + emptyPlotH + 3}" text-anchor="end" fill="#6c7686" font-family="monospace" font-size="10">0</text>
           </svg>
+          ${renderEmptyNote(dict.empty_curve)}
         `;
       }
 
@@ -1602,15 +1984,15 @@
 
       return {
         svg: `
-          <svg viewBox="0 0 ${w} ${h}" width="100%" height="155" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+          <svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; display:block; background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
             <line x1="${padL}" y1="${padT}" x2="${w - padR}" y2="${padT}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3 3" />
             <line x1="${padL}" y1="${padT + plotH / 2}" x2="${w - padR}" y2="${padT + plotH / 2}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3 3" />
             <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.16)" />
-            <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${maxTotal}</text>
-            <text x="${padL - 6}" y="${padT + plotH / 2 + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${midVal}</text>
-            <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">0</text>
-            <text x="${padL}" y="${h - 7}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="9">${firstDay}</text>
-            <text x="${w - padR}" y="${h - 7}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${lastDay}</text>
+            <text x="${padL - 6}" y="${padT + 4}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">${maxTotal}</text>
+            <text x="${padL - 6}" y="${padT + plotH / 2 + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">${midVal}</text>
+            <text x="${padL - 6}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">0</text>
+            <text x="${padL}" y="${h - 7}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="10">${firstDay}</text>
+            <text x="${w - padR}" y="${h - 7}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">${lastDay}</text>
             ${totalLine}
             ${seriesSvg}
           </svg>
@@ -1626,7 +2008,7 @@
     }
 
     function renderNewDevicesBarSvg(dailyNew, new30dCount, dict) {
-      const w = 480, h = 148, padL = 30, padR = 14, padT = 24, padB = 24;
+      const w = 480, h = 148, padL = 30, padR = 14, padT = 26, padB = 24;
       const plotW = w - padL - padR;
       const plotH = h - padT - padB;
 
@@ -1658,14 +2040,14 @@
       }).join("");
 
       return `
-        <svg viewBox="0 0 ${w} ${h}" width="100%" height="148" style="background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
-          <text x="${padL}" y="15" fill="#00e676" font-family="'JetBrains Mono', monospace" font-size="10" font-weight="700">+${new30dCount} ${dict.new_30d_badge}</text>
+        <svg viewBox="0 0 ${w} ${h}" style="width:100%; height:auto; display:block; background:rgba(0,0,0,0.24); border-radius:10px; border:1px solid rgba(255,255,255,0.06);">
+          <text x="${padL}" y="16" fill="#00e676" font-family="'JetBrains Mono', monospace" font-size="11" font-weight="700">+${new30dCount} ${dict.new_30d_badge}</text>
           <line x1="${padL}" y1="${padT + plotH}" x2="${w - padR}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.14)" />
-          <text x="${padL - 5}" y="${padT + 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${maxCnt}</text>
-          <text x="${padL - 5}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">0</text>
+          <text x="${padL - 5}" y="${padT + 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">${maxCnt}</text>
+          <text x="${padL - 5}" y="${padT + plotH + 3}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">0</text>
           ${bars}
-          <text x="${padL}" y="${h - 6}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="9">${days[0].day.slice(5)}</text>
-          <text x="${w - padR}" y="${h - 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="9">${days[29].day.slice(5)}</text>
+          <text x="${padL}" y="${h - 6}" text-anchor="start" fill="#8e95a5" font-family="monospace" font-size="10">${days[0].day.slice(5)}</text>
+          <text x="${w - padR}" y="${h - 6}" text-anchor="end" fill="#8e95a5" font-family="monospace" font-size="10">${days[29].day.slice(5)}</text>
         </svg>
       `;
     }

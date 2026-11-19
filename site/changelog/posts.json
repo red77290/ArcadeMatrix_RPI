@@ -1,14 +1,14 @@
 {
   "project": "rpi",
-  "latest_version": "v3.0.1",
+  "latest_version": "v4.2.0",
   "posts": [
     {
-      "version": "v3.0.1",
-      "date": "2026-11-16",
+      "version": "v4.2.0",
+      "date": "2026-11-19",
       "channel": "stable",
       "tags": ["NEW", "PERF", "FIX"],
       "media": "changelog/media/rpi-agenda-celebration.svg",
-      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.1",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.2.0",
       "title": {
         "en": "iCal Agenda Engine, RetroAchievements Fireworks & Anonymous OTA Proxy",
         "fr": "Moteur Agenda iCal, Feux d'Artifice RetroAchievements & Proxy OTA Anonyme",
@@ -34,31 +34,31 @@
       "highlights": {
         "en": [
           "NEW — iCal Agenda Engine ('agenda'): Asynchronous Tokio ICS poller with countdown badges, daily schedule views, and zero render-thread blocking.",
-          "NEW — RetroAchievements & High Score Celebrations: Instant trophy unlock fireworks and scrolling personal best banners from Recalbox, Batocera, and RetroArch.",
+          "NEW — RetroAchievements & High Score Celebrations: Instant trophy unlock fireworks and scrolling personal best banners from Recalbox, Batocera, and RetroPie.",
           "PERF — Cloudflare Edge OTA Proxy: 10-minute Edge cache with automatic fallback to GitHub API and anonymous UUID v4 version migration tracking (Pi Models & 64-bit/32-bit OS).",
-          "FIX — Improved Tate (90°/270°) canvas stride alignment for multi-chained HUB75 panels."
+          "FIX — Hardened Windows OpenSSH & WebUI SSH console installers plus multi-format MAME/FBNeo .hi/NVRAM and localized [RCHEEVOS] discovery."
         ],
         "fr": [
           "NEW — Moteur Agenda iCal ('agenda') : Poller ICS asynchrone Tokio avec badges de compte à rebours, vue planning et zéro blocage du thread de rendu.",
-          "NEW — Célébrations RetroAchievements & High Scores : Feux d'artifice instantanés de trophées débloqués et bannières de records depuis Recalbox, Batocera et RetroArch.",
+          "NEW — Célébrations RetroAchievements & High Scores : Feux d'artifice instantanés de trophées débloqués et bannières de records depuis Recalbox, Batocera et RetroPie.",
           "PERF — Proxy OTA Cloudflare Edge : Cache Edge 10 min avec repli automatique vers l'API GitHub et suivi anonyme UUID v4 des migrations (modèles de Pi & OS 64-bit/32-bit).",
-          "FIX — Alignement amélioré du canvas en rotation Tate (90°/270°) pour les dalles HUB75 chaînées."
+          "FIX — Durcissement des installeurs SSH Windows OpenSSH & WebUI + décodage multi-format des high scores MAME/FBNeo (.hi/NVRAM) et logs [RCHEEVOS] FR/EN/ES."
         ],
         "es": [
           "NEW — Motor Agenda iCal ('agenda'): Poller ICS asíncrono en Tokio con insignias de cuenta regresiva y cero bloqueos en el hilo de renderizado.",
-          "NEW — Celebraciones RetroAchievements y High Scores: Fuegos artificiales instantáneos de trofeos y récords desde Recalbox, Batocera y RetroArch.",
+          "NEW — Celebraciones RetroAchievements y High Scores: Fuegos artificiales instantáneos de trofeos y récords desde Recalbox, Batocera y RetroPie.",
           "PERF — Proxy OTA Cloudflare Edge: Caché Edge de 10 min con respaldo automático a la API de GitHub y seguimiento anónimo UUID v4 (modelos de Pi y SO de 64/32 bits).",
-          "FIX — Alineación mejorada en rotación Tate (90°/270°) para paneles HUB75 encadenados."
+          "FIX — Instaladores SSH endurecidos para Windows OpenSSH y WebUI + extracción multiformato de récords MAME/FBNeo (.hi/NVRAM) y registros [RCHEEVOS] ES/FR/EN."
         ]
       }
     },
     {
-      "version": "v3.0.0",
+      "version": "v4.1.0",
       "date": "2026-10-25",
       "channel": "stable",
       "tags": ["NEW", "PERF"],
       "media": "changelog/media/rpi-v16-locked.svg",
-      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v3.0.0",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.1.0",
       "title": {
         "en": "V1.6-FinalLocked Zero-Allocation Rust Runtime & Dual Arch SD Images",
         "fr": "Runtime Rust V1.6-FinalLocked Zéro Allocation & Images SD Dual-Arch",

@@ -7,8 +7,6 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
 
 permissions:

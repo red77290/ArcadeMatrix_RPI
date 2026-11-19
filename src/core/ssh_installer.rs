@@ -120,54 +120,116 @@ fn ssh_exec(sess: &Session, cmd: &str, step_label: &str) -> Result<(i32, String)
     Ok((status, out))
 }
 
-fn ssh_write_file(sess: &Session, remote_path: &str, content: &str) -> Result<(), String> {
-    let escaped = remote_path.replace('\'', "'\\''");
-    let mut channel = sess
-        .channel_session()
-        .map_err(|e| format!("SSH channel error writing {}: {}", remote_path, e))?;
-    channel
-        .exec(&format!("cat > '{}'", escaped))
-        .map_err(|e| format!("SSH exec 'cat > {}' failed: {}", remote_path, e))?;
-    channel
-        .write_all(content.as_bytes())
-        .map_err(|e| format!("SSH write_all to {} failed: {}", remote_path, e))?;
-    channel
-        .send_eof()
-        .map_err(|e| format!("SSH send_eof to {} failed: {}", remote_path, e))?;
-    let mut out = String::new();
-    let _ = channel.read_to_string(&mut out);
-    channel.wait_close().ok();
+fn normalize_host_input(raw: &str) -> String {
+    let mut s = raw.trim().trim_matches(|c| c == '"' || c == '\'').trim();
+    if let Some(rest) = s
+        .strip_prefix("http://")
+        .or_else(|| s.strip_prefix("HTTP://"))
+        .or_else(|| s.strip_prefix("https://"))
+        .or_else(|| s.strip_prefix("HTTPS://"))
+    {
+        s = rest;
+    }
+    if let Some(before_slash) = s.split('/').next() {
+        s = before_slash.trim();
+    }
+    if let Some(rest) = s.strip_prefix('[') {
+        if let Some((ipv6_inner, after_bracket)) = rest.split_once(']') {
+            let after = after_bracket.trim();
+            if after.is_empty()
+                || after
+                    .strip_prefix(':')
+                    .is_some_and(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+            {
+                return ipv6_inner.trim().to_string();
+            }
+        }
+    }
+    if s.matches(':').count() == 1 {
+        if let Some((host, port)) = s.rsplit_once(':') {
+            if !port.is_empty() && port.chars().all(|c| c.is_ascii_digit()) {
+                return host.trim().to_string();
+            }
+        }
+    }
+    s.to_string()
+}
+
+fn validate_safe_host(host: &str, label: &str) -> Result<(), String> {
+    if host.is_empty() {
+        return Err(format!("{} is required.", label));
+    }
+    let valid = host
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-' | ':'));
+    if !valid {
+        return Err(format!(
+            "{} contains invalid characters: '{}'. Provide a valid IP address or hostname.",
+            label, host
+        ));
+    }
     Ok(())
 }
 
-pub fn install_sync_script(
-    target_ip: &str,
-    matrix_ip: &str,
+fn build_auth_candidates(
+    explicit_os: Option<TargetOS>,
     custom_user: Option<String>,
     custom_pass: Option<String>,
-    target_os: Option<String>,
-) -> Result<String, String> {
-    let addr = (target_ip.trim(), 22)
-        .to_socket_addrs()
-        .map_err(|e| format!("Invalid target IP or hostname '{}': {}", target_ip, e))?
-        .next()
-        .ok_or_else(|| format!("Could not resolve target host '{}'", target_ip))?;
-    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
-        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+) -> Vec<(&'static str, String, String)> {
+    let mut auth_candidates: Vec<(&'static str, String, String)> = Vec::new();
+    let u_opt = custom_user
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let p_opt = custom_pass.filter(|s| !s.is_empty());
 
-    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
-    sess.set_tcp_stream(tcp);
-    sess.handshake()
-        .map_err(|e| format!("SSH handshake failed: {}", e))?;
-
-    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
-
-    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
-
-    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        if !u.is_empty() && !p.is_empty() {
+    match (u_opt, p_opt) {
+        (Some(u), Some(p)) => {
             auth_candidates.push(("Custom", u, p));
         }
+        (Some(u), None) => match explicit_os {
+            Some(TargetOS::RetroPie) => {
+                auth_candidates.push((
+                    "Custom User (RetroPie)",
+                    u.clone(),
+                    "raspberry".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Root)", u, "root".to_string()));
+            }
+            Some(TargetOS::Batocera) => {
+                auth_candidates.push(("Custom User (Batocera)", u, "linux".to_string()));
+            }
+            Some(TargetOS::Recalbox) => {
+                auth_candidates.push(("Custom User (Recalbox)", u, "recalboxroot".to_string()));
+            }
+            None => {
+                auth_candidates.push((
+                    "Custom User (Recalbox)",
+                    u.clone(),
+                    "recalboxroot".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Batocera)", u.clone(), "linux".to_string()));
+                auth_candidates.push((
+                    "Custom User (RetroPie)",
+                    u.clone(),
+                    "raspberry".to_string(),
+                ));
+                auth_candidates.push(("Custom User (Root)", u, "root".to_string()));
+            }
+        },
+        (None, Some(p)) => match explicit_os {
+            Some(TargetOS::RetroPie) => {
+                auth_candidates.push(("Custom Pass (pi)", "pi".to_string(), p.clone()));
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p));
+            }
+            Some(TargetOS::Recalbox) | Some(TargetOS::Batocera) => {
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p));
+            }
+            None => {
+                auth_candidates.push(("Custom Pass (root)", "root".to_string(), p.clone()));
+                auth_candidates.push(("Custom Pass (pi)", "pi".to_string(), p));
+            }
+        },
+        (None, None) => {}
     }
 
     match explicit_os {
@@ -189,9 +251,116 @@ pub fn install_sync_script(
         }
     }
 
+    auth_candidates
+}
+
+const RECALBOX_START_CMD: &str = r#"
+chmod 755 /recalbox/share/arcadematrix_daemon.py \
+          /recalbox/share/arcadematrix_companion_sync.py \
+          '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' \
+          '/recalbox/share/userscripts/arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh' 2>/dev/null || true
+_ra_ovr='/recalbox/share/roms/.retroarch.cfg'
+touch "$_ra_ovr" 2>/dev/null || true
+if [ -w "$_ra_ovr" ]; then
+    for _kv in \
+        'log_verbosity = "true"' \
+        'log_to_file = "true"' \
+        'log_to_file_timestamp = "false"' \
+        'log_dir = "/tmp"' \
+        'frontend_log_level = "1"' \
+        'libretro_log_level = "2"'; do
+        _k=${_kv%% *}
+        if ! grep -Eq "^[[:space:]]*${_k}[[:space:]]*=" "$_ra_ovr" 2>/dev/null; then
+            printf '%s\n' "$_kv" >> "$_ra_ovr"
+        fi
+    done
+fi
+if [ ! -f /recalbox/share/system/custom.sh ]; then
+    printf '#!/bin/sh\ncase "$1" in\n  ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
+elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then
+    printf '\n# ArcadeMatrix Daemon\ncase "$1" in ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;; esac\n' >> /recalbox/share/system/custom.sh
+fi
+chmod +x /recalbox/share/system/custom.sh 2>/dev/null || true
+rm -f /tmp/arcadematrix_daemon.stop
+: > /recalbox/share/userscripts/daemon.log
+sh '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' -action start
+sync
+sleep 0.6
+_dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
+[ -n "$_dpid" ] && kill -0 "$_dpid" 2>/dev/null
+"#;
+
+fn ssh_write_file(sess: &Session, remote_path: &str, content: &str) -> Result<(), String> {
+    let escaped = remote_path.replace('\'', "'\\''");
+    let mut channel = sess
+        .channel_session()
+        .map_err(|e| format!("SSH channel error writing {}: {}", remote_path, e))?;
+    let write_cmd = format!(
+        "cat > '{escaped}.amtmp.$$' && mv -f '{escaped}.amtmp.$$' '{escaped}'",
+        escaped = escaped
+    );
+    channel
+        .exec(&write_cmd)
+        .map_err(|e| format!("SSH exec atomic write to {} failed: {}", remote_path, e))?;
+    channel
+        .write_all(content.as_bytes())
+        .map_err(|e| format!("SSH write_all to {} failed: {}", remote_path, e))?;
+    channel
+        .send_eof()
+        .map_err(|e| format!("SSH send_eof to {} failed: {}", remote_path, e))?;
+    let mut out = String::new();
+    let _ = channel.read_to_string(&mut out);
+    let mut err_out = String::new();
+    let _ = channel.stderr().read_to_string(&mut err_out);
+    channel.wait_close().ok();
+    let rc = channel.exit_status().unwrap_or(0);
+    if rc != 0 {
+        return Err(format!(
+            "Failed writing remote file {} (rc={}): {}",
+            remote_path,
+            rc,
+            err_out.trim()
+        ));
+    }
+    Ok(())
+}
+
+pub fn install_sync_script(
+    target_ip: &str,
+    matrix_ip: &str,
+    custom_user: Option<String>,
+    custom_pass: Option<String>,
+    target_os: Option<String>,
+) -> Result<String, String> {
+    let clean_target = normalize_host_input(target_ip);
+    let clean_matrix = normalize_host_input(matrix_ip);
+    validate_safe_host(&clean_target, "Target console IP address")?;
+    validate_safe_host(&clean_matrix, "ArcadeMatrix IP address")?;
+
+    let addr = (clean_target.as_str(), 22)
+        .to_socket_addrs()
+        .map_err(|e| format!("Invalid target IP or hostname '{}': {}", clean_target, e))?
+        .next()
+        .ok_or_else(|| format!("Could not resolve target host '{}'", clean_target))?;
+    let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
+        .map_err(|e| format!("Failed to connect to {}: {}", clean_target, e))?;
+
+    let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
+    sess.set_tcp_stream(tcp);
+    sess.handshake()
+        .map_err(|e| format!("SSH handshake failed: {}", e))?;
+
+    let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
+    let auth_candidates = build_auth_candidates(explicit_os, custom_user, custom_pass);
+
     let mut authenticated = false;
     for (label, user, pwd) in &auth_candidates {
-        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
+        tracing::info!(
+            "Trying to connect to {} as {} ({})",
+            clean_target,
+            user,
+            label
+        );
         if sess.userauth_password(user, pwd).is_ok() {
             authenticated = true;
             break;
@@ -217,8 +386,8 @@ pub fn install_sync_script(
     };
 
     tracing::info!("Target OS identified as: {}", os.name());
-    let daemon_code = generate_daemon_code(matrix_ip, os.topic());
-    let companion_code = generate_companion_sync_code(matrix_ip, os.topic());
+    let daemon_code = generate_daemon_code(&clean_matrix, os.topic());
+    let companion_code = generate_companion_sync_code(&clean_matrix, os.topic());
 
     match os {
         TargetOS::Recalbox => {
@@ -261,7 +430,7 @@ for _pd in /proc/[0-9]*; do
     esac
 done
 rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" "/recalbox/share/userscripts/arcadematrix_"mqtt.sh || true
-mkdir -p /recalbox/share/userscripts /recalbox/share/system
+mkdir -p /recalbox/share/userscripts /recalbox/share/system /recalbox/share/roms
 "#;
             ssh_exec(&sess, cleanup_cmd, "Recalbox cleanup")?;
 
@@ -286,26 +455,7 @@ mkdir -p /recalbox/share/userscripts /recalbox/share/system
                 &generate_recalbox_wakeup_code(),
             )?;
 
-            let start_cmd = r#"
-chmod +x /recalbox/share/arcadematrix_daemon.py \
-         /recalbox/share/arcadematrix_companion_sync.py \
-         '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' \
-         '/recalbox/share/userscripts/arcadematrix_wakeup[start,systembrowsing,rungame,endgame,rundemo,enddemo,wakeup].sh' 2>/dev/null || true
-if [ ! -f /recalbox/share/system/custom.sh ]; then
-    printf '#!/bin/sh\ncase "$1" in\n  ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
-elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then
-    printf '\n# ArcadeMatrix Daemon\ncase "$1" in ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;; esac\n' >> /recalbox/share/system/custom.sh
-fi
-chmod +x /recalbox/share/system/custom.sh 2>/dev/null || true
-rm -f /tmp/arcadematrix_daemon.stop
-: > /recalbox/share/userscripts/daemon.log
-sh '/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh' -action start
-sync
-sleep 0.6
-_dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
-[ -n "$_dpid" ] && kill -0 "$_dpid" 2>/dev/null
-"#;
-            let (rc, out) = ssh_exec(&sess, start_cmd, "Recalbox start")?;
+            let (rc, out) = ssh_exec(&sess, RECALBOX_START_CMD, "Recalbox start")?;
             if rc != 0 {
                 return Err(format!(
                     "Recalbox daemon failed to start (rc={}): {}",
@@ -368,7 +518,7 @@ _dpid=$(cat /tmp/arcadematrix_daemon.pid 2>/dev/null || true)
                 "Batocera mkdir scripts",
             )?;
 
-            let hook_code = generate_batocera_hook_code(matrix_ip);
+            let hook_code = generate_batocera_hook_code(&clean_matrix);
             ssh_write_file(&sess, hook_path, &hook_code)?;
             ssh_write_file(&sess, companion_path, &companion_code)?;
             ssh_exec(
@@ -574,13 +724,16 @@ pub fn fetch_sync_logs(
     custom_pass: Option<String>,
     target_os: Option<String>,
 ) -> Result<String, String> {
-    let addr = format!("{}:22", target_ip)
+    let clean_target = normalize_host_input(target_ip);
+    validate_safe_host(&clean_target, "Target console IP address")?;
+
+    let addr = (clean_target.as_str(), 22)
         .to_socket_addrs()
-        .map_err(|e| format!("Invalid target address '{}': {}", target_ip, e))?
+        .map_err(|e| format!("Invalid target address '{}': {}", clean_target, e))?
         .next()
-        .ok_or_else(|| format!("Could not resolve target address '{}'", target_ip))?;
+        .ok_or_else(|| format!("Could not resolve target address '{}'", clean_target))?;
     let tcp = TcpStream::connect_timeout(&addr, Duration::from_secs(8))
-        .map_err(|e| format!("Failed to connect to {}: {}", target_ip, e))?;
+        .map_err(|e| format!("Failed to connect to {}: {}", clean_target, e))?;
 
     let mut sess = Session::new().map_err(|e| format!("SSH session error: {}", e))?;
     sess.set_tcp_stream(tcp);
@@ -588,37 +741,16 @@ pub fn fetch_sync_logs(
         .map_err(|e| format!("SSH handshake failed: {}", e))?;
 
     let explicit_os = target_os.as_deref().and_then(TargetOS::from_str);
-
-    let mut auth_candidates: Vec<(&str, String, String)> = Vec::new();
-
-    if let (Some(u), Some(p)) = (custom_user, custom_pass) {
-        if !u.is_empty() && !p.is_empty() {
-            auth_candidates.push(("Custom", u, p));
-        }
-    }
-
-    match explicit_os {
-        Some(TargetOS::RetroPie) => {
-            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
-            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
-        }
-        Some(TargetOS::Recalbox) => {
-            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
-        }
-        Some(TargetOS::Batocera) => {
-            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
-        }
-        None => {
-            auth_candidates.push(("Recalbox", "root".to_string(), "recalboxroot".to_string()));
-            auth_candidates.push(("Batocera", "root".to_string(), "linux".to_string()));
-            auth_candidates.push(("RetroPie", "pi".to_string(), "raspberry".to_string()));
-            auth_candidates.push(("RetroPie Root", "root".to_string(), "root".to_string()));
-        }
-    }
+    let auth_candidates = build_auth_candidates(explicit_os, custom_user, custom_pass);
 
     let mut authenticated = false;
     for (label, user, pwd) in &auth_candidates {
-        tracing::info!("Trying to connect to {} as {} ({})", target_ip, user, label);
+        tracing::info!(
+            "Trying to connect to {} as {} ({})",
+            clean_target,
+            user,
+            label
+        );
         if sess.userauth_password(user, pwd).is_ok() {
             authenticated = true;
             break;
@@ -657,6 +789,59 @@ pub fn fetch_sync_logs(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_normalize_and_validate_host_input() {
+        assert_eq!(normalize_host_input("  192.168.1.130  "), "192.168.1.130");
+        assert_eq!(
+            normalize_host_input("http://192.168.1.26:8080/api"),
+            "192.168.1.26"
+        );
+        assert_eq!(
+            normalize_host_input("\"https://recalbox.local:22/\""),
+            "recalbox.local"
+        );
+        assert_eq!(normalize_host_input("[fe80::1]:22"), "fe80::1");
+        assert_eq!(normalize_host_input("fe80::1"), "fe80::1");
+
+        assert!(validate_safe_host("192.168.1.130", "Target").is_ok());
+        assert!(validate_safe_host("recalbox-01.local", "Target").is_ok());
+        assert!(validate_safe_host("fe80::1", "Target").is_ok());
+        assert!(validate_safe_host("", "Target").is_err());
+        assert!(validate_safe_host("192.168.1.1;rm -rf /", "Target").is_err());
+    }
+
+    #[test]
+    fn test_build_auth_candidates_supports_partial_custom_credentials() {
+        let pass_only = build_auth_candidates(
+            Some(TargetOS::Recalbox),
+            Some("   ".to_string()),
+            Some("mysecret".to_string()),
+        );
+        assert_eq!(pass_only[0].1, "root");
+        assert_eq!(pass_only[0].2, "mysecret");
+
+        let user_only = build_auth_candidates(
+            Some(TargetOS::Batocera),
+            Some("arcade".to_string()),
+            Some(String::new()),
+        );
+        assert_eq!(user_only[0].1, "arcade");
+        assert_eq!(user_only[0].2, "linux");
+
+        let both =
+            build_auth_candidates(None, Some("admin".to_string()), Some("pw123".to_string()));
+        assert_eq!(both[0].1, "admin");
+        assert_eq!(both[0].2, "pw123");
+    }
+
+    #[test]
+    fn test_recalbox_start_cmd_configures_ram_retroarch_rcheevos_logging() {
+        assert!(RECALBOX_START_CMD.contains("/recalbox/share/roms/.retroarch.cfg"));
+        assert!(RECALBOX_START_CMD.contains("log_dir = \"/tmp\""));
+        assert!(RECALBOX_START_CMD.contains("log_to_file = \"true\""));
+        assert!(RECALBOX_START_CMD.contains("log_to_file_timestamp = \"false\""));
+    }
 
     #[test]
     fn test_generated_recalbox_daemon_uses_dynamic_broker_target_and_persistent_qos1() {
@@ -707,6 +892,10 @@ mod tests {
         assert!(comp.contains("TOPIC_DEFAULT = \"system/playing/batocera\""));
         assert!(!comp.contains('\r'));
         assert!(comp.contains("def extract_hiscores"));
+        assert!(comp.contains("def parse_hi_binary"));
+        assert!(comp.contains("def _decode_namco_tile_hi"));
+        assert!(comp.contains("def _decode_dkong_hi"));
         assert!(comp.contains("def parse_rcheevos_unlock_line"));
+        assert!(comp.contains("API_GetUserRecentlyPlayedGames.php"));
     }
 }

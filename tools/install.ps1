@@ -135,18 +135,11 @@ if ((-not [string]::IsNullOrWhiteSpace($CustomUser)) -and ($CustomUser -notmatch
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
-$SshOpts = @(
-    "-T",
-    "-o", "StrictHostKeyChecking=no",
-    "-o", "UserKnownHostsFile=none",
-    "-o", "GlobalKnownHostsFile=none",
-    "-o", "LogLevel=ERROR",
-    "-o", "ConnectTimeout=8"
-)
 
 # Runs a POSIX shell script on the remote host via stdin ("tr -d '\r' | sh -s").
-# Avoids all Win32 CommandLineToArgvW double-quote stripping and streams stdout live via Out-Host
-# without polluting the integer exit code returned to PowerShell callers.
+# Uses an isolated temporary ~/.ssh/am_kh_* file instead of OpenSSH 'none' hostfiles (which force
+# readonly=RDONLY in sshconnect.c and trigger "Host key verification failed" exit 255 on new hosts),
+# and avoids space-in-path Win32-OpenSSH bugs by leveraging native ~/ expansion inside ssh.exe.
 function Invoke-RemoteShell {
     param(
         [Parameter(Mandatory = $true)][string]$User,
@@ -154,6 +147,35 @@ function Invoke-RemoteShell {
     )
     $prevEap = $ErrorActionPreference
     $prevOutEnc = $OutputEncoding
+    $khToken = "am_kh_${PID}_$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
+    $cleanupPaths = New-Object System.Collections.Generic.List[string]
+    foreach ($baseProfile in @($env:USERPROFILE, $HOME)) {
+        if (-not [string]::IsNullOrWhiteSpace($baseProfile)) {
+            $sshDir = Join-Path $baseProfile ".ssh"
+            try {
+                if (-not [System.IO.Directory]::Exists($sshDir)) {
+                    [System.IO.Directory]::CreateDirectory($sshDir) | Out-Null
+                }
+                $uKh = Join-Path $sshDir $khToken
+                $gKh = Join-Path $sshDir "${khToken}_g"
+                [System.IO.File]::WriteAllBytes($uKh, [byte[]]@())
+                [System.IO.File]::WriteAllBytes($gKh, [byte[]]@())
+                [void]$cleanupPaths.Add($uKh)
+                [void]$cleanupPaths.Add("${uKh}.old")
+                [void]$cleanupPaths.Add($gKh)
+                [void]$cleanupPaths.Add("${gKh}.old")
+            } catch {}
+        }
+    }
+    $sshOpts = @(
+        "-T",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=~/.ssh/${khToken}",
+        "-o", "GlobalKnownHostsFile=~/.ssh/${khToken}_g",
+        "-o", "CheckHostIP=no",
+        "-o", "LogLevel=ERROR",
+        "-o", "ConnectTimeout=8"
+    )
     try {
         $ErrorActionPreference = "Continue"
         $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -162,13 +184,20 @@ function Invoke-RemoteShell {
         if (-not $payload.EndsWith("`n")) {
             $payload += "`n"
         }
-        $payload | & ssh @SshOpts -- "${User}@${TargetIp}" "tr -d '\r' | sh -s" | Out-Host
+        $payload | & ssh @sshOpts -- "${User}@${TargetIp}" "tr -d '\r' | sh -s" | Out-Host
         $rc = $LASTEXITCODE
         if ($null -eq $rc) { $rc = 1 }
         return [int]$rc
     } finally {
         $OutputEncoding = $prevOutEnc
         $ErrorActionPreference = $prevEap
+        foreach ($f in $cleanupPaths) {
+            try {
+                if ([System.IO.File]::Exists($f)) {
+                    Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue
+                }
+            } catch {}
+        }
     }
 }
 
@@ -344,9 +373,9 @@ if [ "$SYSTEM" = "recalbox" ]; then
         esac
     done
     rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" "/recalbox/share/userscripts/arcadematrix_"mqtt.sh || true
-    mkdir -p /recalbox/share/userscripts /recalbox/share/system || { echo "ERROR: Failed to create Recalbox directories!" >&2; exit 1; }
+    mkdir -p /recalbox/share/userscripts /recalbox/share/system /recalbox/share/roms || { echo "ERROR: Failed to create Recalbox directories!" >&2; exit 1; }
 
-    echo "Uploading daemon, watchdog & ES self-healer (topic: $TOPIC)..."
+    echo "Uploading daemon, companion sync, watchdog & ES self-healer (topic: $TOPIC)..."
     am_write_b64 "/recalbox/share/arcadematrix_daemon.py" << 'AM_B64_RB_DAEMON' || { echo "ERROR: Failed writing arcadematrix_daemon.py!" >&2; exit 1; }
 '@)
         [void]$sb.AppendLine($b64DaemonRb)
@@ -371,8 +400,24 @@ if [ "$SYSTEM" = "recalbox" ]; then
         [void]$sb.AppendLine('AM_B64_RB_WAKE')
 
         [void]$sb.AppendLine(@'
-    echo "Configuring Recalbox boot persistence & starting daemon live (no reboot needed)..."
+    echo "Configuring Recalbox boot persistence, RAM RetroArch RCHEEVOS logging & starting daemon live..."
     chmod 755 /recalbox/share/arcadematrix_daemon.py /recalbox/share/arcadematrix_companion_sync.py "$TARGET_DIR/arcadematrix_launcher(permanent).sh" "$TARGET_DIR/$WAKEUP_HOOK" 2>/dev/null || true
+    _ra_ovr="/recalbox/share/roms/.retroarch.cfg"
+    touch "$_ra_ovr" 2>/dev/null || true
+    if [ -w "$_ra_ovr" ]; then
+        for _kv in \
+            'log_verbosity = "true"' \
+            'log_to_file = "true"' \
+            'log_to_file_timestamp = "false"' \
+            'log_dir = "/tmp"' \
+            'frontend_log_level = "1"' \
+            'libretro_log_level = "2"'; do
+            _k="${_kv%% *}"
+            if ! grep -Eq "^[[:space:]]*${_k}[[:space:]]*=" "$_ra_ovr" 2>/dev/null; then
+                printf '%s\n' "$_kv" >> "$_ra_ovr"
+            fi
+        done
+    fi
     if [ ! -f /recalbox/share/system/custom.sh ]; then
         printf '#!/bin/sh\ncase "$1" in\n  ""|start) sh "/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
     elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then

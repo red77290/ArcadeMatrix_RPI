@@ -2,19 +2,18 @@
 # ArcadeMatrix Gaming OS daemon installer - run this on your PC (macOS/Linux), NOT on the
 # retro-gaming device itself. It connects over SSH, auto-detects (or prompts for) whether
 # the target is Recalbox, Batocera, or RetroPie, uploads the right daemon/hook script
-# (with your ArcadeMatrix device's IP and topic baked in), and starts/reboots the target so
-# it starts sending game events over MQTT to system/playing/#.
+# (with your ArcadeMatrix device's IP and topic baked in), and starts the target live so
+# it immediately sends game events, arcade high scores, and RetroAchievements over MQTT.
 #
-# Requirements: a standard OpenSSH client (ssh/scp), present by default on macOS and virtually all
-# Linux distros. `sshpass` is optional but recommended.
+# Requirements: a standard OpenSSH client (ssh), present by default on macOS and virtually all
+# Linux distros. `sshpass` is optional.
 set -uo pipefail
 
 RECALBOX_PASS="recalboxroot"
 BATOCERA_PASS="linux"
 RETROPIE_PASS="raspberry"
-SSH_USER=""
 SSH_MUX_SOCK="/tmp/am_ssh_$$"
-SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -o ConnectTimeout=5)
+SSH_OPTS=(-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o GlobalKnownHostsFile=/dev/null -o CheckHostIP=no -o LogLevel=ERROR -o ConnectTimeout=6)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TMP_DIR="$(mktemp -d)"
@@ -27,28 +26,98 @@ cleanup_installer() {
 }
 trap cleanup_installer EXIT
 
+normalize_host_input() {
+    local val="${1:-}"
+    # Strip surrounding whitespace and quotes
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    val="${val#\"}"
+    val="${val%\"}"
+    val="${val#\'}"
+    val="${val%\'}"
+    # Strip http:// or https:// scheme
+    val="${val#http://}"
+    val="${val#https://}"
+    # Strip any trailing /path
+    val="${val%%/*}"
+    # Strip :port for IPv4 / hostnames (preserve IPv6 with multiple colons)
+    case "$val" in
+        *:*:*) ;;
+        *:[0-9]*)
+            val="${val%:*}"
+            ;;
+    esac
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    printf '%s' "$val"
+}
+
+assert_safe_host() {
+    local val="$1" label="$2"
+    if [ -z "$val" ]; then
+        echo "ERROR: $label is required. Aborting." >&2
+        exit 1
+    fi
+    if ! printf '%s' "$val" | grep -Eq '^[][A-Za-z0-9][][A-Za-z0-9._:-]*$'; then
+        echo "ERROR: $label contains invalid characters: '$val'. Provide a valid IP address or hostname." >&2
+        exit 1
+    fi
+}
+
+render_template() {
+    local src="$1" dst="$2" dmd_ip="$3" topic="$4"
+    if [ ! -f "$src" ]; then
+        echo "ERROR: Required template file not found: $src" >&2
+        exit 1
+    fi
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$src" "$dst" "$dmd_ip" "$topic" << 'PYEOF' || { echo "ERROR: Failed rendering template $src" >&2; exit 1; }
+import sys
+src_p, dst_p, dmd_ip, topic = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+with open(src_p, "rb") as f:
+    raw = f.read().decode("utf-8")
+if raw.startswith("\ufeff"):
+    raw = raw[1:]
+raw = raw.replace("{{DMD_HOST}}", dmd_ip).replace("{{BROKER}}", dmd_ip).replace("{{TOPIC}}", topic)
+raw = raw.replace("\r\n", "\n").replace("\r", "\n")
+with open(dst_p, "wb") as f:
+    f.write(raw.encode("utf-8"))
+PYEOF
+    else
+        tr -d '\r' < "$src" | sed -e "s|{{DMD_HOST}}|$dmd_ip|g" -e "s|{{BROKER}}|$dmd_ip|g" -e "s|{{TOPIC}}|$topic|g" > "$dst" || {
+            echo "ERROR: Failed rendering template $src" >&2
+            exit 1
+        }
+    fi
+    if [ ! -s "$dst" ]; then
+        echo "ERROR: Rendered template $dst is empty!" >&2
+        exit 1
+    fi
+}
+
 echo "=============================================="
 echo " ArcadeMatrix Gaming OS Daemon Installer"
 echo " (Recalbox / Batocera / RetroPie)"
 echo "=============================================="
 echo
 
-read -rp "IP address of your Console (Recalbox/Batocera/RetroPie): " TARGET_IP
+read -rp "IP address of your Console (Recalbox/Batocera/RetroPie): " RAW_TARGET_IP
+TARGET_IP="$(normalize_host_input "$RAW_TARGET_IP")"
+assert_safe_host "$TARGET_IP" "Target Console IP address"
 
 read -rp "Action (1: Install Daemon, 2: Check Logs) [1]: " ACTION
-ACTION=${ACTION:-1}
-
-if [ "$ACTION" = "1" ]; then
-    read -rp "IP address of your ArcadeMatrix DMD (ESP32 or Raspberry Pi): " DMD_IP
-    if [ -z "$DMD_IP" ]; then
-        echo "ArcadeMatrix DMD IP is required for installation. Aborting." >&2
-        exit 1
-    fi
+ACTION="${ACTION:-1}"
+ACTION="$(printf '%s' "$ACTION" | tr -d '[:space:]')"
+if [ "$ACTION" != "1" ] && [ "$ACTION" != "2" ]; then
+    echo "ERROR: Invalid action '$ACTION'. Expected 1 (Install Daemon) or 2 (Check Logs)." >&2
+    exit 1
 fi
 
-if [ -z "$TARGET_IP" ]; then
-    echo "Target IP address is required. Aborting." >&2
-    exit 1
+DMD_IP=""
+if [ "$ACTION" = "1" ]; then
+    read -rp "IP address of your ArcadeMatrix DMD (ESP32 or Raspberry Pi): " RAW_DMD_IP
+    DMD_IP="$(normalize_host_input "$RAW_DMD_IP")"
+    assert_safe_host "$DMD_IP" "ArcadeMatrix DMD IP address"
 fi
 
 echo
@@ -58,9 +127,22 @@ echo "  2) Recalbox"
 echo "  3) Batocera"
 echo "  4) RetroPie"
 read -rp "Choice [1]: " OS_CHOICE
-OS_CHOICE=${OS_CHOICE:-1}
+OS_CHOICE="${OS_CHOICE:-1}"
+OS_CHOICE="$(printf '%s' "$OS_CHOICE" | tr -d '[:space:]')"
+case "$OS_CHOICE" in
+    1|2|3|4) ;;
+    *)
+        echo "ERROR: Invalid OS choice '$OS_CHOICE'. Expected 1, 2, 3, or 4." >&2
+        exit 1
+        ;;
+esac
 
 read -rp "Custom SSH Username (leave blank for defaults): " CUSTOM_USER
+CUSTOM_USER="$(printf '%s' "$CUSTOM_USER" | tr -d '[:space:]')"
+if [ -n "$CUSTOM_USER" ] && ! printf '%s' "$CUSTOM_USER" | grep -Eq '^[A-Za-z0-9_][A-Za-z0-9._-]*$'; then
+    echo "ERROR: Custom SSH Username contains invalid characters: '$CUSTOM_USER'." >&2
+    exit 1
+fi
 read -rp "Custom SSH Password (leave blank for defaults): " CUSTOM_PASS
 
 have_sshpass=0
@@ -75,7 +157,7 @@ fi
 
 ssh_run() {
     local user="$1" password="$2"; shift 2
-    if [ "$have_sshpass" = "1" ]; then
+    if [ "$have_sshpass" = "1" ] && [ -n "$password" ]; then
         sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "$@"
     else
         ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "$@"
@@ -85,10 +167,10 @@ ssh_run() {
 scp_run() {
     local user="$1" password="$2" src="$3" dst="${4#\'}"
     dst="${dst%\'}"
-    if [ "$have_sshpass" = "1" ]; then
-        tr -d '\r' < "$src" | sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
+    if [ "$have_sshpass" = "1" ] && [ -n "$password" ]; then
+        tr -d '\r' < "$src" | sshpass -p "$password" ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}.amtmp.\$\$' && mv -f '${dst}.amtmp.\$\$' '${dst}'"
     else
-        tr -d '\r' < "$src" | ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}'"
+        tr -d '\r' < "$src" | ssh "${SSH_OPTS[@]}" "${user}@${TARGET_IP}" "cat > '${dst}.amtmp.\$\$' && mv -f '${dst}.amtmp.\$\$' '${dst}'"
     fi
 }
 
@@ -117,9 +199,23 @@ elif [ "$OS_CHOICE" = "4" ]; then
     SYSTEM="retropie"
 fi
 
-if [ -n "$CUSTOM_USER" ] && [ -n "$CUSTOM_PASS" ]; then
-    ACTIVE_USER="$CUSTOM_USER"
-    PASSWORD="$CUSTOM_PASS"
+if [ -n "$CUSTOM_USER" ] || [ -n "$CUSTOM_PASS" ]; then
+    if [ -n "$CUSTOM_USER" ]; then
+        ACTIVE_USER="$CUSTOM_USER"
+    elif [ "$SYSTEM" = "retropie" ]; then
+        ACTIVE_USER="pi"
+    else
+        ACTIVE_USER="root"
+    fi
+    if [ -n "$CUSTOM_PASS" ]; then
+        PASSWORD="$CUSTOM_PASS"
+    elif [ "$SYSTEM" = "retropie" ]; then
+        PASSWORD="$RETROPIE_PASS"
+    elif [ "$SYSTEM" = "batocera" ]; then
+        PASSWORD="$BATOCERA_PASS"
+    else
+        PASSWORD="$RECALBOX_PASS"
+    fi
     if [ -z "$SYSTEM" ]; then
         echo "Trying Custom Credentials as $ACTIVE_USER..."
         SYSTEM=$(detect_system "$ACTIVE_USER" "$PASSWORD" || true)
@@ -139,8 +235,7 @@ else
         ACTIVE_USER="root"
         PASSWORD="$RECALBOX_PASS"
     else
-        # Auto detection loop
-        echo "Trying Recalbox defaults..."
+        echo "Trying Recalbox / Batocera / RetroPie defaults..."
         if ssh_run "root" "$RECALBOX_PASS" "test -d /recalbox/share" 2>/dev/null; then
             SYSTEM="recalbox"
             ACTIVE_USER="root"
@@ -172,7 +267,7 @@ for _try in 1 2 3; do
         SSH_AUTH_OK=1
         break
     fi
-    if [ "$have_sshpass" = "1" ]; then
+    if [ "$have_sshpass" = "1" ] && [ -n "$PASSWORD" ]; then
         break
     fi
     echo "SSH authentication failed (attempt $_try/3). Please try again." >&2
@@ -198,8 +293,8 @@ if [ "$ACTION" = "2" ]; then
 fi
 
 TOPIC="system/playing/$SYSTEM"
-sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_daemon.py" > "$TMP_DIR/arcadematrix_daemon.py"
-sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" -e "s|{{TOPIC}}|$TOPIC|g" "$SCRIPT_DIR/arcadematrix_companion_sync.py" > "$TMP_DIR/arcadematrix_companion_sync.py"
+render_template "$SCRIPT_DIR/arcadematrix_daemon.py" "$TMP_DIR/arcadematrix_daemon.py" "$DMD_IP" "$TOPIC"
+render_template "$SCRIPT_DIR/arcadematrix_companion_sync.py" "$TMP_DIR/arcadematrix_companion_sync.py" "$DMD_IP" "$TOPIC"
 
 echo "Checking DMD target ($DMD_IP) from console ($TARGET_IP)..."
 ssh_run "$ACTIVE_USER" "$PASSWORD" "
@@ -250,18 +345,34 @@ if [ "$SYSTEM" = "recalbox" ]; then
             esac
         done
         rm -f "${_pfx}daemon.pid" "${_pfx}supervisor.pid" "${_pfx}daemon.lock" "/recalbox/share/userscripts/arcadematrix_"mqtt.sh || true
-        mkdir -p /recalbox/share/userscripts /recalbox/share/system
+        mkdir -p /recalbox/share/userscripts /recalbox/share/system /recalbox/share/roms
     ' || { echo "ERROR: Cleanup step failed on Recalbox!" >&2; exit 1; }
 
-    echo "Uploading daemon, watchdog & ES self-healer (topic: $TOPIC)..."
+    echo "Uploading daemon, companion sync, watchdog & ES self-healer (topic: $TOPIC)..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_daemon.py" "/recalbox/share/arcadematrix_daemon.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_companion_sync.py" "/recalbox/share/arcadematrix_companion_sync.py" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/arcadematrix_launcher(permanent).sh" "$TARGET_DIR/arcadematrix_launcher(permanent).sh" || { echo "SCP failed!"; exit 1; }
     scp_run "$ACTIVE_USER" "$PASSWORD" "$SCRIPT_DIR/$WAKEUP_HOOK" "$TARGET_DIR/$WAKEUP_HOOK" || { echo "SCP failed!"; exit 1; }
 
-    echo "Configuring Recalbox boot persistence & starting daemon live (no reboot needed)..."
+    echo "Configuring Recalbox boot persistence, RAM RetroArch RCHEEVOS logging & starting daemon live..."
     ssh_run "$ACTIVE_USER" "$PASSWORD" "
-        chmod +x /recalbox/share/arcadematrix_companion_sync.py '$TARGET_DIR/arcadematrix_launcher(permanent).sh' '$TARGET_DIR/$WAKEUP_HOOK' 2>/dev/null || true
+        chmod 755 /recalbox/share/arcadematrix_daemon.py /recalbox/share/arcadematrix_companion_sync.py '$TARGET_DIR/arcadematrix_launcher(permanent).sh' '$TARGET_DIR/$WAKEUP_HOOK' 2>/dev/null || true
+        _ra_ovr='/recalbox/share/roms/.retroarch.cfg'
+        touch \"\$_ra_ovr\" 2>/dev/null || true
+        if [ -w \"\$_ra_ovr\" ]; then
+            for _kv in \
+                'log_verbosity = \"true\"' \
+                'log_to_file = \"true\"' \
+                'log_to_file_timestamp = \"false\"' \
+                'log_dir = \"/tmp\"' \
+                'frontend_log_level = \"1\"' \
+                'libretro_log_level = \"2\"'; do
+                _k=\${_kv%% *}
+                if ! grep -Eq \"^[[:space:]]*\${_k}[[:space:]]*=\" \"\$_ra_ovr\" 2>/dev/null; then
+                    printf '%s\n' \"\$_kv\" >> \"\$_ra_ovr\"
+                fi
+            done
+        fi
         if [ ! -f /recalbox/share/system/custom.sh ]; then
             printf '#!/bin/sh\ncase \"\$1\" in\n  \"\"|start) sh \"/recalbox/share/userscripts/arcadematrix_launcher(permanent).sh\" -action start >/dev/null 2>&1 & ;;\nesac\n' > /recalbox/share/system/custom.sh
         elif ! grep -q 'arcadematrix_launcher' /recalbox/share/system/custom.sh; then
@@ -302,7 +413,7 @@ elif [ "$SYSTEM" = "batocera" ]; then
     ssh_run "$ACTIVE_USER" "$PASSWORD" "mkdir -p $TARGET_DIR" || true
 
     echo "Preparing Batocera event hook (dynamic MQTT broker discovery via DMD $DMD_IP)..."
-    sed -e "s/{{DMD_HOST}}/$DMD_IP/g" -e "s/{{BROKER}}/$DMD_IP/g" "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" > "$TMP_DIR/arcadematrix_mqtt.sh"
+    render_template "$SCRIPT_DIR/arcadematrix_mqtt_batocera.sh" "$TMP_DIR/arcadematrix_mqtt.sh" "$DMD_IP" "$TOPIC"
 
     echo "Uploading hook & companion sync to $TARGET_DIR..."
     scp_run "$ACTIVE_USER" "$PASSWORD" "$TMP_DIR/arcadematrix_mqtt.sh" "$TARGET_DIR/arcadematrix_mqtt.sh" || { echo "Upload failed!"; exit 1; }
@@ -381,9 +492,9 @@ elif [ "$SYSTEM" = "retropie" ]; then
 
     echo "Configuring RetroPie EmulationStation browsing hooks, runcommand hooks & watchdog..."
     ssh_run "$ACTIVE_USER" "$PASSWORD" '
-        chmod +x /opt/retropie/configs/all/arcadematrix_daemon.py \
-                 /opt/retropie/configs/all/arcadematrix_companion_sync.py \
-                 /opt/retropie/configs/all/arcadematrix_launcher.sh 2>/dev/null || true
+        chmod 755 /opt/retropie/configs/all/arcadematrix_daemon.py \
+                  /opt/retropie/configs/all/arcadematrix_companion_sync.py \
+                  /opt/retropie/configs/all/arcadematrix_launcher.sh 2>/dev/null || true
 
         cat > /opt/retropie/configs/all/emulationstation/scripts/system-select/arcadematrix_es.sh << '\''ESEOF'\''
 #!/bin/sh

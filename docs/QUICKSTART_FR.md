@@ -44,3 +44,15 @@ Nous recommandons d'utiliser un Adafruit RGB Matrix HAT ou Bonnet connecté à u
 3. **Fiches & Vidéos de Gameplay en Jeu** (avec **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** sur votre réseau) :
    - Dans **🎬 DMD Media Showcase**, activez le serveur Showcase (`🟢 Communication OK`).
    - Dans **🎮 FrontendSync**, activez **Utiliser le Broker MQTT Showcase si actif** (libère la RAM locale) et **Showcase en Jeu (Carte + Vidéo Gameplay)**, choisissez votre **Cycle** (`Alterner Marquee & Showcase`, `Une fois` ou `Boucle`) et votre **Style de Carte** (`Hériter de Showcase Studio` ou `Personnalisé sur le DMD`), puis enregistrez.
+
+## 6. Annexe : Utiliser les Outils Compagnons PC & Consoles (`ArcadeMatrix-tools.zip`)
+
+Tous les outils optionnels pour PC, Mac, Linux et consoles rétro sont regroupés dans une archive autonome — **sans avoir à télécharger le code source complet** :
+
+👉 **[⬇️ Télécharger `ArcadeMatrix-tools.zip` (Dernière Release)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** *(également disponible sur le [Portail Raspberry Pi](https://red77290.github.io/ArcadeMatrix_RPI/)).*
+
+Décompressez `ArcadeMatrix-tools.zip` sur votre ordinateur pour accéder à :
+- **Sync Console & Daemon Universel High-Scores (`ArcadeMatrix-tools/install.sh`, `ArcadeMatrix-tools/install.ps1`, `ArcadeMatrix-tools/rpi_emulationstation_base_os_setup.sh`)** : Alternative manuelle à l'installation en 1 clic de la Web UI pour Recalbox, Batocera et RetroPie — affiche les marquees en `0 ms` et célèbre vos nouveaux records High-Scores sur ~3 100 ROMs MAME/FBNeo `.hi` + NVRAM Neo-Geo/CPS.
+- **Extracteur de Sprites MUGEN (`ArcadeMatrix-tools/mugen_extractor/`)** : Lancez `start_extractor.bat` (Windows) ou `./start_extractor.sh` (macOS / Linux) pour convertir vos personnages MUGEN (`chars/`) en fichiers `.fgt` + `index.txt` à copier dans `DATA:/fighters_32/` ou `DATA:/fighters_64/`.
+- **Blueprints Home Assistant (`ArcadeMatrix-tools/home_assistant/blueprints/`)** : Automatisations YAML prêtes à importer pour envoyer capteurs, courbes 24h, tableaux et météo vers le moteur `mqttdata`.
+

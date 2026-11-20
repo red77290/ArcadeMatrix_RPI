@@ -107,3 +107,6 @@ Suite de pruebas herméticas en Python 3 stdlib para `tools/arcadematrix_compani
 Valida y empaqueta todas las herramientas complementarias de PC y consolas de `tools/` (`tools/install.sh`, `tools/install.ps1`, `tools/rpi_emulationstation_base_os_setup.sh`, `tools/recalbox_setup_mqtt.sh`, `tools/arcadematrix_daemon.py`, `tools/arcadematrix_companion_sync.py`, `tools/mugen_extractor/`, `tools/home_assistant/` y `tools/README*.md`) en `ArcadeMatrix-tools.zip` para GitHub Releases, normalizando saltos de línea LF y permisos `0755` en scripts `.sh`/`.py`.
 **Uso**: `python3 scripts/package_tools.py [--verify-only] [--output ArcadeMatrix-tools.zip]`
 
+### `test_tools_e2e.py`
+Suite hermética de validación End-to-End (E2E) para `ArcadeMatrix-tools.zip`. Empaqueta y descomprime el archivo independiente en un entorno aislado, comprueba permisos `0755` + saltos LF + sintaxis `sh -n` / `bash -n`, levanta servidores locales HTTP (`/api/mqtt/broker-target`) y TCP MQTT v3.1.1, y valida `tools/install.sh` + `tools/install.ps1` (con `pwsh` cuando está disponible) sobre consolas SSH simuladas Batocera, Recalbox y RetroPie (integridad SHA-256 byte a byte de `arcadematrix_companion_sync.py`, eventos MQTT `sync_meta` / `celebrate` en vivo y demonio + watchdog), además de `tools/mugen_extractor/mugen_extractor.py`.
+**Uso**: `python3 scripts/test_tools_e2e.py`

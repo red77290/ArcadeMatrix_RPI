@@ -298,11 +298,15 @@ render_template "$SCRIPT_DIR/arcadematrix_companion_sync.py" "$TMP_DIR/arcademat
 
 echo "Checking DMD target ($DMD_IP) from console ($TARGET_IP)..."
 ssh_run "$ACTIVE_USER" "$PASSWORD" "
-    _bt=\$(curl -s -m 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || wget -qO- -T 2 'http://$DMD_IP/api/mqtt/broker-target' 2>/dev/null || true)
+    _bt=''
+    for _hp in 80 8080; do
+        _bt=\$(curl -fsS -m 2 \"http://$DMD_IP:\$_hp/api/mqtt/broker-target\" 2>/dev/null || wget -qO- -T 2 \"http://$DMD_IP:\$_hp/api/mqtt/broker-target\" 2>/dev/null || true)
+        [ -n \"\$_bt\" ] && break
+    done
     if [ -n \"\$_bt\" ]; then
         echo \"  DMD /api/mqtt/broker-target -> \$_bt\"
     else
-        echo \"  WARNING: Could not reach http://$DMD_IP/api/mqtt/broker-target from console!\"
+        echo \"  WARNING: Could not reach http://$DMD_IP[:8080]/api/mqtt/broker-target from console!\"
     fi
 " || true
 

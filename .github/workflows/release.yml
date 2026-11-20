@@ -29,10 +29,11 @@ jobs:
           echo "git-fetch-with-cli = true" >> ~/.cargo/config.toml
       - name: Run Cargo Tests
         run: cargo test
-      - name: Validate Documentation & Release Artifacts
+      - name: Validate Documentation, Tools E2E & Release Artifacts
         run: |
           python3 scripts/test_companion_sync.py
           python3 scripts/package_tools.py --verify-only
+          python3 scripts/test_tools_e2e.py
           python3 scripts/validate_docs.py
           python3 scripts/validate_rpi_release.py
 

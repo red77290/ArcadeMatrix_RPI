@@ -418,6 +418,21 @@
       color: var(--accent-cyan);
     }
 
+    .arch-badge.tools {
+      background: rgba(255, 0, 85, 0.14);
+      border-color: rgba(255, 0, 85, 0.38);
+      color: #ff5c93;
+    }
+
+    .sd-card.tools-card {
+      margin-bottom: 1.5rem;
+    }
+
+    .sd-card.tools-card:hover {
+      border-color: rgba(255, 0, 85, 0.4);
+      box-shadow: 0 15px 30px rgba(255, 0, 85, 0.1);
+    }
+
     .sd-dl-btn {
       display: inline-flex;
       align-items: center;
@@ -451,6 +466,18 @@
       background: var(--accent-green);
       color: #05050a;
       box-shadow: 0 0 18px rgba(0, 230, 118, 0.45);
+    }
+
+    .sd-dl-btn.tools {
+      background: linear-gradient(135deg, rgba(255, 0, 85, 0.18), rgba(0, 240, 255, 0.14));
+      border-color: rgba(255, 0, 85, 0.45);
+    }
+
+    .sd-dl-btn.tools:hover {
+      background: var(--accent-magenta);
+      border-color: var(--accent-magenta);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(255, 0, 85, 0.45);
     }
 
     /* Tab 2: Visual Changelog */
@@ -1282,6 +1309,19 @@
           </a>
         </div>
       </div>
+
+      <div class="sd-card tools-card">
+        <div>
+          <span class="arch-badge tools" data-i18n="tools_badge">PC • MAC • CONSOLE TOOLS</span>
+          <h2 data-i18n="tools_title">PC &amp; Console Companion Tools (ArcadeMatrix-tools.zip)</h2>
+          <p data-i18n="tools_desc">
+            Standalone archive (no need to download the source code): Recalbox / Batocera / RetroPie sync installers &amp; universal high-score daemon, MUGEN sprite extractor (mugen_extractor.py), and Home Assistant blueprints.
+          </p>
+        </div>
+        <a id="dl-tools-link" class="sd-dl-btn tools" href="https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip" target="_blank" rel="noopener">
+          🧰 <span data-i18n="tools_btn">Download ArcadeMatrix-tools.zip</span>
+        </a>
+      </div>
     </section>
 
     <!-- TAB 2: VISUAL CHANGELOG BLOG -->
@@ -1500,7 +1540,11 @@
         gh_supp_summary: "Supplementary Info — Raw GitHub Release Asset Downloads (Separate from Cloudflare Telemetry)",
         gh_supp_disclaimer: "Note: Raw GitHub API asset counters include manual SD image downloads, reflashes, and automated crawlers. They are never merged into the Cloudflare UUID fleet charts above.",
         gh_rel_heading: "Raw Downloads per GitHub Release Tag",
-        gh_arch_heading: "Raw Asset Downloads per Target Architecture"
+        gh_arch_heading: "Raw Asset Downloads per Target Architecture",
+        tools_badge: "PC • MAC • CONSOLE TOOLS",
+        tools_title: "PC & Console Companion Tools (ArcadeMatrix-tools.zip)",
+        tools_desc: "Standalone archive (no need to download the source code): Recalbox / Batocera / RetroPie sync installers & universal high-score daemon, MUGEN sprite extractor (mugen_extractor.py), and Home Assistant blueprints.",
+        tools_btn: "Download ArcadeMatrix-tools.zip"
       },
       fr: {
         switch_esp32: "Portail ESP32 Web Installer",
@@ -1560,7 +1604,11 @@
         gh_supp_summary: "Informations complémentaires — Téléchargements bruts GitHub Releases (Hors télémétrie Cloudflare)",
         gh_supp_disclaimer: "Note : Les compteurs bruts de l'API GitHub incluent les téléchargements manuels d'images SD, les reflashs et les robots/crawlers. Ils ne sont jamais fusionnés aux graphiques Cloudflare ci-dessus.",
         gh_rel_heading: "Téléchargements bruts par tag GitHub Release",
-        gh_arch_heading: "Téléchargements bruts par architecture"
+        gh_arch_heading: "Téléchargements bruts par architecture",
+        tools_badge: "OUTILS PC • MAC • CONSOLES",
+        tools_title: "Outils Compagnons PC & Consoles (ArcadeMatrix-tools.zip)",
+        tools_desc: "Archive autonome (sans télécharger le code source) : scripts d'installation & daemon universel High-Scores pour Recalbox / Batocera / RetroPie, extracteur de sprites MUGEN (mugen_extractor.py) et blueprints Home Assistant.",
+        tools_btn: "Télécharger ArcadeMatrix-tools.zip"
       },
       es: {
         switch_esp32: "Portal ESP32 Web Installer",
@@ -1620,7 +1668,11 @@
         gh_supp_summary: "Información complementaria — Descargas brutas en GitHub Releases (Independiente de Cloudflare)",
         gh_supp_disclaimer: "Nota: Los contadores brutos de la API de GitHub incluyen descargas manuales de imágenes SD, reflasheos y bots. Nunca se mezclan con los gráficos de Cloudflare.",
         gh_rel_heading: "Descargas brutas por versión en GitHub",
-        gh_arch_heading: "Descargas brutas por arquitectura"
+        gh_arch_heading: "Descargas brutas por arquitectura",
+        tools_badge: "HERRAMIENTAS PC • MAC • CONSOLAS",
+        tools_title: "Herramientas para PC y Consolas (ArcadeMatrix-tools.zip)",
+        tools_desc: "Paquete independiente (sin necesidad de descargar el código fuente): instaladores y daemon universal de récords para Recalbox / Batocera / RetroPie, extractor MUGEN (mugen_extractor.py) y blueprints de Home Assistant.",
+        tools_btn: "Descargar ArcadeMatrix-tools.zip"
       }
     };
 
@@ -2438,20 +2490,30 @@
       const ghReleases = [];
 
       const latest = releases[0];
+      const toolsLinkEl = document.getElementById("dl-tools-link");
+      let foundToolsAsset = false;
       for (const asset of latest.assets || []) {
-        if (asset.name && asset.name.includes("aarch64") && asset.browser_download_url) {
+        const nl = String(asset.name || "").toLowerCase();
+        if (nl.includes("aarch64") && asset.browser_download_url) {
           document.getElementById("dl-aarch64-link").href = asset.browser_download_url;
         }
-        if (asset.name && asset.name.includes("armhf") && asset.browser_download_url) {
+        if (nl.includes("armhf") && asset.browser_download_url) {
           document.getElementById("dl-armhf-link").href = asset.browser_download_url;
         }
+        if (toolsLinkEl && nl.includes("tools") && asset.browser_download_url) {
+          toolsLinkEl.href = asset.browser_download_url;
+          foundToolsAsset = true;
+        }
+      }
+      if (toolsLinkEl && !foundToolsAsset && latest.html_url) {
+        toolsLinkEl.href = latest.html_url;
       }
 
       for (const rel of releases) {
         let relDl = 0;
         for (const asset of rel.assets || []) {
           const nl = String(asset.name || "").toLowerCase();
-          if (nl.includes("sdcard")) continue;
+          if (nl.includes("sdcard") || nl.includes("tools")) continue;
           const dl = Number(asset.download_count || 0);
           relDl += dl;
           if (nl.includes("aarch64") || nl.includes("arm64")) {

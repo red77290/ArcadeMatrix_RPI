@@ -23,12 +23,13 @@ Developed in parallel with the ESP32 C++ version, this implementation leverages 
 
 We provide pre-compiled, fully automated `.img` files, built and published automatically on every release.
 
-| Architecture | Recommended For | Compatible With | Download |
+| Architecture / Bundle | Recommended For | Compatible With | Download |
 |--------------|-----------------|-----------------|----------|
 | **64-bit (aarch64)** | Raspberry Pi 3, 4, 5, Zero 2 W | Pi 3, 4, 5, Zero 2 W | [⬇️ Download 64-bit Image](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz) |
 | **32-bit (armhf)** | Raspberry Pi 1, 2, Zero (Original) | All Raspberry Pi models | [⬇️ Download 32-bit Image](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz) |
+| **Companion Tools (`ArcadeMatrix-tools.zip`)** | PC / Mac / Console Tools (no source repo needed) | Recalbox / Batocera / RetroPie sync, MUGEN extractor & Home Assistant | [⬇️ Download Companion Tools](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip) |
 
-*(Both are `.img.xz` files - decompress with 7-Zip/Keka/`xz -d` before flashing. See the [full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)*
+*(OS images are `.img.xz` files - decompress with 7-Zip/Keka/`xz -d` before flashing. See the [full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)*
 
 1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
 2. Once flashed, insert the SD card into your PC/Mac. You will see a large **DATA** USB drive appear!
@@ -276,7 +277,7 @@ ArcadeMatrix supports instant **Pixelcade-style** marquees while browsing menus,
 #### 1. One-Click Automatic Console Installation (Recommended)
 Go to **System -> MQTT & API -> 🎮 FrontendSync** in the ArcadeMatrix Web UI, select your console OS (`Auto-Detect`, `Recalbox`, `Batocera`, or `RetroPie`), enter the console's IP and SSH credentials, and click **Install Sync Script**.
 
-*(Manual alternative — see [tools/README.md](tools/README.md): copy `tools/rpi_emulationstation_base_os_setup.sh` or `tools/recalbox_setup_mqtt.sh` to your console via `scp`, run `sh /tmp/rpi_emulationstation_base_os_setup.sh`, and enter your ArcadeMatrix IP).*
+*(Manual alternative — download **[`ArcadeMatrix-tools.zip`](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** without cloning the repo, see [tools/README.md](tools/README.md): run `ArcadeMatrix-tools/install.sh` / `ArcadeMatrix-tools/install.ps1` from your PC/Mac, or copy `ArcadeMatrix-tools/rpi_emulationstation_base_os_setup.sh` to your console via `scp` and enter your ArcadeMatrix IP).*
 
 #### 2. Enable In-Game Showcase & Customize Your Card
 1. In **System -> MQTT & API -> 🎬 DMD Media Showcase**, toggle **Enable DMD Media Showcase** ON and verify **`🟢 Communication OK`**.
@@ -318,7 +319,7 @@ ArcadeMatrix_RPi/
 To achieve perfect 60fps performance and exact "virtual ground" alignments across massive character rosters, the Fighter engine uses pre-processed `.fgt` files along with an `index.txt` manifest.
 
 **You cannot simply drop raw images into the fighters folders!**
-You MUST use the provided `mugen_extractor.py` tool located in the `tools/mugen_extractor/` folder to process your MUGEN characters. 
+Download **[`ArcadeMatrix-tools.zip`](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** (no need to download the full source code) and use `mugen_extractor/mugen_extractor.py` (also located in `tools/mugen_extractor/` in the repository) to process your MUGEN characters.
 
 The extractor will read MUGEN `.sff` and `.air` files, calculate the perfect bounding boxes to prevent animation jittering, and export optimized `.fgt` files directly into your `fighters_32/` and `fighters_64/` folders.
 

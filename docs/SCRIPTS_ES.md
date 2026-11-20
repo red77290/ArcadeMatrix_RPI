@@ -103,3 +103,7 @@ Valida que los artefactos de lanzamiento y scripts de instalación (`Cargo.toml`
 Suite de pruebas herméticas en Python 3 stdlib para `tools/arcadematrix_companion_sync.py`. Verifica la descompresión de `_HI2TXT_CATALOG_B85` (`< 15 ms`, `>= 2.500` ROMs), la decodificación `combined` / `separate` / `score_only` / enteros binarios escalados, la tolerancia entre cores `±1..8 B`, la no regresión de NVRAM Neo-Geo M68000 byte-swapped, el descubrimiento MAME Lua `hiscore/` + ordenación por `st_mtime`, y el flujo completo `start` -> `stop` de celebración de récords.
 **Uso**: `python3 scripts/test_companion_sync.py`
 
+### `package_tools.py`
+Valida y empaqueta todas las herramientas complementarias de PC y consolas de `tools/` (`tools/install.sh`, `tools/install.ps1`, `tools/rpi_emulationstation_base_os_setup.sh`, `tools/recalbox_setup_mqtt.sh`, `tools/arcadematrix_daemon.py`, `tools/arcadematrix_companion_sync.py`, `tools/mugen_extractor/`, `tools/home_assistant/` y `tools/README*.md`) en `ArcadeMatrix-tools.zip` para GitHub Releases, normalizando saltos de línea LF y permisos `0755` en scripts `.sh`/`.py`.
+**Uso**: `python3 scripts/package_tools.py [--verify-only] [--output ArcadeMatrix-tools.zip]`
+

@@ -126,3 +126,8 @@ well-formed before a release.
 ### `test_companion_sync.py`
 Hermetic Python 3 stdlib test suite for `tools/arcadematrix_companion_sync.py`. Verifies embedded `_HI2TXT_CATALOG_B85` decompression (`< 15 ms`, `>= 2,500` ROMs), `combined` / `separate` / `score_only` / scaled binary integer decoding, inter-core `±1..8 B` check-byte tolerance, M68000 byte-swapped Neo-Geo NVRAM non-regression, MAME Lua `hiscore/` + `st_mtime` discovery, and `start` -> `stop` record celebration events.
 **Usage**: `python3 scripts/test_companion_sync.py`
+
+### `package_tools.py`
+Validates and packages all end-user PC & console companion tools from `tools/` (`tools/install.sh`, `tools/install.ps1`, `tools/rpi_emulationstation_base_os_setup.sh`, `tools/recalbox_setup_mqtt.sh`, `tools/arcadematrix_daemon.py`, `tools/arcadematrix_companion_sync.py`, `tools/mugen_extractor/`, `tools/home_assistant/`, and `tools/README*.md`) into `ArcadeMatrix-tools.zip` for GitHub Releases, normalizing `.sh`/`.py` line endings to LF with `0755` permissions and excluding Python caches.
+**Usage**: `python3 scripts/package_tools.py [--verify-only] [--output ArcadeMatrix-tools.zip]`
+

@@ -99,3 +99,7 @@ Verifica la paridad documental y la validez de las claves de `config.json` en to
 ### `validate_rpi_release.py`
 Valida que los artefactos de lanzamiento y scripts de instalación (`Cargo.toml`, `autoInstall.sh`, `config.json`, `README*.md`) estén presentes y bien formados antes de publicar una versión.
 
+### `test_companion_sync.py`
+Suite de pruebas herméticas en Python 3 stdlib para `tools/arcadematrix_companion_sync.py`. Verifica la descompresión de `_HI2TXT_CATALOG_B85` (`< 15 ms`, `>= 2.500` ROMs), la decodificación `combined` / `separate` / `score_only` / enteros binarios escalados, la tolerancia entre cores `±1..8 B`, la no regresión de NVRAM Neo-Geo M68000 byte-swapped, el descubrimiento MAME Lua `hiscore/` + ordenación por `st_mtime`, y el flujo completo `start` -> `stop` de celebración de récords.
+**Uso**: `python3 scripts/test_companion_sync.py`
+

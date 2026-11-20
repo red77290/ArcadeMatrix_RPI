@@ -99,3 +99,7 @@ Vérifie l'absence de dérive documentaire et la validité de `config.json` sur 
 ### `validate_rpi_release.py`
 Vérifie que les artefacts de release et scripts d'installation (`Cargo.toml`, `autoInstall.sh`, `config.json`, `README*.md`) sont présents et conformes avant une publication.
 
+### `test_companion_sync.py`
+Suite de tests hermétiques Python 3 stdlib pour `tools/arcadematrix_companion_sync.py`. Vérifie la décompression de `_HI2TXT_CATALOG_B85` (`< 15 ms`, `>= 2 500` ROMs), le décodage `combined` / `separate` / `score_only` / entiers binaires à facteur d'échelle, la tolérance inter-cores `±1..8 o`, la non-régression NVRAM Neo-Geo M68000 byte-swapped, la découverte MAME Lua `hiscore/` + tri `st_mtime`, et le flux complet `start` -> `stop` de célébration de record.
+**Utilisation** : `python3 scripts/test_companion_sync.py`
+

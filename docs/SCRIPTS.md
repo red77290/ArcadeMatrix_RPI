@@ -122,3 +122,7 @@ doc set. Fails the commit if a required doc is missing or the config is invalid.
 Validates that the release artifacts and installation scripts
 (`Cargo.toml`, `autoInstall.sh`, `config.json`, the READMEs...) are present and
 well-formed before a release.
+
+### `test_companion_sync.py`
+Hermetic Python 3 stdlib test suite for `tools/arcadematrix_companion_sync.py`. Verifies embedded `_HI2TXT_CATALOG_B85` decompression (`< 15 ms`, `>= 2,500` ROMs), `combined` / `separate` / `score_only` / scaled binary integer decoding, inter-core `±1..8 B` check-byte tolerance, M68000 byte-swapped Neo-Geo NVRAM non-regression, MAME Lua `hiscore/` + `st_mtime` discovery, and `start` -> `stop` record celebration events.
+**Usage**: `python3 scripts/test_companion_sync.py`

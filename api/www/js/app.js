@@ -31,15 +31,11 @@ window.switchTab = function(tabId) {
 window.switchDisplayTab = window.switchTab;
 
 window.switchSystemTab = function(tabId) {
-  // Update buttons
-  if (window.event && window.event.currentTarget) {
-    document.querySelectorAll('#page-system > .tabs > .tab-btn').forEach(btn => {
-      btn.classList.remove('active');
-    });
-    window.event.currentTarget.classList.add('active');
-  }
+  document.querySelectorAll('#page-system > .tabs > .tab-btn').forEach(btn => {
+    const oc = btn.getAttribute('onclick') || '';
+    btn.classList.toggle('active', oc.includes(`'${tabId}'`));
+  });
 
-  // Update panes
   document.querySelectorAll('#page-system > .tab-pane').forEach(pane => {
     pane.classList.remove('active');
   });
@@ -63,7 +59,90 @@ window.switchMqttSubTab = function(sub) {
   });
 };
 
+window.syncQuickMqttUi = function(enabled) {
+  const isOn = !!enabled;
+  const sbChk = document.getElementById('quick-mqtt-toggle-sidebar');
+  const dsChk = document.getElementById('quick-mqtt-toggle-dash');
+  const sbDot = document.getElementById('sidebar-sync-dot');
+  const dsDot = document.getElementById('dash-sync-dot');
+  const sbWrap = document.getElementById('sidebar-sync-quick');
+  const dsSub = document.getElementById('dash-sync-status-text');
+  const selMqtt = document.getElementById('hw-mqtt-enable');
+
+  if (sbChk) sbChk.checked = isOn;
+  if (dsChk) dsChk.checked = isOn;
+  if (sbDot) sbDot.classList.toggle('online', isOn);
+  if (dsDot) dsDot.classList.toggle('online', isOn);
+  if (sbWrap) sbWrap.classList.toggle('active', isOn);
+  if (dsSub) {
+    const key = isOn ? 'quick_sync_on' : 'quick_sync_off';
+    dsSub.setAttribute('data-i18n', key);
+    dsSub.textContent = t(key, isOn ? 'Active — Recalbox / Batocera / RetroPie' : 'Paused — Idle rotation active');
+  }
+  if (selMqtt) selMqtt.value = isOn ? '1' : '0';
+  if (window.__sysConfig && window.__sysConfig.mqtt) {
+    window.__sysConfig.mqtt.enabled = isOn;
+  }
+};
+
+window.openConsoleSyncSettings = function() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+
+  switchPage('system');
+  window.switchSystemTab('mqtt');
+  window.switchMqttSubTab('frontendsync');
+  const target = document.getElementById('mqtt-subtab-frontendsync');
+  if (target && target.scrollIntoView) {
+    setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  }
+};
+
+function initQuickMqttControls() {
+  const sbChk = document.getElementById('quick-mqtt-toggle-sidebar');
+  const dsChk = document.getElementById('quick-mqtt-toggle-dash');
+  const handleToggle = async (nextState) => {
+    const prevState = !nextState;
+    if (sbChk) sbChk.disabled = true;
+    if (dsChk) dsChk.disabled = true;
+    window.syncQuickMqttUi(nextState);
+    try {
+      await API.post('/api/system', { mqtt_enabled: nextState });
+      window.showToast(
+        nextState
+          ? t('quick_sync_toast_on', 'Console Sync (MQTT) enabled!')
+          : t('quick_sync_toast_off', 'Console Sync (MQTT) paused — idle rotation resumed'),
+        nextState ? 'success' : 'info'
+      );
+    } catch (_) {
+      window.syncQuickMqttUi(prevState);
+      window.showToast(t('quick_sync_toast_err', 'Failed to update Console Sync state'), 'error');
+    } finally {
+      if (sbChk) sbChk.disabled = false;
+      if (dsChk) dsChk.disabled = false;
+    }
+  };
+
+  [sbChk, dsChk].forEach(chk => {
+    if (chk && !chk.dataset.boundQuickMqtt) {
+      chk.dataset.boundQuickMqtt = '1';
+      chk.addEventListener('change', (e) => handleToggle(!!e.target.checked));
+    }
+  });
+
+  ['btn-goto-sync-sidebar', 'btn-goto-sync-dash'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn && !btn.dataset.boundQuickGear) {
+      btn.dataset.boundQuickGear = '1';
+      btn.addEventListener('click', () => window.openConsoleSyncSettings());
+    }
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  initQuickMqttControls();
   initNavigation();
   initDashboard();
   initOta();
@@ -927,6 +1006,7 @@ function initNetworkSettings() {
       try {
         const res = await API.post('/api/system', { mqtt });
         if (window.__sysConfig) window.__sysConfig.mqtt = mqtt;
+        if (window.syncQuickMqttUi) window.syncQuickMqttUi(mqtt.enabled);
         if (res && res.status === 'rebooting') {
           window.showToast('MQTT Settings Saved! Restarting...', 'info');
         } else {
@@ -1255,6 +1335,7 @@ async function initSettings() {
 
     // MQTT (nested mqtt.*)
     setVal('hw-mqtt-enable', mqtt.enabled ? '1' : '0');
+    if (window.syncQuickMqttUi) window.syncQuickMqttUi(!!mqtt.enabled);
     setVal('hw-mqtt-overlay', mqtt.allow_overlay ? '1' : '0');
     setVal('hw-mqtt-broker', mqtt.broker);
     setVal('hw-mqtt-port', mqtt.port);

@@ -1292,15 +1292,31 @@ pub fn start_mqtt_client(config: Arc<Config>) {
         .spawn(move || {
             let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new("data/marquees"));
             let mut shown_waiting_banner = false;
+            let mut was_mqtt_active = false;
             let mut conn_seq: u32 = 0;
 
             loop {
                 let target = resolve_broker_target(&config, false);
                 if !target.mqtt_enabled {
-                    shown_waiting_banner = false;
-                    std::thread::sleep(Duration::from_secs(2));
+                    let prev_req = MQTT_REQUEST_ID.swap(0, Ordering::AcqRel);
+                    if was_mqtt_active || shown_waiting_banner || prev_req != 0 {
+                        was_mqtt_active = false;
+                        shown_waiting_banner = false;
+                        cancel_active_ingame_showcase(&config);
+                        config.set_sync_celebration(None);
+                        config.set_marquee_image(None);
+                        config.clear_forced_engine();
+                        info!("[FrontendSync] Console Sync paused — resumed idle rotation.");
+                    }
+                    let (lock, cv) = ready_signal();
+                    if let Ok(guard) = lock.lock() {
+                        let _ = cv.wait_timeout(guard, Duration::from_secs(2));
+                    } else {
+                        std::thread::sleep(Duration::from_secs(2));
+                    }
                     continue;
                 }
+                was_mqtt_active = true;
 
                 let (user, pass, want_showcase_broker) = {
                     let s = config.settings.read();

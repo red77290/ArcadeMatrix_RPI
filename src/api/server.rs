@@ -243,6 +243,9 @@ async fn post_system(
     if let Some(v) = body.get("ota_auto_check").and_then(|v| v.as_bool()) {
         s.system.ota_auto_check = v;
     }
+    if let Some(v) = body.get("mqtt_enabled").and_then(|v| v.as_bool()) {
+        s.mqtt.enabled = v;
+    }
     if let Some(v) = body.get("sync_show_hiscores").and_then(|v| v.as_bool()) {
         s.mqtt.sync_show_hiscores = v;
     }

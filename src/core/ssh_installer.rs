@@ -890,7 +890,12 @@ mod tests {
         let comp = generate_companion_sync_code("192.168.1.42", "system/playing/batocera");
         assert!(comp.contains("DMD_HOST_DEFAULT = \"192.168.1.42\""));
         assert!(comp.contains("TOPIC_DEFAULT = \"system/playing/batocera\""));
+        assert!(!comp.contains("{{DMD_HOST}}"));
+        assert!(!comp.contains("{{BROKER}}"));
+        assert!(!comp.contains("{{TOPIC}}"));
         assert!(!comp.contains('\r'));
+        assert!(comp.contains("_HI2TXT_CATALOG_B85"));
+        assert!(comp.contains("def decode_with_hi2txt_catalog"));
         assert!(comp.contains("def extract_hiscores"));
         assert!(comp.contains("def parse_hi_binary"));
         assert!(comp.contains("def _decode_namco_tile_hi"));

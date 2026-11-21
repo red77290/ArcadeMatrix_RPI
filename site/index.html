@@ -418,6 +418,21 @@
       color: var(--accent-cyan);
     }
 
+    .arch-badge.tools {
+      background: rgba(255, 0, 85, 0.14);
+      border-color: rgba(255, 0, 85, 0.38);
+      color: #ff5c93;
+    }
+
+    .sd-card.tools-card {
+      margin-bottom: 1.5rem;
+    }
+
+    .sd-card.tools-card:hover {
+      border-color: rgba(255, 0, 85, 0.4);
+      box-shadow: 0 15px 30px rgba(255, 0, 85, 0.1);
+    }
+
     .sd-dl-btn {
       display: inline-flex;
       align-items: center;
@@ -451,6 +466,126 @@
       background: var(--accent-green);
       color: #05050a;
       box-shadow: 0 0 18px rgba(0, 230, 118, 0.45);
+    }
+
+    .sd-dl-btn.tools {
+      background: linear-gradient(135deg, rgba(255, 0, 85, 0.18), rgba(0, 240, 255, 0.14));
+      border-color: rgba(255, 0, 85, 0.45);
+    }
+
+    .sd-dl-btn.tools:hover {
+      background: var(--accent-magenta);
+      border-color: var(--accent-magenta);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(255, 0, 85, 0.45);
+    }
+
+    .guide-inline-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-bottom: 1.1rem;
+      padding: 0.34rem 0.78rem;
+      border-radius: 999px;
+      background: rgba(0, 240, 255, 0.14);
+      border: 1px solid rgba(0, 240, 255, 0.38);
+      color: var(--accent-cyan);
+      font-weight: 600;
+      font-size: 0.84rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+
+    .guide-inline-cta:hover {
+      background: var(--accent-cyan);
+      color: #05050a;
+    }
+
+    .guide-wrapper {
+      display: flex;
+      flex-direction: column;
+      gap: 1.4rem;
+      text-align: left;
+      min-width: 0;
+    }
+
+    .guide-section {
+      background: var(--card-bg);
+      border: 1px solid var(--glass-border);
+      border-radius: 18px;
+      padding: 1.65rem;
+      min-width: 0;
+    }
+
+    .guide-header-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 0.7rem;
+    }
+
+    .guide-section h2 {
+      margin: 0 0 0.7rem 0;
+      font-size: 1.22rem;
+      color: #fff;
+    }
+
+    .guide-section p, .guide-section li {
+      color: var(--text-muted);
+      font-size: 0.92rem;
+      line-height: 1.6;
+    }
+
+    .guide-section ul, .guide-section ol {
+      margin: 0.45rem 0 0.75rem 1.25rem;
+      padding: 0;
+    }
+
+    .guide-section li { margin-bottom: 0.4rem; }
+
+    .guide-section code {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      padding: 0.12rem 0.4rem;
+      border-radius: 5px;
+      color: #e2e8f0;
+    }
+
+    .guide-tools-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 1rem;
+      margin-top: 0.95rem;
+    }
+
+    @media (min-width: 720px) {
+      .guide-tools-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    .guide-tool-item {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid var(--glass-border);
+      border-radius: 12px;
+      padding: 1.1rem;
+    }
+
+    .guide-tool-item h4 {
+      margin: 0 0 0.4rem 0;
+      font-size: 0.95rem;
+      color: var(--accent-green);
+    }
+
+    .guide-tool-item p {
+      margin: 0;
+      font-size: 0.87rem;
+      line-height: 1.5;
     }
 
     /* Tab 2: Visual Changelog */
@@ -1228,6 +1363,9 @@
       <button class="tab-btn active" data-tab="install" role="tab">
         🍓 <span data-i18n="tab_install">Installation &amp; SD Images</span>
       </button>
+      <button class="tab-btn" data-tab="guide" role="tab">
+        📘 <span data-i18n="tab_guide">Beginner's Guide</span>
+      </button>
       <button class="tab-btn" data-tab="changelog" role="tab">
         📰 <span data-i18n="tab_changelog">Visual Changelog</span>
       </button>
@@ -1282,9 +1420,30 @@
           </a>
         </div>
       </div>
+
+      <div class="sd-card tools-card">
+        <div>
+          <span class="arch-badge tools" data-i18n="tools_badge">PC • MAC • CONSOLE TOOLS</span>
+          <h2 data-i18n="tools_title">PC &amp; Console Companion Tools (ArcadeMatrix-tools.zip)</h2>
+          <p data-i18n="tools_desc">
+            Standalone archive (no need to download the source code): Recalbox / Batocera / RetroPie sync installers &amp; universal high-score daemon, MUGEN sprite extractor (mugen_extractor.py), and Home Assistant blueprints.
+          </p>
+          <button type="button" class="guide-inline-cta" id="open-tools-guide-cta">
+            📘 <span data-i18n="tools_guide_cta">How to install &amp; use each tool (Beginner's Guide) →</span>
+          </button>
+        </div>
+        <a id="dl-tools-link" class="sd-dl-btn tools" href="https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip" target="_blank" rel="noopener">
+          🧰 <span data-i18n="tools_btn">Download ArcadeMatrix-tools.zip</span>
+        </a>
+      </div>
     </section>
 
-    <!-- TAB 2: VISUAL CHANGELOG BLOG -->
+    <!-- TAB 2: BEGINNER'S / QUICKSTART GUIDE & TOOLS APPENDIX -->
+    <section id="panel-guide" class="tab-panel">
+      <div id="guide-container" class="guide-wrapper"></div>
+    </section>
+
+    <!-- TAB 3: VISUAL CHANGELOG BLOG -->
     <section id="panel-changelog" class="tab-panel">
       <div id="changelog-container" class="changelog-list"></div>
     </section>
@@ -1315,7 +1474,7 @@
         <div class="kpi-card">
           <div class="kpi-label" data-i18n="kpi_adoption">Latest Release Adoption</div>
           <div class="kpi-value" id="kpi-adoption-val">—</div>
-          <div class="kpi-sub" id="kpi-latest-ver">Latest: v4.2.0</div>
+          <div class="kpi-sub" id="kpi-latest-ver">Latest: v4.3.0</div>
         </div>
         <div class="kpi-card">
           <div class="kpi-label" data-i18n="kpi_arch">64-bit (aarch64) OS Share</div>
@@ -1500,7 +1659,13 @@
         gh_supp_summary: "Supplementary Info — Raw GitHub Release Asset Downloads (Separate from Cloudflare Telemetry)",
         gh_supp_disclaimer: "Note: Raw GitHub API asset counters include manual SD image downloads, reflashes, and automated crawlers. They are never merged into the Cloudflare UUID fleet charts above.",
         gh_rel_heading: "Raw Downloads per GitHub Release Tag",
-        gh_arch_heading: "Raw Asset Downloads per Target Architecture"
+        gh_arch_heading: "Raw Asset Downloads per Target Architecture",
+        tools_badge: "PC • MAC • CONSOLE TOOLS",
+        tools_title: "PC & Console Companion Tools (ArcadeMatrix-tools.zip)",
+        tools_desc: "Standalone archive (no need to download the source code): Recalbox / Batocera / RetroPie sync installers & universal high-score daemon, MUGEN sprite extractor (mugen_extractor.py), and Home Assistant blueprints.",
+        tools_btn: "Download ArcadeMatrix-tools.zip",
+        tab_guide: "Beginner's Guide",
+        tools_guide_cta: "How to install & use each tool (Beginner's Guide) →"
       },
       fr: {
         switch_esp32: "Portail ESP32 Web Installer",
@@ -1560,7 +1725,13 @@
         gh_supp_summary: "Informations complémentaires — Téléchargements bruts GitHub Releases (Hors télémétrie Cloudflare)",
         gh_supp_disclaimer: "Note : Les compteurs bruts de l'API GitHub incluent les téléchargements manuels d'images SD, les reflashs et les robots/crawlers. Ils ne sont jamais fusionnés aux graphiques Cloudflare ci-dessus.",
         gh_rel_heading: "Téléchargements bruts par tag GitHub Release",
-        gh_arch_heading: "Téléchargements bruts par architecture"
+        gh_arch_heading: "Téléchargements bruts par architecture",
+        tools_badge: "OUTILS PC • MAC • CONSOLES",
+        tools_title: "Outils Compagnons PC & Consoles (ArcadeMatrix-tools.zip)",
+        tools_desc: "Archive autonome (sans télécharger le code source) : scripts d'installation & daemon universel High-Scores pour Recalbox / Batocera / RetroPie, extracteur de sprites MUGEN (mugen_extractor.py) et blueprints Home Assistant.",
+        tools_btn: "Télécharger ArcadeMatrix-tools.zip",
+        tab_guide: "Guide Débutant",
+        tools_guide_cta: "Comment installer & utiliser chaque outil (Guide Débutant) →"
       },
       es: {
         switch_esp32: "Portal ESP32 Web Installer",
@@ -1620,20 +1791,72 @@
         gh_supp_summary: "Información complementaria — Descargas brutas en GitHub Releases (Independiente de Cloudflare)",
         gh_supp_disclaimer: "Nota: Los contadores brutos de la API de GitHub incluyen descargas manuales de imágenes SD, reflasheos y bots. Nunca se mezclan con los gráficos de Cloudflare.",
         gh_rel_heading: "Descargas brutas por versión en GitHub",
-        gh_arch_heading: "Descargas brutas por arquitectura"
+        gh_arch_heading: "Descargas brutas por arquitectura",
+        tools_badge: "HERRAMIENTAS PC • MAC • CONSOLAS",
+        tools_title: "Herramientas para PC y Consolas (ArcadeMatrix-tools.zip)",
+        tools_desc: "Paquete independiente (sin necesidad de descargar el código fuente): instaladores y daemon universal de récords para Recalbox / Batocera / RetroPie, extractor MUGEN (mugen_extractor.py) y blueprints de Home Assistant.",
+        tools_btn: "Descargar ArcadeMatrix-tools.zip",
+        tab_guide: "Guía Principiantes",
+        tools_guide_cta: "Cómo instalar y usar cada herramienta (Guía Principiantes) →"
       }
     };
 
     const FALLBACK_POSTS = {
       project: "rpi",
-      latest_version: "v4.2.0",
+      latest_version: "v4.3.0",
       posts: [
+        {
+          version: "v4.3.0",
+          date: "2026-11-21",
+          tags: ["NEW", "PERF"],
+          media: "changelog/media/rpi-agenda-celebration.svg",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.3.0",
+          title: {
+            en: "Universal 3,000+ ROM High-Score Decoder, Companion Tools Bundle & Hot Console Sync Toggle",
+            fr: "Décodeur Universel High-Scores (+3 000 ROMs), Pack Tools Clé en Main & Bascule Sync Console à Chaud",
+            es: "Decodificador Universal de Récords (+3 000 ROMs), Paquete Tools y Botón Rápido Sync Consola"
+          },
+          summary: {
+            en: "Brings zero-dependency hi2txt + MAME Lua + Neo-Geo/CPS NVRAM high-score decoding, a standalone ArcadeMatrix-tools.zip release bundle, an interactive Beginner's Guide tab, and instant Console Sync quick-toggles in the WebUI.",
+            fr: "Intègre le décodage natif des high-scores hi2txt + MAME Lua + NVRAM Neo-Geo/CPS sans binaire externe, l'archive autonome ArcadeMatrix-tools.zip, le Guide Débutant interactif et un interrupteur rapide Sync Console à chaud.",
+            es: "Incorpora decodificación nativa de récords hi2txt + MAME Lua + NVRAM Neo-Geo/CPS sin binarios externos, el paquete autónomo ArcadeMatrix-tools.zip, la Guía para Principiantes interactiva y un interruptor rápido Sync Consola."
+          },
+          before_after: {
+            before: {
+              en: "Decoding non-BCD MAME/FBNeo .hi files required installing an external hi2txt binary, companion scripts required cloning the Git repo, and toggling Console Sync required navigating into System > MQTT.",
+              fr: "Décoder les .hi MAME/FBNeo complexes nécessitait un binaire hi2txt externe, récupérer les outils exigeait de télécharger les sources Git, et couper la Sync Console demandait de naviguer dans Système > MQTT.",
+              es: "Decodificar archivos .hi complejos requería instalar hi2txt externo, obtener las herramientas exigía clonar el repositorio Git y pausar Sync Consola requería entrar en Sistema > MQTT."
+            },
+            after: {
+              en: "3,038+ exact arcade ROM schemas embedded directly in the WebUI SSH installer & standalone script, one-click ArcadeMatrix-tools.zip + Beginner's Guide tab, and <1ms Console Sync toggle + ⚙️ shortcut in Sidebar & Dashboard.",
+              fr: "+3 038 schémas de ROMs embarqués directement dans l'installeur SSH WebUI et le script autonome, archive ArcadeMatrix-tools.zip + onglet Guide Débutant, et bouton rapide Sync Console + ⚙️ (<1 ms) dans le menu et le Dashboard.",
+              es: "+3 038 esquemas de ROMs integrados directamente en el instalador SSH WebUI y el script autónomo, paquete ArcadeMatrix-tools.zip + pestaña Guía, e interruptor rápido Sync Consola + ⚙️ (<1 ms) en barra lateral y Dashboard."
+            }
+          },
+          highlights: {
+            en: [
+              "NEW — Universal Embedded High-Score Decoder: Precompiled hi2txt-xml catalog (~3,020 .hi ROMs in 35 KB) + MAME Lua `hiscore/` discovery + M68000 byte-swapped Neo-Geo/CPS NVRAM.",
+              "NEW — Standalone `ArcadeMatrix-tools.zip` & Portal Beginner's Guide (`#guide`) in EN/FR/ES, validated end-to-end across Bash, POSIX `sh`, and PowerShell 7.",
+              "NEW — Hot Console Sync Quick-Toggle & `⚙️` Settings Shortcut in Sidebar Footer and Dashboard `Matrix Power` card with `< 1 ms` Condvar wakeup."
+            ],
+            fr: [
+              "NEW — Décodeur Universel High-Scores Embarqué : Catalogue hi2txt-xml précompilé (~3 020 ROMs .hi en 35 Ko) + support MAME Lua `hiscore/` + NVRAM M68000 Neo-Geo/CPS.",
+              "NEW — Archive autonome `ArcadeMatrix-tools.zip` & onglet Guide Débutant (`#guide`) EN/FR/ES sur le portail, validés en E2E sous Bash, `sh` et PowerShell 7.",
+              "NEW — Interrupteur rapide `Sync Console` à chaud + raccourci `⚙️` dans le pied du menu gauche et la carte Dashboard avec réveil instantané `< 1 ms`."
+            ],
+            es: [
+              "NEW — Decodificador Universal Integrado: Catálogo hi2txt-xml precompilado (~3 020 ROMs .hi en 35 KB) + soporte MAME Lua `hiscore/` + NVRAM M68000 Neo-Geo/CPS.",
+              "NEW — Paquete autónomo `ArcadeMatrix-tools.zip` y pestaña Guía para Principiantes (`#guide`) EN/FR/ES en el portal, validados E2E en Bash, `sh` y PowerShell 7.",
+              "NEW — Interruptor rápido `Sync Consola` en caliente + acceso `⚙️` en el pie del menú lateral y en el Dashboard con reactivación en `< 1 ms`."
+            ]
+          }
+        },
         {
           version: "v4.2.0",
           date: "2026-11-16",
           tags: ["NEW", "PERF", "FIX"],
           media: "changelog/media/rpi-agenda-celebration.svg",
-          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases",
+          release_url: "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.2.0",
           title: {
             en: "iCal Agenda Engine, RetroAchievements Fireworks & Anonymous OTA Proxy",
             fr: "Moteur Agenda iCal, Feux d'Artifice RetroAchievements & Proxy OTA Anonyme",
@@ -1732,7 +1955,7 @@
           new_7d: 0,
           new_30d: 0,
           total_known: 0,
-          latest_version: "v4.2.0",
+          latest_version: "v4.3.0",
           latest_adoption_pct: 0,
           github_downloads_total: 0,
           github_latest_downloads: 0
@@ -1785,6 +2008,157 @@
     let currentStatsData = createEmptyStats();
     let selectedHwFilter = "all";
 
+    let latestToolsUrl = "https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip";
+
+    const GUIDE_DATA = {
+      en: {
+        mdUrl: "https://github.com/red77290/ArcadeMatrix_RPI/blob/main/docs/QUICKSTART.md",
+        mdBtn: "Open Full Quickstart Guide on GitHub",
+        heroTitle: "📘 Beginner's Guide: SD Setup, Web UI, HUB75 HAT & Companion Tools",
+        heroIntro: "Get your Raspberry Pi HUB75 LED matrix running in minutes, update over Wi-Fi, and use the standalone PC/Console companion tools.",
+        s1Title: "1. Quick Installation & First Boot (4 Steps)",
+        s1Steps: [
+          "<strong>Flash the SD image</strong>: decompress the 64-bit (<code>aarch64</code>) or 32-bit (<code>armhf</code>) <code>.img.xz</code> and flash it onto a 16 GB+ MicroSD card using <strong>Raspberry Pi Imager</strong>.",
+          "<strong>Configure Wi-Fi on the <code>DATA</code> USB drive</strong>: reinsert the SD card into your PC/Mac, open <code>config.json</code> on the <code>DATA</code> partition, and enter your Wi-Fi <code>ssid</code>, <code>password</code>, and panel dimensions.",
+          "<strong>Connect HUB75 HAT &amp; 5V PSU</strong>: plug your Adafruit RGB Matrix HAT/Bonnet onto the Pi (Pi Zero 2 W, Pi 3B+, Pi 4B, or Pi 5 with active adapter) and power your HUB75 panels with a dedicated <strong>5V ONLY</strong> power supply.",
+          "<strong>Control &amp; OTA Updates</strong>: power on — the matrix displays its IP address. Open <code>http://&lt;RASPBERRY_IP&gt;:8080</code> to customize clocks, rotation, Showcase, and drag-and-drop Wi-Fi OTA updates."
+        ],
+        s2Title: "2. Adding Media (GIFs, MUGEN Sprites & Fonts)",
+        s2Items: [
+          "<strong>GIFs</strong>: drop standard <code>.gif</code> files into <code>DATA:/gifs/</code> (via USB card reader or SFTP).",
+          "<strong>MUGEN Sprites</strong>: convert MUGEN characters into <code>.fgt</code> + <code>index.txt</code> using <code>mugen_extractor.py</code> (in <code>ArcadeMatrix-tools.zip</code>) and copy them into <code>DATA:/fighters_32/</code> or <code>DATA:/fighters_64/</code>.",
+          "<strong>Custom Fonts</strong>: drop <code>.bdf</code> or <code>.ttf</code> font files directly into <code>DATA:/fonts/</code>."
+        ],
+        s3Title: "3. Appendix: PC & Console Companion Tools (ArcadeMatrix-tools.zip)",
+        s3Intro: "All optional PC, Mac, Linux, and retro-console helper scripts are bundled in a standalone archive — no need to clone or download the source code:",
+        s3DlBtn: "Download ArcadeMatrix-tools.zip",
+        tools: [
+          {
+            title: "🕹️ Console Sync & Universal High-Score Daemon",
+            desc: "Tip: you can install console sync in 1 click directly from the Web UI (<em>System → MQTT &amp; API → FrontendSync</em>)! For manual PC/SSH setup, run <code>install.ps1</code> (Windows), <code>./install.sh</code> (Mac/Linux), or <code>rpi_emulationstation_base_os_setup.sh</code> — streams marquees in 0 ms and celebrates High-Score records across ~3,100 MAME/FBNeo <code>.hi</code> &amp; Neo-Geo/CPS NVRAM games."
+          },
+          {
+            title: "🥊 mugen_extractor/ — Custom MUGEN Fighters (.fgt)",
+            desc: "Run <code>start_extractor.bat</code> (Windows) or <code>./start_extractor.sh</code> (Mac/Linux — auto-installs Pillow) pointing <code>--src</code> to your MUGEN <code>chars/</code> folder, then copy <code>fighters_32/</code> / <code>fighters_64/</code> onto the <code>DATA</code> partition."
+          },
+          {
+            title: "🏠 home_assistant/ — Smart Home Blueprints (mqttdata)",
+            desc: "Import <code>home_assistant/blueprints/*.yaml</code> into Home Assistant (<em>Settings → Automations → Blueprints</em>) to stream live sensors, 24h charts, tables, and weather over MQTT."
+          }
+        ]
+      },
+      fr: {
+        mdUrl: "https://github.com/red77290/ArcadeMatrix_RPI/blob/main/docs/QUICKSTART_FR.md",
+        mdBtn: "Ouvrir le Guide Rapide complet sur GitHub",
+        heroTitle: "📘 Guide Débutant : Image SD, Web UI, HAT HUB75 & Outils Compagnons",
+        heroIntro: "Démarrez votre matrice LED HUB75 sur Raspberry Pi en quelques minutes, mettez à jour en Wi-Fi et utilisez les outils compagnons PC/Consoles.",
+        s1Title: "1. Installation rapide & Premier démarrage (4 étapes)",
+        s1Steps: [
+          "<strong>Flasher l'image SD</strong> : décompressez l'image 64-bits (<code>aarch64</code>) ou 32-bits (<code>armhf</code>) <code>.img.xz</code> et flashez-la sur une carte MicroSD 16 Go+ avec <strong>Raspberry Pi Imager</strong>.",
+          "<strong>Configurer le Wi-Fi sur le lecteur <code>DATA</code></strong> : réinsérez la carte SD sur PC/Mac, ouvrez <code>config.json</code> sur la partition <code>DATA</code> et renseignez votre Wi-Fi (<code>ssid</code>, <code>password</code>) et la taille de vos dalles.",
+          "<strong>Brancher le HAT HUB75 &amp; l'alim 5V</strong> : connectez votre HAT/Bonnet Adafruit RGB Matrix sur le Pi (Pi Zero 2 W, Pi 3B+, Pi 4B, ou Pi 5 avec adaptateur actif) et alimentez vos dalles uniquement en <strong>5V</strong>.",
+          "<strong>Contrôle &amp; MAJ OTA</strong> : allumez — la matrice affiche son adresse IP. Ouvrez <code>http://&lt;IP_RASPBERRY&gt;:8080</code> pour régler vos horloges, la rotation, Showcase et les mises à jour OTA en Wi-Fi."
+        ],
+        s2Title: "2. Ajouter vos Médias (GIFs, Sprites MUGEN & Polices)",
+        s2Items: [
+          "<strong>GIFs</strong> : déposez vos fichiers <code>.gif</code> dans <code>DATA:/gifs/</code> (lecteur SD sur PC ou SFTP).",
+          "<strong>Sprites MUGEN</strong> : convertissez vos personnages MUGEN en <code>.fgt</code> + <code>index.txt</code> avec <code>mugen_extractor.py</code> (inclus dans <code>ArcadeMatrix-tools.zip</code>) et copiez-les dans <code>DATA:/fighters_32/</code> ou <code>DATA:/fighters_64/</code>.",
+          "<strong>Polices personnalisées</strong> : déposez directement vos polices <code>.bdf</code> ou <code>.ttf</code> dans <code>DATA:/fonts/</code>."
+        ],
+        s3Title: "3. Annexe : Utiliser les Outils Compagnons PC & Consoles (ArcadeMatrix-tools.zip)",
+        s3Intro: "Tous les outils optionnels PC, Mac, Linux et consoles rétro sont réunis dans une archive autonome — sans jamais avoir à télécharger le code source complet :",
+        s3DlBtn: "Télécharger ArcadeMatrix-tools.zip",
+        tools: [
+          {
+            title: "🕹️ Sync Console & Daemon Universel High-Scores",
+            desc: "Astuce : l'installation Recalbox / Batocera / RetroPie se fait en 1 clic depuis la Web UI (<em>Système → MQTT &amp; API → FrontendSync</em>) ! En alternative manuelle PC/SSH, lancez <code>install.ps1</code> (Windows), <code>./install.sh</code> (Mac/Linux) ou <code>rpi_emulationstation_base_os_setup.sh</code> — affiche les marquees en 0 ms et célèbre les records sur ~3 100 ROMs MAME/FBNeo <code>.hi</code> &amp; NVRAM Neo-Geo/CPS."
+          },
+          {
+            title: "🥊 mugen_extractor/ — Combattants MUGEN (.fgt)",
+            desc: "Lancez <code>start_extractor.bat</code> (Windows) ou <code>./start_extractor.sh</code> (Mac/Linux — installe Pillow tout seul) vers votre dossier <code>chars/</code>, puis copiez <code>fighters_32/</code> / <code>fighters_64/</code> sur la partition <code>DATA</code>."
+          },
+          {
+            title: "🏠 home_assistant/ — Blueprints Domotiques (mqttdata)",
+            desc: "Importez <code>home_assistant/blueprints/*.yaml</code> dans Home Assistant (<em>Paramètres → Automatisations → Blueprints</em>) pour envoyer capteurs, courbes 24h, tableaux et météo via MQTT."
+          }
+        ]
+      },
+      es: {
+        mdUrl: "https://github.com/red77290/ArcadeMatrix_RPI/blob/main/docs/QUICKSTART_ES.md",
+        mdBtn: "Abrir Guía de Inicio Rápido en GitHub",
+        heroTitle: "📘 Guía para Principiantes: Imagen SD, Web UI, HAT HUB75 y Herramientas",
+        heroIntro: "Pon en marcha tu matriz LED HUB75 en Raspberry Pi en minutos, actualiza por Wi-Fi y utiliza las herramientas independientes para PC y consolas.",
+        s1Title: "1. Instalación rápida y Primer arranque (4 pasos)",
+        s1Steps: [
+          "<strong>Grabar la imagen SD</strong>: descomprime la imagen de 64 bits (<code>aarch64</code>) o 32 bits (<code>armhf</code>) <code>.img.xz</code> y grábala en una MicroSD de 16 GB+ con <strong>Raspberry Pi Imager</strong>.",
+          "<strong>Configurar Wi-Fi en la unidad <code>DATA</code></strong>: vuelve a conectar la SD al PC/Mac, abre <code>config.json</code> en la partición <code>DATA</code> e introduce tu Wi-Fi (<code>ssid</code>, <code>password</code>) y tamaño de panel.",
+          "<strong>Conectar HAT HUB75 y fuente 5V</strong>: enchufa tu HAT/Bonnet Adafruit RGB Matrix en la Pi (Pi Zero 2 W, Pi 3B+, Pi 4B o Pi 5 con adaptador activo) y alimenta los paneles exclusivamente con <strong>5V</strong>.",
+          "<strong>Control y actualizaciones OTA</strong>: al encender, la matriz muestra su IP. Abre <code>http://&lt;IP_RASPBERRY&gt;:8080</code> para ajustar relojes, rotación, Showcase y actualizaciones OTA por Wi-Fi."
+        ],
+        s2Title: "2. Añadir Medios (GIFs, Sprites MUGEN y Fuentes)",
+        s2Items: [
+          "<strong>GIFs</strong>: copia tus archivos <code>.gif</code> en <code>DATA:/gifs/</code> (lector USB o SFTP).",
+          "<strong>Sprites MUGEN</strong>: convierte personajes MUGEN en <code>.fgt</code> + <code>index.txt</code> con <code>mugen_extractor.py</code> (en <code>ArcadeMatrix-tools.zip</code>) y cópialos en <code>DATA:/fighters_32/</code> o <code>DATA:/fighters_64/</code>.",
+          "<strong>Fuentes personalizadas</strong>: coloca fuentes <code>.bdf</code> o <code>.ttf</code> directamente en <code>DATA:/fonts/</code>."
+        ],
+        s3Title: "3. Anexo: Herramientas para PC y Consolas (ArcadeMatrix-tools.zip)",
+        s3Intro: "Todas las herramientas opcionales para PC, Mac, Linux y consolas retro están reunidas en un archivo independiente — sin necesidad de clonar ni descargar el código fuente:",
+        s3DlBtn: "Descargar ArcadeMatrix-tools.zip",
+        tools: [
+          {
+            title: "🕹️ Sincronización de Consola y Daemon de Récords",
+            desc: "Consejo: ¡puedes instalar el script en Recalbox / Batocera / RetroPie en 1 clic desde la Web UI (<em>Sistema → MQTT &amp; API → FrontendSync</em>)! Para instalación manual desde PC/SSH, usa <code>install.ps1</code>, <code>./install.sh</code> o <code>rpi_emulationstation_base_os_setup.sh</code> — muestra marquesinas en 0 ms y celebra récords en ~3.100 ROMs MAME/FBNeo <code>.hi</code> y NVRAM Neo-Geo/CPS."
+          },
+          {
+            title: "🥊 mugen_extractor/ — Luchadores MUGEN (.fgt)",
+            desc: "Ejecuta <code>start_extractor.bat</code> (Windows) o <code>./start_extractor.sh</code> (Mac/Linux — instala Pillow automáticamente) apuntando a <code>chars/</code>, y copia <code>fighters_32/</code> / <code>fighters_64/</code> en la partición <code>DATA</code>."
+          },
+          {
+            title: "🏠 home_assistant/ — Blueprints Domóticos (mqttdata)",
+            desc: "Importa <code>home_assistant/blueprints/*.yaml</code> en Home Assistant (<em>Ajustes → Automatizaciones → Blueprints</em>) para enviar sensores, gráficas de 24h, tablas y clima por MQTT."
+          }
+        ]
+      }
+    };
+
+    function renderBeginnerGuide() {
+      const container = document.getElementById("guide-container");
+      if (!container) return;
+      const lang = GUIDE_DATA[currentLang] ? currentLang : "en";
+      const g = GUIDE_DATA[lang];
+
+      container.innerHTML = `
+        <div class="guide-section">
+          <div class="guide-header-row">
+            <h2 style="margin:0;">${g.heroTitle}</h2>
+            <a class="release-dl-btn" href="${g.mdUrl}" target="_blank" rel="noopener">📄 ${g.mdBtn}</a>
+          </div>
+          <p style="margin:0;">${g.heroIntro}</p>
+        </div>
+
+        <div class="guide-section">
+          <h2>${g.s1Title}</h2>
+          <ol>${g.s1Steps.map((s) => `<li>${s}</li>`).join("")}</ol>
+        </div>
+
+        <div class="guide-section">
+          <h2>${g.s2Title}</h2>
+          <ul>${g.s2Items.map((i) => `<li>${i}</li>`).join("")}</ul>
+        </div>
+
+        <div class="guide-section" id="guide-tools-appendix">
+          <div class="guide-header-row">
+            <h2 style="margin:0;">${g.s3Title}</h2>
+            <a class="sd-dl-btn tools" id="guide-dl-tools-link" style="width:auto;" href="${latestToolsUrl}" target="_blank" rel="noopener">🧰 <span>${g.s3DlBtn}</span></a>
+          </div>
+          <p>${g.s3Intro}</p>
+          <div class="guide-tools-grid">
+            ${g.tools.map((t) => `<div class="guide-tool-item"><h4>${t.title}</h4><p>${t.desc}</p></div>`).join("")}
+          </div>
+        </div>
+      `;
+    }
+
     function applyLanguage(lang) {
       currentLang = I18N[lang] ? lang : "en";
       localStorage.setItem("am_portal_lang", currentLang);
@@ -1800,12 +2174,13 @@
         if (dict[key]) el.textContent = dict[key];
       });
 
+      renderBeginnerGuide();
       renderChangelog();
       renderStatsDashboard();
     }
 
     function activateTab(tabId, updateHash = true) {
-      const validTabs = ["install", "changelog", "stats"];
+      const validTabs = ["install", "guide", "changelog", "stats"];
       const target = validTabs.includes(tabId) ? tabId : "install";
 
       document.querySelectorAll(".tab-btn").forEach((btn) => {
@@ -2072,7 +2447,7 @@
       const totalKnown = Number(kpis.total_known || 0);
       const new30d = Number(kpis.new_30d || 0);
       const new7d = Number(kpis.new_7d || 0);
-      const latestVer = kpis.latest_version || "v4.2.0";
+      const latestVer = kpis.latest_version || "v4.3.0";
       const adoptionPct = Number(kpis.latest_adoption_pct || 0);
 
       document.getElementById("kpi-active-val").textContent = isLive ? String(active30d) : "—";
@@ -2438,20 +2813,35 @@
       const ghReleases = [];
 
       const latest = releases[0];
+      const toolsLinkEl = document.getElementById("dl-tools-link");
+      const guideToolsLinkEl = document.getElementById("guide-dl-tools-link");
+      let foundToolsAsset = false;
       for (const asset of latest.assets || []) {
-        if (asset.name && asset.name.includes("aarch64") && asset.browser_download_url) {
+        const nl = String(asset.name || "").toLowerCase();
+        if (nl.includes("aarch64") && asset.browser_download_url) {
           document.getElementById("dl-aarch64-link").href = asset.browser_download_url;
         }
-        if (asset.name && asset.name.includes("armhf") && asset.browser_download_url) {
+        if (nl.includes("armhf") && asset.browser_download_url) {
           document.getElementById("dl-armhf-link").href = asset.browser_download_url;
         }
+        if (nl.includes("tools") && asset.browser_download_url) {
+          latestToolsUrl = asset.browser_download_url;
+          if (toolsLinkEl) toolsLinkEl.href = latestToolsUrl;
+          if (guideToolsLinkEl) guideToolsLinkEl.href = latestToolsUrl;
+          foundToolsAsset = true;
+        }
+      }
+      if (!foundToolsAsset && latest.html_url) {
+        latestToolsUrl = latest.html_url;
+        if (toolsLinkEl) toolsLinkEl.href = latestToolsUrl;
+        if (guideToolsLinkEl) guideToolsLinkEl.href = latestToolsUrl;
       }
 
       for (const rel of releases) {
         let relDl = 0;
         for (const asset of rel.assets || []) {
           const nl = String(asset.name || "").toLowerCase();
-          if (nl.includes("sdcard")) continue;
+          if (nl.includes("sdcard") || nl.includes("tools")) continue;
           const dl = Number(asset.download_count || 0);
           relDl += dl;
           if (nl.includes("aarch64") || nl.includes("arm64")) {
@@ -2527,6 +2917,16 @@
     document.querySelectorAll(".tab-btn").forEach((btn) => {
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
+
+    const openToolsGuideCta = document.getElementById("open-tools-guide-cta");
+    if (openToolsGuideCta) {
+      openToolsGuideCta.addEventListener("click", () => {
+        activateTab("guide");
+        setTimeout(() => {
+          document.getElementById("guide-tools-appendix")?.scrollIntoView({ behavior: "smooth" });
+        }, 50);
+      });
+    }
 
     document.querySelectorAll(".lang-btn").forEach((btn) => {
       btn.addEventListener("click", () => applyLanguage(btn.dataset.lang));

@@ -45,3 +45,15 @@ Recomendamos usar un Adafruit RGB Matrix HAT o Bonnet conectado a una Raspberry 
 3. **Fichas y Vídeos de Gameplay en Juego** (con **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** en tu red local):
    - En **🎬 DMD Media Showcase**, activa el servidor Showcase (`🟢 Comunicación OK`).
    - En **🎮 FrontendSync**, activa **Usar Broker MQTT de Showcase si está activo** (libera RAM local) y **Showcase en Juego (Tarjeta + Vídeo Gameplay)**, elige tu **Ciclo** (`Alternar Marquesina y Showcase`, `Una vez` o `Bucle`) y el **Estilo de Tarjeta** (`Heredar de Showcase Studio` o `Personalizado en el DMD`), y guarda los ajustes.
+
+## 6. Anexo: Uso de las Herramientas para PC y Consolas (`ArcadeMatrix-tools.zip`)
+
+Todas las herramientas opcionales para PC, Mac, Linux y consolas retro están disponibles en un paquete independiente — **sin necesidad de descargar ni clonar el código fuente**:
+
+👉 **[⬇️ Descargar `ArcadeMatrix-tools.zip` (Última Release)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** *(también disponible en el [Portal Raspberry Pi](https://red77290.github.io/ArcadeMatrix_RPI/)).*
+
+Descomprime `ArcadeMatrix-tools.zip` en tu ordenador para utilizar:
+- **Sincronización de Consola y Daemon Universal de Récords (`ArcadeMatrix-tools/install.sh`, `ArcadeMatrix-tools/install.ps1`, `ArcadeMatrix-tools/rpi_emulationstation_base_os_setup.sh`)**: Alternativa manual al instalador en 1 clic de la Web UI para Recalbox, Batocera y RetroPie — muestra marquesinas en `0 ms` y celebra nuevos récords High-Score en ~3.100 ROMs MAME/FBNeo `.hi` + NVRAM Neo-Geo/CPS.
+- **Extractor de Sprites MUGEN (`ArcadeMatrix-tools/mugen_extractor/`)**: Ejecuta `start_extractor.bat` (Windows) o `./start_extractor.sh` (macOS / Linux) para convertir personajes MUGEN (`chars/`) en sprites `.fgt` + `index.txt` listos para copiar en `DATA:/fighters_32/` o `DATA:/fighters_64/`.
+- **Blueprints de Home Assistant (`ArcadeMatrix-tools/home_assistant/blueprints/`)**: Plantillas YAML listas para importar y enviar sensores, gráficas de 24h, tablas y clima al motor `mqttdata`.
+

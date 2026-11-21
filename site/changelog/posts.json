@@ -1,7 +1,54 @@
 {
   "project": "rpi",
-  "latest_version": "v4.2.0",
+  "latest_version": "v4.3.0",
   "posts": [
+    {
+      "version": "v4.3.0",
+      "date": "2026-11-21",
+      "channel": "stable",
+      "tags": ["NEW", "PERF"],
+      "media": "changelog/media/rpi-agenda-celebration.svg",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.3.0",
+      "title": {
+        "en": "Universal 3,000+ ROM High-Score Decoder, Companion Tools Bundle & Hot Console Sync Toggle",
+        "fr": "Décodeur Universel High-Scores (+3 000 ROMs), Pack Tools Clé en Main & Bascule Sync Console à Chaud",
+        "es": "Decodificador Universal de Récords (+3 000 ROMs), Paquete Tools y Botón Rápido Sync Consola"
+      },
+      "summary": {
+        "en": "Brings zero-dependency hi2txt + MAME Lua + Neo-Geo/CPS NVRAM high-score decoding, a standalone ArcadeMatrix-tools.zip release bundle, an interactive Beginner's Guide tab, and instant Console Sync quick-toggles in the WebUI.",
+        "fr": "Intègre le décodage natif des high-scores hi2txt + MAME Lua + NVRAM Neo-Geo/CPS sans binaire externe, l'archive autonome ArcadeMatrix-tools.zip, le Guide Débutant interactif et un interrupteur rapide Sync Console à chaud.",
+        "es": "Incorpora decodificación nativa de récords hi2txt + MAME Lua + NVRAM Neo-Geo/CPS sin binarios externos, el paquete autónomo ArcadeMatrix-tools.zip, la Guía para Principiantes interactiva y un interruptor rápido Sync Consola."
+      },
+      "before_after": {
+        "before": {
+          "en": "Decoding non-BCD MAME/FBNeo .hi files required installing an external hi2txt binary, companion scripts required cloning the Git repo, and toggling Console Sync required navigating into System > MQTT.",
+          "fr": "Décoder les .hi MAME/FBNeo complexes nécessitait un binaire hi2txt externe, récupérer les outils exigeait de télécharger les sources Git, et couper la Sync Console demandait de naviguer dans Système > MQTT.",
+          "es": "Decodificar archivos .hi complejos requería instalar hi2txt externo, obtener las herramientas exigía clonar el repositorio Git y pausar Sync Consola requería entrar en Sistema > MQTT."
+        },
+        "after": {
+          "en": "3,038+ exact arcade ROM schemas embedded directly in the WebUI SSH installer & standalone script, one-click ArcadeMatrix-tools.zip + Beginner's Guide tab, and <1ms Console Sync toggle + ⚙️ shortcut in Sidebar & Dashboard.",
+          "fr": "+3 038 schémas de ROMs embarqués directement dans l'installeur SSH WebUI et le script autonome, archive ArcadeMatrix-tools.zip + onglet Guide Débutant, et bouton rapide Sync Console + ⚙️ (<1 ms) dans le menu et le Dashboard.",
+          "es": "+3 038 esquemas de ROMs integrados directamente en el instalador SSH WebUI y el script autónomo, paquete ArcadeMatrix-tools.zip + pestaña Guía, e interruptor rápido Sync Consola + ⚙️ (<1 ms) en barra lateral y Dashboard."
+        }
+      },
+      "highlights": {
+        "en": [
+          "NEW — Universal Embedded High-Score Decoder: Precompiled hi2txt-xml catalog (~3,020 .hi ROMs in 35 KB) + MAME Lua `hiscore/` discovery + M68000 byte-swapped Neo-Geo/CPS NVRAM.",
+          "NEW — Standalone `ArcadeMatrix-tools.zip` & Portal Beginner's Guide (`#guide`) in EN/FR/ES, validated end-to-end across Bash, POSIX `sh`, and PowerShell 7.",
+          "NEW — Hot Console Sync Quick-Toggle & `⚙️` Settings Shortcut in Sidebar Footer and Dashboard `Matrix Power` card with `< 1 ms` Condvar wakeup."
+        ],
+        "fr": [
+          "NEW — Décodeur Universel High-Scores Embarqué : Catalogue hi2txt-xml précompilé (~3 020 ROMs .hi en 35 Ko) + support MAME Lua `hiscore/` + NVRAM M68000 Neo-Geo/CPS.",
+          "NEW — Archive autonome `ArcadeMatrix-tools.zip` & onglet Guide Débutant (`#guide`) EN/FR/ES sur le portail, validés en E2E sous Bash, `sh` et PowerShell 7.",
+          "NEW — Interrupteur rapide `Sync Console` à chaud + raccourci `⚙️` dans le pied du menu gauche et la carte Dashboard avec réveil instantané `< 1 ms`."
+        ],
+        "es": [
+          "NEW — Decodificador Universal Integrado: Catálogo hi2txt-xml precompilado (~3 020 ROMs .hi en 35 KB) + soporte MAME Lua `hiscore/` + NVRAM M68000 Neo-Geo/CPS.",
+          "NEW — Paquete autónomo `ArcadeMatrix-tools.zip` y pestaña Guía para Principiantes (`#guide`) EN/FR/ES en el portal, validados E2E en Bash, `sh` y PowerShell 7.",
+          "NEW — Interruptor rápido `Sync Consola` en caliente + acceso `⚙️` en el pie del menú lateral y en el Dashboard con reactivación en `< 1 ms`."
+        ]
+      }
+    },
     {
       "version": "v4.2.0",
       "date": "2026-11-19",

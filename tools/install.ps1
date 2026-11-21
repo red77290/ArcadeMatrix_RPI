@@ -126,7 +126,7 @@ if (@("1", "2", "3", "4") -notcontains $OsChoice) {
     Write-Fatal "Invalid OS choice '$OsChoice'. Expected 1, 2, 3, or 4."
 }
 
-if ([string]::IsNullOrWhiteSpace($CustomUser)) {
+if ((-not $PSBoundParameters.ContainsKey("CustomUser")) -and (-not $PSBoundParameters.ContainsKey("TargetIp"))) {
     $CustomUser = Read-Host "Custom SSH Username (leave blank for defaults)"
 }
 $CustomUser = $CustomUser.Trim()
@@ -301,11 +301,15 @@ fi
 TOPIC="system/playing/$SYSTEM"
 echo "Console identified as: $SYSTEM"
 echo "Checking DMD target ($DMD_IP) from console..."
-_bt=$(curl -s -m 2 "http://$DMD_IP/api/mqtt/broker-target" 2>/dev/null || wget -qO- -T 2 "http://$DMD_IP/api/mqtt/broker-target" 2>/dev/null || true)
+_bt=""
+for _hp in 80 8080; do
+    _bt=$(curl -fsS -m 2 "http://$DMD_IP:$_hp/api/mqtt/broker-target" 2>/dev/null || wget -qO- -T 2 "http://$DMD_IP:$_hp/api/mqtt/broker-target" 2>/dev/null || true)
+    [ -n "$_bt" ] && break
+done
 if [ -n "$_bt" ]; then
     echo "  DMD /api/mqtt/broker-target -> $_bt"
 else
-    echo "  WARNING: Could not reach http://$DMD_IP/api/mqtt/broker-target from console!"
+    echo "  WARNING: Could not reach http://$DMD_IP[:8080]/api/mqtt/broker-target from console!"
 fi
 
 am_write_b64() {

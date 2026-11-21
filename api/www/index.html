@@ -46,6 +46,19 @@
         </li>
       </ul>
       <div class="sidebar-footer">
+        <div class="sidebar-sync-quick" id="sidebar-sync-quick">
+          <div class="sync-quick-meta">
+            <span class="sync-quick-dot" id="sidebar-sync-dot"></span>
+            <span class="sync-quick-label">🕹️ <span data-i18n="quick_sync_label">Console Sync</span></span>
+          </div>
+          <div class="sync-quick-actions">
+            <label class="sync-toggle-pill sm" data-i18n-title="quick_sync_toggle_tt" title="Enable or pause Console Sync (MQTT)">
+              <input type="checkbox" id="quick-mqtt-toggle-sidebar">
+              <span class="sync-toggle-track"></span>
+            </label>
+            <button type="button" class="btn-sync-gear" id="btn-goto-sync-sidebar" data-i18n-title="quick_sync_gear_tt" title="Open Console Sync (MQTT) settings" aria-label="Console Sync Settings">⚙️</button>
+          </div>
+        </div>
         <select id="lang-selector">
           <option value="en">English (EN)</option>
           <option value="fr">Français (FR)</option>
@@ -76,6 +89,22 @@
             <div class="slider-group" style="margin-top: 1.5rem;">
               <label><span data-i18n="dash_brightness">Matrix Brightness</span> (<span id="val-brightness">40</span>%)</label>
               <input type="range" id="slider-brightness" min="1" max="100" value="40">
+            </div>
+            <div class="dash-sync-quick" id="dash-sync-quick">
+              <div class="sync-quick-meta">
+                <span class="sync-quick-dot" id="dash-sync-dot"></span>
+                <div>
+                  <div class="sync-quick-title">🕹️ <span data-i18n="quick_sync_dash_title">Console Sync (MQTT)</span></div>
+                  <div class="sync-quick-sub" id="dash-sync-status-text" data-i18n="quick_sync_off">Paused — Idle rotation active</div>
+                </div>
+              </div>
+              <div class="sync-quick-actions">
+                <label class="sync-toggle-pill" data-i18n-title="quick_sync_toggle_tt" title="Enable or pause Console Sync (MQTT)">
+                  <input type="checkbox" id="quick-mqtt-toggle-dash">
+                  <span class="sync-toggle-track"></span>
+                </label>
+                <button type="button" class="btn-sync-gear" id="btn-goto-sync-dash" data-i18n-title="quick_sync_gear_tt" title="Open Console Sync (MQTT) settings" aria-label="Console Sync Settings">⚙️</button>
+              </div>
             </div>
           </div>
 

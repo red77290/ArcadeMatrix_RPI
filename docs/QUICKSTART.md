@@ -44,3 +44,15 @@ We recommend using an Adafruit RGB Matrix HAT or Bonnet connected to a Raspberry
 3. **In-Game Info Cards & Gameplay Videos** (with **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** on your LAN):
    - In **🎬 DMD Media Showcase**, toggle **Enable DMD Media Showcase** ON (`🟢 Communication OK`).
    - In **🎮 FrontendSync**, enable **Share Showcase MQTT Broker** (frees local RAM) and **In-Game Showcase (Card + Gameplay Video)**, pick your **Playback Cycle** (`Alternate Marquee & Showcase`, `Play Once`, or `Loop`) and **Card Style** (`Inherit from Showcase Studio` or `Custom Override on DMD`), and click **Save MQTT Settings**.
+
+## 6. Appendix: PC & Console Companion Tools (`ArcadeMatrix-tools.zip`)
+
+All optional PC, Mac, Linux, and retro-console helper scripts are available in a standalone archive — **no need to download or clone the source code**:
+
+👉 **[⬇️ Download `ArcadeMatrix-tools.zip` (Latest Release)](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** *(also available on the [Raspberry Pi Portal](https://red77290.github.io/ArcadeMatrix_RPI/)).*
+
+Unzip `ArcadeMatrix-tools.zip` on your computer to access:
+- **Console Sync & Universal High-Score Daemon (`ArcadeMatrix-tools/install.sh`, `ArcadeMatrix-tools/install.ps1`, `ArcadeMatrix-tools/rpi_emulationstation_base_os_setup.sh`)**: Manual alternative to the Web UI 1-click installer for Recalbox, Batocera, and RetroPie — streams menu marquees in `0 ms` and celebrates new personal High-Scores across ~3,100 MAME/FBNeo `.hi` ROMs + Neo-Geo/CPS NVRAM.
+- **MUGEN Sprite Extractor (`ArcadeMatrix-tools/mugen_extractor/`)**: Run `start_extractor.bat` (Windows) or `./start_extractor.sh` (macOS / Linux) to convert MUGEN character folders (`chars/`) into `.fgt` sprites + `index.txt` ready to copy into `DATA:/fighters_32/` or `DATA:/fighters_64/`.
+- **Home Assistant Blueprints (`ArcadeMatrix-tools/home_assistant/blueprints/`)**: Ready-to-import YAML blueprints for streaming Home Assistant sensors, 24h charts, tables, and weather to the `mqttdata` engine.
+

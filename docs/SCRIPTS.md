@@ -122,3 +122,15 @@ doc set. Fails the commit if a required doc is missing or the config is invalid.
 Validates that the release artifacts and installation scripts
 (`Cargo.toml`, `autoInstall.sh`, `config.json`, the READMEs...) are present and
 well-formed before a release.
+
+### `test_companion_sync.py`
+Hermetic Python 3 stdlib test suite for `tools/arcadematrix_companion_sync.py`. Verifies embedded `_HI2TXT_CATALOG_B85` decompression (`< 15 ms`, `>= 2,500` ROMs), `combined` / `separate` / `score_only` / scaled binary integer decoding, inter-core `±1..8 B` check-byte tolerance, M68000 byte-swapped Neo-Geo NVRAM non-regression, MAME Lua `hiscore/` + `st_mtime` discovery, and `start` -> `stop` record celebration events.
+**Usage**: `python3 scripts/test_companion_sync.py`
+
+### `package_tools.py`
+Validates and packages all end-user PC & console companion tools from `tools/` (`tools/install.sh`, `tools/install.ps1`, `tools/rpi_emulationstation_base_os_setup.sh`, `tools/recalbox_setup_mqtt.sh`, `tools/arcadematrix_daemon.py`, `tools/arcadematrix_companion_sync.py`, `tools/mugen_extractor/`, `tools/home_assistant/`, and `tools/README*.md`) into `ArcadeMatrix-tools.zip` for GitHub Releases, normalizing `.sh`/`.py` line endings to LF with `0755` permissions and excluding Python caches.
+**Usage**: `python3 scripts/package_tools.py [--verify-only] [--output ArcadeMatrix-tools.zip]`
+
+### `test_tools_e2e.py`
+Hermetic End-to-End (E2E) validation suite for `ArcadeMatrix-tools.zip`. Builds and unzips the standalone archive in an isolated directory, checks `0755` permissions + LF line endings + `sh -n` / `bash -n` syntax, starts local HTTP (`/api/mqtt/broker-target`) and raw TCP MQTT v3.1.1 servers, and validates `tools/install.sh` + `tools/install.ps1` (via `pwsh` when installed) across mocked Batocera, Recalbox, and RetroPie SSH consoles (byte-exact 150 KB `arcadematrix_companion_sync.py` transfer, live `sync_meta` / `celebrate` high-score MQTT events, and live double-forked daemon + watchdog startup), plus `tools/mugen_extractor/mugen_extractor.py`.
+**Usage**: `python3 scripts/test_tools_e2e.py`

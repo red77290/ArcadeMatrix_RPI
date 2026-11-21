@@ -99,3 +99,14 @@ Verifica la paridad documental y la validez de las claves de `config.json` en to
 ### `validate_rpi_release.py`
 Valida que los artefactos de lanzamiento y scripts de instalación (`Cargo.toml`, `autoInstall.sh`, `config.json`, `README*.md`) estén presentes y bien formados antes de publicar una versión.
 
+### `test_companion_sync.py`
+Suite de pruebas herméticas en Python 3 stdlib para `tools/arcadematrix_companion_sync.py`. Verifica la descompresión de `_HI2TXT_CATALOG_B85` (`< 15 ms`, `>= 2.500` ROMs), la decodificación `combined` / `separate` / `score_only` / enteros binarios escalados, la tolerancia entre cores `±1..8 B`, la no regresión de NVRAM Neo-Geo M68000 byte-swapped, el descubrimiento MAME Lua `hiscore/` + ordenación por `st_mtime`, y el flujo completo `start` -> `stop` de celebración de récords.
+**Uso**: `python3 scripts/test_companion_sync.py`
+
+### `package_tools.py`
+Valida y empaqueta todas las herramientas complementarias de PC y consolas de `tools/` (`tools/install.sh`, `tools/install.ps1`, `tools/rpi_emulationstation_base_os_setup.sh`, `tools/recalbox_setup_mqtt.sh`, `tools/arcadematrix_daemon.py`, `tools/arcadematrix_companion_sync.py`, `tools/mugen_extractor/`, `tools/home_assistant/` y `tools/README*.md`) en `ArcadeMatrix-tools.zip` para GitHub Releases, normalizando saltos de línea LF y permisos `0755` en scripts `.sh`/`.py`.
+**Uso**: `python3 scripts/package_tools.py [--verify-only] [--output ArcadeMatrix-tools.zip]`
+
+### `test_tools_e2e.py`
+Suite hermética de validación End-to-End (E2E) para `ArcadeMatrix-tools.zip`. Empaqueta y descomprime el archivo independiente en un entorno aislado, comprueba permisos `0755` + saltos LF + sintaxis `sh -n` / `bash -n`, levanta servidores locales HTTP (`/api/mqtt/broker-target`) y TCP MQTT v3.1.1, y valida `tools/install.sh` + `tools/install.ps1` (con `pwsh` cuando está disponible) sobre consolas SSH simuladas Batocera, Recalbox y RetroPie (integridad SHA-256 byte a byte de `arcadematrix_companion_sync.py`, eventos MQTT `sync_meta` / `celebrate` en vivo y demonio + watchdog), además de `tools/mugen_extractor/mugen_extractor.py`.
+**Uso**: `python3 scripts/test_tools_e2e.py`

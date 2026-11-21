@@ -23,12 +23,13 @@ Développée en parallèle de la version ESP32 C++, cette version tire parti de 
 
 Nous fournissons des fichiers `.img` précompilés et entièrement automatisés, publiés automatiquement à chaque nouvelle version.
 
-| Architecture | Recommandé pour | Compatible avec | Télécharger |
+| Architecture / Pack | Recommandé pour | Compatible avec | Télécharger |
 |--------------|-----------------|-----------------|-------------|
 | **64-bits (aarch64)** | Raspberry Pi 3, 4, 5, Zero 2 W | Pi 3, 4, 5, Zero 2 W | [⬇️ Télécharger Image 64-bits](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_aarch64.img.xz) |
 | **32-bits (armhf)** | Raspberry Pi 1, 2, Zero (Original) | Tous les modèles Raspberry Pi | [⬇️ Télécharger Image 32-bits](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz) |
+| **Outils Compagnons (`ArcadeMatrix-tools.zip`)** | Outils PC / Mac / Consoles (sans code source) | Sync Recalbox / Batocera / RetroPie, extracteur MUGEN & Home Assistant | [⬇️ Télécharger les Outils](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip) |
 
-*(Ce sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la [liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
+*(Les images OS sont des fichiers `.img.xz` — décompressez avec 7-Zip/Keka/`xz -d` avant le flash. Voir la [liste complète des releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) pour les anciennes versions.)*
 
 1. Flashez le `.img` sur votre carte SD avec **Raspberry Pi Imager**.
 2. Une fois le flash terminé, réinsérez la carte SD dans votre PC/Mac. Vous verrez apparaître un lecteur USB **DATA** de 8 Go !
@@ -275,7 +276,7 @@ ArcadeMatrix prend en charge les marquees instantanés **style Pixelcade** penda
 #### 1. Installation Automatique en 1 Clic sur la Console (Recommandé)
 Allez dans **Système -> MQTT & API -> 🎮 FrontendSync** sur l'interface Web ArcadeMatrix, choisissez l'OS de votre console (`Détection auto`, `Recalbox`, `Batocera` ou `RetroPie`), saisissez l'IP de la console et ses identifiants SSH, puis cliquez sur **Install Sync Script**.
 
-*(Alternative manuelle — voir [tools/README_FR.md](tools/README_FR.md) : copiez `tools/rpi_emulationstation_base_os_setup.sh` ou `tools/recalbox_setup_mqtt.sh` sur votre console via `scp`, exécutez `sh /tmp/rpi_emulationstation_base_os_setup.sh` et saisissez l'IP de votre ArcadeMatrix).*
+*(Alternative manuelle — téléchargez **[`ArcadeMatrix-tools.zip`](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** sans cloner le dépôt, voir [tools/README_FR.md](tools/README_FR.md) : lancez `ArcadeMatrix-tools/install.sh` / `ArcadeMatrix-tools/install.ps1` depuis votre PC/Mac, ou copiez `ArcadeMatrix-tools/rpi_emulationstation_base_os_setup.sh` sur votre console via `scp` et saisissez l'IP de votre ArcadeMatrix).*
 
 #### 2. Activer le Showcase en Jeu & Personnaliser votre Carte
 1. Dans **Système -> MQTT & API -> 🎬 DMD Media Showcase**, activez le serveur Showcase et vérifiez le témoin **`🟢 Communication OK`**.
@@ -317,7 +318,7 @@ ArcadeMatrix_RPi/
 Pour obtenir des performances parfaites à 60fps et des alignements exacts de « virtual ground » sur d'immenses rosters de personnages, le moteur Fighter utilise des fichiers `.fgt` prétraités accompagnés d'un manifeste `index.txt`.
 
 **Vous ne pouvez pas simplement déposer des images brutes dans les dossiers fighters !**
-Vous DEVEZ utiliser l'outil `mugen_extractor.py` fourni dans le dossier `tools/mugen_extractor/` pour traiter vos personnages MUGEN. 
+Téléchargez **[`ArcadeMatrix-tools.zip`](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip)** (sans télécharger le code source complet) et utilisez `mugen_extractor/mugen_extractor.py` (également situé dans `tools/mugen_extractor/` du dépôt) pour traiter vos personnages MUGEN.
 
 L'extracteur lira les fichiers `.sff` et `.air` de MUGEN, calculera les bounding boxes parfaites pour éviter le jitter des animations, et exportera des fichiers `.fgt` optimisés directement dans vos dossiers `fighters_32/` et `fighters_64/`.
 

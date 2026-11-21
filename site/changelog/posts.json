@@ -1,7 +1,54 @@
 {
   "project": "rpi",
-  "latest_version": "v4.3.0",
+  "latest_version": "v4.3.1",
   "posts": [
+    {
+      "version": "v4.3.1",
+      "date": "2026-11-21",
+      "channel": "stable",
+      "tags": ["FIX"],
+      "media": "changelog/media/rpi-agenda-celebration.svg",
+      "release_url": "https://github.com/red77290/ArcadeMatrix_RPI/releases/tag/v4.3.1",
+      "title": {
+        "en": "Mobile MQTT Settings Navigation, Single-Row Sub-Tabs & Dark Glass Sidebar Controls",
+        "fr": "Navigation Mobile MQTT, Sous-Onglets sur 1 Ligne & Contrôles Latéraux Dark Glass",
+        "es": "Navegación Móvil MQTT, Subpestañas en 1 Fila y Controles Laterales Dark Glass"
+      },
+      "summary": {
+        "en": "Polishes mobile navigation when jumping to Console Sync settings via ⚙️, auto-centers horizontal tabs, and unifies dark glass sidebar and secondary controls.",
+        "fr": "Perfectionne la navigation mobile vers les paramètres Sync Console via ⚙️, centre automatiquement les onglets horizontaux et harmonise les contrôles latéraux et secondaires sombres.",
+        "es": "Pule la navegación móvil hacia los ajustes Sync Consola mediante ⚙️, centra automáticamente las pestañas horizontales y unifica los controles oscuros."
+      },
+      "before_after": {
+        "before": {
+          "en": "On mobile, tapping ⚙️ scrolled past the ☰ header, left the active MQTT tab off-screen, stacked sub-tabs across 4 rows, and truncated the sidebar Console Sync label.",
+          "fr": "Sur mobile, le clic sur ⚙️ masquait l'en-tête ☰, laissait l'onglet MQTT hors champ, empilait les sous-onglets sur 4 lignes et tronquait le libellé Sync Console dans le menu gauche.",
+          "es": "En móvil, pulsar ⚙️ ocultaba la cabecera ☰, dejaba la pestaña MQTT fuera de pantalla, apilaba 4 filas de subpestañas y truncaba Sync Consola en el menú lateral."
+        },
+        "after": {
+          "en": "Crisp ☰ header at top, auto-centered horizontal MQTT & FrontendSync tab bars, full non-truncated Console Sync sidebar toggle, and dark glass secondary buttons & language selector.",
+          "fr": "En-tête ☰ visible en haut, barres d'onglets MQTT & FrontendSync centrées sur 1 ligne, libellé Sync Console complet sans troncature et sélecteur de langue / boutons secondaires dark glass.",
+          "es": "Cabecera ☰ visible arriba, pestañas MQTT y FrontendSync centradas en 1 fila, etiqueta Sync Consola completa sin recorte y selector de idioma / botones secundarios dark glass."
+        }
+      },
+      "highlights": {
+        "en": [
+          "FIX — Auto-centered active horizontal tabs (`🔄 MQTT & API` & single-row `🎮 FrontendSync`) and preserved top `☰` header visibility on mobile.",
+          "FIX — Full non-truncated `Console Sync` sidebar label across EN/FR/ES.",
+          "FIX — Dark glass styling for `#lang-selector` and secondary `.btn-sm` buttons (`🗑️ Evict Showcase Cache`)."
+        ],
+        "fr": [
+          "FIX — Centrage horizontal automatique des onglets actifs (`🔄 MQTT & API` et `🎮 FrontendSync` sur 1 ligne) avec maintien de l'en-tête `☰` visible sur mobile.",
+          "FIX — Libellé `Sync Console` affiché en entier sans `...` en EN/FR/ES.",
+          "FIX — Style dark glass pour `#lang-selector` et les boutons secondaires `.btn-sm` (`🗑️ Vider le Cache Showcase`)."
+        ],
+        "es": [
+          "FIX — Centrado horizontal automático de pestañas activas (`🔄 MQTT & API` y `🎮 FrontendSync` en 1 fila) manteniendo visible la cabecera `☰` en móvil.",
+          "FIX — Etiqueta `Sync Consola` completa sin `...` en EN/FR/ES.",
+          "FIX — Estilo dark glass para `#lang-selector` y botones secundarios `.btn-sm`."
+        ]
+      }
+    },
     {
       "version": "v4.3.0",
       "date": "2026-11-21",

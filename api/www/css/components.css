@@ -405,12 +405,47 @@ select.input option {
   gap: 0.65rem;
 }
 
+#lang-selector {
+  width: 100%;
+  padding: 0.5rem 2rem 0.5rem 0.7rem;
+  background-color: rgba(0, 0, 0, 0.35);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='rgba(255,255,255,0.7)'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.65rem center;
+  background-size: 0.85rem;
+  appearance: none;
+  -webkit-appearance: none;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+#lang-selector option {
+  background: #181824;
+  color: #fff;
+}
+
+.btn-sm:not(.btn-primary):not(.btn-warning):not(.btn-danger):not(.btn-power-on):not(.btn-power-off) {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+.btn-sm:not(.btn-primary):not(.btn-warning):not(.btn-danger):not(.btn-power-on):not(.btn-power-off):hover {
+  background: var(--accent-glow);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+
 .sidebar-sync-quick {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0.55rem 0.7rem;
+  gap: 0.35rem;
+  padding: 0.45rem 0.5rem;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(99, 102, 241, 0.22);
@@ -439,6 +474,10 @@ select.input option {
   min-width: 0;
 }
 
+.sidebar-sync-quick .sync-quick-meta {
+  gap: 0.35rem;
+}
+
 .sync-quick-dot {
   width: 8px;
   height: 8px;
@@ -448,13 +487,18 @@ select.input option {
   transition: background 0.2s ease, box-shadow 0.2s ease;
 }
 
+.sidebar-sync-quick .sync-quick-dot {
+  width: 7px;
+  height: 7px;
+}
+
 .sync-quick-dot.online {
   background: #10b981;
   box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
 }
 
 .sync-quick-label {
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -481,6 +525,10 @@ select.input option {
   flex-shrink: 0;
 }
 
+.sidebar-sync-quick .sync-quick-actions {
+  gap: 0.3rem;
+}
+
 .sync-toggle-pill {
   position: relative;
   display: inline-block;
@@ -491,8 +539,8 @@ select.input option {
 }
 
 .sync-toggle-pill.sm {
-  width: 36px;
-  height: 20px;
+  width: 34px;
+  height: 19px;
 }
 
 .sync-toggle-pill input {
@@ -524,8 +572,8 @@ select.input option {
 }
 
 .sync-toggle-pill.sm .sync-toggle-track::before {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .sync-toggle-pill input:checked + .sync-toggle-track {
@@ -538,7 +586,7 @@ select.input option {
 }
 
 .sync-toggle-pill.sm input:checked + .sync-toggle-track::before {
-  transform: translateX(16px);
+  transform: translateX(15px);
 }
 
 .sync-toggle-pill input:disabled + .sync-toggle-track {
@@ -560,6 +608,12 @@ select.input option {
   font-size: 0.9rem;
   cursor: pointer;
   transition: background var(--transition-fast), border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.sidebar-sync-quick .btn-sync-gear {
+  width: 25px;
+  height: 25px;
+  font-size: 0.8rem;
 }
 
 .btn-sync-gear:hover {

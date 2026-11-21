@@ -30,11 +30,21 @@ window.switchTab = function(tabId) {
 };
 window.switchDisplayTab = window.switchTab;
 
+function scrollActiveTabIntoView(container) {
+  if (!container) return;
+  const activeBtn = container.querySelector('.tab-btn.active');
+  if (!activeBtn) return;
+  const targetLeft = Math.max(0, activeBtn.offsetLeft - Math.round((container.clientWidth - activeBtn.offsetWidth) / 2));
+  container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+}
+
 window.switchSystemTab = function(tabId) {
+  const tabsBar = document.querySelector('#page-system > .tabs');
   document.querySelectorAll('#page-system > .tabs > .tab-btn').forEach(btn => {
     const oc = btn.getAttribute('onclick') || '';
     btn.classList.toggle('active', oc.includes(`'${tabId}'`));
   });
+  scrollActiveTabIntoView(tabsBar);
 
   document.querySelectorAll('#page-system > .tab-pane').forEach(pane => {
     pane.classList.remove('active');
@@ -46,6 +56,7 @@ window.switchSystemTab = function(tabId) {
 window.switchMqttSubTab = function(sub) {
   const container = document.getElementById('sys-tab-mqtt');
   if (!container) return;
+  const subBar = container.querySelector('.tabs');
   const buttons = container.querySelectorAll('.tabs .tab-btn');
   const panes = container.querySelectorAll('.mqtt-subtab-pane');
   panes.forEach(p => p.style.display = 'none');
@@ -57,6 +68,7 @@ window.switchMqttSubTab = function(sub) {
       b.classList.add('active');
     }
   });
+  scrollActiveTabIntoView(subBar);
 };
 
 window.syncQuickMqttUi = function(enabled) {
@@ -94,10 +106,13 @@ window.openConsoleSyncSettings = function() {
   switchPage('system');
   window.switchSystemTab('mqtt');
   window.switchMqttSubTab('frontendsync');
-  const target = document.getElementById('mqtt-subtab-frontendsync');
-  if (target && target.scrollIntoView) {
-    setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
-  }
+  const content = document.getElementById('content');
+  if (content) content.scrollTop = 0;
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  requestAnimationFrame(() => {
+    scrollActiveTabIntoView(document.querySelector('#page-system > .tabs'));
+    scrollActiveTabIntoView(document.querySelector('#sys-tab-mqtt .tabs'));
+  });
 };
 
 function initQuickMqttControls() {

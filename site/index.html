@@ -2064,14 +2064,14 @@
         heroIntro: "Get your Raspberry Pi HUB75 LED matrix running in minutes, update over Wi-Fi, and use the standalone PC/Console companion tools.",
         s1Title: "1. Quick Installation & First Boot (4 Steps)",
         s1Steps: [
-          "<strong>Flash the SD image</strong>: decompress the 64-bit (<code>aarch64</code>) or 32-bit (<code>armhf</code>) <code>.img.xz</code> and flash it onto a 16 GB+ MicroSD card using <strong>Raspberry Pi Imager</strong>.",
-          "<strong>Configure Wi-Fi on the <code>DATA</code> USB drive</strong>: reinsert the SD card into your PC/Mac, open <code>config.json</code> on the <code>DATA</code> partition, and enter your Wi-Fi <code>ssid</code>, <code>password</code>, and panel dimensions.",
+          "<strong>Flash the SD image (16 GB+ real / 32 GB recommended)</strong>: select the <code>.img.xz</code> directly without decompressing in <strong>Raspberry Pi Imager</strong> (<em>Use custom</em> → click <strong>No</strong> to OS customisation) or <strong>Balena Etcher</strong>. If your tool requires a raw <code>.img</code> (Rufus / Win32DiskImager), extract <code>.img.xz</code> only with <strong>7-Zip</strong> (Windows), <strong>Keka</strong> (macOS), or <code>xz -d</code> (Linux) — avoid Windows 11's native extractor and WinRAR.",
+          "<strong>Open the <code>DATA</code> USB drive</strong>: unplug and reinsert the SD card (click <strong>Cancel</strong> if Windows asks to format the Linux partition). On Windows, if only <code>bootfs</code> appears, open <strong>Disk Management</strong> (<code>diskmgmt.msc</code>), right-click <code>DATA (exFAT)</code> → <em>Change Drive Letter and Paths → Add</em>. Then edit <code>config.json</code> (Wi-Fi <code>ssid</code>, <code>password</code>, panel size).",
           "<strong>Connect HUB75 HAT &amp; 5V PSU</strong>: plug your Adafruit RGB Matrix HAT/Bonnet onto the Pi (Pi Zero 2 W, Pi 3B+, Pi 4B, or Pi 5 with active adapter) and power your HUB75 panels with a dedicated <strong>5V ONLY</strong> power supply.",
           "<strong>Control &amp; OTA Updates</strong>: power on — the matrix displays its IP address. Open <code>http://&lt;RASPBERRY_IP&gt;:8080</code> to customize clocks, rotation, Showcase, and drag-and-drop Wi-Fi OTA updates."
         ],
         s2Title: "2. Adding Media (GIFs, MUGEN Sprites & Fonts)",
         s2Items: [
-          "<strong>GIFs</strong>: drop standard <code>.gif</code> files into <code>DATA:/gifs/</code> (via USB card reader or SFTP).",
+          "<strong>GIFs</strong>: drop standard <code>.gif</code> files into <code>DATA:/gifs/</code> (via USB card reader, Web File Manager, or SFTP).",
           "<strong>MUGEN Sprites</strong>: convert MUGEN characters into <code>.fgt</code> + <code>index.txt</code> using <code>mugen_extractor.py</code> (in <code>ArcadeMatrix-tools.zip</code>) and copy them into <code>DATA:/fighters_32/</code> or <code>DATA:/fighters_64/</code>.",
           "<strong>Custom Fonts</strong>: drop <code>.bdf</code> or <code>.ttf</code> font files directly into <code>DATA:/fonts/</code>."
         ],
@@ -2100,14 +2100,14 @@
         heroIntro: "Démarrez votre matrice LED HUB75 sur Raspberry Pi en quelques minutes, mettez à jour en Wi-Fi et utilisez les outils compagnons PC/Consoles.",
         s1Title: "1. Installation rapide & Premier démarrage (4 étapes)",
         s1Steps: [
-          "<strong>Flasher l'image SD</strong> : décompressez l'image 64-bits (<code>aarch64</code>) ou 32-bits (<code>armhf</code>) <code>.img.xz</code> et flashez-la sur une carte MicroSD 16 Go+ avec <strong>Raspberry Pi Imager</strong>.",
-          "<strong>Configurer le Wi-Fi sur le lecteur <code>DATA</code></strong> : réinsérez la carte SD sur PC/Mac, ouvrez <code>config.json</code> sur la partition <code>DATA</code> et renseignez votre Wi-Fi (<code>ssid</code>, <code>password</code>) et la taille de vos dalles.",
+          "<strong>Flasher l'image SD (carte 16 Go+ réelle / 32 Go conseillée)</strong> : sélectionnez directement le fichier <code>.img.xz</code> sans décompresser dans <strong>Raspberry Pi Imager</strong> (<em>Utiliser une image personnalisée</em> → répondre <strong>Non</strong> aux réglages d'OS) ou <strong>Balena Etcher</strong>. Si votre outil exige un <code>.img</code> (Rufus / Win32DiskImager), décompressez uniquement avec <strong>7-Zip</strong> (Windows), <strong>Keka</strong> (macOS) ou <code>xz -d</code> (Linux) — évitez l'extracteur Windows 11 et WinRAR.",
+          "<strong>Ouvrir le lecteur USB <code>DATA</code></strong> : débranchez et réinsérez la carte SD (cliquez sur <strong>Annuler</strong> si Windows propose de formater la partition Linux). Sous Windows, si seul <code>bootfs</code> apparaît, ouvrez la <strong>Gestion des disques</strong> (<code>diskmgmt.msc</code>), clic droit sur <code>DATA (exFAT)</code> → <em>Modifier la lettre de lecteur → Ajouter</em>. Éditez ensuite <code>config.json</code> (Wi-Fi <code>ssid</code>, <code>password</code> et taille des dalles).",
           "<strong>Brancher le HAT HUB75 &amp; l'alim 5V</strong> : connectez votre HAT/Bonnet Adafruit RGB Matrix sur le Pi (Pi Zero 2 W, Pi 3B+, Pi 4B, ou Pi 5 avec adaptateur actif) et alimentez vos dalles uniquement en <strong>5V</strong>.",
           "<strong>Contrôle &amp; MAJ OTA</strong> : allumez — la matrice affiche son adresse IP. Ouvrez <code>http://&lt;IP_RASPBERRY&gt;:8080</code> pour régler vos horloges, la rotation, Showcase et les mises à jour OTA en Wi-Fi."
         ],
         s2Title: "2. Ajouter vos Médias (GIFs, Sprites MUGEN & Polices)",
         s2Items: [
-          "<strong>GIFs</strong> : déposez vos fichiers <code>.gif</code> dans <code>DATA:/gifs/</code> (lecteur SD sur PC ou SFTP).",
+          "<strong>GIFs</strong> : déposez vos fichiers <code>.gif</code> dans <code>DATA:/gifs/</code> (lecteur SD sur PC, gestionnaire Web ou SFTP).",
           "<strong>Sprites MUGEN</strong> : convertissez vos personnages MUGEN en <code>.fgt</code> + <code>index.txt</code> avec <code>mugen_extractor.py</code> (inclus dans <code>ArcadeMatrix-tools.zip</code>) et copiez-les dans <code>DATA:/fighters_32/</code> ou <code>DATA:/fighters_64/</code>.",
           "<strong>Polices personnalisées</strong> : déposez directement vos polices <code>.bdf</code> ou <code>.ttf</code> dans <code>DATA:/fonts/</code>."
         ],
@@ -2136,14 +2136,14 @@
         heroIntro: "Pon en marcha tu matriz LED HUB75 en Raspberry Pi en minutos, actualiza por Wi-Fi y utiliza las herramientas independientes para PC y consolas.",
         s1Title: "1. Instalación rápida y Primer arranque (4 pasos)",
         s1Steps: [
-          "<strong>Grabar la imagen SD</strong>: descomprime la imagen de 64 bits (<code>aarch64</code>) o 32 bits (<code>armhf</code>) <code>.img.xz</code> y grábala en una MicroSD de 16 GB+ con <strong>Raspberry Pi Imager</strong>.",
-          "<strong>Configurar Wi-Fi en la unidad <code>DATA</code></strong>: vuelve a conectar la SD al PC/Mac, abre <code>config.json</code> en la partición <code>DATA</code> e introduce tu Wi-Fi (<code>ssid</code>, <code>password</code>) y tamaño de panel.",
+          "<strong>Grabar la imagen SD (MicroSD de 16 GB+ reales / 32 GB recomendada)</strong>: selecciona directamente el <code>.img.xz</code> sin descomprimir en <strong>Raspberry Pi Imager</strong> (<em>Usar imagen personalizada</em> → responder <strong>No</strong> a los ajustes del SO) o <strong>Balena Etcher</strong>. Si tu herramienta exige un <code>.img</code> (Rufus / Win32DiskImager), descomprime solo con <strong>7-Zip</strong> (Windows), <strong>Keka</strong> (macOS) o <code>xz -d</code> (Linux) — evita el extractor de Windows 11 y WinRAR.",
+          "<strong>Abrir la unidad USB <code>DATA</code></strong>: desconecta y vuelve a insertar la SD (pulsa <strong>Cancelar</strong> si Windows sugiere formatear la partición Linux). En Windows, si solo aparece <code>bootfs</code>, abre la <strong>Administración de discos</strong> (<code>diskmgmt.msc</code>), clic derecho en <code>DATA (exFAT)</code> → <em>Cambiar letra de unidad → Agregar</em>. Luego edita <code>config.json</code> (Wi-Fi <code>ssid</code>, <code>password</code> y tamaño de panel).",
           "<strong>Conectar HAT HUB75 y fuente 5V</strong>: enchufa tu HAT/Bonnet Adafruit RGB Matrix en la Pi (Pi Zero 2 W, Pi 3B+, Pi 4B o Pi 5 con adaptador activo) y alimenta los paneles exclusivamente con <strong>5V</strong>.",
           "<strong>Control y actualizaciones OTA</strong>: al encender, la matriz muestra su IP. Abre <code>http://&lt;IP_RASPBERRY&gt;:8080</code> para ajustar relojes, rotación, Showcase y actualizaciones OTA por Wi-Fi."
         ],
         s2Title: "2. Añadir Medios (GIFs, Sprites MUGEN y Fuentes)",
         s2Items: [
-          "<strong>GIFs</strong>: copia tus archivos <code>.gif</code> en <code>DATA:/gifs/</code> (lector USB o SFTP).",
+          "<strong>GIFs</strong>: copia tus archivos <code>.gif</code> en <code>DATA:/gifs/</code> (lector USB, gestor Web o SFTP).",
           "<strong>Sprites MUGEN</strong>: convierte personajes MUGEN en <code>.fgt</code> + <code>index.txt</code> con <code>mugen_extractor.py</code> (en <code>ArcadeMatrix-tools.zip</code>) y cópialos en <code>DATA:/fighters_32/</code> o <code>DATA:/fighters_64/</code>.",
           "<strong>Fuentes personalizadas</strong>: coloca fuentes <code>.bdf</code> o <code>.ttf</code> directamente en <code>DATA:/fonts/</code>."
         ],

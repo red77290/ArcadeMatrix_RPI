@@ -29,13 +29,17 @@ We provide pre-compiled, fully automated `.img` files, built and published autom
 | **32-bit (armhf)** | Raspberry Pi 1, 2, Zero (Original) | All Raspberry Pi models | [⬇️ Download 32-bit Image](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz) |
 | **Companion Tools (`ArcadeMatrix-tools.zip`)** | PC / Mac / Console Tools (no source repo needed) | Recalbox / Batocera / RetroPie sync, MUGEN extractor & Home Assistant | [⬇️ Download Companion Tools](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip) |
 
-*(OS images are `.img.xz` files - decompress with 7-Zip/Keka/`xz -d` before flashing. See the [full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.)*
+> [!IMPORTANT]
+> **Required MicroSD Card: true `16 GB` minimum (`>= 15.1 GB`) — `32 GB` strongly recommended.** The full image is `15.03 GB` (`bootfs` + Linux OS + ~`6 GB` exFAT `DATA` partition for your GIFs, MUGEN sprites, and fonts). Never use an `8 GB` card or an undersized `"16 GB"` card (`< 15.03 GB`), or verification will fail at the end and the `DATA` partition will be truncated. See the [full release list](https://github.com/red77290/ArcadeMatrix_RPI/releases) for older versions.
 
-1. Flash the `.img` to your SD card using **Raspberry Pi Imager**.
-2. Once flashed, insert the SD card into your PC/Mac. You will see a large **DATA** USB drive appear!
-3. Open the `config.json` file located on this DATA drive to configure your Matrix size and your **Wi-Fi** credentials (`"ssid"` and `"password"`).
+1. **Flash the image to your MicroSD card:**
+   - **Direct flash without decompressing (recommended):** use **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** *(Operating System → **Use custom**, select the `.img.xz` file directly, and make sure to click **"No"** when asked to apply OS customisation settings)* or **[Balena Etcher](https://etcher.balena.io/)**, both of which natively stream `.img.xz` archives.
+   - **If your flashing tool requires a raw `.img` file** *(e.g. Rufus or Win32DiskImager — note that Pi Imager / Etcher are still preferred because Win32DiskImager does not refresh Windows partition tables after writing)*: extract the `.img.xz` **only** with **[7-Zip](https://www.7-zip.org/)** (Windows), **[Keka](https://www.keka.io/)** (macOS), or **`xz -d`** (Linux) with at least `16 GB` of free disk space *(avoid Windows 11's built-in extractor and WinRAR, which can truncate `.xz` archives over 4 GB)*.
+2. **Open the `DATA` USB drive:** physically unplug and reinsert the SD card into your PC/Mac *(if Windows prompts you to format a drive, click **Cancel** — that is the Linux partition)*. A USB drive named **`DATA`** will appear.
+   - 💡 *On Windows, if only `bootfs` appears (`DATA` missing in File Explorer)*: Windows sometimes skips assigning a drive letter to the 3rd partition. Right-click the **Start button → Disk Management** (`diskmgmt.msc`), right-click the **`DATA (exFAT)`** block → **Change Drive Letter and Paths... → Add... → Pick a letter (e.g. `E:`) → OK** *(use a USB MicroSD adapter if an older built-in laptop SD slot grays out that option)*.
+3. Open `config.json` on the **DATA** drive to configure your Matrix size and **Wi-Fi** credentials (`"ssid"` and `"password"`), and drop your media into `gifs/`, `fighters_32/`, `fighters_64/`, or `fonts/` as needed.
 4. Plug the SD card into your Raspberry Pi and power it on.
-5. The Matrix will immediately turn on and **display the IP address** for 5 seconds. Use this IP to access the Web UI!
+5. The Matrix will immediately turn on and **display the IP address** for 5 seconds. Use this IP (`http://<IP>:8080`) to access the Web UI!
 
 ---
 

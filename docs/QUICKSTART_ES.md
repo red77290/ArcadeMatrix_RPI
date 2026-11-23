@@ -6,14 +6,19 @@ Esta guía te ayudará a instalar y configurar ArcadeMatrix en tu Raspberry Pi.
 
 ## 1. Instalación (recomendada)
 
-Proporcionamos una imagen precompilada lista para usar.
+Proporcionamos una imagen precompilada lista para usar (`ArcadeMatrix_Release_aarch64.img.xz` para Pi 3/4/5/Zero 2 W o `armhf.img.xz` para Pi 1/2/Zero).
 
-1. Graba el archivo `ArcadeMatrix_Release.img` en tu tarjeta SD con **Raspberry Pi Imager**.
-2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. Aparecerá una unidad USB de 8 GB llamada **DATA**.
-3. Abre el archivo `config.json` ubicado en esta unidad **DATA** para introducir tus credenciales de Wi-Fi (`SSID` y `PASS`) y el tamaño de tu matriz.
+> **Tarjeta MicroSD requerida: `16 GB` reales como mínimo (`>= 15,1 GB`) — se recomiendan `32 GB`.** La imagen completa ocupa `15,03 GB` (`bootfs` + sistema Linux + partición `DATA` exFAT de ~`6 GB` para tus GIFs, sprites MUGEN y fuentes). Nunca uses una tarjeta de `8 GB` ni una de «16 GB» reducida (`< 15,03 GB`), o fallará la verificación y la partición `DATA` quedará truncada.
+
+1. **Graba la imagen en tu tarjeta MicroSD:**
+   - **Grabación directa sin descomprimir (recomendado):** usa **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** *(Sistema operativo → **Usar imagen personalizada**, selecciona directamente el archivo `.img.xz` y responde **«No»** cuando pregunte si deseas aplicar ajustes de personalización del SO)* o **[Balena Etcher](https://etcher.balena.io/)**.
+   - **Si tu herramienta exige descomprimir a `.img` primero** *(ej. Rufus o Win32DiskImager — se siguen recomendando Pi Imager / Etcher porque Win32DiskImager no actualiza la tabla de particiones de Windows al terminar)*: extrae el `.img.xz` **únicamente** con **[7-Zip](https://www.7-zip.org/)** (Windows), **[Keka](https://www.keka.io/)** (macOS) o **`xz -d`** (Linux) disponiendo de al menos `16 GB` libres en disco *(evita el extractor nativo de Windows 11 y WinRAR, que pueden truncar archivos `.xz` mayores de 4 GB)*.
+2. **Accede a la unidad USB `DATA`:** desconecta y vuelve a insertar físicamente la tarjeta SD en tu PC/Mac *(pulsa **Cancelar** si Windows sugiere formatear la partición Linux)*. Aparecerá una unidad USB llamada **DATA**.
+   - 💡 *En Windows, si solo aparece `bootfs` (`DATA` no se muestra en el Explorador)*: haz **clic derecho en el botón Inicio → Administración de discos** (`diskmgmt.msc`), clic derecho sobre el bloque **`DATA (exFAT)`** → **Cambiar la letra y rutas de acceso de unidad... → Agregar... → Elige una letra (ej. `E:`) → Aceptar** *(usa un adaptador MicroSD por USB si el lector interno de un portátil muestra la opción en gris)*.
+3. Abre el archivo `config.json` ubicado en esta unidad **DATA** para introducir tus credenciales de Wi-Fi (`"ssid"` y `"password"`) y el tamaño de tu matriz, y copia tus medios en `gifs/`, `fighters_32/`, `fighters_64/` o `fonts/`.
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela. ¡La dirección IP se mostrará en la matriz!
 
-## 2. Configuración Web
+## 2. Configuración Web y Actualizaciones OTA
 
 Una vez encendida la Pi, abre un navegador en tu teléfono o PC y ve a:
 `http://<RASPBERRY_IP>:8080`
@@ -22,6 +27,7 @@ Aquí puedes configurar:
 - Los colores, fuentes y temas del reloj y la fecha.
 - Las funciones activadas en el bucle de rotación.
 - Los ajustes de brillo y modo nocturno.
+- 🔄 **Actualización del firmware (OTA)**: ve a la pestaña **System**, arrastra y suelta el binario compilado `arcadematrix_vX.Y.Z_aarch64` y pulsa **Upload & Update Firmware** para actualizar el sistema por Wi-Fi sin volver a grabar tu tarjeta SD.
 
 ## 3. Añadir contenido (GIFs, sprites, fuentes)
 
@@ -31,8 +37,6 @@ La unidad **DATA** aparecerá como una memoria USB estándar (formato exFAT):
 - **GIFs**: déjalos en la carpeta `gifs/`.
 - **Sprites MUGEN**: usa nuestro extractor para generar archivos `.fgt` y colócalos en `fighters_32/` o `fighters_64/`.
 - **Fonts**: deja fuentes `.ttf` o `.bdf` en la carpeta `fonts/`.
-
-*(La adición de medios se hace exclusivamente conectando la tarjeta SD a un ordenador o por SSH/SFTP. Si usas SSH, asegúrate primero de que la partición DATA esté correctamente montada. No existe ninguna función de carga vía Web.)*
 
 ## 4. Conexión de hardware
 

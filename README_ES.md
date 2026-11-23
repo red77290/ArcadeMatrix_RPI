@@ -29,13 +29,17 @@ Proporcionamos archivos `.img` precompilados y totalmente automatizados, publica
 | **32-bits (armhf)** | Raspberry Pi 1, 2, Zero (Original) | Todos los modelos Raspberry Pi | [⬇️ Descargar Imagen 32-bits](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix_Release_armhf.img.xz) |
 | **Herramientas (`ArcadeMatrix-tools.zip`)** | Herramientas PC / Mac / Consolas (sin código fuente) | Sync Recalbox / Batocera / RetroPie, extractor MUGEN y Home Assistant | [⬇️ Descargar Herramientas](https://github.com/red77290/ArcadeMatrix_RPI/releases/latest/download/ArcadeMatrix-tools.zip) |
 
-*(Las imágenes de SO son archivos `.img.xz`: descomprímelos con 7-Zip/Keka/`xz -d` antes de grabarlos. Consulta la [lista completa de releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) para versiones antiguas.)*
+> [!IMPORTANT]
+> **Tarjeta MicroSD requerida: `16 GB` reales como mínimo (`>= 15,1 GB`) — se recomiendan `32 GB`.** La imagen completa ocupa `15,03 GB` (`bootfs` + sistema Linux + partición `DATA` exFAT de ~`6 GB` para tus GIFs, sprites MUGEN y fuentes). Nunca uses una tarjeta de `8 GB` ni una de «16 GB» reducida (`< 15,03 GB`), o fallará la verificación al final y la partición `DATA` quedará truncada. Consulta la [lista completa de releases](https://github.com/red77290/ArcadeMatrix_RPI/releases) para versiones antiguas.
 
-1. Graba el `.img` en tu tarjeta SD con **Raspberry Pi Imager**.
-2. Cuando termine, vuelve a insertar la tarjeta SD en tu PC/Mac. ¡Verás aparecer una gran unidad USB **DATA** de 8 GB!
-3. Abre el archivo `config.json` ubicado en esa unidad DATA para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`"ssid"` y `"password"`).
+1. **Graba la imagen en tu tarjeta MicroSD:**
+   - **Grabación directa sin descomprimir (recomendado):** usa **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** *(Sistema operativo → **Usar imagen personalizada**, selecciona directamente el archivo `.img.xz` y responde **«No»** cuando pregunte si deseas aplicar ajustes de personalización del SO)* o **[Balena Etcher](https://etcher.balena.io/)**, que leen archivos `.img.xz` de forma nativa.
+   - **Si tu herramienta exige un archivo `.img` descomprimido** *(ej. Rufus o Win32DiskImager — ten en cuenta que se prefieren Pi Imager / Etcher porque Win32DiskImager no actualiza la tabla de particiones de Windows al terminar)*: extrae el `.img.xz` **únicamente** con **[7-Zip](https://www.7-zip.org/)** (Windows), **[Keka](https://www.keka.io/)** (macOS) o **`xz -d`** (Linux) teniendo al menos `16 GB` libres en disco *(evita el extractor nativo de Windows 11 y WinRAR, que pueden truncar archivos `.xz` mayores de 4 GB)*.
+2. **Accede a la unidad USB `DATA`:** desconecta y vuelve a insertar físicamente la tarjeta SD en tu PC/Mac *(si Windows sugiere formatear una unidad, pulsa **Cancelar**: es la partición Linux)*. Aparecerá una unidad USB llamada **`DATA`**.
+   - 💡 *En Windows, si solo aparece `bootfs` (`DATA` no se muestra en el Explorador)*: Windows a veces no asigna letra a la 3.ª partición. Haz **clic derecho en el botón Inicio → Administración de discos** (`diskmgmt.msc`), clic derecho sobre el bloque **`DATA (exFAT)`** → **Cambiar la letra y rutas de acceso de unidad... → Agregar... → Elige una letra (ej. `E:`) → Aceptar** *(usa un adaptador MicroSD por USB si el lector interno de un portátil muestra la opción en gris)*.
+3. Abre `config.json` en la unidad **DATA** para configurar el tamaño de tu matriz y tus credenciales de **Wi-Fi** (`"ssid"` y `"password"`), y copia tus archivos en `gifs/`, `fighters_32/`, `fighters_64/` o `fonts/`.
 4. Inserta la tarjeta SD en la Raspberry Pi y enciéndela.
-5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esta IP para acceder a la Web UI!
+5. La matriz se encenderá de inmediato y **mostrará la dirección IP** durante 5 segundos. ¡Usa esa IP (`http://<IP>:8080`) para acceder a la Web UI!
 
 ---
 
@@ -219,7 +223,7 @@ ArcadeMatrix RPi incorpora ahora la abstracción canónica `IDrawingSurface` con
 
 ## 🎨 Gestión de medios
 
-La imagen precompilada incluye una **partición DATA dedicada de 8 GB** formateada como exFAT. ¡Eso significa que puedes conectar la tarjeta SD directamente a tu ordenador Windows o Mac para arrastrar y soltar tus archivos sin necesidad de SSH ni FTP!
+La imagen precompilada incluye una **partición DATA dedicada** formateada como exFAT. ¡Eso significa que puedes conectar la tarjeta SD directamente a tu ordenador Windows o Mac para arrastrar y soltar tus archivos sin necesidad de SSH ni FTP!
 
 ### Sprites & GIFs
 * **`/fighters_32/`** o **`/fighters_64/`**: coloca aquí tus sprites `.fgt` (consulta la sección de sprites MUGEN más abajo).

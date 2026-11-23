@@ -6,11 +6,16 @@ Ce guide vous aidera à installer et configurer ArcadeMatrix sur votre Raspberry
 
 ## 1. Installation (recommandée)
 
-Nous fournissons une image précompilée prête à l'emploi.
+Nous fournissons une image précompilée prête à l'emploi (`ArcadeMatrix_Release_aarch64.img.xz` pour Pi 3/4/5/Zero 2 W ou `armhf.img.xz` pour Pi 1/2/Zero).
 
-1. Flashez le fichier `ArcadeMatrix_Release.img` sur votre carte SD avec **Raspberry Pi Imager**.
-2. Une fois terminé, réinsérez la carte SD dans votre PC/Mac. Un lecteur USB de 8 Go nommé **DATA** apparaîtra.
-3. Ouvrez le fichier `config.json` situé sur ce lecteur **DATA** pour y renseigner vos identifiants Wi-Fi (`SSID` et `PASS`) ainsi que la taille de votre matrice.
+> **Carte MicroSD requise : `16 Go` minimum réel (`>= 15,1 Go`) — `32 Go` fortement recommandé.** L'image complète fait `15,03 Go` (`bootfs` + système Linux + partition `DATA` exFAT d'environ `6 Go` pour vos GIFs, sprites MUGEN et polices). N'utilisez pas une carte `8 Go` ni une carte « 16 Go » réduite (`< 15,03 Go`), sinon la vérification échouera et la partition `DATA` sera tronquée.
+
+1. **Flashez l'image sur votre carte MicroSD :**
+   - **Sans décompression préalable (recommandé) :** utilisez **[Raspberry Pi Imager](https://www.raspberrypi.com/software/)** *(Système d'exploitation → **Utiliser une image personnalisée**, sélectionnez directement le fichier `.img.xz`, et répondez impérativement **« Non »** s'il propose d'appliquer des réglages personnalisés d'OS)* ou **[Balena Etcher](https://etcher.balena.io/)**.
+   - **Si votre outil exige de décompresser en `.img` d'abord** *(ex. Rufus ou Win32DiskImager — Pi Imager / Etcher restent recommandés car Win32DiskImager ne rafraîchit pas la table des partitions sous Windows)* : extrayez le `.img.xz` **uniquement** avec **[7-Zip](https://www.7-zip.org/)** (Windows), **[Keka](https://www.keka.io/)** (macOS) ou **`xz -d`** (Linux) en prévoyant au moins `16 Go` d'espace libre *(évitez l'extracteur intégré de Windows 11 et WinRAR qui peuvent tronquer les archives `.xz` > 4 Go)*.
+2. **Ouvrez le lecteur USB `DATA` :** débranchez puis réinsérez physiquement la carte SD dans votre PC/Mac *(cliquez sur **Annuler** si Windows propose de formater la partition Linux)*. Un lecteur USB nommé **DATA** apparaît.
+   - 💡 *Sous Windows, si seul `bootfs` apparaît (`DATA` absent de l'Explorateur)* : faites **Clic droit sur le menu Démarrer → Gestion des disques** (`diskmgmt.msc`), clic droit sur le bloc **`DATA (exFAT)`** → **Modifier la lettre de lecteur et les chemins d'accès... → Ajouter... → Choisissez une lettre (ex. `E:`) → OK** *(utilisez un adaptateur MicroSD en USB si un vieux lecteur SD interne de PC portable grise l'option)*.
+3. Ouvrez le fichier `config.json` situé sur ce lecteur **DATA** pour y renseigner vos identifiants Wi-Fi (`"ssid"` et `"password"`) ainsi que la taille de votre matrice, et déposez vos médias dans `gifs/`, `fighters_32/`, `fighters_64/` ou `fonts/`.
 4. Insérez la carte SD dans le Raspberry Pi et allumez-le. L'adresse IP s'affichera sur la matrice !
 
 ## 2. Configuration Web & Mises à jour OTA

@@ -65,6 +65,17 @@ pub fn parse_topics(raw: &str) -> Vec<String> {
         .collect()
 }
 
+/// Splits the `waiting_labels` setting with the same separators as
+/// [`parse_topics`], but blanks are KEPT so each entry stays aligned with the
+/// topic at the same index. Trimmed, truncated to [`MAX_TOPICS`]. A blank
+/// entry means that topic falls back to the i18n `CONNECTING` label.
+pub fn parse_waiting_labels(raw: &str) -> Vec<String> {
+    raw.split([',', ';', '\n'])
+        .map(|s| s.trim().to_string())
+        .take(MAX_TOPICS)
+        .collect()
+}
+
 /// MQTT client id for this sign's data connection (`<hostname>-data`).
 pub fn data_client_id(hostname: &str, device_name: &str) -> String {
     let base = if !hostname.trim().is_empty() {
@@ -283,10 +294,20 @@ pub fn notice_for(state: u8, connected_for: Option<Duration>) -> Notice {
     }
 }
 
-/// Draws a notice centred in the 5x7 font.
-pub fn draw_notice(m: &mut dyn IDrawingSurface, notice: Notice, lang: Lang) {
+/// Draws a notice centred in the 5x7 font. For [`Notice::Connecting`], an
+/// optional `override_label` (per-topic `waiting_labels` entry) replaces the
+/// default i18n `CONNECTING` text; other notices ignore it.
+pub fn draw_notice(
+    m: &mut dyn IDrawingSurface,
+    notice: Notice,
+    lang: Lang,
+    override_label: Option<&str>,
+) {
     let (text, color) = match notice {
-        Notice::Connecting => (i18n::connecting_label(lang), NOTICE_COLOR),
+        Notice::Connecting => (
+            override_label.unwrap_or_else(|| i18n::connecting_label(lang)),
+            NOTICE_COLOR,
+        ),
         Notice::NoConnection => (i18n::no_connection_label(lang), NO_CONNECTION_COLOR),
         Notice::NoData => (i18n::no_data_label(lang), NOTICE_COLOR),
         Notice::Unsupported => (i18n::unsupported_label(lang), UNSUPPORTED_COLOR),
@@ -335,6 +356,9 @@ pub fn page_durations(pages: &[PageRef], seconds_of_topic: impl Fn(usize) -> u32
 
 pub struct MqttDataEngine {
     topics: Vec<String>,
+    /// Per-topic "waiting" label (index-aligned with `topics`). A blank
+    /// entry means "fall back to the i18n CONNECTING default".
+    waiting_labels: Vec<String>,
     lang: Lang,
     lang_code: String,
     active: bool,
@@ -351,6 +375,7 @@ impl MqttDataEngine {
     pub fn new() -> Self {
         Self {
             topics: Vec::new(),
+            waiting_labels: Vec::new(),
             lang: Lang::En,
             lang_code: "en".to_string(),
             active: false,
@@ -360,6 +385,26 @@ impl MqttDataEngine {
 
     fn read_config(&mut self, config: &dyn EngineConfig) {
         self.topics = parse_topics(&config.get_string("topics", ""));
+        self.waiting_labels = parse_waiting_labels(&config.get_string("waiting_labels", ""));
+    }
+
+    /// The connecting-state label for the topic at `topic_idx`: the per-topic
+    /// override from `waiting_labels` if non-blank, otherwise `None` (so
+    /// [`draw_notice`] falls back to the i18n `CONNECTING` default).
+    fn waiting_label(&self, topic_idx: usize) -> Option<&str> {
+        self.waiting_labels
+            .get(topic_idx)
+            .map(String::as_str)
+            .filter(|s| !s.is_empty())
+    }
+
+    /// The connecting-state label to show BEFORE a session exists (no topic
+    /// index to key on): the first non-blank override in `waiting_labels`.
+    fn session_waiting_label(&self) -> Option<&str> {
+        self.waiting_labels
+            .iter()
+            .map(String::as_str)
+            .find(|s| !s.is_empty())
     }
 
     /// Whether a session (thread, client, buffers) currently exists.
@@ -530,11 +575,16 @@ impl Engine for MqttDataEngine {
     fn render(&mut self, ctx: &mut EngineContext) {
         let lang = self.lang;
         let Some(s) = self.session.as_mut() else {
-            draw_notice(ctx.surface, Notice::Connecting, lang);
+            draw_notice(
+                ctx.surface,
+                Notice::Connecting,
+                lang,
+                self.session_waiting_label(),
+            );
             return;
         };
         let Some(page) = s.pages.get(s.current).copied() else {
-            draw_notice(ctx.surface, Notice::NoConnection, lang);
+            draw_notice(ctx.surface, Notice::NoConnection, lang, None);
             return;
         };
         let data = s.shared.page(page.topic);
@@ -552,12 +602,14 @@ impl Engine for MqttDataEngine {
                 t.show_title,
                 i18n::no_data_label(lang),
             ),
-            Some(PageData::Unsupported) => draw_notice(ctx.surface, Notice::Unsupported, lang),
+            Some(PageData::Unsupported) => {
+                draw_notice(ctx.surface, Notice::Unsupported, lang, None)
+            }
             Some(PageData::Weather(_)) => {
                 if let Some((_, _, img)) = &s.weather_image {
                     ctx.surface.draw_image(img, 0, 0);
                 } else {
-                    draw_notice(ctx.surface, Notice::NoData, lang);
+                    draw_notice(ctx.surface, Notice::NoData, lang, None);
                 }
             }
             None => {
@@ -571,6 +623,7 @@ impl Engine for MqttDataEngine {
                     ctx.surface,
                     notice_for(s.shared.state(), connected_for),
                     lang,
+                    self.waiting_label(page.topic),
                 );
             }
         }
@@ -636,6 +689,15 @@ fn register_mqttdata_engine() -> EngineDescriptor {
                     field_type: ConfigType::String,
                     label: "MQTT Topics",
                     description: "Up to 6 full MQTT topics, comma separated. Each payload sets its own type and time on screen (see the MQTT Data contract).",
+                    default_value: "",
+                    validation_policy: ValidationPolicy::Accept,
+                    ..Default::default()
+                },
+                ConfigField {
+                    id: "waiting_labels",
+                    field_type: ConfigType::String,
+                    label: "Waiting Labels",
+                    description: "Optional per-topic label shown instead of CONNECTING while that topic has no payload yet. Comma, semicolon or newline separated, aligned to Topics by position. Leave an entry blank to use the default. Example: 'FETCHING WEATHER, ,SENSORS...'",
                     default_value: "",
                     validation_policy: ValidationPolicy::Accept,
                     ..Default::default()

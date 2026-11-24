@@ -973,3 +973,19 @@ impl SyncCelebrationRenderer {
         }
     }
 }
+
+/// Pure zero-allocation renderer for pre-decoded 24-bit `RGB888` Offline In-Game Showcase `.gif` frames (ADR-0004).
+pub struct SyncOfflineGifRenderer;
+
+impl SyncOfflineGifRenderer {
+    #[inline]
+    pub fn render(
+        surface: &mut dyn IDrawingSurface,
+        frames: &[(image::RgbImage, std::time::Duration)],
+        frame_index: usize,
+    ) {
+        if let Some((ref img, _)) = frames.get(frame_index) {
+            surface.draw_image(img, 0, 0);
+        }
+    }
+}

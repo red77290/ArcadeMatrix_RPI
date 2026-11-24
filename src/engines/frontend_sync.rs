@@ -11,7 +11,7 @@ use crate::engines::renderers::media_showcase::{
     resolve_showcase_server_url, rpi_hardware_short_id,
 };
 pub use crate::engines::renderers::sync_cards::{
-    HallOfFameCard, RetroAchievementsCard, SyncCelebrationRenderer,
+    HallOfFameCard, RetroAchievementsCard, SyncCelebrationRenderer, SyncOfflineGifRenderer,
 };
 use parking_lot::Mutex;
 use rumqttc::{Client, Event, MqttOptions, Packet, QoS};
@@ -523,12 +523,15 @@ fn take_ready_signal(sync_client_id: &str, queue_id: &str) -> Option<String> {
 
 fn spawn_ingame_showcase_request(
     config: Arc<Config>,
+    dmd_cache: Arc<crate::core::dmd_cache::DmdCache>,
     req_id: u64,
     system: String,
     game: String,
     fallback_title: String,
+    offline_dwell_ms: u64,
 ) {
     std::thread::spawn(move || {
+        let launch_started = Instant::now();
         let (showcase_enabled, raw_server_url, mqtt_cfg, width, height, lang) = {
             let s = config.settings.read();
             let phys_w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
@@ -552,10 +555,57 @@ fn spawn_ingame_showcase_request(
             )
         };
 
-        if !showcase_enabled
-            || !mqtt_cfg.ingame_showcase_enabled
-            || raw_server_url.trim().is_empty()
+        if !mqtt_cfg.ingame_showcase_enabled {
+            return;
+        }
+        if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
+            return;
+        }
+
+        // 1. Offline-First Fast Path: check local `showcase[_tate]/<system>/<rom>.gif` (0 network calls,
+        //    works even when remote `showcase.enabled` is false or Wi-Fi is disconnected).
+        if let Some(offline_gif_path) =
+            dmd_cache.resolve_offline_showcase_gif_path(&system, &game, height > width)
         {
+            if let Some(frames) = crate::engines::gif::GifEngine::decode_gif_frames(
+                &offline_gif_path,
+                width.max(1),
+                height.max(1),
+            ) {
+                let cycle_mode = parse_cycle_mode(&mqtt_cfg);
+                let target_dwell = Duration::from_millis(offline_dwell_ms);
+                while launch_started.elapsed() < target_dwell {
+                    if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
+                        return;
+                    }
+                    let rem = target_dwell.saturating_sub(launch_started.elapsed());
+                    std::thread::sleep(rem.min(Duration::from_millis(50)));
+                }
+                if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
+                    return;
+                }
+                info!(
+                    "[FrontendSync] Offline In-Game Showcase RGB888 GIF ready for {}/{} -> {} ({} frames, {:?})",
+                    system,
+                    game,
+                    offline_gif_path.display(),
+                    frames.len(),
+                    cycle_mode
+                );
+                crate::core::matrix::reset_mock_distinct_crcs();
+                e2e_telemetry().lock().showcase_streams_loaded += 1;
+                config.set_ingame_showcase(Some(InGameShowcasePayload::from_offline_gif(
+                    req_id,
+                    Arc::new(frames),
+                    width.max(1),
+                    height.max(1),
+                    cycle_mode,
+                )));
+                return;
+            }
+        }
+
+        if !showcase_enabled || raw_server_url.trim().is_empty() {
             return;
         }
         if MQTT_REQUEST_ID.load(Ordering::Acquire) != req_id {
@@ -801,11 +851,9 @@ fn spawn_ingame_showcase_request(
         );
         crate::core::matrix::reset_mock_distinct_crcs();
         e2e_telemetry().lock().showcase_streams_loaded += 1;
-        config.set_ingame_showcase(Some(InGameShowcasePayload {
-            session_token: req_id,
-            stream,
-            cycle_mode,
-        }));
+        config.set_ingame_showcase(Some(InGameShowcasePayload::from_stream(
+            req_id, stream, cycle_mode,
+        )));
     });
 }
 
@@ -1218,10 +1266,12 @@ pub fn handle_frontend_sync_payload(
             }
             spawn_ingame_showcase_request(
                 Arc::clone(config),
+                Arc::clone(dmd_cache),
                 req_id,
                 system,
-                game_clean,
+                game,
                 raw_title,
+                3500,
             );
         }
     }
@@ -1633,7 +1683,7 @@ enum InGameSubStage {
     ShowcaseStream,
 }
 
-/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2 & `DMDS`)
+/// Zero-reallocation realtime playback engine for In-Game Showcase sequences (`DMDZ` v2, `DMDS`, & Offline `RGB888` `.gif`)
 /// and opportunistic `HallOfFameCard` / `RetroAchievementsCard` views.
 ///
 /// Shares [`crate::core::dmd_stream::ShowcaseStreamPlayer`] 1:1 with [`MediaShowcaseRunner`] and
@@ -1648,6 +1698,10 @@ pub struct InGameShowcaseEngine {
     pending_draw: bool,
     finished: bool,
     player: crate::core::dmd_stream::ShowcaseStreamPlayer,
+    gif_frame_idx: usize,
+    gif_frame_elapsed: Duration,
+    gif_last_drawn_idx: Option<usize>,
+    gif_last_tick: Option<Instant>,
     sub_stage: InGameSubStage,
     stage_started_at: Option<Instant>,
     stage_paused_at: Option<Instant>,
@@ -1669,6 +1723,10 @@ impl InGameShowcaseEngine {
             pending_draw: false,
             finished: false,
             player: crate::core::dmd_stream::ShowcaseStreamPlayer::new(),
+            gif_frame_idx: 0,
+            gif_frame_elapsed: Duration::ZERO,
+            gif_last_drawn_idx: None,
+            gif_last_tick: None,
             sub_stage: InGameSubStage::ShowcaseStream,
             stage_started_at: None,
             stage_paused_at: None,
@@ -1677,6 +1735,14 @@ impl InGameShowcaseEngine {
             last_card_tick: u32::MAX,
             lang: Lang::En,
         }
+    }
+
+    #[inline]
+    fn reset_gif_cursor(&mut self, now: Instant) {
+        self.gif_frame_idx = 0;
+        self.gif_frame_elapsed = Duration::ZERO;
+        self.gif_last_drawn_idx = None;
+        self.gif_last_tick = Some(now);
     }
 
     fn select_initial_stage(
@@ -1726,6 +1792,7 @@ impl Engine for InGameShowcaseEngine {
         self.stage_paused_ms = 0;
         self.stage_elapsed_ms = 0;
         self.last_card_tick = u32::MAX;
+        self.reset_gif_cursor(now);
         self.player.start(now);
     }
 
@@ -1735,6 +1802,7 @@ impl Engine for InGameShowcaseEngine {
         if self.stage_paused_at.is_none() {
             self.stage_paused_at = Some(now);
         }
+        self.gif_last_tick = None;
         self.player.pause(now);
     }
 
@@ -1745,6 +1813,8 @@ impl Engine for InGameShowcaseEngine {
                 .stage_paused_ms
                 .saturating_add(now.duration_since(p).as_millis() as u64);
         }
+        self.gif_last_tick = Some(now);
+        self.gif_last_drawn_idx = None;
         self.player.resume(now);
         self.pending_draw = !self.finished;
     }
@@ -1761,12 +1831,17 @@ impl Engine for InGameShowcaseEngine {
         self.stage_paused_ms = 0;
         self.stage_elapsed_ms = 0;
         self.last_card_tick = u32::MAX;
+        self.gif_frame_idx = 0;
+        self.gif_frame_elapsed = Duration::ZERO;
+        self.gif_last_drawn_idx = None;
+        self.gif_last_tick = None;
         self.player.reset();
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &DisplayGeometry) {
         self.surface_width = geometry.width();
         self.surface_height = geometry.height();
+        self.gif_last_drawn_idx = None;
         self.player.invalidate_drawn_frame();
         if !self.finished && self.stage_paused_at.is_none() {
             self.pending_draw = true;
@@ -1787,10 +1862,7 @@ impl Engine for InGameShowcaseEngine {
         }
 
         let snap = context.config.producer_snapshot.load();
-        let ig_opt = snap
-            .ingame_showcase
-            .as_ref()
-            .filter(|ig| !ig.stream.is_empty());
+        let ig_opt = snap.ingame_showcase.as_ref().filter(|ig| !ig.is_empty());
         let meta_opt = snap.sync_meta.as_ref().filter(|m| m.has_any_card());
 
         if ig_opt.is_none() && meta_opt.is_none() {
@@ -1817,6 +1889,7 @@ impl Engine for InGameShowcaseEngine {
             self.stage_paused_ms = 0;
             self.stage_elapsed_ms = 0;
             self.last_card_tick = u32::MAX;
+            self.reset_gif_cursor(now);
             if prev_token != 0 || !self.player.is_started() {
                 self.player.start(now);
             }
@@ -1849,6 +1922,7 @@ impl Engine for InGameShowcaseEngine {
                         return;
                     } else if ig_opt.is_some() {
                         self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.reset_gif_cursor(now);
                         self.player.start(now);
                     } else {
                         self.finished = true;
@@ -1875,6 +1949,7 @@ impl Engine for InGameShowcaseEngine {
                 if !has_ra || elapsed >= card_dur_ms {
                     if ig_opt.is_some() {
                         self.sub_stage = InGameSubStage::ShowcaseStream;
+                        self.reset_gif_cursor(now);
                         self.player.start(now);
                     } else {
                         self.finished = true;
@@ -1903,12 +1978,67 @@ impl Engine for InGameShowcaseEngine {
         };
 
         self.has_stream = true;
-        self.stream_width = ig.stream.width;
-        self.stream_height = ig.stream.height;
+        let (dim_w, dim_h) = ig.dimensions();
+        self.stream_width = dim_w;
+        self.stream_height = dim_h;
 
         let has_cards = meta_opt.is_some();
         let loop_playback = matches!(ig.cycle_mode, InGameCycleMode::Loop) && !has_cards;
-        let stream_done = self.player.advance(&ig.stream, now, loop_playback, None);
+
+        if let Some(ref gif_data) = ig.offline_gif {
+            let frames = gif_data.frames.as_slice();
+            if frames.is_empty() {
+                self.finished = true;
+                self.pending_draw = false;
+                return;
+            }
+            if let Some(prev) = self.gif_last_tick {
+                self.gif_frame_elapsed = self
+                    .gif_frame_elapsed
+                    .saturating_add(now.duration_since(prev));
+            }
+            self.gif_last_tick = Some(now);
+
+            let mut gif_done = false;
+            while !frames.is_empty() && self.gif_frame_elapsed >= frames[self.gif_frame_idx].1 {
+                let delay = frames[self.gif_frame_idx].1;
+                self.gif_frame_elapsed = self.gif_frame_elapsed.saturating_sub(delay);
+                self.gif_frame_idx += 1;
+                if self.gif_frame_idx >= frames.len() {
+                    if loop_playback {
+                        self.gif_frame_idx = 0;
+                    } else {
+                        self.gif_frame_idx = frames.len() - 1;
+                        gif_done = true;
+                        break;
+                    }
+                }
+            }
+
+            if gif_done && matches!(ig.cycle_mode, InGameCycleMode::Loop) && has_cards {
+                if let Some(first_stage) = Self::select_initial_stage(meta_opt, true) {
+                    self.sub_stage = first_stage;
+                    self.stage_started_at = Some(now);
+                    self.stage_paused_ms = 0;
+                    self.stage_elapsed_ms = 0;
+                    self.last_card_tick = u32::MAX;
+                    self.pending_draw = true;
+                    return;
+                }
+            }
+
+            self.finished = gif_done;
+            self.pending_draw = !gif_done && self.gif_last_drawn_idx != Some(self.gif_frame_idx);
+            return;
+        }
+
+        let Some(ref stream) = ig.stream else {
+            self.finished = true;
+            self.pending_draw = false;
+            return;
+        };
+
+        let stream_done = self.player.advance(stream, now, loop_playback, None);
         if stream_done && matches!(ig.cycle_mode, InGameCycleMode::Loop) && has_cards {
             if let Some(first_stage) = Self::select_initial_stage(meta_opt, true) {
                 self.sub_stage = first_stage;
@@ -1921,7 +2051,7 @@ impl Engine for InGameShowcaseEngine {
             }
         }
         self.finished = stream_done;
-        self.pending_draw = self.player.has_new_frame(&ig.stream);
+        self.pending_draw = self.player.has_new_frame(stream);
     }
 
     fn render(&mut self, context: &mut EngineContext) {
@@ -1951,8 +2081,16 @@ impl Engine for InGameShowcaseEngine {
             }
             InGameSubStage::ShowcaseStream => {
                 if let Some(ref ig) = snap.ingame_showcase {
-                    self.player
-                        .render_to_surface(&ig.stream, &mut *context.surface);
+                    if let Some(ref gif_data) = ig.offline_gif {
+                        SyncOfflineGifRenderer::render(
+                            &mut *context.surface,
+                            gif_data.frames.as_slice(),
+                            self.gif_frame_idx,
+                        );
+                        self.gif_last_drawn_idx = Some(self.gif_frame_idx);
+                    } else if let Some(ref stream) = ig.stream {
+                        self.player.render_to_surface(stream, &mut *context.surface);
+                    }
                 }
             }
         }
@@ -2273,11 +2411,11 @@ mod tests {
         let config = Config::new(tmp_dir.join("config.json"));
         let stream = build_sample_dmdz_v2_stream(30);
 
-        config.set_ingame_showcase(Some(InGameShowcasePayload {
-            session_token: 42,
-            stream: Arc::clone(&stream),
-            cycle_mode: InGameCycleMode::Once,
-        }));
+        config.set_ingame_showcase(Some(InGameShowcasePayload::from_stream(
+            42,
+            Arc::clone(&stream),
+            InGameCycleMode::Once,
+        )));
 
         let mut engine = InGameShowcaseEngine::new();
         assert!(!engine.allows_overlay());
@@ -2330,11 +2468,11 @@ mod tests {
         }
 
         // Switch to `Loop` mode on a new session token -> wraps around cleanly without finishing
-        config.set_ingame_showcase(Some(InGameShowcasePayload {
-            session_token: 43,
+        config.set_ingame_showcase(Some(InGameShowcasePayload::from_stream(
+            43,
             stream,
-            cycle_mode: InGameCycleMode::Loop,
-        }));
+            InGameCycleMode::Loop,
+        )));
         {
             let mut ctx = EngineContext {
                 surface: &mut surface,
@@ -2346,6 +2484,141 @@ mod tests {
             engine.render(&mut ctx);
         }
         assert_eq!(surface.canvas.get_pixel(0, 0).0, [255, 0, 0]);
+
+        engine.deactivate();
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_offline_showcase_rgb888_gif_sync_without_remote_server_and_cycle_modes() {
+        use image::codecs::gif::GifEncoder;
+        use image::{Delay, Frame, Rgba, RgbaImage};
+
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_offline_rgb888_gif_test_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        let marquee_dir = tmp_dir.join("marquees");
+        let showcase_snes_dir = tmp_dir.join("showcase").join("snes");
+        let pixelcade_snes_dir = tmp_dir.join("pixelcade").join("snes");
+        std::fs::create_dir_all(&marquee_dir).unwrap();
+        std::fs::create_dir_all(&showcase_snes_dir).unwrap();
+        std::fs::create_dir_all(&pixelcade_snes_dir).unwrap();
+
+        // 1. Write companion non-interlaced marquee PNG (`pixelcade/snes/smw.png`)
+        let mut mq_img = image::RgbImage::new(4, 2);
+        mq_img.put_pixel(0, 0, image::Rgb([12, 234, 56]));
+        mq_img.save(pixelcade_snes_dir.join("smw.png")).unwrap();
+
+        // 2. Write 2-frame pure 24-bit RGB888 animated GIF (`showcase/snes/smw.gif`)
+        //    using non-RGB565-quantized channels `(123, 45, 211)` and `(19, 207, 131)`!
+        let gif_path = showcase_snes_dir.join("smw.gif");
+        {
+            let f_out = std::fs::File::create(&gif_path).unwrap();
+            let mut enc = GifEncoder::new(f_out);
+            let f0_img = RgbaImage::from_pixel(4, 2, Rgba([123, 45, 211, 255]));
+            let f1_img = RgbaImage::from_pixel(4, 2, Rgba([19, 207, 131, 255]));
+            enc.encode_frame(Frame::from_parts(
+                f0_img,
+                0,
+                0,
+                Delay::from_numer_denom_ms(30, 1),
+            ))
+            .unwrap();
+            enc.encode_frame(Frame::from_parts(
+                f1_img,
+                0,
+                0,
+                Delay::from_numer_denom_ms(30, 1),
+            ))
+            .unwrap();
+        }
+
+        let config = Arc::new(Config::new(tmp_dir.join("config.json")));
+        {
+            let mut s = config.settings.write();
+            s.matrix.width = 4;
+            s.matrix.height = 2;
+            s.matrix.chain_length = 1;
+            s.matrix.parallel = 1;
+            s.showcase.enabled = false; // Remote Showcase server explicitly DISABLED!
+            s.showcase.server_url.clear();
+            s.mqtt.ingame_showcase_enabled = true;
+            s.mqtt.ingame_cycle_mode = "once".to_string();
+        }
+        let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new(&marquee_dir));
+
+        // Verify companion `pixelcade/snes/smw.png` & offline `showcase/snes/smw.gif` both resolve
+        assert!(dmd_cache.get_cached_path("snes", "./smw.sfc").is_some());
+        assert_eq!(
+            dmd_cache.resolve_offline_showcase_gif_path("snes", "./smw.sfc", false),
+            Some(gif_path.clone())
+        );
+
+        let req_id = MQTT_REQUEST_ID.fetch_add(1, Ordering::AcqRel) + 1;
+        spawn_ingame_showcase_request(
+            Arc::clone(&config),
+            Arc::clone(&dmd_cache),
+            req_id,
+            "snes".to_string(),
+            "./smw.sfc".to_string(),
+            "Super Mario World".to_string(),
+            10,
+        );
+
+        // Wait briefly for off-thread GIF decode (`<= 250 ms`, 0 network calls)
+        let wait_t0 = Instant::now();
+        while config.producer_snapshot.load().ingame_showcase.is_none()
+            && wait_t0.elapsed() < Duration::from_millis(500)
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let published = config
+            .producer_snapshot
+            .load()
+            .ingame_showcase
+            .clone()
+            .expect("offline RGB888 GIF payload published without remote server");
+        assert!(published.offline_gif.is_some());
+
+        // Render Frame 0 & Frame 1 on `InGameShowcaseEngine` -> exact 24-bit RGB888 channels preserved!
+        let mut engine = InGameShowcaseEngine::new();
+        let mut surface = MockSurface::new(4, 2);
+        engine.activate();
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(engine.has_new_frame());
+            engine.render(&mut ctx);
+        }
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [123, 45, 211]);
+
+        std::thread::sleep(Duration::from_millis(38));
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(!engine.is_finished());
+            assert!(engine.has_new_frame());
+            engine.render(&mut ctx);
+        }
+        assert_eq!(surface.canvas.get_pixel(0, 0).0, [19, 207, 131]);
+
+        std::thread::sleep(Duration::from_millis(38));
+        {
+            let mut ctx = EngineContext {
+                surface: &mut surface,
+                config: &config,
+            };
+            engine.update(&mut ctx);
+            assert!(engine.is_finished());
+        }
 
         engine.deactivate();
         let _ = std::fs::remove_dir_all(&tmp_dir);
@@ -2451,6 +2724,107 @@ mod tests {
             std::str::from_utf8(&parsed.ra.recent_badge[..badge_end]).unwrap(),
             "Mission 1 Complete"
         );
+
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+    }
+
+    #[test]
+    fn test_handle_frontend_sync_payload_e2e_offline_tate_preemption_and_stopped() {
+        let tmp_dir = std::env::temp_dir().join(format!(
+            "arcadematrix_e2e_mqtt_offline_tate_{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp_dir);
+        let marquee_dir = tmp_dir.join("marquees");
+        let tate_showcase_dir = tmp_dir.join("showcase_tate").join("neogeo");
+        let px_dir = tmp_dir.join("pixelcade").join("neogeo");
+        std::fs::create_dir_all(&marquee_dir).unwrap();
+        std::fs::create_dir_all(&tate_showcase_dir).unwrap();
+        std::fs::create_dir_all(&px_dir).unwrap();
+
+        // Write valid 2-frame RGB888 TATE GIF (`showcase_tate/neogeo/mslugx.gif`) + companion marquee `.png`
+        {
+            use image::{Delay, Frame, RgbaImage};
+            let gif_file = std::fs::File::create(tate_showcase_dir.join("mslugx.gif")).unwrap();
+            let mut enc = image::codecs::gif::GifEncoder::new(gif_file);
+            enc.set_repeat(image::codecs::gif::Repeat::Infinite)
+                .unwrap();
+            let f0 = Frame::from_parts(
+                RgbaImage::from_pixel(4, 8, image::Rgba([250, 90, 20, 255])),
+                0,
+                0,
+                Delay::from_numer_denom_ms(40, 1),
+            );
+            let f1 = Frame::from_parts(
+                RgbaImage::from_pixel(4, 8, image::Rgba([30, 220, 140, 255])),
+                0,
+                0,
+                Delay::from_numer_denom_ms(40, 1),
+            );
+            enc.encode_frames(vec![f0, f1].into_iter()).unwrap();
+
+            let marquee_img = image::RgbImage::from_pixel(4, 8, image::Rgb([15, 80, 210]));
+            marquee_img.save(px_dir.join("mslugx.png")).unwrap();
+        }
+
+        let config = Arc::new(Config::new(tmp_dir.join("config.json")));
+        {
+            let mut s = config.settings.write();
+            // TATE 64x128 (`rotation = 90` on 128x64 panel -> effective width=64, height=128)
+            s.matrix.width = 128;
+            s.matrix.height = 64;
+            s.matrix.chain_length = 1;
+            s.matrix.parallel = 1;
+            s.matrix.rotation = 90;
+            s.mqtt.ingame_showcase_enabled = true;
+            s.mqtt.ingame_cycle_mode = "once".to_string();
+            s.mqtt.sync_celebrate_events = true;
+            // Showcase server disabled -> proves 100% autonomous local offline resolution!
+            s.showcase.enabled = false;
+            s.showcase.server_url.clear();
+        }
+        let dmd_cache = Arc::new(crate::core::dmd_cache::DmdCache::new(&marquee_dir));
+        assert!(dmd_cache
+            .resolve_offline_showcase_gif_path("neogeo", "mslugx.zip", true)
+            .is_some());
+
+        // 1. Virtual collection `favorites` + `/recalbox/share/roms/neogeo/mslugx.zip` in `playing` state:
+        //    must immediately display companion marquee `pixelcade/neogeo/mslugx.png` AND spawn TATE offline GIF!
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"playing","system":"favorites","game":"mslugx.zip","title":"Metal Slug X","rom_path":"/recalbox/share/roms/neogeo/mslugx.zip"}"#,
+        );
+        assert_eq!(
+            config.producer_snapshot.load().forced_mode,
+            ForcedEngineMode::Marquee
+        );
+        assert!(e2e_telemetry()
+            .lock()
+            .active_marquee_path
+            .contains("pixelcade"));
+
+        // 2. Inject `sync_meta` & `celebrate` while in-game -> both atomic snapshots populated
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"sync_meta","system":"neogeo","game":"mslugx","hiscores":[{"rank":1,"tag":"SNK","score":"1,500,000"}]}"#,
+        );
+        assert!(config.producer_snapshot.load().sync_meta.is_some());
+
+        handle_frontend_sync_payload(
+            &config,
+            &dmd_cache,
+            r#"{"status":"celebrate","kind":"highscore","system":"neogeo","game":"mslugx","rank":1,"tag":"SNK","score":"2,000,000"}"#,
+        );
+        assert!(config.producer_snapshot.load().sync_celebration.is_some());
+
+        // 3. `stopped` event immediately cancels in-game Showcase & SyncMeta while keeping last marquee displayed!
+        handle_frontend_sync_payload(&config, &dmd_cache, r#"{"status":"stopped"}"#);
+        let snap_after_stop = config.producer_snapshot.load();
+        assert!(snap_after_stop.ingame_showcase.is_none());
+        assert!(snap_after_stop.sync_meta.is_none());
+        assert_eq!(snap_after_stop.forced_mode, ForcedEngineMode::Marquee);
 
         let _ = std::fs::remove_dir_all(&tmp_dir);
     }

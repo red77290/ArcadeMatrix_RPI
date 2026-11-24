@@ -1569,3 +1569,98 @@ fn test_frontend_sync_cards_and_ota_telemetry_helpers() {
     assert_eq!(cel.score_or_pts_str(), "+25 PTS");
     assert!(cel.hardcore);
 }
+
+#[test]
+fn test_ingame_offline_rgb888_gif_10000_frames_zero_allocation_proof() {
+    use arcadematrix::core::types::{InGameCycleMode, InGameShowcasePayload};
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    let mut arbiter = DisplayArbiter::new();
+    let mut runtime = DisplayRuntime::new();
+    let mut engine_runtime = EngineRuntime::new();
+    let mut matrix = MockSurface::new(128, 32);
+    let temp_dir = tempfile::tempdir().expect("failed to create temp dir");
+    let temp_cfg_path = temp_dir.path().join("config.json");
+    let _ = std::fs::copy("config.json", &temp_cfg_path);
+    let config = arcadematrix::core::config::Config::new(&temp_cfg_path);
+    {
+        let mut s = config.settings.write();
+        s.matrix.width = 128;
+        s.matrix.height = 32;
+        s.matrix.chain_length = 1;
+        s.matrix.parallel = 1;
+        s.mqtt.ingame_showcase_enabled = true;
+        s.mqtt.ingame_cycle_mode = "loop".to_string();
+    }
+
+    // Build a pre-decoded 24-bit RGB888 offline GIF payload on the cold path
+    let f0 = image::RgbImage::from_fn(128, 32, |x, y| {
+        image::Rgb([(x as u8).wrapping_mul(2), (y as u8).wrapping_mul(7), 180])
+    });
+    let f1 = image::RgbImage::from_fn(128, 32, |x, y| {
+        image::Rgb([40, (x as u8).wrapping_add(11), (y as u8).wrapping_mul(5)])
+    });
+    let frames = Arc::new(vec![
+        (f0, Duration::from_millis(16)),
+        (f1, Duration::from_millis(16)),
+    ]);
+    config.set_ingame_showcase(Some(InGameShowcasePayload::from_offline_gif(
+        101,
+        frames,
+        128,
+        32,
+        InGameCycleMode::Loop,
+    )));
+
+    let mut ctx = EngineContext {
+        surface: &mut matrix,
+        config: &config,
+    };
+    let empty_cfg = HashMap::new();
+    let h_ingame = engine_runtime.register_instance_handle("__ingame_showcase", "frontend_sync");
+    assert!(engine_runtime.init_instance(h_ingame, &mut ctx, &empty_cfg));
+
+    arbiter.submit_request(DisplayRequest::new(
+        DisplaySourceId::InGameShowcase,
+        101,
+        h_ingame,
+        45,
+        RequestLifecycle::Persistent,
+        true,
+        0,
+    ));
+
+    // Warmup cycle to enter steady-state offline RGB888 GIF playback
+    let d0 = arbiter.evaluate(Instant::now());
+    let _ = runtime.transition_session(d0, &arbiter, &mut engine_runtime);
+    runtime.update(&mut engine_runtime, &mut ctx);
+    runtime.render(&mut engine_runtime, &mut ctx);
+
+    // Arm TrackingAllocator and execute 10,000 H-Core frames — MUST allocate strictly 0 bytes!
+    THREAD_ALLOC_COUNT.with(|c| c.set(0));
+    THREAD_DEALLOC_COUNT.with(|c| c.set(0));
+    THREAD_TRACKING.with(|t| t.set(true));
+
+    for _ in 0..10_000 {
+        let now = Instant::now();
+        let dec = arbiter.evaluate(now);
+        let _ = runtime.transition_session(dec, &arbiter, &mut engine_runtime);
+        runtime.update(&mut engine_runtime, &mut ctx);
+        runtime.render(&mut engine_runtime, &mut ctx);
+    }
+
+    THREAD_TRACKING.with(|t| t.set(false));
+    let allocs = THREAD_ALLOC_COUNT.with(|c| c.get());
+    let deallocs = THREAD_DEALLOC_COUNT.with(|c| c.get());
+    assert_eq!(
+        allocs, 0,
+        "Offline RGB888 GIF H-Core hot-path performed {} heap allocations across 10,000 frames!",
+        allocs
+    );
+    assert_eq!(
+        deallocs, 0,
+        "Offline RGB888 GIF H-Core hot-path performed {} heap deallocations across 10,000 frames!",
+        deallocs
+    );
+}

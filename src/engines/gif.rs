@@ -83,7 +83,7 @@ impl GifEngine {
         }
     }
 
-    fn decode_gif_frames(
+    pub fn decode_gif_frames(
         path: &Path,
         target_width: u32,
         target_height: u32,

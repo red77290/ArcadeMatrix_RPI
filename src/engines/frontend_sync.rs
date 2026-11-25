@@ -534,19 +534,13 @@ fn spawn_ingame_showcase_request(
         let launch_started = Instant::now();
         let (showcase_enabled, raw_server_url, mqtt_cfg, width, height, lang) = {
             let s = config.settings.read();
-            let phys_w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
-            let phys_h = s
-                .matrix
-                .height
-                .saturating_mul(s.matrix.parallel.clamp(1, 3));
-            let rot = crate::app::normalize_rotation(s.matrix.rotation);
-            let geom = DisplayGeometry::new(phys_w, phys_h, rot, 0);
+            let (nat_w, nat_h) = s.matrix.effective_native_dimensions();
             (
                 s.showcase.enabled,
                 s.showcase.server_url.clone(),
                 s.mqtt.clone(),
-                geom.width(),
-                geom.height(),
+                nat_w,
+                nat_h,
                 if s.system.lang.is_empty() {
                     "en".to_string()
                 } else {
@@ -1283,14 +1277,7 @@ pub fn build_cyan_sync_banner(
 ) -> crate::engines::message::MessagePayload {
     let (eff_w, eff_h) = {
         let s = config.settings.read();
-        let phys_w = s.matrix.width.saturating_mul(s.matrix.chain_length.max(1));
-        let phys_h = s
-            .matrix
-            .height
-            .saturating_mul(s.matrix.parallel.clamp(1, 3));
-        let rot = crate::app::normalize_rotation(s.matrix.rotation);
-        let geom = DisplayGeometry::new(phys_w, phys_h, rot, 0);
-        (geom.width(), geom.height())
+        s.matrix.effective_logical_dimensions()
     };
     let char_count = clean_name.chars().count();
     if eff_w >= 192 && eff_h >= 48 {
@@ -1694,6 +1681,8 @@ pub struct InGameShowcaseEngine {
     stream_height: u32,
     surface_width: u32,
     surface_height: u32,
+    native_surface_width: u32,
+    native_surface_height: u32,
     has_stream: bool,
     pending_draw: bool,
     finished: bool,
@@ -1719,6 +1708,8 @@ impl InGameShowcaseEngine {
             stream_height: 0,
             surface_width: 0,
             surface_height: 0,
+            native_surface_width: 0,
+            native_surface_height: 0,
             has_stream: false,
             pending_draw: false,
             finished: false,
@@ -1841,6 +1832,8 @@ impl Engine for InGameShowcaseEngine {
     fn on_display_geometry_changed(&mut self, geometry: &DisplayGeometry) {
         self.surface_width = geometry.width();
         self.surface_height = geometry.height();
+        self.native_surface_width = geometry.native_width();
+        self.native_surface_height = geometry.native_height();
         self.gif_last_drawn_idx = None;
         self.player.invalidate_drawn_frame();
         if !self.finished && self.stage_paused_at.is_none() {
@@ -1856,6 +1849,8 @@ impl Engine for InGameShowcaseEngine {
         }
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
+        self.native_surface_width = context.surface.native_width();
+        self.native_surface_height = context.surface.native_height();
         if self.stage_paused_at.is_some() || self.player.is_paused() {
             self.pending_draw = false;
             return;
@@ -2057,6 +2052,8 @@ impl Engine for InGameShowcaseEngine {
     fn render(&mut self, context: &mut EngineContext) {
         self.surface_width = context.surface.width();
         self.surface_height = context.surface.height();
+        self.native_surface_width = context.surface.native_width();
+        self.native_surface_height = context.surface.native_height();
         let snap = context.config.producer_snapshot.load();
         match self.sub_stage {
             InGameSubStage::HallOfFame => {
@@ -2081,15 +2078,16 @@ impl Engine for InGameShowcaseEngine {
             }
             InGameSubStage::ShowcaseStream => {
                 if let Some(ref ig) = snap.ingame_showcase {
+                    let native_surface = context.surface.unscaled();
                     if let Some(ref gif_data) = ig.offline_gif {
                         SyncOfflineGifRenderer::render(
-                            &mut *context.surface,
+                            native_surface,
                             gif_data.frames.as_slice(),
                             self.gif_frame_idx,
                         );
                         self.gif_last_drawn_idx = Some(self.gif_frame_idx);
                     } else if let Some(ref stream) = ig.stream {
-                        self.player.render_to_surface(stream, &mut *context.surface);
+                        self.player.render_to_surface(stream, native_surface);
                     }
                 }
             }
@@ -2101,12 +2099,20 @@ impl Engine for InGameShowcaseEngine {
         if self.sub_stage != InGameSubStage::ShowcaseStream {
             return true;
         }
+        let target_w = if self.native_surface_width > 0 {
+            self.native_surface_width
+        } else {
+            self.surface_width
+        };
+        let target_h = if self.native_surface_height > 0 {
+            self.native_surface_height
+        } else {
+            self.surface_height
+        };
         !self.has_stream
             || self.stream_width == 0
             || self.stream_height == 0
-            || (self.surface_width > 0
-                && (self.stream_width != self.surface_width
-                    || self.stream_height != self.surface_height))
+            || (target_w > 0 && (self.stream_width != target_w || self.stream_height != target_h))
     }
 
     fn has_new_frame(&self) -> bool {

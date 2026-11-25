@@ -653,9 +653,14 @@ pub trait IDrawingSurface: Send + Sync {
     fn height(&self) -> u32;
     fn physical_width(&self) -> u32;
     fn physical_height(&self) -> u32;
+    fn native_width(&self) -> u32 { self.width() }
+    fn native_height(&self) -> u32 { self.height() }
+    fn ui_scale(&self) -> u32 { 1 }
+    fn set_ui_scale(&mut self, _scale: u32) {}
     fn set_rotation(&mut self, rotation: u8);
     fn rotation(&self) -> u8;
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, red: u8, green: u8, blue: u8);
     fn clear(&mut self);
     fn present(&mut self);
     fn set_brightness(&mut self, brightness: u8);
@@ -664,6 +669,7 @@ pub trait IDrawingSurface: Send + Sync {
     fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
     fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
 }
 ```
 
@@ -686,6 +692,14 @@ Bajo `canvas_single`, el rastreador `DirtyBounds` monitoriza qué líneas han si
 1. `is_dirty()` devuelve `false`.
 2. `present()` se completa en $O(1)$ sin llamar a la FFI C ni escribir en la memoria física del panel LED.
 3. El bus de memoria Broadcom y la CPU quedan completamente libres para el tráfico Wi-Fi, MQTT y HTTP.
+
+### 13.3 Mapeo Multipanel (`pixel_mapper`) y Escalado Entero (`ScaledDrawingSurface`)
+
+- **Pixel Mapper de Hardware (`matrix.pixel_mapper`)**: Se envía a hzeller `LedMatrixOptions::set_pixel_mapper_config` (p. ej. `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:180"`), plegando largas cadenas HUB75 en grandes muros LED multifila (como `256×192` o `512×384`). Fuera de hardware (`MockSurface`, inspección E2E y vistas previas de API), `MatrixConfig::effective_physical_dimensions()` calcula exactamente las mismas dimensiones físicas plegadas.
+- **Wrapper Cero-Asignación `ScaledDrawingSurface` (`matrix.ui_scale`)**: Envuelve de forma transparente la superficie física o simulada con **cero asignaciones dinámicas** en la ruta crítica H-Core:
+  - En modo `"auto"` (por defecto), `UiScale::resolve` permanece **estrictamente en `1x`** en todas las resoluciones estándar y TATE (`64×32`, `32×64`, `64×64`, `128×32`, `32×128`, `128×64`, `64×128`, `256×64`, `64×256`), actuando como passthrough 1:1 directo (`acquire_canvas()` y `DirtyBounds` intactos).
+  - Solo cuando `min(width, height) >= 128` y `max(width, height) >= 192`, `"auto"` activa un escalado entero Nearest-Neighbor `2x`/`3x`/`4x` (`256×192` → `2x` `128×96`, `512×384` → `4x` `128×96`), expandiendo cada píxel lógico en un bloque LED nítido `N×N` y propagando las filas `DirtyBounds` exactas a la superficie interna.
+  - Los flujos multimedia a pantalla completa (`gifs`, la Fase 2 `LiveStream` de vídeo/panoramas de `DMD Media Showcase` y `ShowcaseStream` de `FrontendSync`) omiten el escalado mediante `surface.unscaled()` (`native_width()` × `native_height()`), mientras que los motores UI y la Tarjeta de Intro Fase 1 de Showcase aprovechan la cuadrícula lógica escalada.
 
 ---
 

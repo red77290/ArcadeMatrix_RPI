@@ -62,8 +62,12 @@ impl Engine for MovieShowcaseEngine {
     }
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
-        self.runner
-            .on_display_geometry_changed(geometry.width(), geometry.height());
+        self.runner.on_display_geometry_changed_scaled(
+            geometry.native_width(),
+            geometry.native_height(),
+            geometry.width(),
+            geometry.height(),
+        );
     }
 
     fn has_new_frame(&self) -> bool {

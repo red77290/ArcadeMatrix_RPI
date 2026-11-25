@@ -629,9 +629,14 @@ pub trait IDrawingSurface: Send + Sync {
     fn height(&self) -> u32;
     fn physical_width(&self) -> u32;
     fn physical_height(&self) -> u32;
+    fn native_width(&self) -> u32 { self.width() }
+    fn native_height(&self) -> u32 { self.height() }
+    fn ui_scale(&self) -> u32 { 1 }
+    fn set_ui_scale(&mut self, _scale: u32) {}
     fn set_rotation(&mut self, rotation: u8);
     fn rotation(&self) -> u8;
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, red: u8, green: u8, blue: u8);
     fn clear(&mut self);
     fn present(&mut self);
     fn set_brightness(&mut self, brightness: u8);
@@ -642,6 +647,7 @@ pub trait IDrawingSurface: Send + Sync {
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
     fn release_canvas(&mut self);
     fn has_canvas(&self) -> bool;
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
 }
 ```
 
@@ -671,6 +677,7 @@ fn render(&mut self, ctx: &mut EngineContext) {
 2. **Profiter du dirty tracking** : Avec `RenderPipeline::CanvasSingle` (le mode par défaut recommandé, voir [ARCHITECTURE_FR.md §13](ARCHITECTURE_FR.md#13-pipeline-de-rendu-matériel--abstraction-idrawingsurface)), `IDrawingSurface` suit les tranches de lignes modifiées (`DirtyBounds`). Si rien ne change visuellement (`has_new_frame() == false`), `present()` se termine en $O(1)$ avec **zéro trafic sur le bus mémoire**, garantissant la protection du contrôleur Wi-Fi Broadcom SDIO (`brcmfmac`).
 3. **Contrôler l'effacement plein écran** : Si ton moteur redessine l'intégralité de l'écran à chaque tick (ex. flux GIF ou vidéo streaming), surcharge `wants_clear(&self) -> bool { false }` pour éviter une passe d'effacement noir redondante avant l'appel à ton `render()`.
 4. **Passe Overlay** : Après le retour de ton `render()`, la boucle de rendu peut exécuter la passe additive de **l'overlay Fighter** par-dessus ta frame (voir [ARCHITECTURE_FR.md §12](ARCHITECTURE_FR.md#12-larchitecture-doverlay-transverse--overlaymanager)). Si ton moteur n'admet pas d'overlay, retourne `allows_overlay(&self) -> bool { false }`.
+5. **Mise à l'échelle UI vs. Médias Natifs `1x` Plein Écran** : Les moteurs UI standard dessinent sur `ctx.surface.width()` × `ctx.surface.height()`, profitant automatiquement de l'upscaling entier Nearest-Neighbor (`2x`/`3x`/`4x`) sur les très grands murs LED (`256×192`, `512×384`). Seuls les flux médias plein écran (`gifs`, Phase 2 `LiveStream` de `DMD Media Showcase`) lisent `native_width()` / `native_height()` et dessinent via `ctx.surface.unscaled()`.
 
 ---
 

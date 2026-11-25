@@ -576,10 +576,31 @@ pub struct DisplayGeometry {
 
 impl DisplayGeometry {
     pub fn new(physical_width: u32, physical_height: u32, rotation: u8, version: u64) -> Self {
-        let (logical_width, logical_height) = if rotation == 1 || rotation == 3 {
+        Self::new_scaled(physical_width, physical_height, rotation, 1, version)
+    }
+
+    pub fn new_scaled(
+        physical_width: u32,
+        physical_height: u32,
+        rotation: u8,
+        ui_scale: u32,
+        version: u64,
+    ) -> Self {
+        let (nat_w, nat_h) = if rotation == 1 || rotation == 3 {
             (physical_height, physical_width)
         } else {
             (physical_width, physical_height)
+        };
+        let scale = ui_scale.max(1);
+        let logical_width = if scale <= 1 {
+            nat_w
+        } else {
+            (nat_w / scale).max(1)
+        };
+        let logical_height = if scale <= 1 {
+            nat_h
+        } else {
+            (nat_h / scale).max(1)
         };
 
         let layout_class = Self::classify(logical_width, logical_height);
@@ -603,6 +624,26 @@ impl DisplayGeometry {
     #[inline]
     pub fn height(&self) -> u32 {
         self.logical_height
+    }
+
+    /// Native 1x rotated width (ignoring `ui_scale` division).
+    #[inline]
+    pub fn native_width(&self) -> u32 {
+        if self.rotation == 1 || self.rotation == 3 {
+            self.physical_height
+        } else {
+            self.physical_width
+        }
+    }
+
+    /// Native 1x rotated height (ignoring `ui_scale` division).
+    #[inline]
+    pub fn native_height(&self) -> u32 {
+        if self.rotation == 1 || self.rotation == 3 {
+            self.physical_width
+        } else {
+            self.physical_height
+        }
     }
 
     #[inline]

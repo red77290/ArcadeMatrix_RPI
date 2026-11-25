@@ -1933,6 +1933,8 @@ pub struct MediaShowcaseRunner {
     pub global_mqtt_port: u16,
     pub width: u32,
     pub height: u32,
+    pub card_width: u32,
+    pub card_height: u32,
     pub shared: Arc<Mutex<SharedShowcaseState>>,
     pub worker_busy: Arc<AtomicBool>,
     pub worker_gen: Arc<AtomicU64>,
@@ -1975,14 +1977,18 @@ impl Drop for MediaShowcaseRunner {
 impl MediaShowcaseRunner {
     pub fn new(domain: ShowcaseDomain, width: u32, height: u32) -> Self {
         let now = Instant::now();
+        let w = width.max(32);
+        let h = height.max(32);
         Self {
             domain,
             cfg: ShowcaseConfig::default(),
             system_lang: "fr".to_string(),
             global_mqtt_host: String::new(),
             global_mqtt_port: 1883,
-            width: width.max(32),
-            height: height.max(32),
+            width: w,
+            height: h,
+            card_width: w,
+            card_height: h,
             shared: Arc::new(Mutex::new(SharedShowcaseState::default())),
             worker_busy: Arc::new(AtomicBool::new(false)),
             worker_gen: Arc::new(AtomicU64::new(0)),
@@ -2044,9 +2050,9 @@ impl MediaShowcaseRunner {
         if !self.cfg.show_synopsis || item.synopsis.is_empty() {
             return base_dur;
         }
-        let w = self.width as i32;
-        let h = self.height as i32;
-        let (pw, _) = compute_card_poster_dims(self.width, self.height);
+        let w = self.card_width as i32;
+        let h = self.card_height as i32;
+        let (pw, _) = compute_card_poster_dims(self.card_width, self.card_height);
         let box_w = if h > w || w == h {
             (w - 4).max(24)
         } else if self.cfg.show_poster && item.poster.is_some() {
@@ -2094,6 +2100,8 @@ impl MediaShowcaseRunner {
         let lang = cfg.effective_lang(&self.system_lang).to_string();
         let width = self.width;
         let height = self.height;
+        let card_width = self.card_width;
+        let card_height = self.card_height;
         let shared = Arc::clone(&self.shared);
         let busy = Arc::clone(&self.worker_busy);
         let worker_gen_arc = Arc::clone(&self.worker_gen);
@@ -2110,6 +2118,8 @@ impl MediaShowcaseRunner {
                     lang,
                     width,
                     height,
+                    card_width,
+                    card_height,
                     global_host,
                     global_port,
                     shared,
@@ -2123,6 +2133,8 @@ impl MediaShowcaseRunner {
                     lang,
                     width,
                     height,
+                    card_width,
+                    card_height,
                     shared,
                     config_gen_arc,
                     my_gen,
@@ -2138,6 +2150,8 @@ impl MediaShowcaseRunner {
         lang: String,
         width: u32,
         height: u32,
+        card_width: u32,
+        card_height: u32,
         global_host: String,
         global_port: u16,
         shared: Arc<Mutex<SharedShowcaseState>>,
@@ -2214,11 +2228,14 @@ impl MediaShowcaseRunner {
         let stream_state_topic = format!("dmd_showcase/clients/{}/stream_state", dmd_id);
         let config_topic = format!("dmd_showcase/clients/{}/config", dmd_id);
 
+        let (default_pw, default_ph) = compute_card_poster_dims(card_width, card_height);
         let mut domain_cfg = serde_json::Map::new();
         domain_cfg.insert(
             slug.to_string(),
             serde_json::json!({
                 "lang": lang,
+                "poster_width": default_pw,
+                "poster_height": default_ph,
                 "show_poster": cfg.show_poster,
                 "show_synopsis": cfg.show_synopsis,
                 "text_scroll_speed": cfg.text_scroll_speed,
@@ -2261,7 +2278,6 @@ impl MediaShowcaseRunner {
         let http_client = crate::core::memory::stream_http_client();
         let preload_in_flight = Arc::new(AtomicBool::new(false));
         let pending_preload: Arc<Mutex<Option<(String, String)>>> = Arc::new(Mutex::new(None));
-        let (default_pw, default_ph) = compute_card_poster_dims(width, height);
 
         // Spawn a dedicated fast 4ms I/O pump thread for UDP `DMDF` packet reception and
         // immediate (< 4ms) outbound `start_card` / `start_stream` MQTT event dispatching.
@@ -2676,6 +2692,8 @@ impl MediaShowcaseRunner {
                         lang,
                         width,
                         height,
+                        card_width,
+                        card_height,
                         shared,
                         config_gen_arc,
                         my_gen,
@@ -2687,12 +2705,15 @@ impl MediaShowcaseRunner {
         worker_alive.store(false, Ordering::SeqCst);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn run_http_poll_worker(
         domain: ShowcaseDomain,
         cfg: ShowcaseConfig,
         lang: String,
         width: u32,
         height: u32,
+        card_width: u32,
+        card_height: u32,
         shared: Arc<Mutex<SharedShowcaseState>>,
         config_gen_arc: Arc<AtomicU64>,
         my_gen: u64,
@@ -2703,7 +2724,7 @@ impl MediaShowcaseRunner {
         let base = resolved_base.trim_end_matches('/');
         let slug = domain.as_api_slug();
         let dmd_id = format_rpi_dmd_client_id(slug, width, height);
-        let (default_pw, default_ph) = compute_card_poster_dims(width, height);
+        let (default_pw, default_ph) = compute_card_poster_dims(card_width, card_height);
 
         // 1. Register client config (`POST /api/v1/{domain}/config`)
         let cfg_url = format!("{}/api/v1/{}/config", base, slug);
@@ -2852,8 +2873,10 @@ impl MediaShowcaseRunner {
     }
 
     pub fn initialize(&mut self, context: &mut EngineContext, config: &dyn EngineConfig) {
-        self.width = context.surface.width().max(32);
-        self.height = context.surface.height().max(32);
+        self.width = context.surface.native_width().max(32);
+        self.height = context.surface.native_height().max(32);
+        self.card_width = context.surface.width().max(32);
+        self.card_height = context.surface.height().max(32);
         let showcase_settings = {
             let settings = context.config.settings.read();
             self.system_lang = settings.system.lang.clone();
@@ -2899,12 +2922,30 @@ impl MediaShowcaseRunner {
     }
 
     pub fn on_display_geometry_changed(&mut self, width: u32, height: u32) {
-        let new_w = width.max(32);
-        let new_h = height.max(32);
-        if new_w != self.width || new_h != self.height {
+        self.on_display_geometry_changed_scaled(width, height, width, height);
+    }
+
+    pub fn on_display_geometry_changed_scaled(
+        &mut self,
+        native_width: u32,
+        native_height: u32,
+        card_width: u32,
+        card_height: u32,
+    ) {
+        let new_w = native_width.max(32);
+        let new_h = native_height.max(32);
+        let new_cw = card_width.max(32);
+        let new_ch = card_height.max(32);
+        if new_w != self.width
+            || new_h != self.height
+            || new_cw != self.card_width
+            || new_ch != self.card_height
+        {
             let now = Instant::now();
             self.width = new_w;
             self.height = new_h;
+            self.card_width = new_cw;
+            self.card_height = new_ch;
             let stopped_id = self.active_item.take().map(|it| it.id);
             self.phase = PlaybackPhase::Card;
             self.phase_started_at = now;
@@ -3113,10 +3154,16 @@ impl MediaShowcaseRunner {
             self.spawn_background_sync();
         }
 
-        let new_w = context.surface.width().max(32);
-        let new_h = context.surface.height().max(32);
-        if new_w != self.width || new_h != self.height {
-            self.on_display_geometry_changed(new_w, new_h);
+        let new_w = context.surface.native_width().max(32);
+        let new_h = context.surface.native_height().max(32);
+        let new_cw = context.surface.width().max(32);
+        let new_ch = context.surface.height().max(32);
+        if new_w != self.width
+            || new_h != self.height
+            || new_cw != self.card_width
+            || new_ch != self.card_height
+        {
+            self.on_display_geometry_changed_scaled(new_w, new_h, new_cw, new_ch);
         }
 
         if !self.turn_evaluated {
@@ -3664,22 +3711,14 @@ impl MediaShowcaseRunner {
         let h = matrix.height() as i32;
         let phase_ms = self.phase_started_at.elapsed().as_millis();
 
-        let eff_lang = self.cfg.effective_lang(&self.system_lang).to_string();
+        let eff_lang = self.cfg.effective_lang(&self.system_lang);
         if self.active_item.is_none() {
             let effective_url = if self.cfg.enabled {
                 self.cfg.server_url.as_str()
             } else {
                 ""
             };
-            render_waiting_pixel_art(
-                self.domain,
-                matrix,
-                w,
-                h,
-                phase_ms,
-                effective_url,
-                &eff_lang,
-            );
+            render_waiting_pixel_art(self.domain, matrix, w, h, phase_ms, effective_url, eff_lang);
             self.dirty = false;
             return;
         }
@@ -3698,7 +3737,8 @@ impl MediaShowcaseRunner {
                     .cloned();
                 if let Some(stream) = stream_opt {
                     if !stream.is_empty() {
-                        self.stream_player.render_to_surface(&stream, matrix);
+                        self.stream_player
+                            .render_to_surface(&stream, matrix.unscaled());
                     }
                 } else {
                     let live_frame = {
@@ -3706,12 +3746,13 @@ impl MediaShowcaseRunner {
                         guard.live_udp_frame.clone()
                     };
                     if let Some(frame) = live_frame {
-                        let fw = (frame.width() as i32).min(w);
-                        let fh = (frame.height() as i32).min(h);
+                        let native_matrix = matrix.unscaled();
+                        let fw = (frame.width() as i32).min(native_matrix.width() as i32);
+                        let fh = (frame.height() as i32).min(native_matrix.height() as i32);
                         for py in 0..fh {
                             for px in 0..fw {
                                 let p = frame.get_pixel(px as u32, py as u32).0;
-                                matrix.set_pixel(px, py, p[0], p[1], p[2]);
+                                native_matrix.set_pixel(px, py, p[0], p[1], p[2]);
                             }
                         }
                     } else {
@@ -3723,7 +3764,7 @@ impl MediaShowcaseRunner {
                             h,
                             phase_ms,
                             &self.cfg.server_url,
-                            &eff_lang,
+                            eff_lang,
                         );
                     }
                 }

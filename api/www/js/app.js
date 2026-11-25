@@ -1346,6 +1346,9 @@ async function initSettings() {
     setVal('hw-pwm-lsb', matrix.pwm_lsb_nanoseconds ?? 130);
     setVal('hw-limit-refresh', matrix.limit_refresh_rate_hz ?? 0);
     setChk('hw-disable-pulsing', matrix.disable_hardware_pulsing ?? false);
+    setVal('hw-pixel-mapper', matrix.pixel_mapper || '');
+    const normUiScale = String(matrix.ui_scale ?? 'auto').trim().toLowerCase().replace(/x$/, '');
+    setVal('hw-ui-scale', ['1', '2', '3', '4'].includes(normUiScale) ? normUiScale : 'auto');
     setVal('hw-render-pipeline', matrix.render_pipeline || 'canvas_single');
 
     // MQTT (nested mqtt.*)
@@ -1520,6 +1523,7 @@ async function initSettings() {
         parallel: numOr('hw-parallel', 1),
         driver_chip: document.getElementById('hw-driver-chip')?.value || 'SHIFTREG',
         mapping: document.getElementById('hw-mapping')?.value || 'regular',
+        pixel_mapper: (document.getElementById('hw-pixel-mapper')?.value || '').trim(),
         rgb_sequence: document.getElementById('hw-rgb')?.value || 'RGB',
         row_address_mode: numOr('hw-row-addr-type', 0),
         multiplexing: numOr('hw-multiplexing', 0),
@@ -1529,6 +1533,7 @@ async function initSettings() {
         limit_refresh_rate_hz: numOr('hw-limit-refresh', 0),
         disable_hardware_pulsing: document.getElementById('hw-disable-pulsing')?.checked || false,
         render_pipeline: document.getElementById('hw-render-pipeline')?.value || 'canvas_single',
+        ui_scale: document.getElementById('hw-ui-scale')?.value || 'auto',
       };
 
       try {

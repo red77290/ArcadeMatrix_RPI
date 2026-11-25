@@ -653,9 +653,14 @@ pub trait IDrawingSurface: Send + Sync {
     fn height(&self) -> u32;
     fn physical_width(&self) -> u32;
     fn physical_height(&self) -> u32;
+    fn native_width(&self) -> u32 { self.width() }
+    fn native_height(&self) -> u32 { self.height() }
+    fn ui_scale(&self) -> u32 { 1 }
+    fn set_ui_scale(&mut self, _scale: u32) {}
     fn set_rotation(&mut self, rotation: u8);
     fn rotation(&self) -> u8;
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, red: u8, green: u8, blue: u8);
     fn clear(&mut self);
     fn present(&mut self);
     fn set_brightness(&mut self, brightness: u8);
@@ -664,6 +669,7 @@ pub trait IDrawingSurface: Send + Sync {
     fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
     fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
 }
 ```
 
@@ -686,6 +692,14 @@ Under `canvas_single`, the `DirtyBounds` tracker monitors which scanlines have a
 1. `is_dirty()` returns `false`.
 2. `present()` completes in $O(1)$ without calling the C FFI or writing to the physical LED matrix memory.
 3. The Broadcom memory bus and CPU remain completely free for Wi-Fi, MQTT, and HTTP traffic.
+
+### 13.3 Multi-Panel Pixel Mapping (`pixel_mapper`) & Integer UI Upscaling (`ScaledDrawingSurface`)
+
+- **Hardware Pixel Mapper (`matrix.pixel_mapper`)**: Forwarded to hzeller `LedMatrixOptions::set_pixel_mapper_config` (e.g. `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:180"`), allowing multi-panel HUB75 chains to fold into tall multi-row physical walls (such as `256×192` or `512×384`). Off-hardware surfaces (`MockSurface`, E2E inspection, and API layout previews) compute identical folded physical dimensions via `MatrixConfig::effective_physical_dimensions()`.
+- **Zero-Allocation `ScaledDrawingSurface` (`matrix.ui_scale`)**: Wraps the hardware or mock `IDrawingSurface` transparently with zero heap allocations on the H-Core hot path:
+  - In `"auto"` mode (default), `UiScale::resolve` returns **`1x`** strictly across all standard and TATE resolutions (`64×32`, `32×64`, `64×64`, `128×32`, `32×128`, `128×64`, `64×128`, `256×64`, `64×256`), acting as a pure 1:1 passthrough (preserving `acquire_canvas()` and `DirtyBounds` untouched).
+  - Only when `min(width, height) >= 128` and `max(width, height) >= 192` does `"auto"` engage `2x`/`3x`/`4x` Nearest-Neighbor integer block expansion (`256×192` → `2x` `128×96`, `512×384` → `4x` `128×96`), expanding each logical pixel into an exact `N×N` sharp LED block while propagating exact scanline `DirtyBounds` to the inner surface.
+  - Full-screen media streams (`gifs`, plus `DMD Media Showcase` Phase 2 `LiveStream` video/panoramas and `FrontendSync` `ShowcaseStream`) bypass UI scaling via `surface.unscaled()` (`native_width()` × `native_height()`), while UI engines and Showcase Phase 1 Intro Cards render crisply on the upscaled logical grid.
 
 ---
 

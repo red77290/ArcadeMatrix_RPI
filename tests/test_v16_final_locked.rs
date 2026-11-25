@@ -1664,3 +1664,71 @@ fn test_ingame_offline_rgb888_gif_10000_frames_zero_allocation_proof() {
         deallocs
     );
 }
+
+#[test]
+fn test_scaled_drawing_surface_10000_frames_zero_allocation_proof() {
+    use arcadematrix::core::config::UiScale;
+    use arcadematrix::core::matrix::{IDrawingSurface, ScaledDrawingSurface};
+
+    let mut wall_2x = ScaledDrawingSurface::new(
+        Box::new(MockSurface::new(256, 192)),
+        UiScale::Auto.resolve(256, 192),
+    );
+    let mut wall_4x = ScaledDrawingSurface::new(
+        Box::new(MockSurface::new(512, 384)),
+        UiScale::Auto.resolve(512, 384),
+    );
+    assert_eq!(wall_2x.ui_scale(), 2);
+    assert_eq!(wall_4x.ui_scale(), 4);
+
+    let native_strip = [0xF800u16, 0x07E0u16, 0x001Fu16, 0xFFFFu16];
+
+    // Warmup before arming allocator tracker
+    wall_2x.clear();
+    wall_2x.set_pixel(10, 10, 255, 128, 0);
+    wall_2x.fill_rect(4, 4, 8, 6, 20, 180, 240);
+    wall_2x.unscaled().blit565(&native_strip, 0, 0, 4, 1, None);
+    wall_2x.present();
+
+    wall_4x.clear();
+    wall_4x.set_pixel(20, 15, 0, 255, 128);
+    wall_4x.fill_rect(2, 2, 6, 4, 240, 60, 120);
+    wall_4x.unscaled().blit565(&native_strip, 0, 0, 4, 1, None);
+    wall_4x.present();
+
+    THREAD_ALLOC_COUNT.with(|c| c.set(0));
+    THREAD_DEALLOC_COUNT.with(|c| c.set(0));
+    THREAD_TRACKING.with(|t| t.set(true));
+
+    for i in 0..10_000i32 {
+        let lx = i % 120;
+        let ly = (i / 120) % 90;
+        wall_2x.set_pixel(lx, ly, 200, 100, 50);
+        wall_2x.fill_rect(lx, ly, 3, 2, 40, 160, 250);
+        wall_2x
+            .unscaled()
+            .blit565(&native_strip, lx * 2, ly * 2, 4, 1, None);
+        wall_2x.present();
+
+        wall_4x.set_pixel(lx, ly, 50, 220, 140);
+        wall_4x.fill_rect(lx, ly, 2, 2, 255, 90, 30);
+        wall_4x
+            .unscaled()
+            .blit565(&native_strip, lx * 4, ly * 4, 4, 1, None);
+        wall_4x.present();
+    }
+
+    THREAD_TRACKING.with(|t| t.set(false));
+    let allocs = THREAD_ALLOC_COUNT.with(|c| c.get());
+    let deallocs = THREAD_DEALLOC_COUNT.with(|c| c.get());
+    assert_eq!(
+        allocs, 0,
+        "ScaledDrawingSurface H-Core hot-path performed {} heap allocations across 10,000 frames!",
+        allocs
+    );
+    assert_eq!(
+        deallocs, 0,
+        "ScaledDrawingSurface H-Core hot-path performed {} heap deallocations across 10,000 frames!",
+        deallocs
+    );
+}

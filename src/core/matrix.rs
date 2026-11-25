@@ -355,6 +355,266 @@ pub trait IDrawingSurface: Send + Sync {
     fn has_canvas(&self) -> bool {
         false
     }
+
+    /// Active integer Nearest-Neighbor UI scale factor (`1` = native 1:1, `2..=4` = upscaled).
+    #[inline]
+    fn ui_scale(&self) -> u32 {
+        1
+    }
+
+    /// Updates the active integer UI scale factor in real time (`1..=4`).
+    fn set_ui_scale(&mut self, _scale: u32) {}
+
+    /// Native 1x logical width after rotation (ignoring `ui_scale`).
+    #[inline]
+    fn native_width(&self) -> u32 {
+        if self.rotation() % 2 == 1 {
+            self.physical_height()
+        } else {
+            self.physical_width()
+        }
+    }
+
+    /// Native 1x logical height after rotation (ignoring `ui_scale`).
+    #[inline]
+    fn native_height(&self) -> u32 {
+        if self.rotation() % 2 == 1 {
+            self.physical_width()
+        } else {
+            self.physical_height()
+        }
+    }
+
+    /// Returns `Some((min_y, max_y))` when row-span `DirtyBounds` tracking is active and dirty.
+    #[inline]
+    fn dirty_row_span(&self) -> Option<(u32, u32)> {
+        None
+    }
+
+    /// Returns a mutable reference to the underlying native 1x surface (bypassing `ui_scale`
+    /// Nearest-Neighbor expansion for full-screen 1x GIFs, panoramas, and video streams).
+    /// Zero heap allocation, zero copy, preserves `DirtyBounds`.
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
+}
+
+/// Zero-allocation Nearest-Neighbor integer upscaling wrapper around `IDrawingSurface`.
+///
+/// - When `scale == 1` (default `"auto"` for all standard panels `64x32..256x64` YOKO & TATE),
+///   operates as a 1:1 passthrough with zero coordinate alteration and full `CanvasView` support.
+/// - When `scale` is `2..=4` (e.g. `256x192` -> `2x` `128x96`, `512x384` -> `4x` `128x96`),
+///   expands each logical UI pixel into an exact `scale x scale` Nearest-Neighbor block in `0`
+///   heap allocations while preserving `DirtyBounds` row span tracking on the inner surface.
+pub struct ScaledDrawingSurface {
+    inner: Box<dyn IDrawingSurface>,
+    scale: u32,
+}
+
+impl ScaledDrawingSurface {
+    #[inline]
+    fn clamp_scale_for_dims(scale: u32, phys_w: u32, phys_h: u32) -> u32 {
+        let s = scale.clamp(1, 4);
+        if phys_w >= s && phys_h >= s {
+            s
+        } else {
+            1
+        }
+    }
+
+    pub fn new(inner: Box<dyn IDrawingSurface>, scale: u32) -> Self {
+        let clamped =
+            Self::clamp_scale_for_dims(scale, inner.physical_width(), inner.physical_height());
+        Self {
+            inner,
+            scale: clamped,
+        }
+    }
+
+    #[inline]
+    pub fn inner(&self) -> &dyn IDrawingSurface {
+        &*self.inner
+    }
+
+    #[inline]
+    pub fn inner_mut(&mut self) -> &mut dyn IDrawingSurface {
+        &mut *self.inner
+    }
+
+    #[inline]
+    pub fn into_inner(self) -> Box<dyn IDrawingSurface> {
+        self.inner
+    }
+}
+
+impl IDrawingSurface for ScaledDrawingSurface {
+    #[inline]
+    fn width(&self) -> u32 {
+        if self.scale <= 1 {
+            self.inner.width()
+        } else {
+            (self.inner.width() / self.scale).max(1)
+        }
+    }
+
+    #[inline]
+    fn height(&self) -> u32 {
+        if self.scale <= 1 {
+            self.inner.height()
+        } else {
+            (self.inner.height() / self.scale).max(1)
+        }
+    }
+
+    #[inline]
+    fn physical_width(&self) -> u32 {
+        self.inner.physical_width()
+    }
+
+    #[inline]
+    fn physical_height(&self) -> u32 {
+        self.inner.physical_height()
+    }
+
+    #[inline]
+    fn native_width(&self) -> u32 {
+        self.inner.native_width()
+    }
+
+    #[inline]
+    fn native_height(&self) -> u32 {
+        self.inner.native_height()
+    }
+
+    #[inline]
+    fn ui_scale(&self) -> u32 {
+        self.scale
+    }
+
+    #[inline]
+    fn set_ui_scale(&mut self, scale: u32) {
+        let next = Self::clamp_scale_for_dims(
+            scale,
+            self.inner.physical_width(),
+            self.inner.physical_height(),
+        );
+        if self.scale != next {
+            self.scale = next;
+            self.inner.mark_dirty();
+        }
+    }
+
+    #[inline]
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface {
+        self.inner.unscaled()
+    }
+
+    #[inline]
+    fn set_rotation(&mut self, rotation: u8) {
+        self.inner.set_rotation(rotation);
+    }
+
+    #[inline]
+    fn rotation(&self) -> u8 {
+        self.inner.rotation()
+    }
+
+    #[inline]
+    fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8) {
+        if self.scale <= 1 {
+            self.inner.set_pixel(x, y, red, green, blue);
+            return;
+        }
+        let log_w = self.width() as i32;
+        let log_h = self.height() as i32;
+        if x < 0 || y < 0 || x >= log_w || y >= log_h {
+            return;
+        }
+        let s = self.scale as i32;
+        let bx = x * s;
+        let by = y * s;
+        for dy in 0..s {
+            for dx in 0..s {
+                self.inner.set_pixel(bx + dx, by + dy, red, green, blue);
+            }
+        }
+    }
+
+    #[inline]
+    fn fill_rect(&mut self, x: i32, y: i32, w: i32, h: i32, r: u8, g: u8, b: u8) {
+        if self.scale <= 1 {
+            self.inner.fill_rect(x, y, w, h, r, g, b);
+            return;
+        }
+        if w <= 0 || h <= 0 {
+            return;
+        }
+        let max_w = self.width() as i32;
+        let max_h = self.height() as i32;
+        let x0 = x.max(0);
+        let y0 = y.max(0);
+        let x1 = (x + w).min(max_w);
+        let y1 = (y + h).min(max_h);
+        if x0 >= x1 || y0 >= y1 {
+            return;
+        }
+        let s = self.scale as i32;
+        self.inner
+            .fill_rect(x0 * s, y0 * s, (x1 - x0) * s, (y1 - y0) * s, r, g, b);
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.inner.clear();
+    }
+
+    #[inline]
+    fn present(&mut self) {
+        self.inner.present();
+    }
+
+    #[inline]
+    fn set_brightness(&mut self, brightness: u8) {
+        self.inner.set_brightness(brightness);
+    }
+
+    #[inline]
+    fn mark_dirty(&mut self) {
+        self.inner.mark_dirty();
+    }
+
+    #[inline]
+    fn is_dirty(&self) -> bool {
+        self.inner.is_dirty()
+    }
+
+    #[inline]
+    fn dirty_row_span(&self) -> Option<(u32, u32)> {
+        self.inner.dirty_row_span()
+    }
+
+    #[inline]
+    fn acquire_canvas(&mut self) -> Option<CanvasView<'_>> {
+        if self.scale <= 1 {
+            self.inner.acquire_canvas()
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    fn release_canvas(&mut self) {
+        if self.scale <= 1 {
+            self.inner.release_canvas();
+        }
+    }
+
+    #[inline]
+    fn has_canvas(&self) -> bool {
+        if self.scale <= 1 {
+            self.inner.has_canvas()
+        } else {
+            false
+        }
+    }
 }
 
 /// Move-only RAII guard strictly enforcing the scoped per-frame lifetime of a borrowed CanvasView.
@@ -537,6 +797,14 @@ impl IDrawingSurface for MockSurface {
         self.dirty_bounds.dirty
     }
 
+    fn dirty_row_span(&self) -> Option<(u32, u32)> {
+        if self.dirty_bounds.dirty {
+            Some((self.dirty_bounds.min_y, self.dirty_bounds.max_y))
+        } else {
+            None
+        }
+    }
+
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>> {
         let w = self.physical_width;
         let h = self.physical_height;
@@ -555,6 +823,11 @@ impl IDrawingSurface for MockSurface {
 
     fn has_canvas(&self) -> bool {
         true
+    }
+
+    #[inline]
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface {
+        self
     }
 }
 
@@ -620,7 +893,7 @@ impl CanvasBufferedSurface {
             brightness: 100,
             physical_width,
             physical_height,
-            rotation: (cfg.rotation % 4) as u8,
+            rotation: normalize_rotation_code(cfg.rotation),
             buffer: RgbImage::new(physical_width, physical_height),
             scaled_buffer: vec![0u8; scaled_len],
             dirty_bounds: DirtyBounds::new(physical_height),
@@ -800,6 +1073,14 @@ impl IDrawingSurface for CanvasBufferedSurface {
         self.dirty_bounds.dirty
     }
 
+    fn dirty_row_span(&self) -> Option<(u32, u32)> {
+        if self.dirty_bounds.dirty {
+            Some((self.dirty_bounds.min_y, self.dirty_bounds.max_y))
+        } else {
+            None
+        }
+    }
+
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>> {
         let w = self.physical_width;
         let h = self.physical_height;
@@ -818,6 +1099,11 @@ impl IDrawingSurface for CanvasBufferedSurface {
 
     fn has_canvas(&self) -> bool {
         true
+    }
+
+    #[inline]
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface {
+        self
     }
 }
 
@@ -851,7 +1137,7 @@ impl DirectSurface {
             brightness: 100,
             physical_width: w as u32,
             physical_height: h as u32,
-            rotation: (cfg.rotation % 4) as u8,
+            rotation: normalize_rotation_code(cfg.rotation),
             pipeline,
             dirty: true,
         })
@@ -959,6 +1245,21 @@ impl IDrawingSurface for DirectSurface {
     fn is_dirty(&self) -> bool {
         self.dirty
     }
+
+    #[inline]
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface {
+        self
+    }
+}
+
+#[inline]
+pub fn normalize_rotation_code(val: u32) -> u8 {
+    match val {
+        90 | 1 => 1,
+        180 | 2 => 2,
+        270 | 3 => 3,
+        _ => 0,
+    }
 }
 
 #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
@@ -976,10 +1277,22 @@ fn init_led_matrix(
     options.set_scan_mode(cfg.scan_mode);
     options.set_brightness(100).unwrap_or(());
     if !cfg.mapping.is_empty() {
-        options.set_hardware_mapping(&cfg.mapping);
+        let clean_mapping: String = cfg.mapping.chars().filter(|&c| c != '\0').collect();
+        if !clean_mapping.trim().is_empty() {
+            options.set_hardware_mapping(clean_mapping.trim());
+        }
     }
     if !cfg.rgb_sequence.is_empty() {
-        options.set_led_rgb_sequence(&cfg.rgb_sequence);
+        let clean_rgb: String = cfg.rgb_sequence.chars().filter(|&c| c != '\0').collect();
+        if !clean_rgb.trim().is_empty() {
+            options.set_led_rgb_sequence(clean_rgb.trim());
+        }
+    }
+    if !cfg.pixel_mapper.is_empty() {
+        let clean_mapper: String = cfg.pixel_mapper.chars().filter(|&c| c != '\0').collect();
+        if !clean_mapper.trim().is_empty() {
+            options.set_pixel_mapper_config(clean_mapper.trim());
+        }
     }
     let _ = options.set_pwm_bits(cfg.pwm_bits as u8);
     options.set_pwm_lsb_nanoseconds(cfg.pwm_lsb_nanoseconds);
@@ -1031,11 +1344,11 @@ fn init_led_matrix(
 /// Factory creating the canonical IDrawingSurface according to configuration.
 pub fn create_surface(cfg: &MatrixConfig) -> Result<Box<dyn IDrawingSurface>, String> {
     if is_mock_matrix_mode() {
-        let w = cfg.width * cfg.chain_length;
-        let h = cfg.height * cfg.parallel.clamp(1, 3);
+        let (w, h) = cfg.effective_physical_dimensions();
         let mut mock = MockSurface::new(w, h);
-        mock.set_rotation((cfg.rotation % 4) as u8);
-        return Ok(Box::new(mock));
+        mock.set_rotation(normalize_rotation_code(cfg.rotation));
+        let scale = cfg.ui_scale.resolve(w, h);
+        return Ok(Box::new(ScaledDrawingSurface::new(Box::new(mock), scale)));
     }
 
     #[cfg(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64")))]
@@ -1054,24 +1367,28 @@ pub fn create_surface(cfg: &MatrixConfig) -> Result<Box<dyn IDrawingSurface>, St
             }
         };
 
-        match pipeline {
+        let base: Box<dyn IDrawingSurface> = match pipeline {
             RenderPipeline::DirectSingle | RenderPipeline::DirectDouble => {
                 let surf = DirectSurface::new(cfg, pipeline)?;
-                Ok(Box::new(surf))
+                Box::new(surf)
             }
             RenderPipeline::CanvasSingle | RenderPipeline::CanvasDouble | RenderPipeline::Auto => {
                 let surf = CanvasBufferedSurface::new(cfg, pipeline)?;
-                Ok(Box::new(surf))
+                Box::new(surf)
             }
-        }
+        };
+        let scale = cfg
+            .ui_scale
+            .resolve(base.physical_width(), base.physical_height());
+        Ok(Box::new(ScaledDrawingSurface::new(base, scale)))
     }
 
     #[cfg(not(all(target_os = "linux", any(target_arch = "arm", target_arch = "aarch64"))))]
     {
-        let w = cfg.width * cfg.chain_length;
-        let h = cfg.height * cfg.parallel.clamp(1, 3);
+        let (w, h) = cfg.effective_physical_dimensions();
         let mut mock = MockSurface::new(w, h);
-        mock.set_rotation((cfg.rotation % 4) as u8);
-        Ok(Box::new(mock))
+        mock.set_rotation(normalize_rotation_code(cfg.rotation));
+        let scale = cfg.ui_scale.resolve(w, h);
+        Ok(Box::new(ScaledDrawingSurface::new(Box::new(mock), scale)))
     }
 }

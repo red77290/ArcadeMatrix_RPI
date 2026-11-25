@@ -298,6 +298,16 @@ async fn post_system(
     {
         s.matrix.slot_transition_duration_ms = v as u32;
     }
+    if let Some(v) = body.get("ui_scale") {
+        if let Some(sv) = v.as_str() {
+            s.matrix.ui_scale = crate::core::config::UiScale::from_str_lossy(sv);
+        } else if let Some(iv) = v.as_u64() {
+            s.matrix.ui_scale = crate::core::config::UiScale::from_int_lossy(iv);
+        }
+    }
+    if let Some(v) = body.get("pixel_mapper").and_then(|v| v.as_str()) {
+        s.matrix.pixel_mapper = v.trim().to_string();
+    }
     // Hardware & MQTT-affecting settings only take effect after a restart of the
     // render/network loops, so flag it when physical matrix params, MQTT broker, or Wi-Fi state change.
     let prev_matrix_cfg: Option<crate::core::config::MatrixConfig> =
@@ -306,8 +316,10 @@ async fn post_system(
         p.width != s.matrix.width
             || p.height != s.matrix.height
             || p.chain_length != s.matrix.chain_length
+            || p.parallel != s.matrix.parallel
             || p.driver_chip != s.matrix.driver_chip
             || p.mapping != s.matrix.mapping
+            || p.pixel_mapper != s.matrix.pixel_mapper
             || p.rgb_sequence != s.matrix.rgb_sequence
             || p.row_address_mode != s.matrix.row_address_mode
             || p.multiplexing != s.matrix.multiplexing
@@ -1349,19 +1361,14 @@ async fn get_themes(req: HttpRequest, data: web::Data<AppState>) -> impl Respond
     }
     let (w, h) = {
         let mat = &data.config.settings.read().matrix;
-        let phys_w = (mat.width * mat.chain_length).max(32) as i32;
-        let phys_h = (mat.height * mat.parallel.max(1)).max(32) as i32;
-        if mat.rotation == 90 || mat.rotation == 270 {
-            (phys_h, phys_w)
-        } else {
-            (phys_w, phys_h)
-        }
+        let (lw, lh) = mat.effective_logical_dimensions();
+        (lw.max(32), lh.max(32))
     };
     // Built automatically from the single theme source of truth, filtering out
     // themes whose declarative resolution constraints are not met by the panel.
     let themes: Vec<_> = crate::core::theme::all_themes()
         .iter()
-        .filter(|t| t.is_compatible(w as u32, h as u32))
+        .filter(|t| t.is_compatible(w, h))
         .map(|t| json!({"value": t.id.to_string(), "label": t.name}))
         .collect();
     HttpResponse::Ok().json(themes)
@@ -1692,23 +1699,31 @@ async fn get_e2e_state(data: web::Data<AppState>) -> impl Responder {
     let sync_tel = crate::engines::frontend_sync::read_e2e_sync_telemetry();
     let fb_snap = crate::core::matrix::read_mock_framebuffer_snapshot();
     let prod_snap = cfg.producer_snapshot.load();
-    let (w, h) = {
+    let (w, h, nat_w, nat_h, ui_scale, pixel_mapper) = {
         let s = cfg.settings.read();
+        let (pw, ph) = s.matrix.effective_physical_dimensions();
+        let (nw, nh) = s.matrix.effective_native_dimensions();
         (
-            s.matrix.width * s.matrix.chain_length,
-            s.matrix.height * s.matrix.parallel.clamp(1, 3),
+            pw,
+            ph,
+            nw,
+            nh,
+            s.matrix.resolve_ui_scale(),
+            s.matrix.pixel_mapper.clone(),
         )
     };
     let sync_client_id = format!(
         "rpi_{}_games_{}x{}_sync",
         crate::engines::renderers::media_showcase::rpi_hardware_short_id(),
-        w,
-        h
+        nat_w,
+        nat_h
     );
     HttpResponse::Ok().json(json!({
         "target": "arcadematrix_rpi",
         "width": w,
         "height": h,
+        "ui_scale": ui_scale,
+        "pixel_mapper": pixel_mapper,
         "sync_client_id": sync_client_id,
         "forced_mode": format!("{:?}", prod_snap.forced_mode),
         "ingame_showcase_active": prod_snap.ingame_showcase.is_some(),
@@ -1742,13 +1757,12 @@ async fn get_e2e_framebuffer(data: web::Data<AppState>) -> impl Responder {
             .content_type("application/octet-stream")
             .body(fb_snap.rgb565_le);
     }
-    let (w, h) = {
-        let s = data.config.settings.read();
-        (
-            s.matrix.width * s.matrix.chain_length,
-            s.matrix.height * s.matrix.parallel.clamp(1, 3),
-        )
-    };
+    let (w, h) = data
+        .config
+        .settings
+        .read()
+        .matrix
+        .effective_physical_dimensions();
     HttpResponse::Ok()
         .content_type("application/octet-stream")
         .body(vec![0u8; (w * h * 2) as usize])

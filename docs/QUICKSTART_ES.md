@@ -46,9 +46,10 @@ Recomendamos usar un Adafruit RGB Matrix HAT o Bonnet conectado a una Raspberry 
 
 1. **Instalación en Consola en 1 Clic**: Abre **Sistema → MQTT & API → 🎮 FrontendSync**, introduce la IP y credenciales SSH de tu consola Recalbox, Batocera o RetroPie y pulsa **Install Sync Script** (la consola solo guarda la IP del DMD y descubre automáticamente el broker MQTT activo — nunca tendrás que reinstalar el script).
 2. **Marquesinas Instantáneas**: Pon **Activar MQTT** en **Activado**. Al navegar por los menús de tu consola se mostrarán las marquesinas Pixelcade al instante (`0 ms`).
-3. **Fichas y Vídeos de Gameplay en Juego** (con **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)** en tu red local):
-   - En **🎬 DMD Media Showcase**, activa el servidor Showcase (`🟢 Comunicación OK`).
-   - En **🎮 FrontendSync**, activa **Usar Broker MQTT de Showcase si está activo** (libera RAM local) y **Showcase en Juego (Tarjeta + Vídeo Gameplay)**, elige tu **Ciclo** (`Alternar Marquesina y Showcase`, `Una vez` o `Bucle`) y el **Estilo de Tarjeta** (`Heredar de Showcase Studio` o `Personalizado en el DMD`), y guarda los ajustes.
+3. **Fichas y Vídeos de Gameplay en Juego: Modo Online, Offline o Híbrido** (con **[dmd_media_showcase](https://github.com/red77290/dmd_media_showcase)**):
+   - 🌐 **Modo 100 % Online (Streaming directo sin copiar archivos)**: En **🎬 DMD Media Showcase**, activa el servidor Showcase (`🟢 Comunicación OK`), y en **🎮 FrontendSync**, activa **Usar Broker MQTT de Showcase si está activo** y **Showcase en Juego (Tarjeta + Vídeo Gameplay)** (`Alternar Marquesina y Showcase`, `Una vez` o `Bucle`).
+   - 💾 **Modo 100 % Offline (Sin PC encendido ni Internet)**: En la pestaña **`7. Batch Scraper & Packs Offline`** de Showcase (desde un PC, NAS o móvil), importa tus `gamelist.xml` de Recalbox/Batocera y copia **`showcase/`** (o `showcase_tate/` en vertical) + **`pixelcade/`** en la unidad USB **DATA** (así como playlists de reloj `snes_platformer`... en `DATA:/gifs/`). Con **Showcase en Juego** activo en **🎮 FrontendSync**, tus `.gif` `RGB888` arrancan en **`0 ms`** incluso con Showcase Server apagado.
+   - ⚡ **Modo Híbrido (Automático)**: Si `DATA:/showcase/` existe **y** Showcase Server está activo, la Raspberry Pi reproduce siempre primero el `.gif` local (`0` tráfico de red) y consulta al servidor Online solo para juegos nuevos que no estén en la tarjeta SD ([Tutorial Completo para Principiantes](https://github.com/red77290/dmd_media_showcase/blob/main/docs/TUTORIAL_ONLINE_OFFLINE_SCRAPING_ES.md)).
 
 ## 6. Anexo: Uso de las Herramientas para PC y Consolas (`ArcadeMatrix-tools.zip`)
 

@@ -83,7 +83,7 @@ impl GifEngine {
         }
     }
 
-    fn decode_gif_frames(
+    pub fn decode_gif_frames(
         path: &Path,
         target_width: u32,
         target_height: u32,
@@ -521,7 +521,7 @@ impl GifEngine {
         }
 
         let (ref img, _) = self.frames[self.frame_index];
-        matrix.draw_image(img, 0, 0);
+        matrix.unscaled().draw_image(img, 0, 0);
         self.last_drawn_index = Some(self.frame_index);
         true
     }
@@ -532,7 +532,7 @@ impl GifEngine {
 
     pub fn redraw_current(&mut self, matrix: &mut dyn IDrawingSurface) {
         if let Some((ref img, _)) = self.frames.get(self.frame_index) {
-            matrix.draw_image(img, 0, 0);
+            matrix.unscaled().draw_image(img, 0, 0);
             self.last_drawn_index = Some(self.frame_index);
         }
     }
@@ -544,8 +544,8 @@ impl Engine for GifEngine {
         context: &mut EngineContext,
         config: &dyn EngineConfig,
     ) -> Result<(), EngineError> {
-        self.target_width = context.surface.width();
-        self.target_height = context.surface.height();
+        self.target_width = context.surface.native_width();
+        self.target_height = context.surface.native_height();
         self.geometry = DisplayGeometry::new(self.target_width, self.target_height, 0, 0);
         self.apply_config(config);
         let playlists = self.playlists.clone();
@@ -574,8 +574,8 @@ impl Engine for GifEngine {
     }
 
     fn update(&mut self, context: &mut EngineContext) {
-        let w = context.surface.width();
-        let h = context.surface.height();
+        let w = context.surface.native_width();
+        let h = context.surface.native_height();
         if self.target_width != w || self.target_height != h {
             self.target_width = w;
             self.target_height = h;
@@ -619,7 +619,7 @@ impl Engine for GifEngine {
             return;
         }
         let (ref img, _) = self.frames[self.frame_index];
-        context.surface.draw_image(img, 0, 0);
+        context.surface.unscaled().draw_image(img, 0, 0);
         self.last_drawn_index = Some(self.frame_index);
     }
 
@@ -634,8 +634,8 @@ impl Engine for GifEngine {
 
     fn on_display_geometry_changed(&mut self, geometry: &crate::core::types::DisplayGeometry) {
         let prev_tate = self.is_tate();
-        self.target_width = geometry.logical_width;
-        self.target_height = geometry.logical_height;
+        self.target_width = geometry.native_width();
+        self.target_height = geometry.native_height();
         self.geometry = *geometry;
         if self.is_tate() != prev_tate {
             self.cached_scan_key = None;

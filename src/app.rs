@@ -293,6 +293,7 @@ struct RuntimeSnapshot {
     system: crate::core::config::SystemConfig,
     mqtt: crate::core::config::MqttConfig,
     display_rotation: u8,
+    resolved_ui_scale: u32,
     slot_transition: String,
     slot_transition_duration_ms: u32,
     mqtt_handle: EngineHandle,
@@ -317,6 +318,13 @@ fn build_runtime_snapshot(
     surface: &mut dyn IDrawingSurface,
 ) -> RuntimeSnapshot {
     let settings = config.settings.read();
+    let display_rotation = normalize_rotation(settings.matrix.rotation);
+    let resolved_ui_scale = settings
+        .matrix
+        .ui_scale
+        .resolve(surface.physical_width(), surface.physical_height());
+    surface.set_rotation(display_rotation);
+    surface.set_ui_scale(resolved_ui_scale);
     let mut ctx = crate::core::engine_contract::EngineContext { surface, config };
 
     let active_instance_ids: std::collections::HashSet<&str> = settings
@@ -382,7 +390,8 @@ fn build_runtime_snapshot(
         rotation,
         system: settings.system.clone(),
         mqtt: settings.mqtt.clone(),
-        display_rotation: normalize_rotation(settings.matrix.rotation),
+        display_rotation,
+        resolved_ui_scale,
         slot_transition: settings.matrix.slot_transition.clone(),
         slot_transition_duration_ms: settings.matrix.slot_transition_duration_ms,
         mqtt_handle,
@@ -414,9 +423,13 @@ impl ArcadeMatrixApp {
                                 attempt,
                                 e
                             );
-                            break Box::new(MockSurface::new(
-                                matrix_cfg.width * matrix_cfg.chain_length,
-                                matrix_cfg.height * matrix_cfg.parallel.clamp(1, 3),
+                            let (fb_w, fb_h) = matrix_cfg.effective_physical_dimensions();
+                            let mut mock = MockSurface::new(fb_w, fb_h);
+                            mock.set_rotation(normalize_rotation(matrix_cfg.rotation));
+                            let fb_scale = matrix_cfg.ui_scale.resolve(fb_w, fb_h);
+                            break Box::new(crate::core::matrix::ScaledDrawingSurface::new(
+                                Box::new(mock),
+                                fb_scale,
                             ));
                         }
                         tracing::warn!(
@@ -439,10 +452,21 @@ impl ArcadeMatrixApp {
         let mut engine_runtime = EngineRuntime::new();
         let mut rotation_manager = RotationManager::new();
         let mut slot_transition = crate::core::slot_transition::SlotTransition::default();
-        let initial_rot = normalize_rotation(config.settings.read().matrix.rotation);
+        let (initial_rot, initial_scale) = {
+            let mat = &config.settings.read().matrix;
+            (
+                normalize_rotation(mat.rotation),
+                mat.ui_scale.resolve(phys_width, phys_height),
+            )
+        };
         surface.set_rotation(initial_rot);
-        let mut orientation_manager =
-            crate::core::orientation::OrientationManager::new(phys_width, phys_height, initial_rot);
+        surface.set_ui_scale(initial_scale);
+        let mut orientation_manager = crate::core::orientation::OrientationManager::new_with_scale(
+            phys_width,
+            phys_height,
+            initial_rot,
+            initial_scale,
+        );
         let mut overlay_manager = crate::core::overlay_manager::OverlayManager::new(
             orientation_manager.geometry().width(),
             orientation_manager.geometry().height(),
@@ -543,7 +567,10 @@ impl ArcadeMatrixApp {
                         .set_instance_rotation_budget(rot_entry.handle, rot_entry.duration_sec);
                 }
                 surface.set_rotation(snapshot.display_rotation);
-                if orientation_manager.set_rotation(snapshot.display_rotation) {
+                surface.set_ui_scale(snapshot.resolved_ui_scale);
+                let rot_changed = orientation_manager.set_rotation(snapshot.display_rotation);
+                let scale_changed = orientation_manager.set_ui_scale(snapshot.resolved_ui_scale);
+                if rot_changed || scale_changed {
                     runtime.on_display_geometry_changed(
                         orientation_manager.geometry(),
                         &mut engine_runtime,
@@ -551,8 +578,9 @@ impl ArcadeMatrixApp {
                     overlay_manager.on_display_geometry_changed(orientation_manager.geometry());
                 }
                 tracing::info!(
-                    "Display orientation/rotation updated to {}° in real-time.",
-                    (snapshot.display_rotation as u32) * 90
+                    "Display orientation/rotation updated to {}° (ui_scale={}x) in real-time.",
+                    (snapshot.display_rotation as u32) * 90,
+                    snapshot.resolved_ui_scale
                 );
             }
 

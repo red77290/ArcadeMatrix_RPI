@@ -41,6 +41,8 @@ This block configures the DMA parameters for the hzeller `rpi-rgb-led-matrix` li
 | `force_single_buffer` | `bool` | Force single-buffer mode when true (default `false`). |
 | `color_depth` | `int` | Logical color depth in bits (`24` default). |
 | `mapping` | `String` | GPIO wiring/mapping (`regular`, `adafruit-hat`, `adafruit-hat-pwm`, ...). |
+| `pixel_mapper` | `String` | Optional hzeller pixel-mapper chain (`""` default, `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:180"`, ...). Folds long horizontal HUB75 chains into multi-row physical surfaces (e.g. `8` panels of `64×32` with `"U-mapper"` and `parallel: 3` → `256×192`). |
+| `ui_scale` | `String` | Integer Nearest-Neighbor UI upscaling for giant multi-panel LED walls (`"auto"` default, `"1"`, `"2"`, `"3"`, `"4"`). In `"auto"` mode, stays **strictly `1x`** across all standard & TATE panels (`64×32`, `32×64`, `64×64`, `128×32`, `32×128`, `128×64`, `64×128`, `256×64`, `64×256`) and only triggers `2x`/`3x`/`4x` when `min(width, height) >= 128` and `max(width, height) >= 192` (e.g. `256×192` → `2x` `128×96`, `512×384` → `4x` `128×96`). Native `1x` full-screen rendering is preserved for `gifs` and for `DMD Media Showcase` video/panorama streams while the Phase 1 Intro Card benefits from upscaling. |
 | `driver_chip` | `String` | Controller chip (`SHIFTREG`, `FM6126A`). |
 | `rgb_sequence` | `String` | Color order (`RGB`, `RBG`, `BGR`, ...). Fix swapped colors here. |
 | `clk_phase` | `bool` | Clock phase inversion (`false` default). |

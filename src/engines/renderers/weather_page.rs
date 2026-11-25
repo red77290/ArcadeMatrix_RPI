@@ -345,4 +345,7 @@ impl crate::core::matrix::IDrawingSurface for SlideCanvas<'_> {
     fn is_dirty(&self) -> bool {
         true
     }
+    fn unscaled(&mut self) -> &mut dyn crate::core::matrix::IDrawingSurface {
+        self
+    }
 }

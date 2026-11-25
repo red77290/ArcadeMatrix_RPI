@@ -252,6 +252,18 @@ paths:
                   type: string
                 slot_transition_duration_ms:
                   type: integer
+                pixel_mapper:
+                  type: string
+                  description: >-
+                    Optional hzeller pixel-mapper chain (e.g. "", "U-mapper", "V-mapper",
+                    "U-mapper;Rotate:180"). Changing it flags a hardware render-loop reload.
+                ui_scale:
+                  type: string
+                  enum: [auto, "1", "2", "3", "4"]
+                  default: auto
+                  description: >-
+                    Integer UI upscaling mode for giant multi-panel LED walls ("auto", "1", "2",
+                    "3", "4"). Applied live on the next rotation refresh without restarting.
       responses:
         '200':
           description: Settings applied or reload scheduled
@@ -1853,6 +1865,22 @@ components:
           type: boolean
         mapping:
           type: string
+        pixel_mapper:
+          type: string
+          default: ""
+          description: >-
+            Optional hzeller --led-pixel-mapper chain (e.g. "", "U-mapper", "V-mapper",
+            "U-mapper;Rotate:180") folding chained panels into multi-row surfaces.
+        ui_scale:
+          type: string
+          enum: [auto, "1", "2", "3", "4"]
+          default: auto
+          description: >-
+            Integer Nearest-Neighbor UI scale factor ("auto", "1", "2", "3", "4"). In "auto"
+            mode, stays strictly 1x for all standard & TATE panels (64x32..256x64, 32x64..64x256)
+            and only activates 2x/3x/4x when min(width, height) >= 128 and max(width, height) >= 192
+            (e.g. 256x192 -> 2x 128x96, 512x384 -> 4x 128x96), while preserving native 1x full-screen
+            playback for gifs and DMD Media Showcase video/panoramas.
         rotation:
           type: integer
           enum: [0, 90, 180, 270]

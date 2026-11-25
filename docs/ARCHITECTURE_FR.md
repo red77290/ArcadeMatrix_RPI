@@ -653,9 +653,14 @@ pub trait IDrawingSurface: Send + Sync {
     fn height(&self) -> u32;
     fn physical_width(&self) -> u32;
     fn physical_height(&self) -> u32;
+    fn native_width(&self) -> u32 { self.width() }
+    fn native_height(&self) -> u32 { self.height() }
+    fn ui_scale(&self) -> u32 { 1 }
+    fn set_ui_scale(&mut self, _scale: u32) {}
     fn set_rotation(&mut self, rotation: u8);
     fn rotation(&self) -> u8;
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, red: u8, green: u8, blue: u8);
     fn clear(&mut self);
     fn present(&mut self);
     fn set_brightness(&mut self, brightness: u8);
@@ -664,6 +669,7 @@ pub trait IDrawingSurface: Send + Sync {
     fn draw_image(&mut self, img: &RgbImage, offset_x: i32, offset_y: i32);
     fn blit565(&mut self, src: &[u16], x: i32, y: i32, w: u32, h: u32, stride_pixels: Option<usize>);
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
 }
 ```
 
@@ -686,6 +692,14 @@ Sous `canvas_single`, le tracker `DirtyBounds` surveille quelles lignes ont effe
 1. `is_dirty()` renvoie `false`.
 2. `present()` se termine en $O(1)$ sans appeler le C FFI ni écrire dans la mémoire physique du panneau LED.
 3. Le bus mémoire Broadcom et le CPU restent totalement libres pour le trafic Wi-Fi, MQTT et HTTP.
+
+### 13.3 Mapping Multi-Dalles (`pixel_mapper`) & Mise à l'Échelle Entière (`ScaledDrawingSurface`)
+
+- **Pixel Mapper Matériel (`matrix.pixel_mapper`)** : Transmis à hzeller `LedMatrixOptions::set_pixel_mapper_config` (ex. `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:180"`), permettant de replier de longues chaînes HUB75 en murs LED multi-rangées (comme `256×192` ou `512×384`). Hors matériel (`MockSurface`, inspection E2E et aperçus d'API), `MatrixConfig::effective_physical_dimensions()` reproduit exactement les mêmes dimensions physiques repliées.
+- **Wrapper Zéro-Allocation `ScaledDrawingSurface` (`matrix.ui_scale`)** : Enveloppe de façon transparente la surface matérielle ou simulée avec **zéro allocation dynamique** sur le chemin critique H-Core :
+  - En mode `"auto"` (défaut), `UiScale::resolve` reste **strictement à `1x`** sur toutes les résolutions standard et TATE (`64×32`, `32×64`, `64×64`, `128×32`, `32×128`, `128×64`, `64×128`, `256×64`, `64×256`) en passe-plat 1:1 intégral (`acquire_canvas()` et `DirtyBounds` inchangés).
+  - Uniquement lorsque `min(width, height) >= 128` et `max(width, height) >= 192`, le mode `"auto"` active un upscaling entier Nearest-Neighbor `2x`/`3x`/`4x` (`256×192` → `2x` `128×96`, `512×384` → `4x` `128×96`), transformant chaque pixel logique en bloc `N×N` net tout en propageant exactement les lignes `DirtyBounds` à la surface interne.
+  - Les flux médias plein écran (`gifs`, ainsi que la Phase 2 `LiveStream` vidéo/panoramas de `DMD Media Showcase` et `ShowcaseStream` de `FrontendSync`) contournent la mise à l'échelle via `surface.unscaled()` (`native_width()` × `native_height()`), tandis que les moteurs UI et la Carte d'Intro Phase 1 de Showcase profitent de la grille logique mise à l'échelle.
 
 ---
 

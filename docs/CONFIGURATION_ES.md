@@ -41,6 +41,8 @@ Este bloque configura los parámetros DMA para la biblioteca hzeller `rpi-rgb-le
 | `force_single_buffer` | `bool` | Fuerza el modo de buffer único cuando es `true` (por defecto `false`). |
 | `color_depth` | `int` | Profundidad de color lógica en bits (`24` por defecto). |
 | `mapping` | `String` | Cableado/mapeo GPIO (`regular`, `adafruit-hat`, `adafruit-hat-pwm`, ...). |
+| `pixel_mapper` | `String` | Cadena opcional de pixel-mapper hzeller (`""` por defecto, `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:180"`, ...). Pliega largas cadenas HUB75 horizontales en superficies físicas multifila (ej. `8` paneles `64×32` con `"U-mapper"` y `parallel: 3` → `256×192`). |
+| `ui_scale` | `String` | Escalado entero Nearest-Neighbor de la interfaz para grandes muros LED multipanel (`"auto"` por defecto, `"1"`, `"2"`, `"3"`, `"4"`). En modo `"auto"`, permanece **estrictamente en `1x`** en todas las resoluciones estándar y TATE (`64×32`, `32×64`, `64×64`, `128×32`, `32×128`, `128×64`, `64×128`, `256×64`, `64×256`) y solo activa `2x`/`3x`/`4x` cuando `min(width, height) >= 128` y `max(width, height) >= 192` (ej. `256×192` → `2x` `128×96`, `512×384` → `4x` `128×96`). El reproductor `gifs` y los flujos de vídeo/panoramas de `DMD Media Showcase` mantienen el renderizado nativo `1x` a pantalla completa mientras que la Tarjeta de Intro Fase 1 aprovecha el escalado. |
 | `driver_chip` | `String` | Chip controlador (`SHIFTREG`, `FM6126A`). |
 | `rgb_sequence` | `String` | Orden de colores (`RGB`, `RBG`, `BGR`, ...). Corrige aquí colores intercambiados. |
 | `clk_phase` | `bool` | Inversión de fase de reloj (`false` por defecto). |

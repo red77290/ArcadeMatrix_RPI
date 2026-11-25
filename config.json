@@ -22,12 +22,14 @@
     "pwm_lsb_nanoseconds": 130,
     "disable_hardware_pulsing": false,
     "mapping": "regular",
+    "pixel_mapper": "",
     "rotation": 0,
     "transition_effect": "vortex",
     "transition_duration_ms": 400,
     "slot_transition": "none",
     "slot_transition_duration_ms": 500,
-    "render_pipeline": "canvas_single"
+    "render_pipeline": "canvas_single",
+    "ui_scale": "auto"
   },
   "wifi": {
     "ssid": "",

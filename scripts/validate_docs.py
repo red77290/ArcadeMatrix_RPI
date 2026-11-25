@@ -29,7 +29,16 @@ HISTORICAL_KEYWORDS = re.compile(
 )
 
 EXPECTED_CONFIG_SCHEMA = {
-    "matrix": ["width", "height", "chain_length", "pwm_bits", "rotation", "transition_effect"],
+    "matrix": [
+        "width",
+        "height",
+        "chain_length",
+        "pwm_bits",
+        "pixel_mapper",
+        "rotation",
+        "transition_effect",
+        "ui_scale",
+    ],
     "system": ["timezone", "format_24h", "lang", "temp_unit", "night_mode_enabled", "idle_fighter_enabled"],
     "wifi": ["ssid", "password", "hostname"],
     "mqtt": ["enabled", "broker", "port"],

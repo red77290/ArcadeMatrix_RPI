@@ -621,9 +621,14 @@ pub trait IDrawingSurface: Send + Sync {
     fn height(&self) -> u32;
     fn physical_width(&self) -> u32;
     fn physical_height(&self) -> u32;
+    fn native_width(&self) -> u32 { self.width() }
+    fn native_height(&self) -> u32 { self.height() }
+    fn ui_scale(&self) -> u32 { 1 }
+    fn set_ui_scale(&mut self, _scale: u32) {}
     fn set_rotation(&mut self, rotation: u8);
     fn rotation(&self) -> u8;
     fn set_pixel(&mut self, x: i32, y: i32, red: u8, green: u8, blue: u8);
+    fn fill_rect(&mut self, x: i32, y: i32, w: u32, h: u32, red: u8, green: u8, blue: u8);
     fn clear(&mut self);
     fn present(&mut self);
     fn set_brightness(&mut self, brightness: u8);
@@ -634,6 +639,7 @@ pub trait IDrawingSurface: Send + Sync {
     fn acquire_canvas(&mut self) -> Option<CanvasView<'_>>;
     fn release_canvas(&mut self);
     fn has_canvas(&self) -> bool;
+    fn unscaled(&mut self) -> &mut dyn IDrawingSurface;
 }
 ```
 
@@ -663,6 +669,7 @@ fn render(&mut self, ctx: &mut EngineContext) {
 2. **Aprovecha el dirty tracking**: Con `RenderPipeline::CanvasSingle` (por defecto recomendado, ver [ARCHITECTURE_ES.md §13](ARCHITECTURE_ES.md#13-pipeline-de-renderizado-por-hardware-y-abstracción-idrawingsurface)), `IDrawingSurface` rastrea las áreas modificadas (`DirtyBounds`). Si la frame es idéntica (`has_new_frame() == false`), `present()` termina en $O(1)$ con **cero tráfico en el bus de memoria**, garantizando la protección del Wi-Fi SDIO Broadcom (`brcmfmac`).
 3. **Controla el borrado de pantalla completa**: Si tu motor repinta toda la pantalla en cada tick (p. ej. streaming de GIF o vídeo), sobrescribe `wants_clear(&self) -> bool { false }` para evitar una pasada innecesaria de borrado en negro.
 4. **Pasada de Overlay**: Tras finalizar `render()`, el bucle puede aplicar la pasada aditiva del **overlay Fighter** (ver [ARCHITECTURE_ES.md §12](ARCHITECTURE_ES.md#12-la-arquitectura-de-overlay-transversal-y-overlaymanager)). Si tu motor no admite overlays, devuelve `allows_overlay(&self) -> bool { false }`.
+5. **Escalado UI vs. Multimedia Nativo `1x` a Pantalla Completa**: Los motores UI estándar dibujan sobre `ctx.surface.width()` × `ctx.surface.height()`, beneficiándose automáticamente del escalado entero Nearest-Neighbor (`2x`/`3x`/`4x`) en grandes muros LED (`256×192`, `512×384`). Solo los flujos multimedia a pantalla completa (`gifs`, Fase 2 `LiveStream` de `DMD Media Showcase`) consultan `native_width()` / `native_height()` y dibujan mediante `ctx.surface.unscaled()`.
 
 ---
 

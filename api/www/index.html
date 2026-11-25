@@ -512,6 +512,30 @@
                 </div>
               </div>
             </div>
+            <div class="form-grid col-2" style="margin-top: 1rem;">
+              <div class="form-group">
+                <label><span data-i18n="hw_pixel_mapper">Pixel Mapper (Multi-Panel)</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_pixel_mapper">?</span></label>
+                <input type="text" id="hw-pixel-mapper" list="hw-pixel-mapper-presets" class="input" value="" placeholder="None (e.g. U-mapper)" data-i18n-placeholder="ph_hw_pixel_mapper">
+                <datalist id="hw-pixel-mapper-presets">
+                  <option value="U-mapper"></option>
+                  <option value="V-mapper"></option>
+                  <option value="V-mapper:Z"></option>
+                  <option value="U-mapper;Rotate:180"></option>
+                  <option value="Mirror:H"></option>
+                  <option value="Mirror:V"></option>
+                </datalist>
+              </div>
+              <div class="form-group">
+                <label><span data-i18n="hw_ui_scale">UI Integer Scale (Giant LED Walls)</span> <span class="tooltip-icon" data-i18n-tooltip="tt_hw_ui_scale">?</span></label>
+                <select id="hw-ui-scale" class="input">
+                  <option value="auto" data-i18n="hw_ui_scale_auto" selected>✨ Auto (1x up to 256x64, 2x–4x on Giant Walls)</option>
+                  <option value="1" data-i18n="hw_ui_scale_1x">1x — Native Pixel-Perfect (No Upscaling)</option>
+                  <option value="2" data-i18n="hw_ui_scale_2x">2x — Nearest-Neighbor (256x192 → 128x96)</option>
+                  <option value="3" data-i18n="hw_ui_scale_3x">3x — Nearest-Neighbor (384x288 → 128x96)</option>
+                  <option value="4" data-i18n="hw_ui_scale_4x">4x — Nearest-Neighbor (512x384 → 128x96)</option>
+                </select>
+              </div>
+            </div>
             <div class="form-grid col-1" style="margin-top: 1rem;">
               <div class="form-group">
                 <label><span data-i18n="hw_pipeline_label">Rendering & Buffering Pipeline</span> <span class="tooltip-icon tooltip-lg" data-tooltip="Choose buffering strategy. Canvas Single + Dirty Draw is recommended for Wi-Fi stability.">?</span></label>

@@ -18,19 +18,92 @@ pub enum InGameCycleMode {
     Alternating { marquee_interval_sec: u32 },
 }
 
-/// Preloaded in-game Showcase stream published from the FrontendSync worker to the render loop
+/// Pre-decoded 24-bit `RGB888` (`RgbImage`) frames for Offline In-Game Showcase `.gif` playback (0 H-Core alloc).
+#[derive(Clone)]
+pub struct PreloadedRgb888Gif {
+    pub frames: Arc<Vec<(image::RgbImage, std::time::Duration)>>,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Preloaded in-game Showcase sequence published from the FrontendSync worker to the render loop
 #[derive(Clone)]
 pub struct InGameShowcasePayload {
     pub session_token: u64,
-    pub stream: Arc<crate::core::dmd_stream::PreloadedDmdStream>,
+    pub stream: Option<Arc<crate::core::dmd_stream::PreloadedDmdStream>>,
+    pub offline_gif: Option<PreloadedRgb888Gif>,
     pub cycle_mode: InGameCycleMode,
+}
+
+impl InGameShowcasePayload {
+    #[inline]
+    pub fn from_stream(
+        session_token: u64,
+        stream: Arc<crate::core::dmd_stream::PreloadedDmdStream>,
+        cycle_mode: InGameCycleMode,
+    ) -> Self {
+        Self {
+            session_token,
+            stream: Some(stream),
+            offline_gif: None,
+            cycle_mode,
+        }
+    }
+
+    #[inline]
+    pub fn from_offline_gif(
+        session_token: u64,
+        frames: Arc<Vec<(image::RgbImage, std::time::Duration)>>,
+        width: u32,
+        height: u32,
+        cycle_mode: InGameCycleMode,
+    ) -> Self {
+        Self {
+            session_token,
+            stream: None,
+            offline_gif: Some(PreloadedRgb888Gif {
+                frames,
+                width,
+                height,
+            }),
+            cycle_mode,
+        }
+    }
+
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        let stream_ok = self.stream.as_ref().is_some_and(|s| !s.is_empty());
+        let gif_ok = self
+            .offline_gif
+            .as_ref()
+            .is_some_and(|g| !g.frames.is_empty());
+        !stream_ok && !gif_ok
+    }
+
+    #[inline]
+    pub fn dimensions(&self) -> (u32, u32) {
+        if let Some(ref s) = self.stream {
+            (s.width, s.height)
+        } else if let Some(ref g) = self.offline_gif {
+            (g.width, g.height)
+        } else {
+            (0, 0)
+        }
+    }
 }
 
 impl std::fmt::Debug for InGameShowcasePayload {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let frames = self
+            .stream
+            .as_ref()
+            .map(|s| s.frame_count as usize)
+            .or_else(|| self.offline_gif.as_ref().map(|g| g.frames.len()))
+            .unwrap_or(0);
         f.debug_struct("InGameShowcasePayload")
             .field("session_token", &self.session_token)
-            .field("frame_count", &self.stream.frame_count)
+            .field("frame_count", &frames)
+            .field("is_offline_gif", &self.offline_gif.is_some())
             .field("cycle_mode", &self.cycle_mode)
             .finish()
     }
@@ -503,10 +576,31 @@ pub struct DisplayGeometry {
 
 impl DisplayGeometry {
     pub fn new(physical_width: u32, physical_height: u32, rotation: u8, version: u64) -> Self {
-        let (logical_width, logical_height) = if rotation == 1 || rotation == 3 {
+        Self::new_scaled(physical_width, physical_height, rotation, 1, version)
+    }
+
+    pub fn new_scaled(
+        physical_width: u32,
+        physical_height: u32,
+        rotation: u8,
+        ui_scale: u32,
+        version: u64,
+    ) -> Self {
+        let (nat_w, nat_h) = if rotation == 1 || rotation == 3 {
             (physical_height, physical_width)
         } else {
             (physical_width, physical_height)
+        };
+        let scale = ui_scale.max(1);
+        let logical_width = if scale <= 1 {
+            nat_w
+        } else {
+            (nat_w / scale).max(1)
+        };
+        let logical_height = if scale <= 1 {
+            nat_h
+        } else {
+            (nat_h / scale).max(1)
         };
 
         let layout_class = Self::classify(logical_width, logical_height);
@@ -530,6 +624,26 @@ impl DisplayGeometry {
     #[inline]
     pub fn height(&self) -> u32 {
         self.logical_height
+    }
+
+    /// Native 1x rotated width (ignoring `ui_scale` division).
+    #[inline]
+    pub fn native_width(&self) -> u32 {
+        if self.rotation == 1 || self.rotation == 3 {
+            self.physical_height
+        } else {
+            self.physical_width
+        }
+    }
+
+    /// Native 1x rotated height (ignoring `ui_scale` division).
+    #[inline]
+    pub fn native_height(&self) -> u32 {
+        if self.rotation == 1 || self.rotation == 3 {
+            self.physical_width
+        } else {
+            self.physical_height
+        }
     }
 
     #[inline]

@@ -103,6 +103,138 @@ impl Default for RenderPipeline {
     }
 }
 
+/// Integer UI upscaling policy for multi-panel HUB75 LED walls (`matrix.ui_scale`).
+///
+/// In `Auto` mode (default), strictly preserves `1x` native rendering for all standard YOKO and
+/// TATE panels (`64x32`, `32x64`, `64x64`, `128x32`, `32x128`, `128x64`, `64x128`, `256x64`,
+/// `64x256`, `128x128`), and engages `2x`/`3x`/`4x` Nearest-Neighbor integer upscaling only when
+/// `min(width, height) >= 128 && max(width, height) >= 192` (e.g. `256x192` -> `2x` `128x96`,
+/// `384x288` -> `3x` `128x96`, `512x384` -> `4x` `128x96`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UiScale {
+    Auto,
+    Scale1x,
+    Scale2x,
+    Scale3x,
+    Scale4x,
+}
+
+impl Default for UiScale {
+    fn default() -> Self {
+        UiScale::Auto
+    }
+}
+
+impl UiScale {
+    #[inline]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            UiScale::Auto => "auto",
+            UiScale::Scale1x => "1",
+            UiScale::Scale2x => "2",
+            UiScale::Scale3x => "3",
+            UiScale::Scale4x => "4",
+        }
+    }
+
+    pub fn from_str_lossy(raw: &str) -> Self {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "auto" | "0" | "0x" => UiScale::Auto,
+            "1" | "1x" => UiScale::Scale1x,
+            "2" | "2x" => UiScale::Scale2x,
+            "3" | "3x" => UiScale::Scale3x,
+            "4" | "4x" => UiScale::Scale4x,
+            _ => UiScale::Auto,
+        }
+    }
+
+    #[inline]
+    pub const fn from_int_lossy(val: u64) -> Self {
+        match val {
+            1 => UiScale::Scale1x,
+            2 => UiScale::Scale2x,
+            3 => UiScale::Scale3x,
+            4 => UiScale::Scale4x,
+            _ => UiScale::Auto,
+        }
+    }
+
+    /// Resolves the active integer Nearest-Neighbor UI scale factor (`1..=4`) for `(width, height)`.
+    ///
+    /// Symmetric across YOKO and TATE orientations (`resolve(w, h) == resolve(h, w)`).
+    #[inline]
+    pub const fn resolve(self, width: u32, height: u32) -> u32 {
+        match self {
+            UiScale::Scale1x => 1,
+            UiScale::Scale2x => {
+                if width >= 2 && height >= 2 {
+                    2
+                } else {
+                    1
+                }
+            }
+            UiScale::Scale3x => {
+                if width >= 3 && height >= 3 {
+                    3
+                } else {
+                    1
+                }
+            }
+            UiScale::Scale4x => {
+                if width >= 4 && height >= 4 {
+                    4
+                } else {
+                    1
+                }
+            }
+            UiScale::Auto => {
+                let min_dim = if width < height { width } else { height };
+                let max_dim = if width > height { width } else { height };
+                if min_dim < 128 || max_dim < 192 {
+                    return 1;
+                }
+                let by_max = max_dim / 128;
+                let by_min = min_dim / 64;
+                let raw = if by_max < by_min { by_max } else { by_min };
+                if raw < 2 {
+                    2
+                } else if raw > 4 {
+                    4
+                } else {
+                    raw
+                }
+            }
+        }
+    }
+}
+
+impl Serialize for UiScale {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for UiScale {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let val = Value::deserialize(deserializer)?;
+        let parsed = match val {
+            Value::String(s) => Self::from_str_lossy(&s),
+            Value::Number(n) => n
+                .as_u64()
+                .map(Self::from_int_lossy)
+                .unwrap_or(UiScale::Auto),
+            _ => UiScale::Auto,
+        };
+        Ok(parsed)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MatrixConfig {
@@ -130,6 +262,9 @@ pub struct MatrixConfig {
     pub pwm_lsb_nanoseconds: u32,
     pub disable_hardware_pulsing: bool,
     pub mapping: String,
+    /// Optional hzeller `pixel_mapper_config` chain (e.g. `"U-mapper"`, `"V-mapper"`, `"U-mapper;Rotate:90"`).
+    #[serde(default)]
+    pub pixel_mapper: String,
     pub rotation: u32,
     pub transition_effect: String,
     pub transition_duration_ms: u32,
@@ -140,6 +275,9 @@ pub struct MatrixConfig {
     pub slot_transition_duration_ms: u32,
     #[serde(default)]
     pub render_pipeline: RenderPipeline,
+    /// Integer Nearest-Neighbor UI scale policy (`"auto"`, `"1"`, `"2"`, `"3"`, `"4"`).
+    #[serde(default)]
+    pub ui_scale: UiScale,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,13 +545,91 @@ impl Default for MatrixConfig {
             pwm_lsb_nanoseconds: 130,
             disable_hardware_pulsing: false,
             mapping: "regular".to_string(),
+            pixel_mapper: String::new(),
             rotation: 0,
             transition_effect: "vortex".to_string(),
             transition_duration_ms: 400,
             slot_transition: default_slot_transition(),
             slot_transition_duration_ms: default_slot_transition_ms(),
             render_pipeline: RenderPipeline::CanvasSingle,
+            ui_scale: UiScale::Auto,
         }
+    }
+}
+
+impl MatrixConfig {
+    /// Computes the visible physical canvas `(width, height)` after applying `chain_length`,
+    /// `parallel`, and any semicolon-separated `pixel_mapper` (`U-mapper`, `V-mapper`, `Rotate`),
+    /// matching `hzeller/rpi-rgb-led-matrix` `pixel-mapper.cc` 1:1.
+    pub fn effective_physical_dimensions(&self) -> (u32, u32) {
+        let chain = self.chain_length.max(1);
+        let par = self.parallel.clamp(1, 3);
+        let mut w = self.width.max(1).saturating_mul(chain);
+        let mut h = self.height.max(1).saturating_mul(par);
+
+        for raw_stage in self.pixel_mapper.split(';') {
+            let stage = raw_stage.trim();
+            if stage.is_empty() {
+                continue;
+            }
+            let (name, param) = match stage.split_once(':') {
+                Some((n, p)) => (n.trim(), p.trim()),
+                None => (stage, ""),
+            };
+            if name.eq_ignore_ascii_case("u-mapper") {
+                if chain >= 2 && chain % 2 == 0 {
+                    w = if w >= 64 {
+                        (w / 64).saturating_mul(32)
+                    } else {
+                        (w / 2).max(1)
+                    };
+                    h = h.saturating_mul(2);
+                }
+            } else if name.eq_ignore_ascii_case("v-mapper") {
+                let next_w = w.saturating_mul(par) / chain;
+                let next_h = h.saturating_mul(chain) / par;
+                if next_w > 0 && next_h > 0 {
+                    w = next_w;
+                    h = next_h;
+                }
+            } else if name.eq_ignore_ascii_case("rotate") {
+                if let Ok(angle) = param.parse::<i32>() {
+                    let norm = angle.rem_euclid(360);
+                    if norm == 90 || norm == 270 {
+                        std::mem::swap(&mut w, &mut h);
+                    }
+                }
+            }
+        }
+        (w.max(1), h.max(1))
+    }
+
+    /// Computes the native 1x logical `(width, height)` after applying `pixel_mapper` and `rotation`
+    /// (`0°/180°` vs `90°/270°` TATE), before any `ui_scale` integer division.
+    #[inline]
+    pub fn effective_native_dimensions(&self) -> (u32, u32) {
+        let (pw, ph) = self.effective_physical_dimensions();
+        if matches!(self.rotation, 90 | 1 | 270 | 3) {
+            (ph, pw)
+        } else {
+            (pw, ph)
+        }
+    }
+
+    /// Resolves the active integer `ui_scale` factor (`1..=4`) for this matrix configuration.
+    #[inline]
+    pub fn resolve_ui_scale(&self) -> u32 {
+        let (nw, nh) = self.effective_native_dimensions();
+        self.ui_scale.resolve(nw, nh)
+    }
+
+    /// Computes the UI logical `(width, height)` seen by scaled UI engines after `pixel_mapper`,
+    /// `rotation`, and `ui_scale` resolution.
+    #[inline]
+    pub fn effective_logical_dimensions(&self) -> (u32, u32) {
+        let (nw, nh) = self.effective_native_dimensions();
+        let s = self.ui_scale.resolve(nw, nh).max(1);
+        ((nw / s).max(1), (nh / s).max(1))
     }
 }
 

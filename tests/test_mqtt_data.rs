@@ -8,8 +8,9 @@ use arcadematrix::core::matrix::MockSurface;
 use arcadematrix::core::registry::EngineRegistry;
 use arcadematrix::engines::mqtt_data::payload::{parse_page, PageData, DEFAULT_PAGE_SECONDS};
 use arcadematrix::engines::mqtt_data::{
-    build_pages, data_client_id, draw_notice, notice_for, parse_topics, MqttDataEngine, Notice,
-    PageRef, NO_DATA_AFTER, STATE_CONNECTED, STATE_CONNECTING, STATE_FAILED,
+    build_pages, data_client_id, draw_notice, notice_for, parse_topics, parse_waiting_labels,
+    MqttDataEngine, Notice, PageRef, NO_DATA_AFTER, STATE_CONNECTED, STATE_CONNECTING,
+    STATE_FAILED,
 };
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -155,11 +156,11 @@ fn data_mqtt_is_credentials_only() {
 }
 
 #[test]
-fn engine_is_registered_with_topics_only() {
+fn engine_is_registered_with_topics_and_waiting_labels() {
     let d = EngineRegistry::get_descriptor("mqttdata").expect("descriptor");
     assert_eq!(d.metadata.name, "MQTT Data");
     let ids: Vec<&str> = d.schema.fields.iter().map(|f| f.id).collect();
-    assert_eq!(ids, vec!["topics"]);
+    assert_eq!(ids, vec!["topics", "waiting_labels"]);
     assert_eq!(EngineRegistry::engine_name_to_id("mqttdata"), 16);
     assert!(EngineRegistry::get_descriptor("homeassistant").is_none());
     assert!(EngineRegistry::get_descriptor("graph").is_none());
@@ -200,21 +201,21 @@ fn notices_are_centred_on_128x32() {
     let grey = (0x78, 0x78, 0x78);
     let red = (0xB4, 0x50, 0x50);
     let mut m = MockSurface::new(128, 32);
-    draw_notice(&mut m, Notice::Connecting, Lang::En);
+    draw_notice(&mut m, Notice::Connecting, Lang::En, None);
     let (x0, y0, x1, y1) = bbox(&m, grey).unwrap();
     // "CONNECTING" = 59 px at x=34, rows 12..18.
     assert_eq!((x0, x1, y0, y1), (34, 34 + 58, 12, 18));
-    draw_notice(&mut m, Notice::NoConnection, Lang::En);
+    draw_notice(&mut m, Notice::NoConnection, Lang::En, None);
     let (x0, _, x1, _) = bbox(&m, red).unwrap();
     assert_eq!((x0, x1), (25, 25 + 76));
-    draw_notice(&mut m, Notice::NoConnection, Lang::Fr);
+    draw_notice(&mut m, Notice::NoConnection, Lang::Fr, None);
     let (x0, _, x1, _) = bbox(&m, red).unwrap();
     assert_eq!((x0, x1), (16, 16 + 94));
     let amber = (0xC0, 0x80, 0x00);
-    draw_notice(&mut m, Notice::Unsupported, Lang::En);
+    draw_notice(&mut m, Notice::Unsupported, Lang::En, None);
     let (x0, y0, x1, _) = bbox(&m, amber).unwrap();
     assert_eq!((x0, y0, x1), (31, 12, 31 + 64)); // "UNSUPPORTED" = 65 px
-    draw_notice(&mut m, Notice::Unsupported, Lang::Fr);
+    draw_notice(&mut m, Notice::Unsupported, Lang::Fr, None);
     let (x0, _, x1, _) = bbox(&m, amber).unwrap();
     assert_eq!((x0, x1), (10, 10 + 106)); // "NON PRIS EN CHARGE" = 107 px
 }
@@ -479,7 +480,7 @@ fn render_notice_previews() {
     ] {
         for (w, h) in [(128u32, 32u32), (256, 64)] {
             let mut m = MockSurface::new(w, h);
-            draw_notice(&mut m, notice, Lang::En);
+            draw_notice(&mut m, notice, Lang::En, None);
             let big = image::imageops::resize(&m.canvas, w * 8, h * 8, image::imageops::Nearest);
             big.save(format!("{}/{}_{}x{}.png", dir, name, w, h))
                 .unwrap();
@@ -492,7 +493,7 @@ fn render_notice_previews() {
                 .unwrap();
         };
         let mut m = MockSurface::new(w, h);
-        draw_notice(&mut m, Notice::Unsupported, Lang::Fr);
+        draw_notice(&mut m, Notice::Unsupported, Lang::Fr, None);
         save(&m, "mqttdata_unsupported_fr");
         // The value page, with the payload the value blueprint publishes.
         use arcadematrix::engines::mqtt_data::table::render_table;
@@ -581,4 +582,23 @@ fn live_broker_pages() {
         assert!(!engine.has_session());
         let _ = std::fs::remove_dir_all(&tmp);
     }
+}
+
+#[test]
+fn waiting_labels_keep_blanks_aligned_to_topics() {
+    assert_eq!(
+        parse_waiting_labels("FETCHING WEATHER, ;SENSORS"),
+        vec!["FETCHING WEATHER", "", "SENSORS"]
+    );
+    assert!(parse_waiting_labels("").iter().all(|s| s.is_empty()));
+}
+
+#[test]
+fn connecting_notice_uses_the_override_label() {
+    let grey = (0x78, 0x78, 0x78);
+    let mut m = MockSurface::new(128, 32);
+    draw_notice(&mut m, Notice::Connecting, Lang::En, Some("WAIT"));
+    let (x0, _, x1, _) = bbox(&m, grey).unwrap();
+    // "WAIT" is narrower than "CONNECTING" (59 px), so it must sit inside it.
+    assert!(x0 > 34 && x1 < 34 + 58);
 }
